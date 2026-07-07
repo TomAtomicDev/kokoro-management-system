@@ -1,106 +1,124 @@
 # 10 — Implementation Backlog
 
 Tasks are grouped by phase (Doc 09) and ordered by execution priority within each phase.
-ID format `KOK-xxx`. Every task follows the Definition of Done (Doc 08 §5). Sizes:
-S ≤ half day · M ≤ 1.5 days · L ≤ 3 days (AI-assisted).
+ID format `KOK-xxx`. Every task follows the Definition of Done (Doc 08 §5) and the playbook in
+Doc 08 §3 when it adds/changes an event type.
+
+**Size:** S ≤ half day · M ≤ 1.5 days · L ≤ 3 days (AI-assisted).
+
+**🧠 Required intelligence (1–5)** — guides which AI model tier to assign the task to:
+
+| 🧠 | Meaning | Typical model tier |
+|----|---------|--------------------|
+| 1 | Mechanical: config, boilerplate, copy from a spec that leaves no decisions | small/fast model |
+| 2 | Routine: well-trodden patterns, spec is complete, low ambiguity | small/mid model |
+| 3 | Standard engineering: integrate several documented pieces, some local judgment | mid model |
+| 4 | Complex logic: money math, state machines, concurrency/atomicity, subtle edge cases | frontier model |
+| 5 | Design-heavy: reconciling multiple KB docs, API/prompt design, correctness is business-critical | frontier model + human review of the plan before coding |
+
+Rule of thumb: anything touching **money arithmetic, the kardex, derived-row regeneration, or
+prompts/evals** is 4–5 regardless of apparent size.
 
 ## Phase 0 — Foundations
 
-| ID | Task | Area | Size |
-|----|------|------|------|
-| KOK-001 | Monorepo scaffold: pnpm workspaces, Biome, strict tsconfig, `packages/shared` skeleton | infra | S |
-| KOK-002 | Worker skeleton: Hono app, env bindings (D1, R2, secrets), health route, structured logging middleware | backend | S |
-| KOK-003 | SPA shell: Vite + React + Tailwind v4 + shadcn/ui init, TanStack Router/Query, layout (sidebar/topbar), dark mode | ui | M |
-| KOK-004 | Serve SPA from Worker static assets; SPA fallback routing | infra | S |
-| KOK-005 | D1 databases (dev/staging/prod) + Drizzle setup + migration 0001: full schema, views, indexes, seeds (Doc 04) | backend | L |
-| KOK-006 | `shared`: money.ts, qty.ts (integer math + formatting es-BO), business-date util (America/La_Paz), UUIDv7, enums | backend | M |
-| KOK-007 | Auth: password login (SC-18), signed session cookie, middleware, rate limit, CSRF token | backend | M |
-| KOK-008 | Audit log helper + DomainError model + route error mapping | backend | S |
-| KOK-009 | CI/CD: GitHub Actions (check → build → migrate+deploy staging → approval → prod), wrangler config per env | infra | M |
-| KOK-010 | `CLAUDE.md` from Doc 08; PR template with KB-compliance checklist | infra | S |
+| ID | Task | Area | Size | 🧠 | Description |
+|----|------|------|------|----|-------------|
+| KOK-001 | Monorepo scaffold | infra | S | 2 | Create the pnpm-workspaces monorepo exactly as laid out in Doc 02 §3 (`apps/worker`, `apps/web`, `packages/shared`, `tools/mcp-server`), with Biome (lint+format), strict `tsconfig` (`strict`, `noUncheckedIndexedAccess`) and the workspace dependency rule from Doc 02 §3 documented in the root README. Goal: every later task lands in a predictable structure. No business code here. |
+| KOK-002 | Worker skeleton (Hono) | backend | S | 2 | Bootstrap `apps/worker` with Hono 4 on Cloudflare Workers: `index.ts` app assembly, typed env bindings (D1, R2, secrets per Doc 02 §5), `/api/health` route, JSON structured-logging middleware (`{command, source_channel, duration_ms, ok}` per Doc 02 §7). Reference: Hono + Workers docs via context7. Keep `wrangler.toml` with dev/staging/prod environments from the start. |
+| KOK-003 | SPA shell & app layout | ui | M | 3 | Bootstrap `apps/web`: Vite + React 18, Tailwind v4, shadcn/ui init, lucide-react, TanStack Router + Query. Implement the persistent layout of Doc 06 §2 (sidebar with the exact nav tree, topbar with search/quick-add/bell/session-chip placeholders, content grid, dark mode via tokens of Doc 06 §3, mobile bottom-tab variant). Goal: every screen task (SC-xx) only fills content into this shell. |
+| KOK-004 | Serve SPA from the Worker | infra | S | 2 | Wire the built SPA into Worker static assets with SPA-fallback routing so `/api/*` and `/telegram/*` hit Hono and everything else serves `index.html` (Doc 02 §1). Verify deep links (e.g. `/sales?open=<id>`, used by Telegram magic links in Doc 07) load correctly. |
+| KOK-005 | Database migration 0001 (full schema) | backend | L | 4 | Create D1 databases (dev/staging/prod), Drizzle + drizzle-kit setup, and migration `0001` implementing **all** of Doc 04: tables, CHECK constraints, partial/unique indexes, views §4, seeds §7 (accounts, app_settings incl. AI model keys, fixture catalog for dev/staging only). The schema is written once and complete to avoid churn (Doc 09 P0). 🧠4 because SQLite quirks (circular FKs sales↔custom_orders, partial indexes, window-function view `v_kardex`) demand care; Drizzle definitions must mirror the DDL 1:1 (Doc 04 header rule). |
+| KOK-006 | Shared numeric & date utilities | backend | M | 4 | In `packages/shared`: `money.ts` (integer centavos, es-BO formatting `Bs 1.234,50`, half-up rounding, largest-remainder allocation helper), `qty.ts` (milli-units, unit-aware formatting), business-date util for America/La_Paz (INV-3), UUIDv7 generator, all enums from Doc 04. These are the foundation of INV-6 — include exhaustive unit tests + fast-check property tests (Doc 11 §1–2) in this task, not later. |
+| KOK-007 | Owner auth | backend | M | 4 | Password login (SC-18) per ADR-007: argon2id via WASM (PBKDF2-HMAC-SHA256/600k fallback if bundle size is a problem — measure and decide, record in PR), HMAC-signed HttpOnly SameSite=Lax session cookie (30-day sliding, Web Crypto), auth middleware on all `/api/*`, rate limit 5 tries/15 min, CSRF double-submit token on mutations (Doc 02 §6). Security-critical: follow the test list in Doc 11 §7. |
+| KOK-008 | Error model & audit plumbing | backend | S | 3 | `DomainError` (`code`, `message_es`, `details`) with route mapping 400/404/409/500 (Doc 08 §2), plus the `audit_log` write helper (actor, action, before/after JSON — Doc 04 §3.5) that every core service will call. Establishes the pattern all Phase 1+ services copy. |
+| KOK-009 | CI/CD pipeline | infra | M | 3 | GitHub Actions per Doc 02 §9: `pnpm check` (biome+tsc+tests) → build SPA → `wrangler d1 migrations apply` → deploy staging → Playwright smoke → manual approval → prod. Migrations run **before** the Worker switch (expand→migrate→contract policy). Rollback via `wrangler rollback` documented in the workflow README. |
+| KOK-010 | `CLAUDE.md` + PR template | infra | S | 2 | Condense Doc 08 into a repo-root `CLAUDE.md` (golden rules D-1…D-10, playbook §3, guardrails §4) and a PR template with the KB-compliance checklist (docs updated? invariants tested? Spanish strings reviewed?). Goal: every AI coding session starts with the right context automatically. |
 
 ## Phase 1 — Money & Stock Ledger
 
-| ID | Task | Area | Size |
-|----|------|------|------|
-| KOK-011 | Catalog service + API + UI (SC-15): items CRUD, aliases, active toggle, merge utility | full | L |
-| KOK-012 | Kardex engine (`core/inventory`): movement writer, item_stock maintenance, negative-stock flag (INV-8) | backend | M |
-| KOK-013 | WAC engine (`core/costing`): C-1/C-2 entry updates, unit-cost snapshots; property-based tests | backend | M |
-| KOK-014 | Finance service: transactions, transfers (paired rows), withdrawals, balance maintenance | backend | M |
-| KOK-015 | Finance UI (SC-10): account cards, tx table, gasto/ingreso/transfer/retiro forms | ui | L |
-| KOK-016 | Purchases: service (stock + WAC + replacement cost + expense tx in one batch), API, form with LineEditor + photo→R2 (SC-07) | full | L |
-| KOK-017 | Inventory UI (SC-08): stock tab + KardexView drawer | ui | M |
-| KOK-018 | Stock exits: service + UI (reason, valuation C-6) | full | M |
-| KOK-019 | Inventory counts: service (DRAFT→COMMITTED, ADJUST movements) + checklist UI | full | L |
-| KOK-020 | Onboarding wizard steps 1–5 (SC — onboarding) | ui | L |
-| KOK-021 | Jobs runtime + `daily-snapshot` + INV-5 consistency sentinel + `job_runs` | backend | M |
-| KOK-022 | R2 backup job + retention + settings surface (SC-16 backup card) | backend | M |
-| KOK-023 | Dashboard v1 (SC-01: cash, stock value, low stock strip) | ui | M |
-| KOK-024 | Event edit/delete framework: regenerate-derived pattern (R-1), UndoToast, audit trail in drawer | full | L |
+| ID | Task | Area | Size | 🧠 | Description |
+|----|------|------|------|----|-------------|
+| KOK-011 | Catalog module (items & aliases) | full | L | 3 | Items CRUD + aliases + active toggle + merge-duplicates utility (re-points FKs one-way), per SC-15 and Doc 04 §3.1. Service in `core/catalog`, thin Hono routes, `EventTable`+`DetailDrawer` UI, `ItemPicker` component (Doc 06 §4) with inline create — it is reused by every later form, so build it well here. Zod DTOs in `packages/shared` (D-4). |
+| KOK-012 | Kardex engine | backend | M | 4 | `core/inventory`: the single movement-writer used by every event service — appends `stock_movements`, updates `item_stock` in the same batch, sets/clears `negative_since` (INV-8), stamps `source_event_type/id` (INV-9). No UI. This is the heart of stock trazability: read Doc 03 §1–2 and Doc 04 §3.4 before coding; integration tests must cover sign conventions and idempotent regeneration. |
+| KOK-013 | WAC costing engine | backend | M | 5 | `core/costing`: C-1 weighted-average updates on entries (with `max(on_hand,0)` guard), C-2 purchase unit cost, unit-cost snapshotting for exits/sales, and the full-kardex WAC recompute used by the nightly repair (R-2). Pure functions where possible; fast-check property tests are mandatory (Doc 11 §2: WAC bounded by entry costs, no lost centavos). Business-critical correctness → 🧠5. |
+| KOK-014 | Finance core service | backend | M | 4 | `core/finance`: standalone transactions (UC-11), transfers as paired `TRANSFER_OUT`/`TRANSFER_IN` rows with `counterpart_tx_id` (UC-12), owner withdrawals (UC-13), account balance maintenance (INV-5), and the rule that system-owned rows (with `source_event_id`) are not directly editable (Doc 04 §5). Categories per Doc 04 enum; direction always from `type`, `amount` always positive. |
+| KOK-015 | Finance screens | ui | L | 3 | SC-10: account cards (Banco / Caja chica) with balances, transfer + withdrawal actions, transactions table with signed coloring per Doc 06 §3 money rule (red reserved for problems, not expenses), liability/receivable strips (placeholders until Phase 3 wires them), forms for gasto/otro ingreso/transferencia/retiro reusing shared schemas. |
+| KOK-016 | Purchases end-to-end | full | L | 4 | UC-01 per playbook Doc 08 §3: service composing kardex `PURCHASE_IN` + WAC update + `replacement_cost` update (C-3 raw materials) + `SUPPLY_PURCHASE` expense tx, all one batch (INV-1). UI SC-07 with `LineEditor`, unit-cost preview highlighting Δ vs previous replacement cost (the inflation signal), receipt photo upload to R2 (signed URLs), optional session link. First full event vertical — it sets the template for sales/production. |
+| KOK-017 | Inventory screens (stock + kardex) | ui | M | 3 | SC-08 Stock tab over `v_stock` (low-stock and negative-stock rows pinned) and the `KardexView` drawer over `v_kardex` with running balance and source-event links. Include `CalcTrace` affordance stub on stock value (full component arrives in KOK-029). |
+| KOK-018 | Non-commercial exits | full | M | 3 | UC-09: `stock_exits` service (valued at current WAC per C-6, **no** financial transaction — the "invisible cost" concept, Doc 03 §3) + SC-08 Salidas tab with reason picker and monthly cost-by-reason summary from `v_waste`. |
+| KOK-019 | Inventory counts | full | L | 4 | UC-10: count service with DRAFT→COMMITTED flow that snapshots `expected_qty` at count time and commits signed `ADJUST` movements for variances; checklist UI filterable by category with variance summary before commit (SC-08 Conteos). Edge cases: items counted while other events land mid-count (snapshot semantics), zero-variance lines produce no movement. |
+| KOK-020 | Onboarding wizard | ui | L | 3 | First-run wizard steps 1–5 of Doc 07: password, opening balances, starter catalog (offer the fixture template, editable), recipes (can defer to Phase 2 — leave the step as a pointer), initial count via the KOK-019 flow. Skippable steps; dashboard `EmptyState`s deep-link back. Goal: the owner reaches a trustworthy opening state without help. |
+| KOK-021 | Jobs runtime + consistency sentinel | backend | M | 4 | Cron dispatcher in the Worker `scheduled()` handler, `job_runs` logging, `daily-snapshot` job (Doc 04 `daily_snapshots`), and the INV-5 sentinel: recompute Σ movements vs `item_stock` and tx sums vs balances, repair WAC drift >1% with `costing_repair` audit entries (R-2), alert on mismatch. Cron table in Doc 02 §4.4. |
+| KOK-022 | Backups to R2 | backend | M | 3 | Nightly SQL-text export of D1 to R2 with 30-day retention (setting-driven), plus SC-16 backup card (last backup time, download link). Failure → Telegram alert (once KOK-046 exists; log-only until then). Restore procedure documented in a runbook stub (completed in KOK-056). |
+| KOK-023 | Dashboard v1 | ui | M | 2 | SC-01 reduced: cash total (bank+cash split), stock value, low-stock strip, quick-add shortcuts. Every number links to its source screen (Doc 06 principle 5). Uses `StatCard`; charts arrive in Phase 5. |
+| KOK-024 | Event edit/delete framework | full | L | 5 | The regenerate-derived pattern (R-1, INV-9/10, ADR-009): generic service helper that, inside one batch, deletes an event's derived rows by `source_event`, re-derives from the edited event, rebalances `item_stock`/account balances, soft-deletes on delete, writes before/after audit. UI: edit mode in `DetailDrawer`, `UndoToast` (10 s), audit-trail footer. 🧠5: this pattern is reused by every event type and subtle bugs here corrupt ledgers — write the invariant test suite (`test/invariants/`) in this task. |
 
 ## Phase 2 — Production & Costing
 
-| ID | Task | Area | Size |
-|----|------|------|------|
-| KOK-025 | Recipes service + UI (SC-06) incl. theoretical cost panel (C-3 preview) | full | L |
-| KOK-026 | Production runs: service (C-4 costing, consumption editing, output WAC update) + form + list (SC-05) | full | L |
-| KOK-027 | Sessions: service + UI (SC-09), open-session chip, one-open-per-type warning | full | L |
-| KOK-028 | Shared-cost allocation on session close (S-3) + estimate-cost handling (S-2) | backend | M |
-| KOK-029 | `replacement-cost-refresh` job (C-3 for semi/finished) + `CalcTrace` component | full | M |
+| ID | Task | Area | Size | 🧠 | Description |
+|----|------|------|------|----|-------------|
+| KOK-025 | Recipes module | full | L | 3 | SC-06 + Doc 04 §3.1: recipes CRUD with `LineEditor` for ingredients (RAW_MATERIAL/SEMI_FINISHED + high-value packaging), expected yield, est. labor minutes, one `is_default` per output item (partial unique index already in schema). Theoretical-cost panel: cost at WAC and at replacement cost per output unit (C-3) with margin preview vs sale price. |
+| KOK-026 | Production runs end-to-end | full | L | 5 | UC-02, the most intricate event vertical: consumption lines prefilled from recipe × batches but **editable** before commit (recipe is a template, Doc 03 §3), C-4 costing (direct at WAC snapshots + indirect + allocated session cost), `PRODUCTION_OUT` for inputs + `PRODUCTION_IN` for output at computed unit cost, output WAC update, actual yield absorbing merma. UI SC-05 with live unit-cost preview via `CalcTrace`. Golden-number tests against the hand-calculated spreadsheet fixture (Doc 11 §6 P2 gate). |
+| KOK-027 | Sessions module | full | L | 3 | UC-14 / SC-09: session CRUD (type, start/end or duration, notes), `session_costs` editor with `is_estimate` handling (estimates never touch cash — S-2), event linking, open-session chip in the topbar, one-OPEN-per-type soft warning (Doc 04 §5). Bs/h display arrives with KOK-051. |
+| KOK-028 | Shared-cost allocation | backend | M | 4 | On PRODUCTION session close: allocate session shared costs across its runs proportionally to direct cost (S-3) using the largest-remainder helper (Σ allocations = total exactly, Doc 11 §2), update each run's `allocated_session_cost` and total/unit cost, and cascade the output-item WAC correction through the regenerate framework (KOK-024). Non-production session costs stay period expenses (ADR-010c). |
+| KOK-029 | Replacement-cost refresh + CalcTrace | full | M | 3 | Nightly `replacement-cost-refresh` job computing C-3 for SEMI_FINISHED/FINISHED from default recipes (cached with timestamp, Doc 02 §4.4), on-demand recompute endpoint, and the full `CalcTrace` popover component (formula + inputs for any derived number — Doc 06 principle 3), wired into stock value, unit costs, and margins. |
 
 ## Phase 3 — Sales & Orders
 
-| ID | Task | Area | Size |
-|----|------|------|------|
-| KOK-030 | Sales: service (stock out, margin snapshot, income tx / receivable), API, form + list (SC-02/03) | full | L |
-| KOK-031 | Receivables: collect-payment flow (UC-04), aging view, filter preset | full | M |
-| KOK-032 | Customers: minimal CRUD + pickers | full | S |
-| KOK-033 | Custom orders: state machine service (O-1…O-5), deposit liability accounting (INV-7) | backend | L |
-| KOK-034 | Orders board UI (SC-04) with lifecycle actions + order profitability panel | ui | L |
-| KOK-035 | price_history + price update flow + margen/price suggestion logic (C-5) | backend | M |
-| KOK-036 | Price-health screen (SC-12) + MarginBadge everywhere sales prices render | ui | M |
-| KOK-037 | Liability + receivables strips on Finance/Dashboard; v_liability view wiring | full | S |
+| ID | Task | Area | Size | 🧠 | Description |
+|----|------|------|------|----|-------------|
+| KOK-030 | Sales end-to-end | full | L | 4 | UC-03: service with `SALE_OUT` movements, per-line `unit_cost_snapshot` (margin frozen at sale time, Doc 04 §3.3), income tx when PAID (method+account) or receivable when ON_CREDIT, FINISHED-only line validation, negative-stock warning not error (INV-8). UI SC-02/03 with prices prefilled from catalog but editable, below-replacement-cost red warning (C-5). |
+| KOK-031 | Receivables & collection | full | M | 3 | UC-04: `collectPayment` service (sets `paid_at`, creates `DEBT_COLLECTION` income into chosen account), "Por cobrar" filter preset with aging from `v_receivables`, inline mark-paid action in the sales table, aged-receivable input to the alerts job. |
+| KOK-032 | Customers | full | S | 2 | Minimal customers table CRUD (name, phone, notes — Doc 04) + `CustomerPicker` with inline create. Needed by orders; optional on sales. No CRM ambitions (Doc 01 non-goals). |
+| KOK-033 | Custom-order state machine | backend | L | 5 | UC-05…08 / Doc 03 §5: full lifecycle service with guarded transitions (O-1: CONFIRMED requires deposit → `ORDER_DEPOSIT` income + liability effect INV-7; O-2: deliver auto-creates the linked CUSTOM_ORDER sale, releases the deposit against it, records balance as `ORDER_BALANCE` or receivable; O-3: cancel with REFUND expense or FORFEIT→`OTHER_INCOME`). Derived liability via `v_liability` (ADR-012). Every legal/illegal transition unit-tested. 🧠5: money + state machine + three docs to reconcile. |
+| KOK-034 | Orders board UI | ui | L | 3 | SC-04: `OrderBoard` by status sorted by delivery date, cards with deposit/balance badges, drawer with lifecycle action buttons calling KOK-033, linked production runs, and the order-profitability panel (agreed total − order-linked run costs). |
+| KOK-035 | Price history & suggestions | backend | M | 3 | `price_history` writes on every price change, C-5 margin computations, and `price_suggested = replacement_cost / (1 − min_margin_pct)` service. Powers SC-12 and the `MarginBadge` thresholds (settings-driven, basis points). |
+| KOK-036 | Price-health screen | ui | M | 3 | SC-12, the anti-decapitalization screen (G2): table with price, WAC, replacement cost, both margins, `MarginBadge`, suggestion, last-change date; "Actualizar precio" action; margin-erosion chart (price vs replacement cost over time). Deploy `MarginBadge` everywhere prices render (SC-02/03/06). Read the dataviz skill before building the chart. |
+| KOK-037 | Liability & receivable surfacing | full | S | 2 | Wire `v_liability` + receivables strips into Finance (SC-10) and Dashboard: "de tu caja, Bs X no es tuyo todavía" presentation (ADR-012). Include both in `daily-snapshot` (columns already exist). |
 
 ## Phase 4 — Telegram + AI Capture
 
-| ID | Task | Area | Size |
-|----|------|------|------|
-| KOK-038 | Telegram webhook: grammY on Hono, secret validation, update dedupe (INV-2), `/start` chat-id linking | backend | M |
-| KOK-039 | Assistant runtime: OpenAI client adapter (`llm.ts`), tool-calling loop, streaming, model config from app_settings, interaction logging (A-3) | ai | L |
-| KOK-040 | Tool registry framework + all read tools (Doc 05 §2) | ai | L |
-| KOK-041 | Draft tools for all commands (shared schemas, D-4) | ai | M |
-| KOK-042 | CAPTURE pipeline: prompts (system.capture.md), entity resolution, clarification policy (A-4), sanity bounds (A-5) | ai | L |
-| KOK-043 | Confirmation cards + field-edit flow + receipts (Doc 06 §5); pending_drafts store | full | L |
-| KOK-044 | Voice/photo input: audio-mode switch in `llm.ts` (transcribe vs native-audio per configured model, Doc 05 §1.1); photos → text-model vision; verify default model ids vs OpenAI lineup; no media persistence (A-6) | ai | M |
-| KOK-045 | Command mini-forms (`/venta`, `/compra`, …) + `/resumen`, `/stock`, `/caja` quick queries | ai | M |
-| KOK-046 | Morning digest + push alerts job (low stock, price health, deliveries, receivables) with deep links | backend | M |
-| KOK-047 | Eval suite v1: 60 capture + 20 query fixtures, CI harness, weekly live run (D-7) | ai | L |
-| KOK-048 | Web QuickAdd bar reusing CAPTURE + ConfirmDraftCard | ui | M |
+| ID | Task | Area | Size | 🧠 | Description |
+|----|------|------|------|----|-------------|
+| KOK-038 | Telegram webhook foundation | backend | M | 3 | grammY mounted on Hono: `X-Telegram-Bot-Api-Secret-Token` validation, `update_id` dedupe via `telegram_updates` (INV-2), `OWNER_TELEGRAM_CHAT_ID` allowlist with polite refusal + log for strangers, `/start` linking flow from the onboarding wizard (Doc 07). Separate bot token per environment (Doc 02 §5). Reference grammY docs via context7. |
+| KOK-039 | Assistant runtime (OpenAI adapter) | ai | L | 4 | `assistant/llm.ts`: single OpenAI client adapter (chat + tool calling + streaming + audio/vision input), model ids read from `app_settings` per Doc 05 §1.1 (verify current OpenAI model ids at build time — get-api-docs skill), tool-calling loop with max-round guard, `assistant_interactions` logging of every call (A-3: tool calls, tokens, latency, outcome). Provider isolation is the point: nothing outside this file may import the OpenAI SDK. |
+| KOK-040 | Read tool registry | ai | L | 3 | Registry framework `{name, description, zodInput, handler, access}` + all 14 read tools of Doc 05 §2 as thin wrappers over `core/` queries and views. Descriptions written for model consumption (concise, disambiguating). Export shape consumable by both the OpenAI loop and the MCP dev server. |
+| KOK-041 | Draft tools | ai | M | 3 | All `draft_*` tools (Doc 05 §2) importing the **same** shared Zod command schemas (D-4) emitted as strict structured outputs; they return proposed payloads only — commits happen exclusively via the confirmation flow (A-1/INV-4). Mostly mechanical once KOK-040 exists; care goes into field descriptions the model sees. |
+| KOK-042 | CAPTURE pipeline & prompts | ai | L | 5 | `system.capture.md` per Doc 05 §5 (role, glossary mapping, Bolivian unit conventions, rules A-1…A-6, the 8 few-shot pairs), entity resolution (alias exact-match → `search_catalog` → 3-candidate clarification), one-clarification policy (A-4), sanity bounds (A-5), business-context injection (§3: date, accounts, open session, compact catalog, last 3 same-type events). 🧠5: prompt design against G7 ≥95% acceptance; iterate against the eval fixtures from day one. |
+| KOK-043 | Confirmation cards & pending drafts | full | L | 4 | Telegram confirmation card per Doc 06 §5 exact format (✅/✏️/❌ inline keyboard), field-by-field ✏️ edit flow, post-commit receipts showing the useful post-state, `pending_drafts` one-active-per-chat with 30-min TTL (Doc 05 §6, Doc 04 §3.5), "ábrelo en la web" magic links to the exact drawer. On ✅ the draft goes verbatim to the same core service the web uses. |
+| KOK-044 | Voice & photo input | ai | M | 4 | Audio-mode switch in `llm.ts` (transcribe mode — current default `gpt-realtime-whisper` — vs native-audio mode per configured model, Doc 05 §1.1), `ai_model_transcribe` fallback, photos → text-model vision input, and strict A-6: media processed in memory only, never persisted; transcript logged as `user_input`. Verify default model ids against OpenAI's current lineup and correct the settings seed if needed. |
+| KOK-045 | Command mini-forms & quick queries | ai | M | 2 | Discoverable accelerators per Doc 06 §5: `/venta`, `/compra`, `/produccion`, `/pedido`, `/gasto`, `/sesion` guided button flows (each ends in the same confirmation card), plus instant `/stock`, `/caja`, `/resumen`, `/ayuda` responses built on read tools. |
+| KOK-046 | Alerts & morning digest | backend | M | 3 | `alerts` cron job (Doc 02 §4.4): low stock, price-health breaches, deliveries due today, receivables aging >7 days, negative stock — one grouped 07:00 message with deep links (Doc 07 cross-flows), silent-hours respected, toggles in settings. Also the job-failure alert channel used by KOK-021/022. |
+| KOK-047 | AI eval suite v1 | ai | L | 5 | Doc 05 §8 / Doc 11 §5: ≥60 capture goldens (es-BO utterances incl. transcript-style noise → exact expected drafts; ambiguity cases must clarify, not guess) + ≥20 query goldens (expected tool calls + numeric grounding against fixture data). CI harness on recorded responses; weekly live-model drift run. 🧠5: fixture design defines what "correct" means for the whole AI surface (D-7 gate for every future prompt change). |
+| KOK-048 | Web QuickAdd bar | ui | M | 3 | SC/Doc 06: topbar quick-add accepting natural language, reusing the CAPTURE pipeline and rendering `ConfirmDraftCard` (web twin of the Telegram card) that opens the prefilled event form on "Corregir". Proves channel-parity of the pipeline. |
 
 ## Phase 5 — Insights & Analytical AI
 
-| ID | Task | Area | Size |
-|----|------|------|------|
-| KOK-049 | QUERY pipeline + web ChatPanel with streaming + chart blocks (SC-14) | ai | L |
-| KOK-050 | Reports suite (SC-11, SC-13): cashflow, ventas, producción, mermas, retiros + CSV export | full | L |
-| KOK-051 | Time profitability (S-4): session Bs/h, monthly owner Bs/h, report + dashboard card (G3) | full | M |
-| KOK-052 | Dashboard v2 (full SC-01) + alert deep links | ui | M |
-| KOK-053 | AI Ops panel (SC-17): acceptance rate, corrected fields, cost | ui | M |
-| KOK-054 | Weekly Telegram digest job | backend | S |
+| ID | Task | Area | Size | 🧠 | Description |
+|----|------|------|------|----|-------------|
+| KOK-049 | QUERY pipeline & web chat | ai | L | 4 | `system.query.md` (grounding rules, es-BO tone, anti-hallucination clause — Doc 05 §4–5), max 6 tool rounds, streaming into `ChatPanel` (SC-14) with tool-activity indicator, `chart` block Zod contract rendered by the SPA, Telegram compact-answer variant (≤12 lines). Answers only from tool results; "no tengo registros" on missing data (eval-enforced). |
+| KOK-050 | Reports suite | full | L | 3 | SC-11 + SC-13: cashflow matrix by category/period, ventas (product/channel/time), producción (yields, unit-cost trend), mermas (v_waste), retiros vs profit — each chart + table + CSV export. Server-side aggregate endpoints over the views (no client-side aggregation of raw rows). Read the dataviz skill before the charts; one shared chart theme (Doc 06 §3). |
+| KOK-051 | Time-profitability metrics | full | M | 4 | S-4 exactly: session Bs/h by type (production = potential contribution of goods produced; delivery = margin of delivered sales; purchase/admin = cost centers) and the headline monthly `operating profit / total logged hours` (G3). Report + dashboard StatCard + `get_time_profitability` tool wiring. Golden-spreadsheet test (Doc 11 §6 P5). Definitions are subtle — read Doc 03 §6 fully first. |
+| KOK-052 | Dashboard v2 | ui | M | 3 | Complete SC-01: all StatCards with deltas and sparklines, margin-at-risk top-5, upcoming orders, 30-day sales chart, alerts strip with deep links. Data from `daily_snapshots` + live aggregates; every figure links to its source (principle 5). |
+| KOK-053 | AI Ops panel | ui | M | 2 | SC-17 read-only: acceptance rate vs G7, most-corrected fields ranking, clarification rate, latency, token cost charts from `assistant_interactions`; current prompt versions. This is the feedback loop for KOK-059. |
+| KOK-054 | Weekly digest | backend | S | 2 | Monday 07:15 Telegram summary (sales, profit, hours, Bs/h, notable alerts) reusing report queries + the token-spend alert at US$15/mo (Doc 05 §9). |
 
 ## Phase 6 — Hardening
 
-| ID | Task | Area | Size |
-|----|------|------|------|
-| KOK-055 | Playwright E2E suite: onboarding, each UC happy path, edit/delete/undo, order lifecycle | qa | L |
-| KOK-056 | Backup-restore drill + runbook doc; export-all (CSV zip) for owner data sovereignty | infra | M |
-| KOK-057 | Perf/index verification with 1-year synthetic data; SPA bundle budget check | infra | M |
-| KOK-058 | Accessibility pass (Doc 06 §6) + mobile-web bottom-tab polish | ui | M |
-| KOK-059 | Prompt tuning round from ≥1 month of assistant_interactions; eval fixture expansion | ai | M |
-| KOK-060 | Security review: authz on every route, R2 signed URL scope, rate limits, secret rotation runbook | infra | M |
+| ID | Task | Area | Size | 🧠 | Description |
+|----|------|------|------|----|-------------|
+| KOK-055 | Playwright E2E suite | qa | L | 3 | Doc 11 §4 journeys against staging: onboarding→purchase→production→sale→dashboard reconciliation, full order lifecycle with deposit, mark-paid, count with variance, edit+undo, price update, login rate limit. Telegram flows stay at integration level (faked Update payloads) — do not attempt live-bot E2E. |
+| KOK-056 | Backup-restore drill & data export | infra | M | 3 | Execute and document restore-from-R2 to a scratch DB (runbook), automate the weekly restore-verification job (row-count comparison, Doc 11 §7), and build export-all (CSV zip per table) for owner data sovereignty (SC-16). |
+| KOK-057 | Performance & bundle budget | infra | M | 3 | Generate 1-year synthetic dataset (~15k movements), verify every list API <300 ms p95 and index usage (`EXPLAIN QUERY PLAN`), enforce SPA initial bundle <350 kB gzip as a CI budget (Doc 11 §7). Fix regressions found; record baseline numbers in the repo. |
+| KOK-058 | Accessibility & mobile-web polish | ui | M | 2 | Doc 06 §6 checklist: AA contrast, keyboard reachability, focus states, 44px targets, chart data-table toggles, skeleton loading; bottom-tab mobile navigation polish for the read-mostly phone-browser case. |
+| KOK-059 | Prompt tuning round | ai | M | 5 | After ≥1 month of real `assistant_interactions`: analyze rejected/edited drafts, most-corrected fields (SC-17), expand few-shots and eval fixtures accordingly, re-verify G7 ≥95%. Follow D-7 strictly — every prompt change gated by the eval suite. Human review of conclusions before changing prompts. |
+| KOK-060 | Security review | infra | M | 4 | Systematic pass per Doc 02 §6 + Doc 11 §7: authz on every route (401 tests), R2 signed-URL scope/expiry, Telegram secret + allowlist verification, rate limits, secret-rotation runbook, dependency audit. Treat findings as P0 (cross-cutting rules below). |
 
 ## Cross-cutting rules
 
 - Bugs found in invariants (INV-x) jump the queue as P0.
-- Each phase closes with a "phase acceptance" pass against the criteria in Doc 11 §5 before the
+- Each phase closes with a "phase acceptance" pass against the gates in Doc 11 §6 before the
   next phase starts.
+- The 🧠 rating is advisory for model assignment; if a task rated ≤3 turns out to require
+  judgment calls not covered by the KB, stop and escalate (Doc 08 D-1) instead of deciding
+  inline.
