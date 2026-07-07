@@ -116,6 +116,8 @@ aliases (chips, editable), active toggle. Merge-duplicates utility (re-points FK
 ## SC-16 · Settings — `/settings` (UC-20)
 
 app_settings editor: umbral de margen, % anticipo por defecto, hora de alertas, alert toggles;
+modelos de IA (`ai_model_text` / `ai_model_audio` / `ai_model_transcribe`, Doc 05 §1.1) with a
+"probar" button that runs one eval fixture against the configured model;
 account opening balances (initial setup only); backup status (last R2 export + "descargar
 respaldo"); Telegram link status; session/password change.
 

@@ -18,9 +18,9 @@ ADR-003).
   React SPA  ────┼──►│ /*  ───────────────► Static assets     │        │               │ │
                  │   │                                        │        ├──────────────►│ │──► R2 (photos,
                  │   │ /api/assistant/* ──► Assistant Runtime ─┘        │               │ │     backups, exports)
-                 │   │                      (Claude API, tool registry)◄┘               │ │
-                 │   │ Cron triggers ─────► Jobs (alerts, snapshots, backup, cache)     │ │──► Claude API
-                 │   └──────────────────────────────────────────────────────────────────┘ │     (api.anthropic.com)
+                 │   │                      (OpenAI API, tool registry)◄┘               │ │
+                 │   │ Cron triggers ─────► Jobs (alerts, snapshots, backup, cache)     │ │──► OpenAI API
+                 │   └──────────────────────────────────────────────────────────────────┘ │     (api.openai.com)
                  │                                                                        │──► Telegram Bot API
                  └────────────────────────────────────────────────────────────────────────┘
 ```
@@ -40,7 +40,7 @@ ADR-003).
 | UI kit | Tailwind CSS v4 + shadcn/ui (Radix primitives) + lucide-react icons | ADR-004 |
 | Charts | Recharts | Simple declarative charts for the dashboard/reports |
 | Mobile capture | Telegram Bot API via **grammY** on the Worker webhook | ADR-005 |
-| AI | Claude API — `claude-sonnet-5` (capture parsing + analytical chat) | ADR-006; model id per current Anthropic lineup |
+| AI (product) | OpenAI API — model ids runtime-configurable in `app_settings` (defaults: `gpt-5.5` text/tools, `gpt-realtime-whisper` voice) | ADR-006; Doc 05 §1.1 |
 | AI dev tooling | MCP server (dev-only) exposing the same tool registry | ADR-006 §MCP |
 | Validation | Zod schemas (single source, shared client/server/AI tools) | ADR-008 |
 | Auth | Owner password → signed session cookie (Web Crypto HMAC), Telegram `chat_id` allowlist | ADR-007 |
@@ -117,7 +117,7 @@ one batch. Costing side-effects are recomputed forward (see [03 §7](03-domain-m
 ### 4.3 Telegram capture flow
 
 ```
-voice/text message → grammY handler → assistant "capture" pipeline (Claude + catalog context)
+voice/text/photo message → grammY handler → assistant "capture" pipeline (LLM + catalog context)
   → draft event (Zod-validated) → confirmation card (inline keyboard: ✅ Confirmar / ✏️ Editar / ❌)
   → on ✅ → same core service as the web → short receipt message (stock/cash after)
 ```
@@ -146,7 +146,8 @@ is recorded in `job_runs` for observability.
 | `prod` | `kokoro` | `kokoro-prod` | live |
 
 Secrets via `wrangler secret`: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`,
-`ANTHROPIC_API_KEY`, `SESSION_SECRET`, `OWNER_PASSWORD_HASH`, `OWNER_TELEGRAM_CHAT_ID`.
+`OPENAI_API_KEY`, `SESSION_SECRET`, `OWNER_PASSWORD_HASH`, `OWNER_TELEGRAM_CHAT_ID`.
+AI model ids are **not** secrets: they live in `app_settings` (Doc 05 §1.1), editable from SC-16.
 Non-secret config in `app_settings` table (thresholds, timezone, default prices behavior) so the
 owner can change it from the UI.
 
@@ -200,6 +201,6 @@ irrelevant except in the AI loop, which is network-bound (streamed).
 |------|------|
 | Workers Paid plan (includes D1/R2/cron beyond free tier headroom) | US$5 |
 | R2 storage (photos + backups, < 5 GB) | ~US$0 |
-| Claude API (≈600 capture calls + 150 analytical chats/mo, Sonnet) | ~US$5–10 |
+| OpenAI API (≈600 capture calls incl. voice + 150 analytical chats/mo) | ~US$5–10 |
 | Telegram | free |
 | **Total** | **≈ US$10–15/mo** |

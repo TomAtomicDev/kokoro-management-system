@@ -79,22 +79,39 @@ friction, template-message restrictions, and Meta policy risk for this use. PWA 
 v1: building capture UI + offline sync duplicates what Telegram gives for free; revisit only if
 Telegram adoption fails (Doc 09 post-v1).
 
-## ADR-006 · AI: Claude API with curated tool registry; no model-generated SQL; MCP dev-only
+## ADR-006 · AI: OpenAI API, runtime-configurable models, curated tool registry; no model-generated SQL; MCP dev-only
 
-**Context.** AI must parse Bolivian-Spanish event descriptions reliably and answer analytical
-questions with real numbers. Risks: hallucinated writes, SQL injection-by-model, cost creep.
+**Context.** AI must parse Bolivian-Spanish event descriptions (text and voice notes) reliably
+and answer analytical questions with real numbers. Risks: hallucinated writes, SQL
+injection-by-model, cost creep, provider/model churn. The founder's stated preference is the
+OpenAI API for the **product** assistant (development tooling may use any provider). Recent
+OpenAI chat models accept audio (and images) as direct input, removing the need for a separate
+transcription stage.
 
-**Decision.** `claude-sonnet-5` for CAPTURE and QUERY via one in-process tool registry
-(read tools + draft tools). Writes always require human confirmation (INV-4). No free-form SQL
-tool in v1. MCP server wraps the same registry for development use only.
+**Decision.** OpenAI API for CAPTURE and QUERY via one in-process tool registry (read tools +
+draft tools), with tool/draft schemas emitted as strict structured outputs from the shared Zod
+schemas (ADR-008). **Model ids are configuration, not code**: `ai_model_text`,
+`ai_model_audio`, `ai_model_transcribe` in `app_settings` (defaults `gpt-5.5`,
+`gpt-realtime-whisper`, `gpt-4o-transcribe`; ids verified against OpenAI's lineup at
+implementation), editable from Settings without a deploy. Voice notes are processed by the
+configured audio model in transcribe mode (current default) or as direct audio input when a
+native-audio chat model is configured (Doc 05 §1.1); photos go to the text model's vision
+input; the transcription model is only a fallback. **Owner media sent to the assistant is never persisted** (rule A-6) — only text
+transcripts/results are logged. Writes always require human confirmation (INV-4). No free-form
+SQL tool in v1. The provider client is isolated in a single adapter (`assistant/llm.ts`). MCP
+server wraps the same registry for development use only.
 
 **Consequences.** Bounded blast radius (worst case: a wrong *draft*), measurable accuracy
-(interaction log + evals), single point to extend (a new tool serves web chat, Telegram, and
-MCP simultaneously). Query expressiveness is capped by tool coverage — mitigated by `get_trends`
-+ generous parametrization, and revisitable (a read-only SQL tool over the views is the
-documented escape hatch, gated on eval maturity). One model tier keeps prompt behavior
-consistent; if cost data justifies it, routing trivial captures to Haiku is a tuning task, not
-an architecture change.
+(interaction log + evals — fixtures are provider-agnostic, so model swaps are re-runs, not
+rewrites), single point to extend (a new tool serves web chat, Telegram, and MCP
+simultaneously). Configurable models mean cost/quality tuning (e.g., a cheaper model for
+trivial captures) is a settings change validated by the eval suite, not an architecture change;
+the single adapter keeps even a provider switch contained to one file plus eval re-recording.
+Query expressiveness is capped by tool coverage — mitigated by `get_trends` + generous
+parametrization, and revisitable (a read-only SQL tool over the views is the documented escape
+hatch, gated on eval maturity). Trade-off accepted: no persisted audio means a mis-transcribed
+voice note cannot be re-heard later — the confirmation card (A-1) is the safeguard, since the
+owner verifies the draft before anything commits.
 
 ## ADR-007 · Auth: application-level password session; Telegram chat-id allowlist
 

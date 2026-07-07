@@ -7,10 +7,34 @@ The assistant is one runtime with two pipelines, exposed on two channels:
 | **CAPTURE** | Natural language (text/voice) → validated **draft event** → human confirmation → core service commit | Telegram (primary), web quick-add bar |
 | **QUERY** | Natural language question → curated read-only tools → grounded answer (text + optional table/chart spec) | Telegram (quick), web chat (analytical) |
 
-Provider: **Claude API**, model `claude-sonnet-5` for both pipelines (ADR-006). Voice notes on
-Telegram are transcribed by sending the audio to Claude (audio input) before the CAPTURE run; if
-audio input is unavailable at build time, fall back to Cloudflare Workers AI Whisper — decision
-already made: try Claude first, Whisper fallback behind the same `transcribe()` interface.
+Provider: **OpenAI API** (ADR-006). Model ids are **runtime-configurable** in `app_settings`
+(§1.1) — the architecture never hardcodes a model. Telegram voice notes are handled by the
+configured audio model in whichever of two modes it supports, behind the same `runCapture()`
+interface:
+
+- **Transcribe mode** (current default, `gpt-realtime-whisper`): async speech-to-text, then the
+  transcript runs through the text model like any typed message.
+- **Native-audio mode**: if `ai_model_audio` names an audio-capable *chat* model, the voice note
+  is sent directly as audio input with the CAPTURE context, no transcription step.
+
+Photos sent to the assistant go to the vision input of the text model. **Raw audio and images
+from the owner are never persisted** (rule A-6); only the resulting text (transcript/description)
+is logged.
+
+### 1.1 Model configuration (`app_settings`)
+
+| Key | Purpose | Default |
+|-----|---------|---------|
+| `ai_model_text` | CAPTURE + QUERY (tool calling, streaming, vision) | `gpt-5.5` |
+| `ai_model_audio` | Voice-note processing (transcribe or native-audio mode, per model type) | `gpt-realtime-whisper` |
+| `ai_model_transcribe` | Explicit transcription fallback when `ai_model_audio` fails | `gpt-4o-transcribe` |
+
+Exact model ids MUST be verified against OpenAI's current lineup at implementation time
+(KOK-039/044); that is precisely why they are settings, not code. Changing a key takes effect on
+the next request (no deploy). The provider client is isolated in `assistant/llm.ts` (one
+adapter: chat + tools + streaming + audio/vision input, with the audio-mode switch above), so a
+future provider change touches one file plus the eval recordings — nothing else (ADR-006).
+Every interaction logs the model actually used (`assistant_interactions.model`).
 
 ## 1. Non-negotiable safety rules
 
@@ -25,11 +49,17 @@ already made: try Claude first, Whisper fallback behind the same `transcribe()` 
   draft with the uncertain field highlighted.
 - **A-5:** Amount sanity bounds (configurable): single event > Bs 5,000 or qty > 100 kg requires
   a "¿Confirmas este monto inusual?" double-check in the confirmation card.
+- **A-6:** Assistant media privacy: voice notes and photos the owner sends to the assistant are
+  processed in memory and forwarded to the model provider only; they are never written to R2 or
+  D1. Logs keep text only (transcript / model-extracted description). This is distinct from the
+  purchase receipt-photo attachment (SC-07), an explicit owner action that does store the file.
 
 ## 2. Tool registry
 
 One registry (`apps/worker/src/assistant/tools/`), each tool = `{name, description, zodInput,
-handler, access: 'read'|'draft'}`. The same registry is exported to (a) the Claude tool-use loop,
+handler, access: 'read'|'draft'}`. The same registry is exported to (a) the OpenAI
+tool-calling loop (function definitions generated from the Zod schemas as **strict structured
+outputs**, so drafts are schema-valid by construction),
 (b) the dev-only MCP server (§7). `draft` tools return a **proposed event payload**, they do not
 commit; commits happen through the confirmation flow only (A-1).
 
@@ -65,7 +95,7 @@ draft is passed to the service verbatim — zero translation layer, zero drift (
 ## 3. CAPTURE pipeline
 
 ```
-input text ── Claude (system prompt + business context + tools) ──► tool_use: draft_* 
+text / voice / photo ── LLM (system prompt + business context + tools) ──► tool call: draft_*
    │              │ may first call search_catalog / get_stock to resolve entities
    ▼              ▼
 clarify (A-4) ◄── validation (Zod + referential checks) ──► ConfirmationCard
@@ -88,7 +118,7 @@ round-trips — plus the last 3 events of the same type for stylistic grounding.
 
 ## 4. QUERY pipeline
 
-Claude with read tools, max 6 tool rounds, streaming. Answer contract:
+The configured text model with read tools, max 6 tool rounds, streaming. Answer contract:
 
 - Answers ONLY from tool results; if data is insufficient it says so ("No tengo registros de…").
   Never invents numbers (tested by evals, §8).

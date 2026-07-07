@@ -305,7 +305,8 @@ daily.
 ```sql
 CREATE TABLE app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);  -- JSON values
 -- keys: min_margin_pct(bp), default_deposit_pct(bp), timezone, alert_hour,
---       negative_stock_alert(bool), backup_retention_days
+--       negative_stock_alert(bool), backup_retention_days,
+--       ai_model_text, ai_model_audio, ai_model_transcribe (Doc 05 §1.1)
 
 CREATE TABLE daily_snapshots (
   business_date TEXT PRIMARY KEY,
@@ -330,8 +331,8 @@ CREATE TABLE assistant_interactions (            -- Doc 05 §8
   at TEXT NOT NULL,
   channel TEXT NOT NULL CHECK (channel IN ('TELEGRAM','WEB')),
   pipeline TEXT NOT NULL CHECK (pipeline IN ('CAPTURE','QUERY')),
-  user_input TEXT NOT NULL,
-  model TEXT NOT NULL,
+  user_input TEXT NOT NULL,                      -- text or voice transcript; raw audio/images never persisted (A-6)
+  model TEXT NOT NULL,                           -- model id actually used (configurable, Doc 05 §1.1)
   tool_calls_json TEXT,                          -- [{name, input, ms, ok}]
   draft_json TEXT,                               -- proposed event (CAPTURE)
   outcome TEXT CHECK (outcome IN ('ACCEPTED','EDITED','REJECTED','ANSWERED','FAILED')),
@@ -403,7 +404,9 @@ CREATE INDEX ix_ai_at ON assistant_interactions(at);
 
 - `financial_accounts`: `acc_bank` ("Cuenta Banco", BANK), `acc_cash` ("Caja chica", CASH).
 - `app_settings` defaults: `min_margin_pct=3000`, `default_deposit_pct=5000`,
-  `timezone="America/La_Paz"`, `alert_hour=7`, `backup_retention_days=30`.
+  `timezone="America/La_Paz"`, `alert_hour=7`, `backup_retention_days=30`,
+  `ai_model_text="gpt-5.5"`, `ai_model_audio="gpt-realtime-whisper"`,
+  `ai_model_transcribe="gpt-4o-transcribe"`.
 - Dev/staging only: fixture catalog (masa madre starter, harina, leche, kéfir, pan de masa
   madre, rollos de canela, cuñapés, queso crema de kéfir, ghee, cajas, etiquetas) with recipes —
   used by tests and demos.

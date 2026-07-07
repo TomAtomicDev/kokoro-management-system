@@ -45,7 +45,7 @@ deposit liability (SC-04, O-1…O-5), price-health report v1 (SC-12).
 ## Phase 4 — Telegram + AI Capture (≈2 weeks) — *the mobile experience*
 
 Telegram bot (webhook, dedupe, chat-id auth, `/start` linking), assistant runtime + tool
-registry + CAPTURE pipeline + confirmation cards (Doc 05 §2–3, §6), voice transcription, command
+registry + CAPTURE pipeline + confirmation cards (Doc 05 §2–3, §6), voice-note input, command
 mini-forms, morning digest + alert pushes, assistant_interactions logging, eval suite v1 in CI,
 web QuickAdd bar reusing CAPTURE.
 **Exit:** ≥ 80% of the owner's daily events captured from the phone (measure via `actor`).

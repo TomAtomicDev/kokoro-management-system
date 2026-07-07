@@ -66,12 +66,12 @@ S ≤ half day · M ≤ 1.5 days · L ≤ 3 days (AI-assisted).
 | ID | Task | Area | Size |
 |----|------|------|------|
 | KOK-038 | Telegram webhook: grammY on Hono, secret validation, update dedupe (INV-2), `/start` chat-id linking | backend | M |
-| KOK-039 | Assistant runtime: Claude client, tool-use loop, streaming, interaction logging (A-3) | ai | L |
+| KOK-039 | Assistant runtime: OpenAI client adapter (`llm.ts`), tool-calling loop, streaming, model config from app_settings, interaction logging (A-3) | ai | L |
 | KOK-040 | Tool registry framework + all read tools (Doc 05 §2) | ai | L |
 | KOK-041 | Draft tools for all commands (shared schemas, D-4) | ai | M |
 | KOK-042 | CAPTURE pipeline: prompts (system.capture.md), entity resolution, clarification policy (A-4), sanity bounds (A-5) | ai | L |
 | KOK-043 | Confirmation cards + field-edit flow + receipts (Doc 06 §5); pending_drafts store | full | L |
-| KOK-044 | Voice transcription (`transcribe()` with Claude audio, Whisper fallback) | ai | M |
+| KOK-044 | Voice/photo input: audio-mode switch in `llm.ts` (transcribe vs native-audio per configured model, Doc 05 §1.1); photos → text-model vision; verify default model ids vs OpenAI lineup; no media persistence (A-6) | ai | M |
 | KOK-045 | Command mini-forms (`/venta`, `/compra`, …) + `/resumen`, `/stock`, `/caja` quick queries | ai | M |
 | KOK-046 | Morning digest + push alerts job (low stock, price health, deliveries, receivables) with deep links | backend | M |
 | KOK-047 | Eval suite v1: 60 capture + 20 query fixtures, CI harness, weekly live run (D-7) | ai | L |
