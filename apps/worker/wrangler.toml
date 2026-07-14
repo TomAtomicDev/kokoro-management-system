@@ -1,0 +1,113 @@
+#:schema node_modules/wrangler/config-schema.json
+
+# Kokoro worker — see docs/system-design-knowledge-base/02-system-architecture.md §5 for the
+# environment table and §4.4 for the cron schedule.
+#
+# Top-level config below doubles as the "dev" defaults, so plain `wrangler dev` (no --env flag)
+# works out of the box; `[env.dev]` mirrors the same values explicitly for anyone who runs
+# `wrangler dev --env dev` on purpose.
+
+name = "kokoro"
+main = "src/index.ts"
+compatibility_date = "2024-11-01"
+compatibility_flags = ["nodejs_compat"] # needed later for e.g. argon2 WASM / crypto work (KOK-007)
+
+[observability]
+enabled = true
+
+# ---------------------------------------------------------------------------
+# Cron Triggers (Doc 02 §4.4). scheduled() currently just logs the cron name —
+# real job dispatch lands with KOK-021 (jobs runtime) and friends.
+# ---------------------------------------------------------------------------
+[triggers]
+crons = [
+  "0 9 * * *",  # 05:00 La Paz — daily-snapshot
+  "5 9 * * *",  # replacement-cost-refresh
+  "10 9 * * *", # alerts
+  "0 7 * * *",  # backup
+  "15 9 * * 1", # weekly-digest (Monday)
+]
+
+# ---------------------------------------------------------------------------
+# Default (dev) bindings — local Miniflare/local SQLite per Doc 02 §5.
+# `database_id` is not validated by local `wrangler dev`, but wrangler still
+# requires the key to be present.
+# ---------------------------------------------------------------------------
+[[d1_databases]]
+binding = "DB"
+database_name = "kokoro-dev"
+# TODO(KOK-005): fill in after `wrangler d1 create kokoro-dev`
+database_id = "REPLACE_ME"
+
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "kokoro-dev"
+
+# ============================================================================
+# env.dev — explicit mirror of the defaults above, for `wrangler dev --env dev`
+# ============================================================================
+[env.dev]
+name = "kokoro-dev"
+
+[[env.dev.d1_databases]]
+binding = "DB"
+database_name = "kokoro-dev"
+# TODO(KOK-005): fill in after `wrangler d1 create kokoro-dev`
+database_id = "REPLACE_ME"
+
+[[env.dev.r2_buckets]]
+binding = "BUCKET"
+bucket_name = "kokoro-dev"
+
+# ============================================================================
+# env.staging — pre-release verification, separate Telegram bot token (Doc 02 §5)
+# ============================================================================
+[env.staging]
+name = "kokoro-staging"
+
+[[env.staging.d1_databases]]
+binding = "DB"
+database_name = "kokoro-staging"
+# TODO(KOK-005): fill in after `wrangler d1 create kokoro-staging`
+database_id = "REPLACE_ME"
+
+[[env.staging.r2_buckets]]
+binding = "BUCKET"
+bucket_name = "kokoro-staging"
+
+[env.staging.triggers]
+crons = [
+  "0 9 * * *",
+  "5 9 * * *",
+  "10 9 * * *",
+  "0 7 * * *",
+  "15 9 * * 1",
+]
+
+# ============================================================================
+# env.prod — live
+# ============================================================================
+[env.prod]
+name = "kokoro"
+
+[[env.prod.d1_databases]]
+binding = "DB"
+database_name = "kokoro-prod"
+# TODO(KOK-005): fill in after `wrangler d1 create kokoro-prod`
+database_id = "REPLACE_ME"
+
+[[env.prod.r2_buckets]]
+binding = "BUCKET"
+bucket_name = "kokoro-prod"
+
+[env.prod.triggers]
+crons = [
+  "0 9 * * *",
+  "5 9 * * *",
+  "10 9 * * *",
+  "0 7 * * *",
+  "15 9 * * 1",
+]
+
+# NOTE: static-assets serving ([assets] / [site]) is intentionally not configured
+# yet — that is KOK-004's job (serve the built SPA from the Worker).
