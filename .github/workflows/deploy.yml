@@ -32,7 +32,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm run lint
       - run: pnpm run typecheck
-      # Must precede the test step — see the matching comment in ci.yml.
+      # Must precede the test step — see the matching comments in ci.yml. apps/worker's own
+      # `pretest` script seeds .dev.vars from .dev.vars.example if missing.
       - run: pnpm --filter @kokoro/web run build
       - run: pnpm run test
 

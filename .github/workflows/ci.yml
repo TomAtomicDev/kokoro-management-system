@@ -42,5 +42,8 @@ jobs:
       - name: Build SPA
         run: pnpm --filter @kokoro/web run build
 
+      # apps/worker's own `pretest` script seeds .dev.vars from the committed .dev.vars.example
+      # (fixed, non-secret placeholder values) if it's missing — handles CI having none, since
+      # the real file is gitignored dev-only config (KOK-007).
       - name: Unit + integration tests
         run: pnpm run test
