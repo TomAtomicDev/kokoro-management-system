@@ -3,6 +3,7 @@
 // this file wires together, and §4.4 for the cron table.
 
 import { Hono } from "hono";
+import { errorHandler } from "./api/error-handler.js";
 import { healthRoute } from "./api/health.js";
 import type { Env, Variables } from "./env.js";
 import { structuredLogging } from "./middleware/logging.js";
@@ -10,6 +11,7 @@ import { structuredLogging } from "./middleware/logging.js";
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 app.use("*", structuredLogging());
+app.onError(errorHandler);
 
 app.route("/api", healthRoute);
 
