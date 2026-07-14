@@ -1,0 +1,43 @@
+name: CI
+
+# Runs on every push and PR (Doc 02 §9's "typecheck, lint, unit + integration tests" gate) — the
+# fast feedback loop for everyday development, independent of the deploy pipeline in deploy.yml.
+on:
+  push:
+    branches-ignore: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: lint + typecheck + test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.10.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint (Biome)
+        run: pnpm run lint
+
+      - name: Typecheck
+        run: pnpm run typecheck
+
+      - name: Unit + integration tests
+        run: pnpm run test
+
+      - name: Build SPA (catches build-only errors)
+        run: pnpm --filter @kokoro/web run build

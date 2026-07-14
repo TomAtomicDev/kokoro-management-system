@@ -13,6 +13,9 @@ build/
 Thumbs.db
 coverage/
 *.tsbuildinfo
+playwright-report/
+test-results/
+blob-report/
 apps/worker/worker-configuration.d.ts
 .vscode/*
 !.vscode/extensions.json
