@@ -36,8 +36,11 @@ jobs:
       - name: Typecheck
         run: pnpm run typecheck
 
+      # Must run before the test step: apps/worker's wrangler.toml declares an [assets]
+      # binding pointing at ../web/dist, and @cloudflare/vitest-pool-workers refuses to start
+      # (even for tests unrelated to static assets) if that directory doesn't exist yet.
+      - name: Build SPA
+        run: pnpm --filter @kokoro/web run build
+
       - name: Unit + integration tests
         run: pnpm run test
-
-      - name: Build SPA (catches build-only errors)
-        run: pnpm --filter @kokoro/web run build
