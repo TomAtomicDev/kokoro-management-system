@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Kokoro Management — operations, inventory, costing and cash-flow system.",
   "engines": {
-    "node": ">=20"
+    "node": ">=22.13"
   },
   "devEngines": {
     "packageManager": {
