@@ -1,0 +1,14 @@
+# Local-dev secret values for `wrangler dev` / `pnpm test` (Doc 02 §5). Copy to `.dev.vars`
+# (gitignored) and fill in real values — never commit real secrets.
+#
+# OWNER_PASSWORD_HASH: generate with
+#   node apps/worker/scripts/hash-password.mjs "your-dev-password"
+# For staging/prod, set these via `wrangler secret put <NAME> --env <staging|prod>` instead —
+# this file is dev-only.
+
+TELEGRAM_BOT_TOKEN=dev-placeholder-telegram-bot-token
+TELEGRAM_WEBHOOK_SECRET=dev-placeholder-webhook-secret
+OPENAI_API_KEY=dev-placeholder-openai-key
+SESSION_SECRET=dev-placeholder-session-secret-change-me
+OWNER_PASSWORD_HASH=pbkdf2-sha256$600000$vndD0gsfZ5T8rFtuswo7gQ$zG-PCW8JVZbj-WsL8SjCTZ4csk1LkR0mhN7ujpYWQ10
+OWNER_TELEGRAM_CHAT_ID=0

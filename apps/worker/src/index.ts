@@ -3,9 +3,11 @@
 // this file wires together, and §4.4 for the cron table.
 
 import { Hono } from "hono";
+import { authRoute } from "./api/auth.js";
 import { errorHandler } from "./api/error-handler.js";
 import { healthRoute } from "./api/health.js";
 import type { Env, Variables } from "./env.js";
+import { requireCsrf, requireSession } from "./middleware/auth.js";
 import { structuredLogging } from "./middleware/logging.js";
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -13,7 +15,14 @@ const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use("*", structuredLogging());
 app.onError(errorHandler);
 
+// Auth (KOK-007, ADR-007): every /api/* route needs a valid session except /api/health and
+// POST /api/auth/login; every mutating /api/* request needs a matching CSRF token except
+// POST /api/auth/login (Doc 02 §6). Both mounted ahead of the route tree they guard.
+app.use("/api/*", requireSession());
+app.use("/api/*", requireCsrf());
+
 app.route("/api", healthRoute);
+app.route("/api", authRoute);
 
 // Extension points for later backlog tasks — kept as comments so the file reads as an obvious
 // map of where things go:

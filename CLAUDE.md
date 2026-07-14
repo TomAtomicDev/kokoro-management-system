@@ -24,7 +24,7 @@ These constraints are non-negotiable. Every code change must respect them.
 - **Formatting & Linting:** Biome (single tool). CI gate: `biome check`, `tsc --noEmit`, tests.
 - **TypeScript:** `strict: true`, `noUncheckedIndexedAccess: true`. No `any`; use `unknown` + narrowing. Exported functions have explicit return types.
 - **Naming:** files `kebab-case.ts`; types `PascalCase`; DB per Doc 04 §1; commands use `record*/update*/delete*` verbs; queries use `get*/list*`.
-- **Error handling:** Services throw typed `DomainError` with `code`, `message_es`, and `details`. Routes map to HTTP (400 for validation, 404 for not found, 409 for conflict/state-machine, 500 for server errors). `message_es` is user-facing.
+- **Error handling:** Services throw typed `DomainError` with `code`, `message_es`, and `details`. Routes map to HTTP (400 validation, 401 unauthorized, 404 not found, 409 conflict/state-machine, 429 rate-limited, 500 server error). `message_es` is user-facing.
 - **Commits:** Conventional Commits format (`feat(sales): …`, `fix(costing): …`). One logical change per PR; PRs reference backlog IDs (KOK-xxx).
 
 ## Playbook: Adding a New Event Type

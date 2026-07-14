@@ -27,7 +27,9 @@ authoritative long form.
 - **Naming:** files `kebab-case.ts`; types `PascalCase`; DB per Doc 04 §1; commands
   `record*/update*/delete*` verbs; queries `get*/list*`.
 - **Errors:** services throw typed `DomainError` (`code`, `message_es`, `details`); routes map
-  to HTTP (400 validation, 404, 409 conflict/state-machine, 500). `message_es` is user-facing.
+  to HTTP (400 validation, 401 unauthorized, 404 not found, 409 conflict/state-machine,
+  429 rate-limited, 500 internal). `message_es` is user-facing. 401/429 added during KOK-007
+  (owner auth) — the original 4-code list predated any auth surface.
 - **Commits:** Conventional Commits (`feat(sales): …`, `fix(costing): …`). One logical change
   per PR; PRs reference backlog IDs (KOK-xxx).
 
