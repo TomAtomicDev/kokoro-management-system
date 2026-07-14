@@ -60,3 +60,10 @@ pnpm run dev:web    # apps/web via vite
 Node >= 22.13 (pnpm 11 itself requires it), pnpm 11 (see `devEngines` in `package.json`). Formatting/linting is Biome only
 (`pnpm run lint:fix` / `pnpm run format`). TypeScript is `strict` with `noUncheckedIndexedAccess`
 across every workspace (`tsconfig.base.json`).
+
+## Deployment
+
+CI/CD runs via GitHub Actions (`.github/workflows/ci.yml`, `deploy.yml`). For the full picture —
+what Cloudflare infrastructure exists, how to set real secrets on staging/prod, and the pipeline
+architecture — see [docs/deployment-guide.md](docs/deployment-guide.md). Quick reference (required
+secrets, rollback commands) lives in [.github/workflows/README.md](.github/workflows/README.md).
