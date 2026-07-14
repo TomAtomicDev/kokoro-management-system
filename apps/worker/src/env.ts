@@ -11,6 +11,8 @@ export interface Env {
   DB: D1Database;
   /** R2 bucket binding (binding name `BUCKET` in wrangler.toml) — photos, exports, backups. */
   BUCKET: R2Bucket;
+  /** Static-assets binding (built SPA) — the catch-all route in index.ts delegates to this. */
+  ASSETS: Fetcher;
 
   // --- Secrets (wrangler secret put), Doc 02 §5 ---
   TELEGRAM_BOT_TOKEN: string;

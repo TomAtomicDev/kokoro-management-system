@@ -42,6 +42,17 @@ database_id = "245c738d-c408-4372-8d20-ade56bcb468b"
 binding = "BUCKET"
 bucket_name = "kokoro-dev"
 
+# Static SPA (Doc 02 §1, KOK-004). `run_worker_first = true` sends every request through
+# src/index.ts first, so /api/* and /telegram/* are matched by Hono before the catch-all route
+# falls back to this binding; `not_found_handling = "single-page-application"` makes the ASSETS
+# binding itself serve index.html for any path with no matching build file (e.g. /sales,
+# /sales?open=<id> — the Telegram magic-link deep links of Doc 07).
+[assets]
+directory = "../web/dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+run_worker_first = true
+
 # ============================================================================
 # env.dev — explicit mirror of the defaults above, for `wrangler dev --env dev`
 # ============================================================================
@@ -57,6 +68,12 @@ database_id = "245c738d-c408-4372-8d20-ade56bcb468b"
 binding = "BUCKET"
 bucket_name = "kokoro-dev"
 
+[env.dev.assets]
+directory = "../web/dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+run_worker_first = true
+
 # ============================================================================
 # env.staging — pre-release verification, separate Telegram bot token (Doc 02 §5)
 # ============================================================================
@@ -71,6 +88,12 @@ database_id = "3fb59c2f-4fa0-46eb-81ed-04cf87cf3a3b"
 [[env.staging.r2_buckets]]
 binding = "BUCKET"
 bucket_name = "kokoro-staging"
+
+[env.staging.assets]
+directory = "../web/dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+run_worker_first = true
 
 [env.staging.triggers]
 crons = [
@@ -96,6 +119,12 @@ database_id = "725f51d1-d2ae-41e0-95dd-64917d575f49"
 binding = "BUCKET"
 bucket_name = "kokoro-prod"
 
+[env.prod.assets]
+directory = "../web/dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+run_worker_first = true
+
 [env.prod.triggers]
 crons = [
   "0 9 * * *",
@@ -104,6 +133,3 @@ crons = [
   "0 7 * * *",
   "15 9 * * 1",
 ]
-
-# NOTE: static-assets serving ([assets] / [site]) is intentionally not configured
-# yet — that is KOK-004's job (serve the built SPA from the Worker).

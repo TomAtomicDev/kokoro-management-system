@@ -19,8 +19,13 @@ app.route("/api", healthRoute);
 //   app.route("/api", apiRoutes);           // KOK-011+ — the rest of the Hono API (thin routes
 //                                            // that call core/ services; see Doc 02 §3).
 //   app.route("/telegram", telegramRoutes);  // KOK-038 — grammY webhook mounted on Hono.
-//   app.get("*", serveStaticAssets);         // KOK-004 — SPA static-asset serving + SPA-fallback
-//                                            // routing for everything that isn't /api or /telegram.
+
+// Static SPA (Doc 02 §1). `run_worker_first = true` in wrangler.toml means every request hits
+// this fetch handler first, so /api/* and /telegram/* above are matched before this catch-all
+// ever runs. Everything else — including client-side routes like /sales that have no matching
+// file in the build output — falls through to the ASSETS binding, which applies
+// `not_found_handling = "single-page-application"` and serves index.html (SPA-fallback routing).
+app.get("*", (c) => c.env.ASSETS.fetch(c.req.raw));
 
 /**
  * Cron Trigger dispatcher (Doc 02 §4.4). Job bodies don't exist yet (jobs/ is empty until
