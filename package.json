@@ -1,14 +1,12 @@
 {
-  "name": "kokoro-managemnt-system",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+  "name": "kokoro-management-system",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Kokoro Management — operations, inventory, costing and cash-flow system.",
+  "engines": {
+    "node": ">=20"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
   "devEngines": {
     "packageManager": {
       "name": "pnpm",
@@ -16,5 +14,19 @@
       "onFail": "download"
     }
   },
-  "type": "module"
+  "scripts": {
+    "check": "pnpm run lint && pnpm run typecheck && pnpm run test",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "format": "biome format --write .",
+    "typecheck": "pnpm -r --if-present run typecheck",
+    "test": "pnpm -r --if-present run test",
+    "build": "pnpm -r --if-present run build",
+    "dev:worker": "pnpm --filter @kokoro/worker run dev",
+    "dev:web": "pnpm --filter @kokoro/web run dev"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "typescript": "^5.6.3"
+  }
 }

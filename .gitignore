@@ -1,0 +1,15 @@
+node_modules/
+dist/
+build/
+.wrangler/
+.env
+.env.*
+!.env.example
+*.local
+.DS_Store
+Thumbs.db
+coverage/
+*.tsbuildinfo
+apps/worker/worker-configuration.d.ts
+.vscode/*
+!.vscode/extensions.json
