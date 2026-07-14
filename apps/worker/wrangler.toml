@@ -36,8 +36,7 @@ crons = [
 [[d1_databases]]
 binding = "DB"
 database_name = "kokoro-dev"
-# TODO(KOK-005): fill in after `wrangler d1 create kokoro-dev`
-database_id = "REPLACE_ME"
+database_id = "245c738d-c408-4372-8d20-ade56bcb468b"
 
 [[r2_buckets]]
 binding = "BUCKET"
@@ -52,8 +51,7 @@ name = "kokoro-dev"
 [[env.dev.d1_databases]]
 binding = "DB"
 database_name = "kokoro-dev"
-# TODO(KOK-005): fill in after `wrangler d1 create kokoro-dev`
-database_id = "REPLACE_ME"
+database_id = "245c738d-c408-4372-8d20-ade56bcb468b"
 
 [[env.dev.r2_buckets]]
 binding = "BUCKET"
@@ -68,8 +66,7 @@ name = "kokoro-staging"
 [[env.staging.d1_databases]]
 binding = "DB"
 database_name = "kokoro-staging"
-# TODO(KOK-005): fill in after `wrangler d1 create kokoro-staging`
-database_id = "REPLACE_ME"
+database_id = "3fb59c2f-4fa0-46eb-81ed-04cf87cf3a3b"
 
 [[env.staging.r2_buckets]]
 binding = "BUCKET"
@@ -93,8 +90,7 @@ name = "kokoro"
 [[env.prod.d1_databases]]
 binding = "DB"
 database_name = "kokoro-prod"
-# TODO(KOK-005): fill in after `wrangler d1 create kokoro-prod`
-database_id = "REPLACE_ME"
+database_id = "725f51d1-d2ae-41e0-95dd-64917d575f49"
 
 [[env.prod.r2_buckets]]
 binding = "BUCKET"
