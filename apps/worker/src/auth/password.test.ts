@@ -21,9 +21,11 @@ describe("password hashing (PBKDF2-HMAC-SHA256)", () => {
     expect(await verifyPassword("same password", b)).toBe(true);
   });
 
-  it("stores the algorithm id and iteration count in the hash string", async () => {
+  it("stores the algorithm id and iteration count in the hash string, capped at the Workers PBKDF2 limit", async () => {
     const hash = await hashPassword("x");
-    expect(hash).toMatch(/^pbkdf2-sha256\$600000\$[A-Za-z0-9_-]+\$[A-Za-z0-9_-]+$/);
+    // 100_000, not 600k: the real Workers runtime hard-caps PBKDF2 iterations there — see the
+    // header comment in password.ts (discovered via a live staging deploy during KOK-009).
+    expect(hash).toMatch(/^pbkdf2-sha256\$100000\$[A-Za-z0-9_-]+\$[A-Za-z0-9_-]+$/);
   });
 
   it("never throws on malformed stored hashes — returns false instead", async () => {
@@ -37,7 +39,7 @@ describe("password hashing (PBKDF2-HMAC-SHA256)", () => {
     // Fixed example captured from `node apps/worker/scripts/hash-password.mjs "test-password-123"`
     // — pins the two implementations to the same wire format (see that script's header comment).
     const hash =
-      "pbkdf2-sha256$600000$vndD0gsfZ5T8rFtuswo7gQ$zG-PCW8JVZbj-WsL8SjCTZ4csk1LkR0mhN7ujpYWQ10";
+      "pbkdf2-sha256$100000$tTNWvqcHwYu84dBRSVM40w$F0cTjig6Tqpz-ACDmrFlYRb0pHPpiwtDvXukAjGWOlQ";
     expect(await verifyPassword("test-password-123", hash)).toBe(true);
     expect(await verifyPassword("wrong", hash)).toBe(false);
   });

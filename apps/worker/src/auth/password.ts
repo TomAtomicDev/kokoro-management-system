@@ -2,21 +2,28 @@
 //
 // ADR-007 / the KOK-007 backlog entry ask for argon2id via WASM, with a documented fallback to
 // PBKDF2-HMAC-SHA256/600k "if bundle size is a problem — measure and decide, record in PR".
-// Decision recorded here: skip argon2id entirely and use PBKDF2-HMAC-SHA256 (600k iterations)
-// via the platform's native Web Crypto `SubtleCrypto`, because:
+// Decision recorded here: skip argon2id entirely and use PBKDF2-HMAC-SHA256 via the platform's
+// native Web Crypto `SubtleCrypto`, because:
 //   1. Argon2 has no pure-JS/Web-Crypto implementation — it always needs a WASM binary shipped
 //      in the Worker bundle plus a wrapper package, which is a new dependency (D-10 friction)
 //      for a single-owner, non-multi-tenant system where the realistic threat is a stolen/leaked
 //      hash being brute-forced offline, not a large-scale credential-stuffing target.
-//   2. PBKDF2-HMAC-SHA256 at 600k iterations is still an OWASP-recommended parameter for
-//      password hashing when Argon2/scrypt/bcrypt aren't available, and it's zero-dependency,
-//      zero additional bundle bytes (D-10: "prefer stdlib/platform over packages").
-// If the threat model ever changes (e.g. multi-tenant), revisit via a superseding ADR.
+//   2. PBKDF2-HMAC-SHA256 is still an OWASP-acceptable parameter for password hashing when
+//      Argon2/scrypt/bcrypt aren't available, and it's zero-dependency, zero additional bundle
+//      bytes (D-10: "prefer stdlib/platform over packages").
+//
+// ITERATIONS = 100_000, not 600k: the real Cloudflare Workers runtime (workerd) hard-caps
+// `crypto.subtle.deriveBits` PBKDF2 at 100,000 iterations ("iteration counts above 100000 are
+// not supported") and throws `NotSupportedError` above that — discovered via a live staging
+// deploy (KOK-009), since Miniflare's local/test simulation does *not* enforce this ceiling, so
+// unit/integration tests alone would never have caught it. 100k is the platform maximum for this
+// primitive; if stronger hashing is ever required, that means moving to argon2id WASM after all
+// (superseding ADR), not raising this constant further.
 
 import { fromBase64Url, timingSafeEqual, toBase64Url } from "./crypto-utils.js";
 
 const ALGO_ID = "pbkdf2-sha256";
-const ITERATIONS = 600_000;
+const ITERATIONS = 100_000;
 const SALT_BYTES = 16;
 const DERIVED_KEY_BITS = 256;
 

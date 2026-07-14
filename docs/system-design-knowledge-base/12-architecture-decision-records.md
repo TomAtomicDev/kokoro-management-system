@@ -118,8 +118,8 @@ owner verifies the draft before anything commits.
 **Context.** Exactly one user. Options: Cloudflare Access (Zero Trust), third-party auth
 (Clerk/Auth0), password + session.
 
-**Decision.** Owner password (argon2id via WASM; PBKDF2-HMAC-SHA256/600k fallback if bundle
-size hurts) → HMAC-signed HttpOnly cookie, 30-day sliding. Telegram authenticated by
+**Decision.** Owner password (argon2id via WASM; PBKDF2-HMAC-SHA256 fallback if bundle size
+hurts) → HMAC-signed HttpOnly cookie, 30-day sliding. Telegram authenticated by
 `OWNER_TELEGRAM_CHAT_ID` + webhook secret.
 
 **Consequences.** No third-party dependency, works on custom domain and local dev identically,
@@ -127,6 +127,15 @@ size hurts) → HMAC-signed HttpOnly cookie, 30-day sliding. Telegram authentica
 Cloudflare dashboard config, complicates E2E automation, and adds an ops surface the owner can't
 self-serve. Risk of DIY auth accepted because scope is minimal (one credential, no roles, no
 signup) and covered by tests (Doc 11 §7).
+
+**Amendment (KOK-007 implementation).** Went with the PBKDF2-HMAC-SHA256 fallback outright
+(skipped argon2id — see `apps/worker/src/auth/password.ts` header for the D-10 dependency/bundle
+rationale), at **100,000 iterations, not the 600k this ADR originally suggested**: a live staging
+deploy revealed the real Cloudflare Workers runtime hard-caps `crypto.subtle.deriveBits` PBKDF2
+at 100,000 iterations (`NotSupportedError` above that) — Miniflare's local/test simulation does
+not enforce this, so it only surfaces once code actually runs on workerd. 100k is the platform
+ceiling for this primitive; going stronger means argon2id WASM after all (a future superseding
+ADR), not a higher PBKDF2 count.
 
 ## ADR-008 · Single contract: shared Zod schemas for API, forms, and AI tools
 

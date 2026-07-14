@@ -8,11 +8,13 @@
 //
 // Deliberately a standalone plain-JS script (no build step, no new dependency) that duplicates
 // the minimal PBKDF2 logic from src/auth/password.ts — see that file for the algorithm choice
-// rationale. Node 20+'s global `crypto.subtle` is the same Web Crypto API the Worker uses, so
-// this produces hashes verifyPassword() can check byte-for-byte.
+// rationale, including why ITERATIONS is 100_000 (the real Cloudflare Workers runtime's hard
+// cap for PBKDF2 — Node itself has no such limit, but the hash must still be generated at
+// <=100k iterations because verifyPassword() running *inside the Worker* will re-derive with
+// whatever iteration count is embedded in the stored hash string).
 
 const ALGO_ID = "pbkdf2-sha256";
-const ITERATIONS = 600_000;
+const ITERATIONS = 100_000;
 const SALT_BYTES = 16;
 const DERIVED_KEY_BITS = 256;
 

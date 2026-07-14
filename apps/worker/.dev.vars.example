@@ -10,5 +10,5 @@ TELEGRAM_BOT_TOKEN=dev-placeholder-telegram-bot-token
 TELEGRAM_WEBHOOK_SECRET=dev-placeholder-webhook-secret
 OPENAI_API_KEY=dev-placeholder-openai-key
 SESSION_SECRET=dev-placeholder-session-secret-change-me
-OWNER_PASSWORD_HASH=pbkdf2-sha256$600000$vndD0gsfZ5T8rFtuswo7gQ$zG-PCW8JVZbj-WsL8SjCTZ4csk1LkR0mhN7ujpYWQ10
+OWNER_PASSWORD_HASH=pbkdf2-sha256$100000$tTNWvqcHwYu84dBRSVM40w$F0cTjig6Tqpz-ACDmrFlYRb0pHPpiwtDvXukAjGWOlQ
 OWNER_TELEGRAM_CHAT_ID=0
