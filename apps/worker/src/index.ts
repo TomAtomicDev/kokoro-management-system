@@ -4,7 +4,9 @@
 
 import { Hono } from "hono";
 import { authRoute } from "./api/auth.js";
+import { catalogRoute } from "./api/catalog.js";
 import { errorHandler } from "./api/error-handler.js";
+import { financeRoute } from "./api/finance.js";
 import { healthRoute } from "./api/health.js";
 import type { Env, Variables } from "./env.js";
 import { requireCsrf, requireSession } from "./middleware/auth.js";
@@ -23,12 +25,12 @@ app.use("/api/*", requireCsrf());
 
 app.route("/api", healthRoute);
 app.route("/api", authRoute);
+app.route("/api", catalogRoute); // KOK-011 — items & aliases (Doc 07 SC-15).
+app.route("/api", financeRoute); // KOK-014 — standalone transactions, transfers, withdrawals (Doc 03 UC-11/12/13).
 
-// Extension points for later backlog tasks — kept as comments so the file reads as an obvious
+// Extension point for a later backlog task — kept as a comment so the file reads as an obvious
 // map of where things go:
 //
-//   app.route("/api", apiRoutes);           // KOK-011+ — the rest of the Hono API (thin routes
-//                                            // that call core/ services; see Doc 02 §3).
 //   app.route("/telegram", telegramRoutes);  // KOK-038 — grammY webhook mounted on Hono.
 
 // Static SPA (Doc 02 §1). `run_worker_first = true` in wrangler.toml means every request hits

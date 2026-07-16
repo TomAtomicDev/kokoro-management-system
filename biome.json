@@ -1,5 +1,5 @@
 {
-  "$schema": "https://biomejs.dev/schemas/1.9.4/schema.json",
+  "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
   "vcs": {
     "enabled": true,
     "clientKind": "git",
@@ -13,6 +13,11 @@
       "**/node_modules/**",
       "**/*.d.ts",
       "**/worker-configuration.d.ts",
+      ".agents",
+      ".claude",
+      ".design",
+      ".github",
+      ".mcp.json",
       "pnpm-lock.yaml",
       "apps/worker/migrations/**"
     ]

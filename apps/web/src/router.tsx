@@ -14,6 +14,7 @@ import { SalesRoute } from "@/routes/sales";
 import { SessionsRoute } from "@/routes/sessions";
 import { SettingsRoute } from "@/routes/settings";
 import { SettingsAiRoute } from "@/routes/settings-ai";
+import { SettingsCatalogRoute } from "@/routes/settings-catalog";
 
 // Code-based routing (not file-based): the root route renders the persistent AppShell, every
 // other route is a flat child rendered into its <Outlet />. See Doc 06 §2 for the nav tree this
@@ -100,6 +101,12 @@ const settingsAiRoute = createRoute({
   component: SettingsAiRoute,
 });
 
+const settingsCatalogRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/settings/catalog",
+  component: SettingsCatalogRoute,
+});
+
 const routeTree = rootRoute.addChildren([
   panelRoute,
   salesRoute,
@@ -114,6 +121,7 @@ const routeTree = rootRoute.addChildren([
   assistantRoute,
   settingsRoute,
   settingsAiRoute,
+  settingsCatalogRoute,
 ]);
 
 export const router = createRouter({ routeTree });

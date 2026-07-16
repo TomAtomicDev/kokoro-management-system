@@ -35,7 +35,8 @@ export type AppPath =
   | "/reports"
   | "/assistant"
   | "/settings"
-  | "/settings/ai";
+  | "/settings/ai"
+  | "/settings/catalog";
 
 export interface NavLinkItem {
   kind: "link";
