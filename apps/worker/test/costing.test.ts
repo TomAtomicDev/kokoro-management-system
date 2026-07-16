@@ -7,14 +7,13 @@
 // against real D1, mirroring inventory.test.ts's pattern.
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
-
+import type { ReplayMovement } from "../src/core/costing/index.js";
 import {
   applyWacEntry,
   computePurchaseLineUnitCost,
   recomputeWacFromMovements,
   snapshotUnitCost,
 } from "../src/core/costing/index.js";
-import type { ReplayMovement } from "../src/core/costing/index.js";
 
 function expectDomainValidationError(fn: () => unknown): void {
   let caught: unknown;

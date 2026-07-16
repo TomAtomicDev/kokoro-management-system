@@ -11,11 +11,11 @@ import type { BatchItem } from "drizzle-orm/batch";
 import { describe, expect, it } from "vitest";
 
 import { createItem } from "../src/core/catalog/index.js";
+import type { StockMovementInput } from "../src/core/inventory/index.js";
 import {
   buildReplaceMovementsForSourceStatements,
   buildStockMovementStatements,
 } from "../src/core/inventory/index.js";
-import type { StockMovementInput } from "../src/core/inventory/index.js";
 import { createDb } from "../src/db/index.js";
 
 const ACTOR = "OWNER_WEB" as const;

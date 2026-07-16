@@ -5,8 +5,8 @@
 // deliberately didn't build it — that's KOK-024's job), so this table is read-only end to end,
 // not just for system-owned rows.
 
-import { formatMoney } from "@kokoro/shared";
 import type { FinancialAccountDto, FinancialTransactionDto } from "@kokoro/shared";
+import { formatMoney } from "@kokoro/shared";
 import { useMemo } from "react";
 
 import { EventTable, type EventTableColumn } from "@/components/data-table/EventTable";

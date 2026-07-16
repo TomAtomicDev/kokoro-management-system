@@ -6,10 +6,10 @@ import { mobileTabLabels } from "@/lib/i18n-nav";
 import { cn } from "@/lib/utils";
 
 import {
-  type NavActionItem,
-  type NavLinkItem,
   footerNav,
   mobileTabs,
+  type NavActionItem,
+  type NavLinkItem,
   primaryNav,
 } from "./nav-items";
 

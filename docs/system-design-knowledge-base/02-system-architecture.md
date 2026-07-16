@@ -35,7 +35,7 @@ ADR-003).
 | Database | Cloudflare D1 (SQLite) | Single-user scale, relational, free tier, `batch()` atomicity — ADR-002 |
 | ORM / migrations | Drizzle ORM + drizzle-kit migrations | Typed schema shared with app code, D1 driver, SQL-first |
 | Object storage | Cloudflare R2 | Receipt/product photos, nightly DB export, CSV exports |
-| Frontend | React 18 + Vite SPA, served as Worker static assets | ADR-004 |
+| Frontend | React 19 + Vite SPA, served as Worker static assets | ADR-004 |
 | Frontend data | TanStack Router + TanStack Query | Typed routes, cache/invalidatation model fits event editing |
 | UI kit | Tailwind CSS v4 + shadcn/ui (Radix primitives) + lucide-react icons | ADR-004 |
 | Charts | Recharts | Simple declarative charts for the dashboard/reports |

@@ -50,7 +50,7 @@ that DOs would give is unnecessary: a single human writer; Telegram dedupe (INV-
 idempotency keys cover retries. If a future need appears (e.g., long-running imports), Queues
 can be added behind the existing job abstraction.
 
-## ADR-004 · Frontend: React 18 + Vite SPA with TanStack Router/Query, Tailwind v4 + shadcn/ui
+## ADR-004 · Frontend: React 19 + Vite SPA with TanStack Router/Query, Tailwind v4 + shadcn/ui
 
 **Context.** Desktop-first data app (tables, drawers, charts, chat). Alternatives: Astro
 (content-oriented; islands add complexity for a fully interactive app), TanStack Start / SSR

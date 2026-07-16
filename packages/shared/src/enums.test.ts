@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   FINANCIAL_TRANSACTION_CATEGORIES,
   ITEM_KINDS,
+  itemKindSchema,
   STOCK_MOVEMENT_TYPES,
   UNITS,
-  itemKindSchema,
   unitSchema,
 } from "./enums";
 

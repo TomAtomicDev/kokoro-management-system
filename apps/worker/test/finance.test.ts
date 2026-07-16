@@ -3,11 +3,16 @@
 // audit_log entry + atomicity, run against real D1 via @cloudflare/vitest-pool-workers
 // (test/setup.ts applies migrations/0001_init.sql first, which seeds `financial_accounts`
 // 'acc_bank' (BANK) and 'acc_cash' (CASH), both opening_balance/balance = 0, is_active = 1 — Doc
-// 04 §7). Each `it()` runs against isolated storage copy-on-write from that seeded state (Cloudflare
-// vitest-pool-workers default `isolatedStorage: true`), so every test can assume both accounts
-// start at balance 0 regardless of what earlier tests did.
+// 04 §7).
+//
+// @cloudflare/vitest-pool-workers v0.13+ isolates storage per test FILE, not per test (the old
+// `isolatedStorage: true` per-test default was removed — see
+// https://developers.cloudflare.com/workers/testing/vitest-integration/migration-guides/migrate-from-vitest-3-to-vitest-4/).
+// The `beforeEach` below restores the per-test guarantee this file's tests were written against:
+// both seeded accounts back at balance 0, with no leftover transactions/audit rows from prior tests.
 import { env } from "cloudflare:test";
-import { describe, expect, it } from "vitest";
+import { eq, inArray } from "drizzle-orm";
+import { beforeEach, describe, expect, it } from "vitest";
 
 import {
   getAccount,
@@ -18,7 +23,25 @@ import {
   withdraw,
 } from "../src/core/finance/index.js";
 import { createDb } from "../src/db/index.js";
-import { financialAccounts } from "../src/db/schema.js";
+import { auditLog, financialAccounts, financialTransactions } from "../src/db/schema.js";
+
+const SEEDED_ACCOUNT_IDS = ["acc_bank", "acc_cash"] as const;
+
+beforeEach(async () => {
+  const db = createDb(env.DB);
+  await db.delete(auditLog).where(eq(auditLog.entityType, "financial_transactions"));
+  // counterpart_tx_id is a self-referencing FK (ON DELETE restrict, not deferred), so a paired
+  // TRANSFER_OUT/TRANSFER_IN row can still be pointed to by its sibling at the moment SQLite
+  // deletes it. Null the references out first so the delete below never trips the constraint.
+  await db.update(financialTransactions).set({ counterpartTxId: null });
+  await db.delete(financialTransactions);
+  await db
+    .delete(financialAccounts)
+    .where(inArray(financialAccounts.id, ["acc_inactive_1", "acc_inactive_2", "acc_inactive_3"]));
+  for (const id of SEEDED_ACCOUNT_IDS) {
+    await db.update(financialAccounts).set({ balance: 0 }).where(eq(financialAccounts.id, id));
+  }
+});
 
 const ACTOR = "OWNER_WEB" as const;
 const NOW = "2026-07-16T10:00:00.000Z";

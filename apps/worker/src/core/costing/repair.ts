@@ -13,7 +13,7 @@ import { eq } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 
 import type { Db } from "../../db/index.js";
-import { items, stockMovements } from "../../db/schema.js";
+import { items } from "../../db/schema.js";
 import { buildAuditLogInsert } from "../audit.js";
 import { notFound } from "../errors.js";
 import { recomputeWacFromMovements } from "./wac.js";

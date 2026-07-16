@@ -3,13 +3,14 @@
 // merge-duplicates utility.
 
 import {
+  formatMoney,
+  formatQty,
   ITEM_CATEGORIES,
   ITEM_KINDS,
   type ItemCategory,
   type ItemDto,
   type ItemKind,
 } from "@kokoro/shared";
-import { formatMoney, formatQty } from "@kokoro/shared";
 import { useState } from "react";
 
 import { CreateItemDialog } from "@/components/catalog/CreateItemDialog";

@@ -12,9 +12,9 @@ import { getCookie, setCookie } from "hono/cookie";
 
 import { CSRF_COOKIE_NAME, CSRF_HEADER_NAME, csrfTokensMatch } from "../auth/csrf.js";
 import {
+  createSessionCookieValue,
   SESSION_COOKIE_NAME,
   SESSION_MAX_AGE_SECONDS,
-  createSessionCookieValue,
   verifySessionCookieValue,
 } from "../auth/session.js";
 import { unauthorized } from "../core/errors.js";

@@ -2,8 +2,8 @@
 // (create/edit drawer) and ItemPicker's inline-create dialog, so the two flows can never drift.
 // Plain controlled React state, no react-hook-form (D-10).
 
-import { ITEM_CATEGORIES, ITEM_KINDS, UNITS, formatMoney, formatQty } from "@kokoro/shared";
 import type { ItemCategory, ItemKind, Unit } from "@kokoro/shared";
+import { formatMoney, formatQty, ITEM_CATEGORIES, ITEM_KINDS, UNITS } from "@kokoro/shared";
 import { type ReactNode, useId } from "react";
 
 import { Input } from "@/components/ui/input";

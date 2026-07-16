@@ -3,8 +3,8 @@
 // the SAME db.batch() as the event write (Doc 08 D-3: one atomic batch per command). This
 // function never executes on its own; it only builds the insert.
 
-import { generateUuidV7, nowIso } from "@kokoro/shared";
 import type { AuditActor } from "@kokoro/shared";
+import { generateUuidV7, nowIso } from "@kokoro/shared";
 
 import type { Db } from "../db/index.js";
 import { auditLog } from "../db/schema.js";

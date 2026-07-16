@@ -57,7 +57,7 @@ pnpm run dev:worker # apps/worker via wrangler dev
 pnpm run dev:web    # apps/web via vite
 ```
 
-Node >= 22.13 (pnpm 11 itself requires it), pnpm 11 (see `devEngines` in `package.json`). Formatting/linting is Biome only
+Node >= 24.18 (pnpm 11 itself requires it), pnpm 11 (see `devEngines` in `package.json`). Formatting/linting is Biome only
 (`pnpm run lint:fix` / `pnpm run format`). TypeScript is `strict` with `noUncheckedIndexedAccess`
 across every workspace (`tsconfig.base.json`).
 

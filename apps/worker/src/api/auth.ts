@@ -10,9 +10,9 @@ import { CSRF_COOKIE_NAME, generateCsrfToken } from "../auth/csrf.js";
 import { verifyPassword } from "../auth/password.js";
 import { isLoginRateLimited, recordFailedLoginAttempt } from "../auth/rate-limit.js";
 import {
+  createSessionCookieValue,
   SESSION_COOKIE_NAME,
   SESSION_MAX_AGE_SECONDS,
-  createSessionCookieValue,
 } from "../auth/session.js";
 import { rateLimited, unauthorized } from "../core/errors.js";
 import { createDb } from "../db/index.js";

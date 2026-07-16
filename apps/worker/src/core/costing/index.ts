@@ -1,3 +1,4 @@
+export { buildWacRepairIfDrifted, getCurrentWac } from "./repair.js";
 export type { ReplayMovement } from "./wac.js";
 export {
   applyWacEntry,
@@ -5,4 +6,3 @@ export {
   recomputeWacFromMovements,
   snapshotUnitCost,
 } from "./wac.js";
-export { buildWacRepairIfDrifted, getCurrentWac } from "./repair.js";

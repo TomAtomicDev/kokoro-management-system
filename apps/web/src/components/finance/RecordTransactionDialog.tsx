@@ -11,8 +11,8 @@
 import {
   type FinancialAccountDto,
   type FinancialTransactionCategory,
-  RECORD_TRANSACTION_CATEGORIES_BY_TYPE,
   nowIso,
+  RECORD_TRANSACTION_CATEGORIES_BY_TYPE,
   recordTransactionCommandSchema,
   toBusinessDate,
 } from "@kokoro/shared";

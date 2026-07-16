@@ -5,8 +5,8 @@
 // that account), unlike an ordinary expense/transfer row in the transactions table below, which
 // never gets that treatment (see features/finance/transaction-styling.ts for that rule).
 
-import { formatMoney } from "@kokoro/shared";
 import type { FinancialAccountDto } from "@kokoro/shared";
+import { formatMoney } from "@kokoro/shared";
 
 import { financeLabels } from "@/lib/i18n-finance";
 import { cn } from "@/lib/utils";

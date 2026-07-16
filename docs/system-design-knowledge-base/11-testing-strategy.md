@@ -37,6 +37,18 @@ Template per command service: seed fixture catalog → execute command → asser
 (d) audit_log entry, (e) **atomicity**: force a failing statement in the batch and assert
 nothing persisted (INV-1).
 
+**Storage isolation is per test FILE, not per test** (`@cloudflare/vitest-pool-workers` v0.13+ —
+the earlier `isolatedStorage: true` per-`it()` default was removed upstream; each test file gets
+one fresh copy of the post-migration seeded D1, shared by every `it()`/`describe()` inside it).
+Most suites are unaffected because they create fresh rows per test (`generateUuidV7`-keyed), but
+any suite asserting against a **fixed seeded row** (e.g. `financial_accounts.acc_bank`/`acc_cash`,
+Doc 04 §7) that a prior test in the same file may have mutated MUST add a `beforeEach` that resets
+that state before every test — see `apps/worker/test/finance.test.ts` and `test/auth.test.ts`
+(the latter resets rate-limit `audit_log` rows so login-attempt counting doesn't leak across
+tests) for the pattern. Forgetting this reset doesn't fail fast: tests pass or fail depending on
+declaration order, which is worse than an obvious crash — watch for it in review whenever a new
+integration test touches seed-only rows instead of creating its own.
+
 Priority suites: purchase (WAC + replacement cost updates), production run (consumption edit,
 output WAC), sale (PAID vs ON_CREDIT, margin snapshots), collect receivable, order lifecycle end
 to end (deposit liability rises/falls correctly — INV-7), cancel with REFUND vs FORFEIT, exits,
