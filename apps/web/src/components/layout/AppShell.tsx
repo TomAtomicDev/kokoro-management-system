@@ -26,7 +26,7 @@ export function AppShell() {
         />
 
         <main className="flex-1 overflow-y-auto">
-          <div className="mx-auto max-w-[1280px] px-6 py-6">
+          <div className="mx-auto max-w-[var(--layout-content-max-width)] px-[var(--layout-content-gutter)] py-6">
             <Outlet />
           </div>
         </main>

@@ -17,7 +17,7 @@ export function QuickAddModalPlaceholder({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="w-full max-w-md rounded-lg border border-border bg-background p-6 shadow-lg">
+      <div className="w-full max-w-md rounded-lg border border-border bg-card p-6 shadow-lg">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-base font-semibold">{navLabels.registrar}</h2>
           <button
