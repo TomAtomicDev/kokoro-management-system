@@ -12,7 +12,7 @@ function PlaceholderStat({ label }: { label: string }) {
       <span className="text-muted-foreground text-xs">{label}</span>
       <div className="flex items-baseline justify-between">
         <span className="numeric-cell text-subtle-foreground text-lg">—</span>
-        <span className="text-subtle-foreground text-xs">{financeLabels.comingSoon}</span>
+        <span className="text-muted-foreground text-xs">{financeLabels.comingSoon}</span>
       </div>
     </div>
   );

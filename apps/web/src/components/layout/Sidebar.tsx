@@ -5,12 +5,18 @@ import { cn } from "@/lib/utils";
 
 import { footerNav, primaryNav } from "./nav-items";
 
-const linkClassName =
-  "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-sidebar-foreground " +
-  "transition-colors duration-fast hover:bg-accent";
 // Active state = a filled UI Ink pill, not just a color change. It should read as "the important
 // thing here", not as a themed/branded button (see globals.css — --primary is the ink token).
-const activeLinkProps = { className: "bg-primary text-primary-foreground hover:bg-primary" };
+// Styled off TanStack Router's `data-status="active"` attribute (not `activeProps`) so there's a
+// single className string and no risk of a base/active utility pair silently losing to Tailwind's
+// generated CSS order — `activeProps.className` merges additively with `className` rather than
+// replacing it, and two plain `text-*` utilities of equal specificity resolve by source order in
+// the stylesheet, not by their order in the class list (this previously made active-link text
+// invisible: `text-sidebar-foreground` from the base class was beating `text-primary-foreground`).
+const linkClassName =
+  "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-sidebar-foreground " +
+  "transition-colors duration-fast hover:bg-accent " +
+  "data-[status=active]:bg-primary data-[status=active]:text-primary-foreground data-[status=active]:hover:bg-primary";
 
 export function Sidebar({
   collapsed,
@@ -35,7 +41,7 @@ export function Sidebar({
           never repeated elsewhere (not in the topbar, not per-screen — see design brief). */}
       <div className="flex items-center gap-1.5 px-4 pt-4 pb-2">
         <span className="brand-display text-brand text-base tracking-wide">KOKORO</span>
-        {!collapsed && <span className="text-subtle-foreground text-xs">gestión</span>}
+        {!collapsed && <span className="text-muted-foreground text-xs">gestión</span>}
       </div>
 
       <nav className="flex flex-1 flex-col gap-1 overflow-y-auto p-2">
@@ -46,7 +52,7 @@ export function Sidebar({
             ) : (
               <p
                 key={entry.label}
-                className="mt-4 mb-1 px-2 text-subtle-foreground text-xs font-semibold tracking-wide uppercase first:mt-0"
+                className="mt-4 mb-1 px-2 text-muted-foreground text-xs font-semibold tracking-wide uppercase first:mt-0"
               >
                 {entry.label}
               </p>
@@ -75,7 +81,6 @@ export function Sidebar({
               key={entry.to}
               to={entry.to}
               activeOptions={{ exact: true }}
-              activeProps={activeLinkProps}
               title={collapsed ? entry.label : undefined}
               className={linkClassName}
             >
@@ -94,7 +99,6 @@ export function Sidebar({
               key={entry.to}
               to={entry.to}
               activeOptions={{ exact: true }}
-              activeProps={activeLinkProps}
               title={collapsed ? entry.label : undefined}
               className={linkClassName}
             >
