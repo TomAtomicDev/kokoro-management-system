@@ -194,6 +194,15 @@ irrelevant except in the AI loop, which is network-bound (streamed).
   Worker version switch; migrations MUST be backward-compatible with the previous Worker version
   (expand → migrate → contract pattern).
 - Rollback: `wrangler rollback` (Worker versions); DB rollbacks are forward-fix only.
+- **Known gap (as of 2026-07-14):** the Cloudflare account is still on the Workers **Free** plan,
+  which caps Cron Triggers at 5 **per account** (not per Worker). `kokoro-staging` already holds
+  all 5 slots from §4.4's cron table, so `deploy-prod`'s trigger-registration call is rejected on
+  every run until the account is upgraded to Workers Paid — a cost already budgeted in §10 for
+  exactly this reason. The Worker script, static assets, bindings, and D1 migrations deploy to
+  prod successfully regardless; only the `/schedules` API call fails, which still fails the whole
+  `deploy-prod` job. This is expected and tracked as **KOK-061** (Doc 10) — do not treat a failing
+  `deploy-prod` cron step as a new regression before that task lands. Full incident writeup:
+  `docs/deployment-guide.md` §6.5.
 
 ## 10. Cost estimate (monthly)
 
