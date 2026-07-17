@@ -1,17 +1,34 @@
-// financial_accounts reads + the shared relative-balance-update builder (INV-5). This module is
-// a BUILDING BLOCK like core/inventory (KOK-012): `buildAccountBalanceDelta` only builds a
-// Drizzle statement, it never executes on its own — transactions.ts and transfer.ts (the actual
-// top-level commands, UC-11/12/13) include it in their own db.batch() alongside the
+// financial_accounts reads + the shared relative-balance-update builder (INV-5). Most of this
+// module is a BUILDING BLOCK like core/inventory (KOK-012): `buildAccountBalanceDelta` only
+// builds a Drizzle statement, it never executes on its own — transactions.ts and transfer.ts (the
+// actual top-level commands, UC-11/12/13) include it in their own db.batch() alongside the
 // financial_transactions insert(s) and the audit_log insert (D-3: one atomic batch per command).
+//
+// `setOpeningBalances` (KOK-020, Doc 07 steps 1-5) is the one exception: it IS a top-level command
+// living in this file rather than its own module, because it only ever touches financial_accounts
+// (an ABSOLUTE set, not the relative delta above) and belongs next to the account rows it mutates.
 
-import type { FinancialAccountDto, ListAccountsResult } from "@kokoro/shared";
+import type {
+  AuditActor,
+  FinancialAccountDto,
+  ListAccountsResult,
+  SetOpeningBalancesCommand,
+  SetOpeningBalancesResult,
+} from "@kokoro/shared";
 import { eq, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 
 import type { Db } from "../../db/index.js";
 import { financialAccounts } from "../../db/schema.js";
-import { notFound, validationError } from "../errors.js";
+import { buildAuditLogInsert } from "../audit.js";
+import { conflict, notFound, validationError } from "../errors.js";
+import { getSetting } from "../settings/index.js";
 import { toAccountDto } from "./dto.js";
+
+/** The only two accounts that exist (Doc 04 §7 seed) — same literal-id precedent
+ * test/counts.test.ts/test/purchasing.test.ts already use. */
+const BANK_ACCOUNT_ID = "acc_bank";
+const CASH_ACCOUNT_ID = "acc_cash";
 
 type Statement = BatchItem<"sqlite">;
 type FinancialAccountRow = typeof financialAccounts.$inferSelect;
@@ -74,4 +91,82 @@ export async function listAccounts(db: Db): Promise<ListAccountsResult> {
     orderBy: (t, { asc }) => asc(t.name),
   });
   return { accounts: rows.map(toAccountDto) };
+}
+
+/**
+ * Onboarding wizard step (KOK-020, Doc 07 steps 1-5): sets BOTH `openingBalance` AND `balance` to
+ * the given values for the two seeded accounts. Unlike `buildAccountBalanceDelta` (a RELATIVE
+ * `balance = balance + delta`, used by every other finance command for INV-5), this is an
+ * ABSOLUTE `.set({ openingBalance, balance })` — the two operations are semantically different and
+ * are not interchangeable: this one only ever runs once, before any transaction has been recorded,
+ * to declare the starting point INV-5's deltas accumulate from afterward.
+ *
+ * Guarded by `onboarding_completed_at` (core/settings): once onboarding has been marked complete,
+ * opening balances are frozen — re-running this would silently rewrite financial history that
+ * later transactions have already accumulated on top of.
+ *
+ * One audit_log row for the combined action (mirrors core/finance/transfer.ts's documented
+ * judgment call: "a single owner action producing two linked writes -> one audit entry"),
+ * entityType `financial_accounts`, entityId `acc_bank` by convention, `after` carrying both new
+ * balances.
+ */
+export async function setOpeningBalances(
+  db: Db,
+  command: SetOpeningBalancesCommand,
+  actor: AuditActor,
+): Promise<SetOpeningBalancesResult> {
+  const completedAt = await getSetting(db, "onboarding_completed_at");
+  if (completedAt) {
+    throw conflict(
+      "Ya se completó la configuración inicial; los saldos de apertura no se pueden modificar después.",
+      {},
+    );
+  }
+
+  const [bankAccount, cashAccount] = await Promise.all([
+    findActiveAccountRowOrThrow(db, BANK_ACCOUNT_ID),
+    findActiveAccountRowOrThrow(db, CASH_ACCOUNT_ID),
+  ]);
+
+  await db.batch([
+    db
+      .update(financialAccounts)
+      .set({ openingBalance: command.bankOpening, balance: command.bankOpening })
+      .where(eq(financialAccounts.id, BANK_ACCOUNT_ID)),
+    db
+      .update(financialAccounts)
+      .set({ openingBalance: command.cashOpening, balance: command.cashOpening })
+      .where(eq(financialAccounts.id, CASH_ACCOUNT_ID)),
+    buildAuditLogInsert(db, {
+      actor,
+      action: "set_opening_balances",
+      entityType: "financial_accounts",
+      entityId: BANK_ACCOUNT_ID,
+      before: {
+        bankOpening: bankAccount.openingBalance,
+        bankBalance: bankAccount.balance,
+        cashOpening: cashAccount.openingBalance,
+        cashBalance: cashAccount.balance,
+      },
+      after: {
+        bankOpening: command.bankOpening,
+        bankBalance: command.bankOpening,
+        cashOpening: command.cashOpening,
+        cashBalance: command.cashOpening,
+      },
+    }),
+  ]);
+
+  return {
+    bankAccount: toAccountDto({
+      ...bankAccount,
+      openingBalance: command.bankOpening,
+      balance: command.bankOpening,
+    }),
+    cashAccount: toAccountDto({
+      ...cashAccount,
+      openingBalance: command.cashOpening,
+      balance: command.cashOpening,
+    }),
+  };
 }

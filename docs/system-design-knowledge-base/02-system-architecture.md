@@ -164,8 +164,9 @@ Time policy: store UTC ISO-8601; every event also stores `business_date` (local 
   from `OWNER_TELEGRAM_CHAT_ID`; anything else answered with a polite refusal and logged.
 - **AI boundary:** the model can only call whitelisted tools with Zod-validated inputs; no
   free-form SQL in v1 (ADR-006). Write tools always require human confirmation (**INV-4**).
-- **Data:** single-tenant; R2 bucket private (signed URLs for photos); backups encrypted at rest
-  by Cloudflare. No PII beyond customer first names/phones the owner types.
+- **Data:** single-tenant; R2 bucket private, accessed only via session-gated Worker-proxied
+  routes (not presigned URLs — ADR-015); backups encrypted at rest by Cloudflare. No PII beyond
+  customer first names/phones the owner types.
 
 ## 7. Observability
 

@@ -36,7 +36,11 @@ export type AppPath =
   | "/assistant"
   | "/settings"
   | "/settings/ai"
-  | "/settings/catalog";
+  | "/settings/catalog"
+  // First-run-only wizard (KOK-020) — deliberately NOT added to primaryNav/footerNav/mobileTabs
+  // below; it's reached only via the `/` redirect while onboarding is incomplete, never a
+  // persistent nav destination.
+  | "/onboarding";
 
 export interface NavLinkItem {
   kind: "link";

@@ -19,7 +19,9 @@ import { buildAuditLogInsert } from "../audit.js";
 import { conflict, notFound } from "../errors.js";
 import { fetchAliasesForItem, fetchAliasesForItems, toItemDto } from "./dto.js";
 
-async function findItemRowByName(db: Db, name: string, excludeId?: string) {
+// Exported for core/catalog/bulk-import.ts's per-item duplicate check (KOK-020) — same query,
+// reused rather than re-declared, so the two duplicate-name checks never drift apart.
+export async function findItemRowByName(db: Db, name: string, excludeId?: string) {
   return db.query.items.findFirst({
     where: (t, { and, eq: eqOp, ne }) =>
       excludeId ? and(eqOp(t.name, name), ne(t.id, excludeId)) : eqOp(t.name, name),

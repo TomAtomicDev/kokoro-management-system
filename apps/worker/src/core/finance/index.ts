@@ -1,4 +1,4 @@
-export { getAccount, listAccounts } from "./accounts.js";
+export { getAccount, listAccounts, setOpeningBalances } from "./accounts.js";
 export {
   assertTransactionEditable,
   listTransactions,
