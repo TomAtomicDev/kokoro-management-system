@@ -93,6 +93,71 @@ export async function listAccounts(db: Db): Promise<ListAccountsResult> {
   return { accounts: rows.map(toAccountDto) };
 }
 
+/** Raw aggregate row for `getBalanceConsistencyMismatches` — a hand-written GROUP BY/JOIN over
+ * `financial_accounts`/`financial_transactions` (Doc 04 §3.4), not a view. */
+interface BalanceMismatchRow {
+  account_id: string;
+  account_name: string;
+  expected_balance: number;
+  actual_balance: number;
+}
+
+/** One active account where the stored `balance` disagrees with what the transaction ledger
+ * implies (INV-5's nightly consistency sentinel, KOK-021). */
+export interface BalanceMismatchDto {
+  accountId: string;
+  accountName: string;
+  /** Centavos (INV-6): `openingBalance + Σ(amount signed by type)`, excluding soft-deleted
+   * transactions — what `balance` SHOULD equal per INV-5. */
+  expectedBalance: number;
+  /** Centavos: the value actually stored in `financial_accounts.balance`. */
+  actualBalance: number;
+}
+
+/**
+ * INV-5's nightly consistency sentinel (KOK-021) for cash: for every ACTIVE account, compares
+ * `openingBalance + Σ(amount signed by type)` — INCOME/TRANSFER_IN add, EXPENSE/TRANSFER_OUT
+ * subtract, `amount` is always positive (Doc 04 §3.4's CHECK constraint) so the sign comes purely
+ * from `type` — against the stored `balance` (INV-5's derived column, kept live by
+ * `buildAccountBalanceDelta` on every command). Soft-deleted transactions
+ * (`deleted_at IS NOT NULL`) are excluded, mirroring `listTransactions`'s filter precedent
+ * (`transactions.ts`).
+ *
+ * A mismatch means an earlier batch broke atomicity somewhere upstream (a `financial_transactions`
+ * row written without its paired balance delta, or vice versa). Like
+ * `core/inventory`'s `getStockConsistencyMismatches`, this is a pure read with no repair procedure
+ * defined — it only detects and reports.
+ */
+export async function getBalanceConsistencyMismatches(db: Db): Promise<BalanceMismatchDto[]> {
+  const rows = await db.all<BalanceMismatchRow>(sql`
+    SELECT * FROM (
+      SELECT
+        a.id AS account_id,
+        a.name AS account_name,
+        a.balance AS actual_balance,
+        a.opening_balance + COALESCE(SUM(CASE
+          WHEN t.type IN ('INCOME', 'TRANSFER_IN') THEN t.amount
+          WHEN t.type IN ('EXPENSE', 'TRANSFER_OUT') THEN -t.amount
+          ELSE 0
+        END), 0) AS expected_balance
+      FROM financial_accounts a
+      LEFT JOIN financial_transactions t
+        ON t.account_id = a.id AND t.deleted_at IS NULL
+      WHERE a.is_active = 1
+      GROUP BY a.id, a.name, a.opening_balance, a.balance
+    )
+    WHERE expected_balance != actual_balance
+    ORDER BY account_name ASC
+  `);
+
+  return rows.map((row) => ({
+    accountId: row.account_id,
+    accountName: row.account_name,
+    expectedBalance: row.expected_balance,
+    actualBalance: row.actual_balance,
+  }));
+}
+
 /**
  * Onboarding wizard step (KOK-020, Doc 07 steps 1-5): sets BOTH `openingBalance` AND `balance` to
  * the given values for the two seeded accounts. Unlike `buildAccountBalanceDelta` (a RELATIVE

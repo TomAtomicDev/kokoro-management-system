@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
-import { Bot, Package } from "lucide-react";
+import { Bot, DatabaseBackup, Package } from "lucide-react";
 
+import { backupsLabels } from "@/lib/i18n-backups";
 import { catalogLabels } from "@/lib/i18n-catalog";
 import { navLabels } from "@/lib/i18n-nav";
 
@@ -11,6 +12,7 @@ export function SettingsRoute() {
   const sections = [
     { to: "/settings/catalog" as const, label: catalogLabels.title, icon: Package },
     { to: "/settings/ai" as const, label: navLabels.iaOps, icon: Bot },
+    { to: "/settings/backups" as const, label: backupsLabels.title, icon: DatabaseBackup },
   ];
 
   return (

@@ -1,4 +1,10 @@
-export { getAccount, listAccounts, setOpeningBalances } from "./accounts.js";
+export type { BalanceMismatchDto } from "./accounts.js";
+export {
+  getAccount,
+  getBalanceConsistencyMismatches,
+  listAccounts,
+  setOpeningBalances,
+} from "./accounts.js";
 export {
   assertTransactionEditable,
   listTransactions,

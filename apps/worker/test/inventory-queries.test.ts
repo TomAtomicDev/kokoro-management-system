@@ -22,10 +22,15 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { createItem, setItemActive } from "../src/core/catalog/index.js";
 import { buildStockMovementStatements } from "../src/core/inventory/index.js";
-import { listKardex, listStock } from "../src/core/inventory/queries.js";
+import {
+  getStockConsistencyMismatches,
+  getStockValueTotal,
+  listKardex,
+  listStock,
+} from "../src/core/inventory/queries.js";
 import { recordPurchase } from "../src/core/purchasing/index.js";
 import { createDb } from "../src/db/index.js";
-import { financialAccounts } from "../src/db/schema.js";
+import { financialAccounts, itemStock } from "../src/db/schema.js";
 
 const ACTOR = "OWNER_WEB" as const;
 
@@ -215,6 +220,53 @@ describe("listStock (Doc 04 §4 v_stock, SC-08)", () => {
   });
 });
 
+describe("getStockValueTotal (KOK-023 dashboard aggregate, SUM(stock_value) over v_stock)", () => {
+  it("increases by exactly the sum of newly purchased items' stockValue", async () => {
+    const db = createDb(env.DB);
+    const before = await getStockValueTotal(db);
+
+    const itemA = await seedItem(db, "Stock value total item A");
+    const itemB = await seedItem(db, "Stock value total item B");
+
+    await recordPurchase(
+      db,
+      {
+        accountId: "acc_bank",
+        occurredAt: "2026-07-16T10:00:00.000Z",
+        businessDate: "2026-07-16",
+        lines: [
+          { itemId: itemA.id, qty: 5000, lineTotal: 10000 }, // stockValue 10000
+          { itemId: itemB.id, qty: 2000, lineTotal: 6000 }, // stockValue 6000
+        ],
+      },
+      ACTOR,
+    );
+
+    const after = await getStockValueTotal(db);
+    expect(after - before).toBe(16000);
+  });
+
+  it("excludes an inactive item, matching v_stock's own WHERE is_active = 1", async () => {
+    const db = createDb(env.DB);
+    const item = await seedItem(db, "Stock value inactive item");
+    await recordPurchase(
+      db,
+      {
+        accountId: "acc_bank",
+        occurredAt: "2026-07-16T10:00:00.000Z",
+        businessDate: "2026-07-16",
+        lines: [{ itemId: item.id, qty: 1000, lineTotal: 2000 }],
+      },
+      ACTOR,
+    );
+
+    const before = await getStockValueTotal(db);
+    await setItemActive(db, { id: item.id, isActive: false }, ACTOR);
+    const after = await getStockValueTotal(db);
+    expect(before - after).toBe(2000);
+  });
+});
+
 describe("listKardex (Doc 04 §4 v_kardex, SC-08's row -> drawer interaction)", () => {
   it("returns only the filtered item's movements, newest-first, with correct runningBalance progression", async () => {
     const db = createDb(env.DB);
@@ -310,5 +362,50 @@ describe("listKardex (Doc 04 §4 v_kardex, SC-08's row -> drawer interaction)", 
     // real caller-facing 400 comes from listKardexFiltersSchema.parse() at the route layer
     // (apps/worker/src/api/inventory.ts), which this test does not exercise directly.
     await expect(listKardex(db, {})).rejects.toMatchObject({ code: "VALIDATION" });
+  });
+});
+
+describe("getStockConsistencyMismatches (INV-5 nightly sentinel, KOK-021)", () => {
+  it("reports no mismatch for an item whose item_stock still agrees with its stock_movements ledger", async () => {
+    const db = createDb(env.DB);
+    const item = await seedItem(db, "Consistency happy item");
+    await recordPurchase(
+      db,
+      {
+        accountId: "acc_bank",
+        occurredAt: "2026-07-16T10:00:00.000Z",
+        businessDate: "2026-07-16",
+        lines: [{ itemId: item.id, qty: 3000, lineTotal: 3000 }],
+      },
+      ACTOR,
+    );
+
+    const mismatches = await getStockConsistencyMismatches(db);
+    expect(mismatches.some((m) => m.itemId === item.id)).toBe(false);
+  });
+
+  it("detects a mismatch when item_stock.qtyOnHand is corrupted independently of the stock_movements ledger", async () => {
+    const db = createDb(env.DB);
+    const item = await seedItem(db, "Consistency corrupted item");
+    await recordPurchase(
+      db,
+      {
+        accountId: "acc_bank",
+        occurredAt: "2026-07-16T10:00:00.000Z",
+        businessDate: "2026-07-16",
+        lines: [{ itemId: item.id, qty: 1000, lineTotal: 1000 }],
+      },
+      ACTOR,
+    );
+
+    // Deliberately corrupt item_stock directly (test-only fixture, mirrors
+    // test/costing-repair.test.ts's direct items.wac corruption) so it disagrees with the ledger's
+    // true SUM(qty) of 1000 — no core/ command produces this state, it simulates an earlier
+    // atomicity bug this sentinel exists to catch.
+    await db.update(itemStock).set({ qtyOnHand: 9999 }).where(eq(itemStock.itemId, item.id));
+
+    const mismatches = await getStockConsistencyMismatches(db);
+    const row = mismatches.find((m) => m.itemId === item.id);
+    expect(row).toMatchObject({ itemId: item.id, expectedQty: 1000, actualQty: 9999 });
   });
 });

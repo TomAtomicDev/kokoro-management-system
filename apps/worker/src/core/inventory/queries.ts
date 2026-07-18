@@ -83,6 +83,27 @@ function toStockRowDto(row: StockViewRow): StockRowDto {
   };
 }
 
+/** Raw aggregate row for `getStockConsistencyMismatches` — a hand-written GROUP BY/JOIN over
+ * `stock_movements`/`item_stock` (Doc 04 §3.4), not a view. */
+interface StockMismatchRow {
+  item_id: string;
+  item_name: string;
+  expected_qty: number;
+  actual_qty: number;
+}
+
+/** One item where the derived `item_stock.qtyOnHand` disagrees with what the append-only
+ * `stock_movements` ledger implies (INV-5's nightly consistency sentinel, KOK-021). */
+export interface StockMismatchDto {
+  itemId: string;
+  itemName: string;
+  /** Milli-units (Doc 04 §2): `SUM(stock_movements.qty)` for this item — what
+   * `item_stock.qtyOnHand` SHOULD equal if every movement was correctly netted. */
+  expectedQty: number;
+  /** Milli-units: the value actually stored in `item_stock.qtyOnHand`. */
+  actualQty: number;
+}
+
 function toKardexRowDto(row: KardexViewRow): KardexRowDto {
   return {
     id: row.id,
@@ -166,4 +187,56 @@ export async function listKardex(db: Db, filters: ListKardexFilters): Promise<Li
   `);
 
   return { movements: rows.map(toKardexRowDto) };
+}
+
+/**
+ * Total stock value across all active items — `SUM(v_stock.stock_value)` (Doc 04 §4). A dedicated
+ * aggregate rather than summing `listStock`'s rows in JS so the addition (a `Centavos` sum, INV-6)
+ * happens once, in SQL, instead of needing a `money.ts` reduce at every call site. Introduced for
+ * `jobs/daily-snapshot.ts`'s (KOK-021) `daily_snapshots.stock_value` column; the KOK-023 dashboard
+ * task wants the same total, hence a shared export here rather than a job-local query.
+ */
+export async function getStockValueTotal(db: Db): Promise<number> {
+  const rows = await db.all<{ total: number | null }>(
+    sql`SELECT COALESCE(SUM(stock_value), 0) AS total FROM v_stock`,
+  );
+  return rows[0]?.total ?? 0;
+}
+
+/**
+ * INV-5's nightly consistency sentinel (KOK-021) for stock: for every item, compares
+ * `SUM(stock_movements.qty)` — the append-only ledger's own truth, never soft-deleted (Doc 04
+ * §3.4) — against the `item_stock.qty_on_hand` it should net to. A mismatch means an earlier batch
+ * broke atomicity somewhere upstream (a movement written without its paired `item_stock` upsert,
+ * or vice versa). This function only DETECTS and reports it; unlike WAC (R-2, `core/costing`'s
+ * `buildWacRepairIfDrifted`), there is no defined repair procedure for a stock-qty mismatch, so
+ * this is a pure read with no statements to build — a bug to surface, not silently patch.
+ *
+ * Not filtered to active items (unlike `listStock`/`v_stock`): a ledger inconsistency on an
+ * inactive item is still a real inconsistency worth surfacing.
+ */
+export async function getStockConsistencyMismatches(db: Db): Promise<StockMismatchDto[]> {
+  const rows = await db.all<StockMismatchRow>(sql`
+    SELECT
+      i.id AS item_id,
+      i.name AS item_name,
+      COALESCE(m.expected_qty, 0) AS expected_qty,
+      COALESCE(s.qty_on_hand, 0) AS actual_qty
+    FROM items i
+    LEFT JOIN (
+      SELECT item_id, SUM(qty) AS expected_qty
+      FROM stock_movements
+      GROUP BY item_id
+    ) m ON m.item_id = i.id
+    LEFT JOIN item_stock s ON s.item_id = i.id
+    WHERE COALESCE(m.expected_qty, 0) != COALESCE(s.qty_on_hand, 0)
+    ORDER BY i.name ASC
+  `);
+
+  return rows.map((row) => ({
+    itemId: row.item_id,
+    itemName: row.item_name,
+    expectedQty: row.expected_qty,
+    actualQty: row.actual_qty,
+  }));
 }

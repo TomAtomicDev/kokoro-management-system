@@ -24,6 +24,7 @@ import { SalesRoute } from "@/routes/sales";
 import { SessionsRoute } from "@/routes/sessions";
 import { SettingsRoute } from "@/routes/settings";
 import { SettingsAiRoute } from "@/routes/settings-ai";
+import { SettingsBackupsRoute } from "@/routes/settings-backups";
 import { SettingsCatalogRoute } from "@/routes/settings-catalog";
 
 // Code-based routing (not file-based): the true root is bare (just an <Outlet/>, TanStack
@@ -151,6 +152,12 @@ const settingsCatalogRoute = createRoute({
   component: SettingsCatalogRoute,
 });
 
+const settingsBackupsRoute = createRoute({
+  getParentRoute: () => authenticatedRoute,
+  path: "/settings/backups",
+  component: SettingsBackupsRoute,
+});
+
 const onboardingRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: "/onboarding",
@@ -173,6 +180,7 @@ const routeTree = rootRoute.addChildren([
     settingsRoute,
     settingsAiRoute,
     settingsCatalogRoute,
+    settingsBackupsRoute,
     onboardingRoute,
   ]),
   loginRoute,

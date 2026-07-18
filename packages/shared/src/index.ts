@@ -4,8 +4,10 @@
 // intentionally NOT re-exported.
 
 export * from "./auth";
+export * from "./backups";
 export * from "./catalog";
 export * from "./counts";
+export * from "./dashboard";
 export * from "./dates";
 export * from "./enums";
 export * from "./exits";

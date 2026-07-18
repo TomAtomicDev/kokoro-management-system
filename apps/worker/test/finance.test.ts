@@ -16,6 +16,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import {
   getAccount,
+  getBalanceConsistencyMismatches,
   listAccounts,
   listTransactions,
   recordTransaction,
@@ -477,5 +478,55 @@ describe("batch atomicity (INV-1)", () => {
       "SELECT id FROM financial_transactions WHERE id = 'tx_atomicity_test'",
     ).first();
     expect(txRow).toBeNull();
+  });
+});
+
+describe("getBalanceConsistencyMismatches (INV-5 nightly sentinel, KOK-021)", () => {
+  it("reports no mismatch for an account whose stored balance still agrees with its transaction ledger", async () => {
+    const db = createDb(env.DB);
+    await recordTransaction(
+      db,
+      {
+        accountId: "acc_bank",
+        type: "INCOME",
+        category: "OTHER_INCOME",
+        amount: 2000,
+        businessDate: BUSINESS_DATE,
+        occurredAt: NOW,
+      },
+      ACTOR,
+    );
+
+    const mismatches = await getBalanceConsistencyMismatches(db);
+    expect(mismatches.some((m) => m.accountId === "acc_bank")).toBe(false);
+  });
+
+  it("detects a mismatch when financial_accounts.balance is corrupted independently of the transaction ledger", async () => {
+    const db = createDb(env.DB);
+    await recordTransaction(
+      db,
+      {
+        accountId: "acc_cash",
+        type: "INCOME",
+        category: "OTHER_INCOME",
+        amount: 1500,
+        businessDate: BUSINESS_DATE,
+        occurredAt: NOW,
+      },
+      ACTOR,
+    );
+
+    // Deliberately corrupt the stored balance directly (test-only fixture, mirrors this file's own
+    // beforeEach precedent of writing financial_accounts.balance directly) so it disagrees with the
+    // ledger's true opening(0) + 1500 = 1500 — no core/ command produces this state, it simulates an
+    // earlier atomicity bug this sentinel exists to catch.
+    await db
+      .update(financialAccounts)
+      .set({ balance: 42 })
+      .where(eq(financialAccounts.id, "acc_cash"));
+
+    const mismatches = await getBalanceConsistencyMismatches(db);
+    const row = mismatches.find((m) => m.accountId === "acc_cash");
+    expect(row).toMatchObject({ accountId: "acc_cash", expectedBalance: 1500, actualBalance: 42 });
   });
 });

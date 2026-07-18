@@ -4,14 +4,18 @@
 
 import { Hono } from "hono";
 import { authRoute } from "./api/auth.js";
+import { backupsRoute } from "./api/backups.js";
 import { catalogRoute } from "./api/catalog.js";
+import { dashboardRoute } from "./api/dashboard.js";
 import { errorHandler } from "./api/error-handler.js";
 import { financeRoute } from "./api/finance.js";
 import { healthRoute } from "./api/health.js";
 import { inventoryRoute } from "./api/inventory.js";
 import { onboardingRoute } from "./api/onboarding.js";
 import { purchasingRoute } from "./api/purchasing.js";
+import { createDb } from "./db/index.js";
 import type { Env, Variables } from "./env.js";
+import { runJob } from "./jobs/index.js";
 import { requireCsrf, requireSession } from "./middleware/auth.js";
 import { structuredLogging } from "./middleware/logging.js";
 
@@ -33,6 +37,8 @@ app.route("/api", financeRoute); // KOK-014 — standalone transactions, transfe
 app.route("/api", purchasingRoute); // KOK-016 — purchases (Doc 03 UC-01), the template event vertical.
 app.route("/api", inventoryRoute); // KOK-017 — v_stock/v_kardex reads (Doc 07 SC-08).
 app.route("/api", onboardingRoute); // KOK-020 — onboarding wizard (Doc 07 steps 1-5).
+app.route("/api", dashboardRoute); // KOK-023 — dashboard summary (Doc 07 SC-01 reduced).
+app.route("/api", backupsRoute); // KOK-022 — backup status + download (Doc 07 SC-16).
 
 // Extension point for a later backlog task — kept as a comment so the file reads as an obvious
 // map of where things go:
@@ -47,12 +53,14 @@ app.route("/api", onboardingRoute); // KOK-020 — onboarding wizard (Doc 07 ste
 app.get("*", (c) => c.env.ASSETS.fetch(c.req.raw));
 
 /**
- * Cron Trigger dispatcher (Doc 02 §4.4). Job bodies don't exist yet (jobs/ is empty until
- * KOK-021+); for now every scheduled cron just logs which job would have run.
+ * Cron Trigger dispatcher (Doc 02 §4.4). Maps the firing cron expression to a job name
+ * (`jobNameForCron`) and dispatches into the `jobs/` registry (`runJob`, KOK-021) — every job run
+ * is recorded in `job_runs`, so this handler itself never needs its own logging: a failure inside
+ * `runJob`'s dispatched handler is caught there, not here (see `jobs/daily-snapshot.ts`'s header).
  */
-async function scheduled(event: ScheduledEvent, _env: Env, _ctx: ExecutionContext): Promise<void> {
+async function scheduled(event: ScheduledEvent, env: Env, _ctx: ExecutionContext): Promise<void> {
   const job = jobNameForCron(event.cron);
-  console.log(JSON.stringify({ job, at: new Date().toISOString() }));
+  await runJob(createDb(env.DB), job, env.BUCKET);
 }
 
 /** Maps a cron expression (Doc 02 §4.4) to its job name. */
