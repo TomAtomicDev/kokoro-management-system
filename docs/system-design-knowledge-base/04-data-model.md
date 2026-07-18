@@ -297,6 +297,20 @@ CREATE TABLE financial_transactions (
   description TEXT, deleted_at TEXT,
   created_at TEXT NOT NULL, updated_at TEXT NOT NULL
 );
+
+CREATE TABLE costing_adjustments (       -- R-4: cumulative P&L correction from a backdated
+                                          -- WAC replay (ADR-016); never rewrites frozen snapshots
+  id TEXT PRIMARY KEY,
+  occurred_at TEXT NOT NULL, business_date TEXT NOT NULL,  -- date of the CORRECTION, not of the
+                                                            -- backdated event that triggered it
+  item_id TEXT NOT NULL REFERENCES items(id),
+  trigger_event_type TEXT NOT NULL CHECK (trigger_event_type IN ('purchase','production_run')),
+  trigger_event_id TEXT NOT NULL,        -- the create/edit/delete that triggered the replay
+  affected_sale_line_ids TEXT NOT NULL,  -- JSON array of sale_lines.id, for UI drill-down
+  affected_stock_exit_ids TEXT NOT NULL, -- JSON array of stock_exits.id
+  cost_delta INTEGER NOT NULL,           -- centavos, signed: negative = accumulated margin fell
+  created_at TEXT NOT NULL
+);
 ```
 
 Deposit liability is derived, not a table:

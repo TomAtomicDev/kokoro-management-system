@@ -152,6 +152,12 @@ serializers.
 
 ## ADR-009 · Editable events with system-derived kardex; O(1) edits + nightly WAC repair
 
+**Status update (2026-07-18): partially superseded by [ADR-016](#adr-016-synchronous-bounded-wac-replay--cost-adjustment-ledger-for-backdated-inventory-changes-supersedes-adr-009s-nightly-only-repair).**
+The "editable events, system-owned derived rows" decision below still holds. What's superseded
+is the *repair timing* claim (nightly-only, O(1) edit cost) — it didn't account for plain
+out-of-order inserts (not just edits), and left historical sale/exit margins permanently wrong
+when a WAC-affecting event was corrected after the fact. See ADR-016 for the revised mechanism.
+
 **Context.** The original proposal made `Movimientos_Inventario` an immutable user-facing
 ledger. Solo operators mis-record constantly; strict append-only correction (reversal entries)
 is accountant ergonomics, not hers. But naive in-place editing corrupts derived costs.
@@ -164,6 +170,8 @@ a nightly job recomputes WAC from the full kardex and repairs drift > 1% with an
 preserved via `audit_log` before/after; costs are eventually exact with O(1) edit cost. Accepted
 imprecision window: between an edit of an old event and the nightly repair, WAC can be slightly
 stale — immaterial at this margin granularity, and the consistency sentinel (INV-5) monitors it.
+*(Superseded by ADR-016: this window turned out to be unbounded for historical sale margins,
+not just "until tomorrow" — see there.)*
 
 ## ADR-010 · Costing policy: WAC valuation; labor and trip costs not capitalized
 
@@ -253,3 +261,57 @@ multiple authenticated actors with different photo-access scopes, presigned URLs
 capability-scoped variant) become worth revisiting — not needed today. Doc 02 §6 and any future
 receipt-photo-adjacent task (sales/production attachments) should follow this same
 Worker-proxied pattern unless a concrete new requirement forces a change.
+
+## ADR-016 · Synchronous bounded WAC replay + cost-adjustment ledger for backdated inventory changes (supersedes ADR-009's nightly-only repair)
+
+**Context.** ADR-009 assumed WAC drift from edits could wait for the nightly job because edits
+were expected to be rare, deliberate corrections. Designing KOK-024 (event edit/delete) surfaced
+a broader case: **any** new event recorded with a `business_date` earlier than the latest
+already-processed movement for that item — not only edits of existing events — breaks C-1's
+incremental WAC formula, which assumes chronological application order. This is the *routine*
+case for a Telegram-first capture flow (e.g. recording today's production run before backdating
+last week's flour purchase), and it is already reachable today, confirmed in the shipped
+`recordPurchase` (KOK-016): it reads `items.wac` / `item_stock.qty_on_hand` at their CURRENT
+value and applies C-1 against them regardless of the new movement's `business_date`
+(`apps/worker/src/core/purchasing/index.ts:108-154`); no ordering guard exists anywhere in the
+command schema, route, or service. Separately, waiting for the nightly job to fix an item's
+current `wac` never touches already-frozen `sale_lines.unit_cost_snapshot` /
+`stock_exits.unit_cost_snapshot` values — those margins stay wrong forever, not just "until
+tomorrow" as ADR-009 implied.
+
+**Decision.**
+1. Any command that creates, edits, or deletes a movement-affecting event with a `business_date`
+   earlier than the latest already-processed movement for an affected item triggers a
+   **synchronous, bounded replay** — within the same batch as the command, not the nightly job —
+   that resumes `recomputeWacFromMovements` (KOK-013) from the touched point forward instead of
+   only from zero (R-2 revised). The nightly consistency job (KOK-021/INV-5) becomes a backstop
+   auditor for drift the synchronous path might miss (e.g. a direct DB fix bypassing services),
+   not the primary corrector.
+2. The replay cascades across items connected by production recipes (raw material →
+   semi-finished → finished), in recipe-dependency order, because a `ProductionRun`'s output
+   unit cost (C-4) depends on its consumed items' WAC. Until KOK-026 ships, the dependency graph
+   has a single node (no production yet), so this only becomes observable once production runs
+   exist — but the mechanism is designed generically now so KOK-026 doesn't need a second
+   implementation.
+3. Snapshots already frozen at write time (`sale_lines.unit_cost_snapshot`,
+   `stock_exits.unit_cost_snapshot`) are never rewritten by a replay — per-day historical margins
+   stay exactly as originally reported. Instead the replay books a `costing_adjustment` row (new
+   table, Doc 04 §3.4, R-4) capturing the aggregate `cost_delta` in Bs, dated to the
+   *correction's* `business_date` (today), so cumulative profitability reporting absorbs the
+   correction without silently altering history.
+4. Before committing a change whose replay (per point 1) would touch sales or production runs
+   already recorded after the touched point, the service computes and the API returns an
+   **impact preview** (count of affected records + estimated `cost_delta`); the UI requires
+   explicit confirmation before commit (R-5).
+
+**Consequences.** Edit/insert/delete cost is no longer strictly O(1) — it's O(k), k = movements
+since the earliest touched point for the affected item(s), bounded in practice by tens to low
+hundreds of movements for a solo-operator business, which is cheap enough to do synchronously.
+This removes the "stale until tomorrow" WAC window entirely and — more importantly — stops
+historical sale margins from silently absorbing an old costing mistake with no visibility.
+Historical per-day reports stay trustworthy (never rewritten); cumulative rentabilidad stays
+accurate via the adjustment ledger. New complexity: replay must walk a small dependency graph
+across items once production recipes are involved, and the impact-preview UX needs real design
+work (not just a toast). New schema: `costing_adjustments` (Doc 04). This is a prerequisite
+shared by KOK-024 (edit/delete) and KOK-026/KOK-028 (production, WAC cascade on shared-cost
+allocation) — built once in `core/costing`/`core/inventory` rather than twice.
