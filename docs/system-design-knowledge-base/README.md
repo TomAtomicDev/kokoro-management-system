@@ -38,6 +38,11 @@ here. If a rule is missing, the KB must be amended first (see [08 — AI Develop
   decision exists, follow it; if it conflicts with reality, write a superseding ADR.
 - **Naming anything?** Use the [Glossary](13-project-glossary.md). Code identifiers are English;
   UI strings are Spanish.
+- **Designing anything — a new screen, a component, a token change?** `.design/foundations/`
+  (`DESIGN_BRIEF.md` + `DESIGN_TOKENS.md`, produced with the owner against Kokoro's actual brand
+  manual) is the source of truth for the design language, not [06 — UX/UI Specification](06-ux-ui-specification.md)
+  §3 alone — that section summarizes their outcome and defers to them. Start there before
+  inventing a color, a font choice, or a spacing value.
 
 ## Normative language
 

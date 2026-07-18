@@ -50,7 +50,7 @@ that DOs would give is unnecessary: a single human writer; Telegram dedupe (INV-
 idempotency keys cover retries. If a future need appears (e.g., long-running imports), Queues
 can be added behind the existing job abstraction.
 
-## ADR-004 · Frontend: React 18 + Vite SPA with TanStack Router/Query, Tailwind v4 + shadcn/ui
+## ADR-004 · Frontend: React 19 + Vite SPA with TanStack Router/Query, Tailwind v4 + shadcn/ui
 
 **Context.** Desktop-first data app (tables, drawers, charts, chat). Alternatives: Astro
 (content-oriented; islands add complexity for a fully interactive app), TanStack Start / SSR
@@ -230,3 +230,26 @@ them (account cards, transfer flow); schema supports more accounts without migra
 
 **Consequences.** Matches the owner's mental model 1:1 today; adding e.g. a savings account or
 QR wallet later is a data insert plus minor UI work, not a redesign.
+
+## ADR-015 · Receipt photos via Worker-proxied R2 endpoints, not presigned URLs
+
+**Context.** Doc 02 §6 originally said receipt photo upload/view (KOK-016, UC-01) uses "signed
+URLs," which conventionally means S3-style SigV4-presigned URLs allowing the browser to talk to
+R2 directly. Implementing that would require the `aws4fetch` package (or equivalent) plus new R2
+API-key secrets — a new dependency (D-10) and a new credential to provision and rotate, for an
+app with exactly one authenticated user.
+
+**Decision.** Receipt photos go through session-gated Worker routes instead:
+`PUT /api/purchases/photos/:key` and `GET /api/purchases/photos/:key` stream directly to/from
+`env.BUCKET` (`putObject`/`getObject` in `apps/worker/src/lib/r2.ts`). No presigning, no new R2
+credentials, no new package — the existing `/api/*` session + CSRF middleware (ADR-007) is the
+only access control, exactly as it already is for every other business write.
+
+**Consequences.** Functionally equivalent privacy for a single-owner app already gated end-to-end
+by session auth: nothing reachable via a presigned URL would be reachable any other way here. The
+Worker does slightly more request-proxying work (every photo byte flows through it rather than
+browser↔R2 directly), which is irrelevant at this app's traffic volume. If the app ever grows
+multiple authenticated actors with different photo-access scopes, presigned URLs (or a
+capability-scoped variant) become worth revisiting — not needed today. Doc 02 §6 and any future
+receipt-photo-adjacent task (sales/production attachments) should follow this same
+Worker-proxied pattern unless a concrete new requirement forces a change.

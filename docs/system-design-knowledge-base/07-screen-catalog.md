@@ -132,11 +132,21 @@ Password → session. Rate-limited (5 tries / 15 min). Nothing else.
 
 ## Onboarding flow (first run, wizard on empty DB)
 
-1. Set password → 2. Opening balances (bank, cash) → 3. Import/create starter catalog (offers
-the fixture bakery catalog as a template, editable) → 4. Recipes for main products → 5. Initial
-inventory count (sets opening stock via ADJUST) → 6. Link Telegram (deep-link `t.me/...` +
-`/start` code that records `chat_id`) → 7. "Registra tu primera venta" guided capture.
-Steps skippable; dashboard `EmptyState`s point back to unfinished steps.
+1. Password acknowledgment → 2. Opening balances (bank, cash) → 3. Import/create starter catalog
+(offers the fixture bakery catalog as a template, editable) → 4. Recipes for main products →
+5. Initial inventory count (sets opening stock via ADJUST) → 6. Link Telegram (deep-link
+`t.me/...` + `/start` code that records `chat_id`) → 7. "Registra tu primera venta" guided
+capture. Steps skippable; dashboard `EmptyState`s point back to unfinished steps.
+
+**Amendment (KOK-020):** step 1 is acknowledgment-only, not an editable form — "Set password" as
+originally worded implied a form, but the owner's password is a Cloudflare Worker secret
+(`OWNER_PASSWORD_HASH`, provisioned via `wrangler secret put`), not a DB row. A running Worker
+cannot rewrite its own secret, and reaching the wizard already requires a successful login
+(SC-18), so a password necessarily already exists by the time step 1 renders. Step 1 instead
+shows a one-line confirmation ("tu contraseña ya está configurada ✓") with no form and no
+password-change action; changing the password remains an out-of-band `wrangler secret put`
+operation. Steps 6–7 (Telegram link, first sale) are out of scope until their respective backlog
+items (Phase 3/4) land — KOK-020 implements steps 1–5 only.
 
 ## Cross-screen flows
 

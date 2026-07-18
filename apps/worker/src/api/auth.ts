@@ -1,6 +1,7 @@
-// POST /api/auth/login, POST /api/auth/logout (SC-18, ADR-007, KOK-007). Mounted under /api in
-// index.ts. Auth/CSRF middleware (middleware/auth.ts) already exempts POST /api/auth/login from
-// both session and CSRF checks; logout requires a valid session like any other /api/* route.
+// POST /api/auth/login, POST /api/auth/logout, GET /api/auth/session (SC-18, ADR-007, KOK-007,
+// KOK-063). Mounted under /api in index.ts. Auth/CSRF middleware (middleware/auth.ts) already
+// exempts POST /api/auth/login from both session and CSRF checks; logout and session require a
+// valid session like any other /api/* route.
 
 import { loginCommandSchema } from "@kokoro/shared";
 import { Hono } from "hono";
@@ -10,9 +11,9 @@ import { CSRF_COOKIE_NAME, generateCsrfToken } from "../auth/csrf.js";
 import { verifyPassword } from "../auth/password.js";
 import { isLoginRateLimited, recordFailedLoginAttempt } from "../auth/rate-limit.js";
 import {
+  createSessionCookieValue,
   SESSION_COOKIE_NAME,
   SESSION_MAX_AGE_SECONDS,
-  createSessionCookieValue,
 } from "../auth/session.js";
 import { rateLimited, unauthorized } from "../core/errors.js";
 import { createDb } from "../db/index.js";
@@ -59,4 +60,9 @@ export const authRoute = new Hono<{ Bindings: Env; Variables: Variables }>()
     deleteCookie(c, SESSION_COOKIE_NAME, { path: "/", secure: true, sameSite: "Lax" });
     deleteCookie(c, CSRF_COOKIE_NAME, { path: "/", secure: true, sameSite: "Lax" });
     return c.json({ ok: true });
-  });
+  })
+  // Non-mutating auth check for the SPA (KOK-063): not in SESSION_EXEMPT_PATHS, so
+  // requireSession() already 401s before this handler runs when there's no valid cookie —
+  // reaching this line means a session exists. Used by the router's beforeLoad guard and the
+  // TanStack Query client to detect a still-open session without a mutating call.
+  .get("/auth/session", (c) => c.json({ ok: true }));

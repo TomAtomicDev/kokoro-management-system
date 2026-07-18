@@ -2,10 +2,27 @@
 // authz test (every /api/* 401s without session)" + "rate-limit tests". Uses the dev password
 // from .dev.vars (OWNER_PASSWORD_HASH is the hash of "test-password-123" — see
 // .dev.vars.example's header comment).
-import { SELF } from "cloudflare:test";
-import { describe, expect, it } from "vitest";
+//
+// @cloudflare/vitest-pool-workers v0.13+ isolates storage per test FILE, not per test (the old
+// `isolatedStorage: true` per-test default was removed). Login rate limiting counts recent
+// 'login_failed' audit_log rows (see src/auth/rate-limit.ts), so without a reset those rows would
+// carry over between tests in this file and trip the limiter early. The `beforeEach` below clears
+// them so each test starts with a clean rate-limit window.
+import { env, SELF } from "cloudflare:test";
+import { and, eq } from "drizzle-orm";
+import { beforeEach, describe, expect, it } from "vitest";
+
+import { createDb } from "../src/db/index.js";
+import { auditLog } from "../src/db/schema.js";
 
 const DEV_PASSWORD = "test-password-123";
+
+beforeEach(async () => {
+  const db = createDb(env.DB);
+  await db
+    .delete(auditLog)
+    .where(and(eq(auditLog.action, "login_failed"), eq(auditLog.entityType, "auth")));
+});
 
 function getCookieValue(setCookieHeader: string | null, name: string): string | undefined {
   if (!setCookieHeader) return undefined;
@@ -118,5 +135,28 @@ describe("route-level authz on /api/*", () => {
       },
     });
     expect(logoutRes.status).toBe(200);
+  });
+});
+
+describe("GET /api/auth/session", () => {
+  it("returns 401 without a session cookie", async () => {
+    const res = await SELF.fetch("https://example.com/api/auth/session");
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 200 with a valid session cookie, without renewing/needing CSRF", async () => {
+    const loginRes = await SELF.fetch("https://example.com/api/auth/login", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ password: DEV_PASSWORD }),
+    });
+    const sessionCookie = getCookieValue(loginRes.headers.get("set-cookie"), "kokoro_session");
+    expect(sessionCookie).toBeTruthy();
+
+    const sessionRes = await SELF.fetch("https://example.com/api/auth/session", {
+      headers: { cookie: `kokoro_session=${sessionCookie}` },
+    });
+    expect(sessionRes.status).toBe(200);
+    expect(await sessionRes.json()).toEqual({ ok: true });
   });
 });

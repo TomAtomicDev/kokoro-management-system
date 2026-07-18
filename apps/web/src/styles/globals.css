@@ -1,81 +1,287 @@
 @import "tailwindcss";
 
 /*
- * Font: Inter (Doc 06 §3). We reference the family name in the stack below so once a real
- * font file / @font-face (or a Google Fonts `<link>`) is added, it activates with no other
- * changes. Until then, browsers fall back to the system UI stack — no external network fetch.
- * TODO: load an actual Inter font asset (self-hosted preferred, avoid FOUT/CLS) — not required
- * for the shell to be functional.
+ * Kokoro Management — design tokens (Doc 06 §3, revised; see .design/foundations/DESIGN_TOKENS.md
+ * for full rationale, WCAG contrast verification, and the brand-manual reconciliation this
+ * supersedes). Two ideas drive every value below:
+ *
+ *   1. Typography, spacing, and tabular numbers carry the visual language. Color is a scarce
+ *      semantic accent (≤ ~5-8% of any screen), never decoration.
+ *   2. TWO browns, split by job: --brand (Kokoro's actual brand brown) is a *brand moment* color
+ *      — wordmark, login, onboarding — and never a control color. --primary (a near-black warm
+ *      "ink") is the interactive color everywhere else; it reads as emphasis/hierarchy, not as
+ *      "a brown button." This is what keeps the app from feeling like the customer-facing brand.
+ *
+ * Variable names follow shadcn/ui conventions (components.json has cssVariables: true) so future
+ * `shadcn add` components map onto these without renaming. Kokoro-specific extensions (positive/
+ * negative/warning triads, sidebar tones, layout constants) sit alongside the standard set.
  */
 @theme {
-  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica,
-    Arial, sans-serif;
+  /* Product UI face — Inter is chosen to disappear (Linear/Stripe/Notion-class neutral grotesk),
+     not to have personality. Falls back to the system UI stack until a font asset is self-hosted
+     (no external network fetch yet — see TODO below). */
+  --font-sans:
+    "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial,
+    sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
 
-  /* Map the light/dark CSS custom properties below into Tailwind v4 theme tokens so utilities
-     like `bg-background`, `text-foreground`, `bg-brand`, `text-positive` etc. are generated. */
+  /* Brand faces — Cinzel (titles) + Montserrat (brand text), per the Kokoro brand manual. These
+     appear ONLY in brand moments: the sidebar wordmark, the login screen, and first onboarding.
+     Never in tables, forms, dense UI, or even empty states (every sighting flips the user from
+     "tool" mode to "brand" mode). TODO: self-host both once brand assets are finalized. */
+  --font-brand-display: "Cinzel", ui-serif, Georgia, "Times New Roman", serif;
+  --font-brand-text: "Montserrat", ui-sans-serif, system-ui, sans-serif;
+
+  /* Type scale — compact-leaning (this is a dense numbers tool, not a marketing site). */
+  --text-xs: 0.75rem; /* 12px — captions, table meta, badges */
+  --text-sm: 0.8125rem; /* 13px — secondary body, table cells */
+  --text-base: 0.875rem; /* 14px — default UI body */
+  --text-md: 0.9375rem; /* 15px — card/section headers */
+  --text-lg: 1.125rem; /* 18px — subheadings */
+  --text-xl: 1.375rem; /* 22px — small KPI / page subtitle-strong */
+  --text-2xl: 1.625rem; /* 26px — page title */
+  --text-3xl: 2rem; /* 32px — hero KPI figure */
+  --text-4xl: 2.5rem; /* 40px — brand-only headline (login/onboarding, Cinzel) */
+
+  /* Radius scale */
+  --radius-sm: 0.375rem; /* 6px */
+  --radius-md: 0.5rem; /* 8px — default: buttons, inputs, nav items */
+  --radius-lg: 0.75rem; /* 12px — cards, panels */
+  --radius-xl: 1rem; /* 16px — sheets, large modals */
+  --radius-full: 999px; /* pills, badges, avatars, session chip */
+  --radius: var(--radius-md); /* shadcn default-radius hook */
+
+  /* Warm-tinted shadows (espresso, not cold black) — barely-there by default; this system leans
+     on borders + spacing for separation, not elevation (see product principle: constraint over
+     decoration). */
+  --shadow-color: 36 26 18; /* rgb triplet of --color-ink, used via rgb(var(..)/alpha) below */
+  --shadow-sm: 0 1px 2px rgb(var(--shadow-color) / 0.06);
+  --shadow-md:
+    0 4px 10px rgb(var(--shadow-color) / 0.08), 0 1px 2px rgb(var(--shadow-color) / 0.06);
+  --shadow-lg:
+    0 12px 24px rgb(var(--shadow-color) / 0.1), 0 2px 6px rgb(var(--shadow-color) / 0.06);
+
+  /* Motion — restrained, no bounce/playful easing (calm support over alarm; a bounce reads as a
+     personality flourish this tool deliberately avoids). Respect prefers-reduced-motion (below). */
+  --duration-instant: 50ms;
+  --duration-fast: 150ms;
+  --duration-normal: 220ms;
+  --duration-slow: 360ms;
+  --ease-default: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-out: cubic-bezier(0, 0, 0.2, 1);
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+
+  /* Layout constants (Doc 06 §2, normative) — single source of truth so no component hardcodes
+     these pixel values independently. */
+  --layout-topbar-height: 56px;
+  --layout-sidebar-width: 232px;
+  --layout-sidebar-collapsed-width: 64px;
+  --layout-content-max-width: 1280px;
+  --layout-content-gutter: 24px;
+
+  /* ---- Map CSS custom properties (below) into Tailwind v4 theme tokens, so utilities like
+     bg-background, text-foreground, bg-primary, text-positive, etc. are generated. ---- */
   --color-background: var(--background);
-  --color-surface: var(--surface);
-  --color-border: var(--border);
   --color-foreground: var(--foreground);
-  --color-muted-foreground: var(--muted-foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
 
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-subtle-foreground: var(--subtle-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  /* Brand — brand moments only (wordmark / login / onboarding). Never a control color. */
   --color-brand: var(--brand);
   --color-brand-foreground: var(--brand-foreground);
+
+  /* Semantic triads (fg / bg-well) — money direction, margin health, alerts. Assigned by
+     function, never by product category. Kept scarce (≤ ~5-8% of a screen; charts are the one
+     carve-out, see web/src/lib/chart-theme.ts). */
   --color-positive: var(--positive);
+  --color-positive-bg: var(--positive-bg);
   --color-negative: var(--negative);
+  --color-negative-bg: var(--negative-bg);
   --color-warning: var(--warning);
-  --color-info: var(--info);
+  --color-warning-bg: var(--warning-bg);
+
+  /* Sidebar — shadcn's sidebar-component convention, pre-wired for when that primitive is added. */
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-primary: var(--primary);
+  --color-sidebar-primary-foreground: var(--primary-foreground);
+  --color-sidebar-accent: var(--accent);
+  --color-sidebar-accent-foreground: var(--accent-foreground);
 }
 
-/* Design tokens (Doc 06 §3) — light defaults. */
+/*
+ * Light mode (default). Near-white warm neutrals with TINY luminance steps — canvas ~98%L,
+ * card 100%, sidebar ~97% — so warmth comes from hue, not from beige mass; tables and cards keep
+ * contrast instead of dissolving into each other after hours of use.
+ *
+ * All text/background pairs below are WCAG 2.1 AA-verified (4.5:1 for body text, 3:1 for large
+ * text/UI). --subtle-foreground is the one deliberate exception (placeholder/disabled text only,
+ * ~3:1 — never used for meaningful content). Resting borders (--border, --input) are intentionally
+ * soft and are NOT the accessibility guarantee for interactive boundaries; --ring (AA-verified,
+ * ink on light / tan on dark) carries that guarantee on focus.
+ */
 :root {
-  --background: #ffffff;
-  --surface: #f7f5f2; /* warm-tinted neutral surface, pairs with the bread-amber brand */
-  --border: #e7e5e4;
-  --foreground: #1c1917;
-  --muted-foreground: #78716c;
+  --background: #faf6ef; /* canvas */
+  --foreground: #241a12; /* ink — same value as --primary; on light bg it reads as body text */
 
-  --brand: #d97706; /* warm bread-amber 600 */
-  --brand-foreground: #ffffff;
-  --positive: #16a34a; /* green 600 — income / margin-ok */
-  --negative: #dc2626; /* red 600 — reserved for problems, not ordinary expenses */
-  --warning: #f59e0b; /* amber 500 */
-  --info: #2563eb; /* blue 600 */
+  --card: #ffffff; /* surface */
+  --card-foreground: #241a12;
+  --popover: #ffffff;
+  --popover-foreground: #241a12;
+
+  --primary: #241a12; /* UI Ink — the interactive color. Reads as emphasis/hierarchy, not "brown". */
+  --primary-hover: #3a2a1c;
+  --primary-foreground: #fbf6ec;
+
+  --secondary: #f4eee3; /* quiet secondary-button / well surface */
+  --secondary-foreground: #241a12;
+
+  --muted: #f4eee3; /* subtle wells: inputs, chips, disabled fields — same tone as sidebar */
+  --muted-foreground: #6b5d4c; /* AA: 5.9-6.4:1 on canvas/surface */
+  --subtle-foreground: #9c8d76; /* placeholder/disabled ONLY — not AA (~3:1), never meaningful text */
+
+  --accent: #efe6d3; /* hover bg for non-active nav items, menu/list rows */
+  --accent-foreground: #241a12;
+
+  --destructive: #b33f2f; /* = --negative, for destructive actions (delete, cancel) */
+  --destructive-foreground: #fbf6ec;
+
+  --border: #e9e0d0; /* hairline — decorative separators, card outlines */
+  --input: #d9ccb3; /* resting input/component boundary — deliberately soft; --ring carries AA */
+  --ring: #241a12; /* focus ring = ink; 15.8:1 on canvas, unmistakable */
+
+  --brand: #5a3b27; /* Brand Brown — wordmark / login / onboarding ONLY */
+  --brand-foreground: #fbf6ec;
+
+  --positive: #3f7038; /* matcha-tuned green — income, margin-OK, growth. AA: 5.4-5.9:1 */
+  --positive-bg: #e9f0e4;
+  --negative: #b33f2f; /* alive, not muted-terracotta — must stay alarming (Price Health). AA: 4.9-5.7:1 */
+  --negative-bg: #faeae6;
+  --warning: #8f660f; /* ochre — contained use only. AA: 4.7-5.2:1 */
+  --warning-bg: #fbf3e1;
+
+  --sidebar: #f4eee3;
+  --sidebar-foreground: #241a12;
+  --sidebar-border: #e9e0d0;
 }
 
 /* System dark-mode preference, unless explicitly overridden by a `.light` class on <html>. */
 @media (prefers-color-scheme: dark) {
   :root:not(.light) {
-    --background: #18181b;
-    --surface: #232326;
-    --border: #3f3f46;
-    --foreground: #fafaf9;
-    --muted-foreground: #a1a1aa;
+    --background: #1c140f; /* warm espresso canvas — never cold charcoal */
+    --foreground: #f0e6d2;
 
-    --brand: #f59e0b;
-    --brand-foreground: #1c1917;
-    --positive: #22c55e;
-    --negative: #ef4444;
-    --warning: #f59e0b;
-    --info: #3b82f6;
+    --card: #261c15;
+    --card-foreground: #f0e6d2;
+    --popover: #261c15;
+    --popover-foreground: #f0e6d2;
+
+    /* The "ink-as-primary" trick is inherently light-mode: a near-black fill disappears on a dark
+       canvas. In dark mode --primary INVERTS to a warm parchment/tan fill with espresso text —
+       same spirit ("reads as emphasis, not as a hue"), opposite direction. */
+    --primary: #e8d9bc;
+    --primary-hover: #dfcba5;
+    --primary-foreground: #241a12;
+
+    --secondary: #2e2318;
+    --secondary-foreground: #f0e6d2;
+
+    --muted: #2e2318;
+    --muted-foreground: #a8967d; /* AA: 5.8-6.3:1 on dark canvas/surface */
+    --subtle-foreground: #7c6c56; /* placeholder/disabled only, ~3.6:1 */
+
+    --accent: #332619;
+    --accent-foreground: #f0e6d2;
+
+    --destructive: #e38268;
+    --destructive-foreground: #1c140f;
+
+    --border: #3a2e24;
+    --input: #4a3b2c;
+    --ring: #e8d9bc; /* focus ring = tan primary; very high contrast on dark canvas */
+
+    --brand: #d8b48c; /* lightened for dark-canvas legibility; still reads as "brand", not ink */
+    --brand-foreground: #1c140f;
+
+    --positive: #86bd72; /* AA: 6.1-8.3:1 on dark surfaces */
+    --positive-bg: #23331e;
+    --negative: #e38268; /* AA: 5.4-6.6:1 */
+    --negative-bg: #3a211b;
+    --warning: #d6a852; /* AA: 6.4-8.3:1 */
+    --warning-bg: #362a14;
+
+    --sidebar: #201810;
+    --sidebar-foreground: #f0e6d2;
+    --sidebar-border: #3a2e24;
   }
 }
 
-/* Explicit dark-mode toggle (e.g. a future settings switch adds/removes this class on <html>),
-   takes precedence over system preference either way. */
+/* Explicit dark-mode toggle (settings switch adds/removes this class on <html>) — takes
+   precedence over system preference either way. Mirrors the media-query block above. */
 .dark {
-  --background: #18181b;
-  --surface: #232326;
-  --border: #3f3f46;
-  --foreground: #fafaf9;
-  --muted-foreground: #a1a1aa;
+  --background: #1c140f;
+  --foreground: #f0e6d2;
 
-  --brand: #f59e0b;
-  --brand-foreground: #1c1917;
-  --positive: #22c55e;
-  --negative: #ef4444;
-  --warning: #f59e0b;
-  --info: #3b82f6;
+  --card: #261c15;
+  --card-foreground: #f0e6d2;
+  --popover: #261c15;
+  --popover-foreground: #f0e6d2;
+
+  --primary: #e8d9bc;
+  --primary-hover: #dfcba5;
+  --primary-foreground: #241a12;
+
+  --secondary: #2e2318;
+  --secondary-foreground: #f0e6d2;
+
+  --muted: #2e2318;
+  --muted-foreground: #a8967d;
+  --subtle-foreground: #7c6c56;
+
+  --accent: #332619;
+  --accent-foreground: #f0e6d2;
+
+  --destructive: #e38268;
+  --destructive-foreground: #1c140f;
+
+  --border: #3a2e24;
+  --input: #4a3b2c;
+  --ring: #e8d9bc;
+
+  --brand: #d8b48c;
+  --brand-foreground: #1c140f;
+
+  --positive: #86bd72;
+  --positive-bg: #23331e;
+  --negative: #e38268;
+  --negative-bg: #3a211b;
+  --warning: #d6a852;
+  --warning-bg: #362a14;
+
+  --sidebar: #201810;
+  --sidebar-foreground: #f0e6d2;
+  --sidebar-border: #3a2e24;
 }
 
 body {
@@ -93,4 +299,27 @@ body {
  */
 .numeric-cell {
   font-variant-numeric: tabular-nums;
+}
+
+/* Brand-moment utility — applies the Cinzel display face + its own tracking/line-height. Use only
+   in the three sanctioned places (sidebar wordmark, login, first onboarding screen). */
+.brand-display {
+  font-family: var(--font-brand-display);
+  letter-spacing: 0.04em;
+  line-height: 1.2;
+}
+
+.brand-text {
+  font-family: var(--font-brand-text);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

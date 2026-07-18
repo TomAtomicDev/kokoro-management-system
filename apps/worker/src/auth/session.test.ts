@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  SESSION_MAX_AGE_SECONDS,
   createSessionCookieValue,
+  SESSION_MAX_AGE_SECONDS,
   verifySessionCookieValue,
 } from "./session.js";
 

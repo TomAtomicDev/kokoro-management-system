@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { DomainError, conflict, notFound, validationError } from "./errors.js";
+import { conflict, DomainError, notFound, validationError } from "./errors.js";
 
 describe("DomainError", () => {
   it("maps each code to the HTTP status from Doc 08 §2", () => {

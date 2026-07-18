@@ -6,6 +6,7 @@
 # For staging/prod, set these via `wrangler secret put <NAME> --env <staging|prod>` instead —
 # this file is dev-only.
 
+# Already setted in Staging and Prod workers: OWNER_TELEGRAM_CHAT_ID, OWNER_PASSWORD_HASH, SESSION_SECRET, TELEGRAM_BOT_TOKEN
 TELEGRAM_BOT_TOKEN=dev-placeholder-telegram-bot-token
 TELEGRAM_WEBHOOK_SECRET=dev-placeholder-webhook-secret
 OPENAI_API_KEY=dev-placeholder-openai-key

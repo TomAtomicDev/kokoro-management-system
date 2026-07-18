@@ -35,7 +35,7 @@ ADR-003).
 | Database | Cloudflare D1 (SQLite) | Single-user scale, relational, free tier, `batch()` atomicity — ADR-002 |
 | ORM / migrations | Drizzle ORM + drizzle-kit migrations | Typed schema shared with app code, D1 driver, SQL-first |
 | Object storage | Cloudflare R2 | Receipt/product photos, nightly DB export, CSV exports |
-| Frontend | React 18 + Vite SPA, served as Worker static assets | ADR-004 |
+| Frontend | React 19 + Vite SPA, served as Worker static assets | ADR-004 |
 | Frontend data | TanStack Router + TanStack Query | Typed routes, cache/invalidatation model fits event editing |
 | UI kit | Tailwind CSS v4 + shadcn/ui (Radix primitives) + lucide-react icons | ADR-004 |
 | Charts | Recharts | Simple declarative charts for the dashboard/reports |
@@ -164,8 +164,9 @@ Time policy: store UTC ISO-8601; every event also stores `business_date` (local 
   from `OWNER_TELEGRAM_CHAT_ID`; anything else answered with a polite refusal and logged.
 - **AI boundary:** the model can only call whitelisted tools with Zod-validated inputs; no
   free-form SQL in v1 (ADR-006). Write tools always require human confirmation (**INV-4**).
-- **Data:** single-tenant; R2 bucket private (signed URLs for photos); backups encrypted at rest
-  by Cloudflare. No PII beyond customer first names/phones the owner types.
+- **Data:** single-tenant; R2 bucket private, accessed only via session-gated Worker-proxied
+  routes (not presigned URLs — ADR-015); backups encrypted at rest by Cloudflare. No PII beyond
+  customer first names/phones the owner types.
 
 ## 7. Observability
 
@@ -194,6 +195,15 @@ irrelevant except in the AI loop, which is network-bound (streamed).
   Worker version switch; migrations MUST be backward-compatible with the previous Worker version
   (expand → migrate → contract pattern).
 - Rollback: `wrangler rollback` (Worker versions); DB rollbacks are forward-fix only.
+- **Known gap (as of 2026-07-14):** the Cloudflare account is still on the Workers **Free** plan,
+  which caps Cron Triggers at 5 **per account** (not per Worker). `kokoro-staging` already holds
+  all 5 slots from §4.4's cron table, so `deploy-prod`'s trigger-registration call is rejected on
+  every run until the account is upgraded to Workers Paid — a cost already budgeted in §10 for
+  exactly this reason. The Worker script, static assets, bindings, and D1 migrations deploy to
+  prod successfully regardless; only the `/schedules` API call fails, which still fails the whole
+  `deploy-prod` job. This is expected and tracked as **KOK-061** (Doc 10) — do not treat a failing
+  `deploy-prod` cron step as a new regression before that task lands. Full incident writeup:
+  `docs/deployment-guide.md` §6.5.
 
 ## 10. Cost estimate (monthly)
 

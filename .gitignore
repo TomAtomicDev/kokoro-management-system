@@ -19,3 +19,6 @@ blob-report/
 apps/worker/worker-configuration.d.ts
 .vscode/*
 !.vscode/extensions.json
+.playwright-mcp/*
+.playwright-cli/*
+.codegraph

@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "hono-docs": {
+      "type": "http",
+      "url": "https://hono-docs-mcp.yusukebe.workers.dev/mcp"
+    },
+    "codegraph": {
+      "type": "stdio",
+      "command": "codegraph",
+      "args": [
+        "serve",
+        "--mcp"
+      ]
+    }
+  }
+}

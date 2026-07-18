@@ -47,7 +47,11 @@ automatically the first time `deploy.yml`'s `deploy-prod` job runs (see §4).
 
 **`kokoro-staging` has been deployed and smoke-tested live** (KOK-009) — it currently runs with
 placeholder secrets (see §5) so the pipeline mechanism could be proven end-to-end before real
-credentials exist. `kokoro` (prod) has never been deployed.
+credentials exist. `kokoro` (prod) has had its first real `deploy-prod` run (2026-07-14): the
+Worker script, static assets, bindings, and `kokoro-prod` D1 migration all deployed successfully.
+Its 5 Cron Triggers did **not** register — see §6.5 for why, and Doc 10's KOK-061 for the fix.
+Until KOK-061 lands, expect `deploy-prod` to keep failing at the trigger-registration step on
+every push to `main`; that failure is known and does not block anything else in the backlog.
 
 ## 3. GitHub configuration already in place
 
@@ -264,6 +268,40 @@ that practice is worth keeping for any future change that touches a Workers-runt
 None of these were caught by writing the workflow YAML carefully — they were caught by actually
 running it and reading the failure. That's the operating principle worth carrying forward:
 infrastructure/pipeline changes get verified by execution, not just review.
+
+### 6.5 First prod deploy: Cron Triggers rejected (Workers Free plan cap)
+
+`deploy-prod`'s "Deploy Worker (prod)" step deployed the script, assets, bindings, and D1
+migration cleanly, then failed with:
+
+```
+✘ [ERROR] Some triggers failed to deploy for kokoro:
+    - A request to the Cloudflare API (/accounts/***/workers/scripts/kokoro/schedules) failed.
+```
+
+**Root cause:** Cloudflare's Workers **Free** plan caps Cron Triggers at **5 per account**, not
+per Worker script. `kokoro-staging` deploys the same 5-entry cron list as `kokoro` (prod) — see
+Doc 02 §4.4 — and staging's `deploy-staging` job runs first in the pipeline, so it claims all 5
+account-wide slots. By the time `deploy-prod` tries to register its own 5, the account is already
+at capacity and Cloudflare's API rejects the write. Confirmed directly against the Cloudflare API:
+`GET .../workers/scripts/kokoro-staging/schedules` returned all 5 crons; the same call for
+`kokoro` returned none. The account's `/subscriptions` also confirmed there's no Workers Paid
+subscription — only R2 Paid and a zone-level Free plan.
+
+This was already anticipated in Doc 02 §10's cost estimate ("Workers Paid plan (includes
+D1/R2/cron beyond free tier headroom) — US$5") — the KB assumed this upgrade would happen; it
+just hasn't happened yet, since nothing depended on prod cron jobs actually running until
+KOK-021 (Jobs runtime) exists. `scheduled()` in `kokoro` currently just logs the cron name — no
+real job dispatch — so a Worker with zero registered schedules isn't losing functionality today.
+
+**Fix (tracked as KOK-061, Doc 10):** upgrade the Cloudflare account to Workers Paid ($5/mo,
+raises the cap to 250 triggers/account) once cron-dependent jobs are actually being built
+(KOK-021 onward) and prod needs to be exercised for real. At that point, re-run `deploy-prod` and
+do a full pipeline smoke test end-to-end (staging → prod), since this is also the first time prod
+will have been fully green.
+
+Until then: `deploy-prod` failing at the trigger step on every push to `main` is expected, not a
+regression. Don't spend time re-diagnosing it — check KOK-061's status in Doc 10 first.
 
 ## 7. Manual operations reference
 

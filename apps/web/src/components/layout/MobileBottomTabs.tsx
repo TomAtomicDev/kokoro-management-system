@@ -6,10 +6,10 @@ import { mobileTabLabels } from "@/lib/i18n-nav";
 import { cn } from "@/lib/utils";
 
 import {
-  type NavActionItem,
-  type NavLinkItem,
   footerNav,
   mobileTabs,
+  type NavActionItem,
+  type NavLinkItem,
   primaryNav,
 } from "./nav-items";
 
@@ -50,7 +50,7 @@ export function MobileBottomTabs({
               key={tab.to}
               to={tab.to}
               activeOptions={{ exact: true }}
-              activeProps={{ className: "text-brand" }}
+              activeProps={{ className: "text-primary" }}
               className="flex flex-1 flex-col items-center justify-center gap-0.5 text-[11px] text-muted-foreground"
             >
               <Icon className="size-5" />
@@ -70,7 +70,7 @@ export function MobileBottomTabs({
 
       {moreOpen && (
         <div className="fixed inset-0 z-50 flex items-end bg-black/40 md:hidden">
-          <div className="max-h-[70vh] w-full overflow-y-auto rounded-t-xl border border-border bg-background p-2 pb-6">
+          <div className="max-h-[70vh] w-full overflow-y-auto rounded-t-xl border border-border bg-card p-2 pb-6">
             <div className="flex items-center justify-between px-2 py-2">
               <span className="font-semibold text-sm">{mobileTabLabels.mas}</span>
               <button
@@ -93,7 +93,7 @@ export function MobileBottomTabs({
                       setMoreOpen(false);
                       onOpenQuickAdd();
                     }}
-                    className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm hover:bg-surface"
+                    className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm hover:bg-accent"
                   >
                     <Icon className="size-4 shrink-0" />
                     {entry.label}
@@ -105,7 +105,7 @@ export function MobileBottomTabs({
                   key={entry.to}
                   to={entry.to}
                   onClick={() => setMoreOpen(false)}
-                  className="flex items-center gap-3 rounded-md px-3 py-2 text-sm hover:bg-surface"
+                  className="flex items-center gap-3 rounded-md px-3 py-2 text-sm hover:bg-accent"
                 >
                   <Icon className="size-4 shrink-0" />
                   {entry.label}

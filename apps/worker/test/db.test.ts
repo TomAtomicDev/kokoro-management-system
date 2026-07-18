@@ -54,7 +54,7 @@ describe("migration 0001", () => {
     const { results } = await env.DB.prepare(
       "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name",
     ).all<{ name: string }>();
-    const names = results.map((r) => r.name);
+    const names = results.map((r: { name: string }) => r.name);
     for (const table of EXPECTED_TABLES) {
       expect(names).toContain(table);
     }
@@ -64,7 +64,7 @@ describe("migration 0001", () => {
     const { results } = await env.DB.prepare(
       "SELECT name FROM sqlite_master WHERE type = 'view' ORDER BY name",
     ).all<{ name: string }>();
-    const names = results.map((r) => r.name);
+    const names = results.map((r: { name: string }) => r.name);
     for (const view of EXPECTED_VIEWS) {
       expect(names).toContain(view);
     }
