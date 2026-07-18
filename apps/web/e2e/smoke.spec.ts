@@ -4,12 +4,30 @@
 // functional before gating the manual approval to production.
 import { expect, test } from "@playwright/test";
 
+import { authLabels } from "../src/lib/i18n-auth";
+
 test("the SPA shell loads", async ({ page }) => {
   await page.goto("/");
   await expect(page).toHaveTitle(/Kokoro/i);
-  // AppShell renders both the desktop Sidebar and MobileBottomTabs <nav> (CSS-toggled, both in
-  // the DOM at once) — "empty app renders" just needs at least one visible.
-  await expect(page.getByRole("navigation").first()).toBeVisible();
+
+  // KOK-063 put every route except /login behind a session (`_authenticated`'s `beforeLoad`
+  // redirects unauthenticated visits to /login before AppShell ever renders), so a bare "/" visit
+  // no longer proves the persistent shell renders unless we're logged in.
+  const password = process.env.E2E_LOGIN_PASSWORD;
+  if (password) {
+    // page.request shares the browser context's cookie jar with page, so this session cookie
+    // carries over to the follow-up goto.
+    await page.request.post("/api/auth/login", { data: { password } });
+    await page.goto("/");
+    // AppShell renders both the desktop Sidebar and MobileBottomTabs <nav> (CSS-toggled, both in
+    // the DOM at once) — "empty app renders" just needs at least one visible.
+    await expect(page.getByRole("navigation").first()).toBeVisible();
+  } else {
+    // No STAGING_OWNER_PASSWORD secret configured — fall back to proving the unauthenticated
+    // shell (the /login redirect + form) renders instead of the authenticated AppShell.
+    await expect(page).toHaveURL(/\/login/);
+    await expect(page.getByLabel(authLabels.passwordLabel)).toBeVisible();
+  }
 });
 
 test("GET /api/health responds ok", async ({ request }) => {
