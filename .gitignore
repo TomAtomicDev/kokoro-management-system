@@ -21,3 +21,4 @@ apps/worker/worker-configuration.d.ts
 !.vscode/extensions.json
 .playwright-mcp/*
 .playwright-cli/*
+.codegraph
