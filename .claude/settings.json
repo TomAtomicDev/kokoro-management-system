@@ -10,7 +10,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "codegraph prompt-hook"
+            "command": "C:\\Users\\tommy\\AppData\\Local\\codegraph\\current\\bin\\codegraph.cmd prompt-hook",
+            "shell": "powershell"
           }
         ]
       }
