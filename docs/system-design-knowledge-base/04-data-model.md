@@ -130,6 +130,10 @@ CREATE TABLE purchase_lines (
   qty INTEGER NOT NULL CHECK (qty > 0),          -- milli-units
   line_total INTEGER NOT NULL CHECK (line_total >= 0)  -- centavos (unit cost derived, C-2)
 );
+-- A line_total of 0 is valid (free/promotional stock). Since financial_transactions.amount is
+-- always > 0 (no zero-value cash movements), a purchase whose total across all lines is 0 skips
+-- the SUPPLY_PURCHASE financial_transactions row entirely — PURCHASE_IN movements, WAC, and
+-- replacement_cost are still updated as normal.
 
 CREATE TABLE production_runs (
   id TEXT PRIMARY KEY,

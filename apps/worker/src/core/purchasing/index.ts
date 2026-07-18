@@ -206,30 +206,39 @@ export async function recordPurchase(
     }
   }
 
-  const transactionRow = {
-    id: generateUuidV7(),
-    occurredAt: command.occurredAt,
-    businessDate: command.businessDate,
-    accountId: command.accountId,
-    type: "EXPENSE" as const,
-    category: "SUPPLY_PURCHASE" as const,
-    amount: total,
-    counterpartTxId: null,
-    sourceEventType: "purchase",
-    sourceEventId: purchaseId,
-    description: null,
-    deletedAt: null,
-    createdAt: now,
-    updatedAt: now,
-  };
+  // financial_transactions.amount is always > 0 (no zero-value cash movements, Doc 04 §3.3) — a
+  // purchase whose total across all lines is 0 (all free/promotional stock) moved no cash, so it
+  // skips this row entirely rather than violating that CHECK constraint. PURCHASE_IN movements,
+  // WAC, and replacement_cost above are unaffected either way.
+  const financialStatements: Statement[] =
+    total > 0
+      ? [
+          buildAccountBalanceDelta(db, command.accountId, -total),
+          db.insert(financialTransactions).values({
+            id: generateUuidV7(),
+            occurredAt: command.occurredAt,
+            businessDate: command.businessDate,
+            accountId: command.accountId,
+            type: "EXPENSE" as const,
+            category: "SUPPLY_PURCHASE" as const,
+            amount: total,
+            counterpartTxId: null,
+            sourceEventType: "purchase",
+            sourceEventId: purchaseId,
+            description: null,
+            deletedAt: null,
+            createdAt: now,
+            updatedAt: now,
+          }),
+        ]
+      : [];
 
   const statements: Statement[] = [
     db.insert(purchases).values(purchaseRow),
     ...purchaseLineRows.map((row) => db.insert(purchaseLines).values(row)),
     ...movementStatements,
     ...itemUpdateStatements,
-    buildAccountBalanceDelta(db, command.accountId, -total),
-    db.insert(financialTransactions).values(transactionRow),
+    ...financialStatements,
     buildAuditLogInsert(db, {
       actor,
       action: "create",

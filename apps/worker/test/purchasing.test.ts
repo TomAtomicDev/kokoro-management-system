@@ -275,6 +275,48 @@ describe("recordPurchase (UC-01)", () => {
     expect(result.purchase.total).toBe(2500);
   });
 
+  it("a zero-total purchase (all lines free/promotional) skips the financial_transactions row entirely, leaving the account balance untouched, while still updating stock/WAC", async () => {
+    const db = createDb(env.DB);
+    const item = await seedItem(db, "Zero-total purchase item");
+
+    const result = await recordPurchase(
+      db,
+      {
+        accountId: "acc_bank",
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        lines: [{ itemId: item.id, qty: 1000, lineTotal: 0 }], // free promotional stock
+      },
+      ACTOR,
+    );
+
+    expect(result.purchase.total).toBe(0);
+    expect(result.account.balance).toBe(0);
+
+    // No financial_transactions row at all — amount=0 would violate
+    // financial_transactions_amount_check (amount > 0), and no cash actually moved.
+    const txRow = await db.query.financialTransactions.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.sourceEventId, result.purchase.id),
+    });
+    expect(txRow).toBeUndefined();
+
+    const accountRow = await db.query.financialAccounts.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.id, "acc_bank"),
+    });
+    expect(accountRow?.balance).toBe(0);
+
+    // Stock/WAC/kardex are unaffected by the zero cost — they still reflect the free stock.
+    const stockRow = await db.query.itemStock.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.itemId, item.id),
+    });
+    expect(stockRow?.qtyOnHand).toBe(1000);
+
+    const itemRow = await db.query.items.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
+    });
+    expect(itemRow?.wac).toBe(0);
+  });
+
   it("rejects a nonexistent account with NOT_FOUND", async () => {
     const db = createDb(env.DB);
     const item = await seedItem(db, "Nonexistent account item");

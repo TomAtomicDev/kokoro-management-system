@@ -571,10 +571,10 @@ describe("property: count cycles interleaved with purchases keep item_stock cons
   it("∀ sequences of standalone purchases and full count cycles (with purchases interleaved mid-count) against a fixed item: qty_on_hand always equals a frozen-expectedQty hand-tracked total", async () => {
     const db = createDb(env.DB);
 
-    // lineTotal starts at 1 (not 0): financial_transactions_amount_check requires amount > 0, and
-    // recordPurchase's EXPENSE transaction amount is the purchase total — a zero-total purchase
-    // line is a pre-existing edge case belonging to core/purchasing, not this module, so the
-    // generator sidesteps it entirely to keep this property test focused on count semantics.
+    // lineTotal starts at 1 (not 0): a zero-total purchase is valid (recordPurchase skips the
+    // financial_transactions row in that case, see core/purchasing) but that's core/purchasing's
+    // own concern, not this module's — the generator sidesteps it to keep this property test
+    // focused on count semantics.
     const purchaseArb = fc.record({
       qty: fc.integer({ min: 1, max: 500 }),
       lineTotal: fc.integer({ min: 1, max: 5000 }),
