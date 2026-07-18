@@ -137,3 +137,26 @@ describe("route-level authz on /api/*", () => {
     expect(logoutRes.status).toBe(200);
   });
 });
+
+describe("GET /api/auth/session", () => {
+  it("returns 401 without a session cookie", async () => {
+    const res = await SELF.fetch("https://example.com/api/auth/session");
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 200 with a valid session cookie, without renewing/needing CSRF", async () => {
+    const loginRes = await SELF.fetch("https://example.com/api/auth/login", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ password: DEV_PASSWORD }),
+    });
+    const sessionCookie = getCookieValue(loginRes.headers.get("set-cookie"), "kokoro_session");
+    expect(sessionCookie).toBeTruthy();
+
+    const sessionRes = await SELF.fetch("https://example.com/api/auth/session", {
+      headers: { cookie: `kokoro_session=${sessionCookie}` },
+    });
+    expect(sessionRes.status).toBe(200);
+    expect(await sessionRes.json()).toEqual({ ok: true });
+  });
+});
