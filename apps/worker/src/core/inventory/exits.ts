@@ -44,7 +44,9 @@ import type {
   ListStockExitsResult,
   RecordStockExitCommand,
   RecordStockExitResult,
+  ReplayImpactDto,
   StockExitDto,
+  StockExitImpactRequest,
   UpdateStockExitCommand,
   UpdateStockExitResult,
 } from "@kokoro/shared";
@@ -56,6 +58,7 @@ import type { Db } from "../../db/index.js";
 import { stockExits } from "../../db/schema.js";
 import { buildAuditLogInsert } from "../audit.js";
 import { getCurrentWac } from "../costing/repair.js";
+import type { CostingReplayInput } from "../costing/replay.js";
 import { planCostingReplay } from "../costing/replay.js";
 import { snapshotUnitCost } from "../costing/wac.js";
 import { conflict, notFound, validationError } from "../errors.js";
@@ -85,23 +88,25 @@ function toStockExitDto(row: StockExitRow): StockExitDto {
 }
 
 /**
- * UC-09: record one non-commercial stock exit in one atomic batch (D-3): the `stock_exits`
- * insert + the single EXIT_OUT `stock_movements` insert + `item_stock` upsert (both from
- * core/inventory's `buildStockMovementStatements`) + the `audit_log` row. See this module's
- * header for why there is deliberately no financial_transactions row, no account balance delta,
- * and no `items.wac` update (C-6).
+ * Builds the pieces `recordExit` needs to both plan and write a NEW exit: a fresh id, the single
+ * EXIT_OUT movement (valued at the item's CURRENT WAC per C-6), and the `unit_cost_snapshot` that
+ * movement carries. Shared with `previewStockExitImpact`'s "create" branch (KOK-024 Phase F) so
+ * the dry-run preview can never drift from what a real `recordExit` would build for the same
+ * command — see this module's header and replay.ts's header for why that must never fork.
  *
- * Does NOT restrict exits to active items only: core/purchasing's `recordPurchase` looks up its
- * item(s) via a plain `db.query.items.findFirst` with no `isActive` check, and Doc 03 does not
- * call for restricting non-commercial exits to active items either — an owner should still be
- * able to record e.g. spoilage for an item they just deactivated. Mirrors that precedent rather
- * than inventing a new restriction here.
+ * Includes the same defensive qty re-check `recordExit` has always done (D-2) — moved in here
+ * rather than left at the call site because nothing observable ran between the two before this
+ * extraction.
  */
-export async function recordExit(
+async function buildRecordExitMovement(
   db: Db,
   command: RecordStockExitCommand,
-  actor: AuditActor,
-): Promise<RecordStockExitResult> {
+): Promise<{
+  exitId: string;
+  movement: StockMovementInput;
+  unitCostSnapshot: number;
+  now: string;
+}> {
   // Defensive re-check (core/ services never trust a caller already ran Zod, D-2) — mirrors
   // recordStockExitCommandSchema's `.positive()` on `qty`.
   if (!Number.isInteger(command.qty) || command.qty <= 0) {
@@ -137,6 +142,29 @@ export async function recordExit(
     sourceEventType: "stock_exit",
     sourceEventId: exitId,
   };
+
+  return { exitId, movement, unitCostSnapshot, now };
+}
+
+/**
+ * UC-09: record one non-commercial stock exit in one atomic batch (D-3): the `stock_exits`
+ * insert + the single EXIT_OUT `stock_movements` insert + `item_stock` upsert (both from
+ * core/inventory's `buildStockMovementStatements`) + the `audit_log` row. See this module's
+ * header for why there is deliberately no financial_transactions row, no account balance delta,
+ * and no `items.wac` update (C-6).
+ *
+ * Does NOT restrict exits to active items only: core/purchasing's `recordPurchase` looks up its
+ * item(s) via a plain `db.query.items.findFirst` with no `isActive` check, and Doc 03 does not
+ * call for restricting non-commercial exits to active items either — an owner should still be
+ * able to record e.g. spoilage for an item they just deactivated. Mirrors that precedent rather
+ * than inventing a new restriction here.
+ */
+export async function recordExit(
+  db: Db,
+  command: RecordStockExitCommand,
+  actor: AuditActor,
+): Promise<RecordStockExitResult> {
+  const { exitId, movement, unitCostSnapshot, now } = await buildRecordExitMovement(db, command);
   // ---- INV-11 / R-2 ordering guard (ADR-016 §1) --------------------------------------------
   // C-6 says an exit is not a WAC entry, and that stays true here: this exit books NO WAC of its
   // own and the plan can never attribute one to it. What a BACKDATED exit does change is
@@ -229,6 +257,55 @@ async function loadLiveExit(db: Db, id: string): Promise<StockExitRow> {
 }
 
 /**
+ * Builds the pieces `updateStockExit` needs to both plan and write an EDIT: validates the target
+ * item exists, resolves `unit_cost_snapshot` per this module header's policy (SAME item keeps the
+ * frozen snapshot; a CHANGED item re-snapshots at its own current WAC), and builds the single
+ * replacement EXIT_OUT movement. Shared with `previewStockExitImpact`'s "update" branch (KOK-024
+ * Phase F) for the same reason `buildRecordExitMovement` is shared with the "create" branch: one
+ * planner input, never two implementations that could quietly disagree.
+ *
+ * Deliberately does NOT repeat the qty defensive re-check or `loadLiveExit` call —
+ * `updateStockExit` already runs those, in that exact order, before this helper is reached; moving
+ * them in here would reorder when NOT_FOUND vs VALIDATION is thrown for an invalid id + invalid
+ * qty combination, which is the one thing this extraction may not change.
+ */
+async function buildUpdateExitMovement(
+  db: Db,
+  current: StockExitRow,
+  command: UpdateStockExitCommand,
+): Promise<{ movement: StockMovementInput; unitCostSnapshot: number }> {
+  const itemRow = await db.query.items.findFirst({
+    where: (t, { eq: eqOp }) => eqOp(t.id, command.itemId),
+  });
+  if (!itemRow) {
+    throw notFound("No se encontró el ítem.", { id: command.itemId });
+  }
+
+  // The policy documented in this module's header: the frozen snapshot survives an edit of the
+  // SAME item, and is taken afresh only when the edit points this exit at a DIFFERENT item, whose
+  // WAC the old snapshot says nothing about.
+  const itemChanged = command.itemId !== current.itemId;
+  const unitCostSnapshot = itemChanged
+    ? snapshotUnitCost(await getCurrentWac(db, command.itemId))
+    : current.unitCostSnapshot;
+
+  const movement: StockMovementInput = {
+    itemId: command.itemId,
+    occurredAt: command.occurredAt,
+    businessDate: command.businessDate,
+    type: "EXIT_OUT",
+    // Positive on the event row, negative in the kardex — the sign convention is applied only at
+    // this boundary, identically to recordExit.
+    qty: -command.qty,
+    unitCost: unitCostSnapshot,
+    sourceEventType: "stock_exit",
+    sourceEventId: current.id,
+  };
+
+  return { movement, unitCostSnapshot };
+}
+
+/**
  * R-1: edit one stock exit and regenerate everything derived from it, in ONE atomic batch (D-3):
  * the `stock_exits` UPDATE + the full replacement of its `stock_movements` (and the netted
  * `item_stock` delta) via `buildReplaceMovementsForSourceStatements` + the `audit_log` row carrying
@@ -257,35 +334,9 @@ export async function updateStockExit(
 
   const current = await loadLiveExit(db, id);
 
-  const itemRow = await db.query.items.findFirst({
-    where: (t, { eq: eqOp }) => eqOp(t.id, command.itemId),
-  });
-  if (!itemRow) {
-    throw notFound("No se encontró el ítem.", { id: command.itemId });
-  }
-
-  // The policy documented in this module's header: the frozen snapshot survives an edit of the
-  // SAME item, and is taken afresh only when the edit points this exit at a DIFFERENT item, whose
-  // WAC the old snapshot says nothing about.
-  const itemChanged = command.itemId !== current.itemId;
-  const unitCostSnapshot = itemChanged
-    ? snapshotUnitCost(await getCurrentWac(db, command.itemId))
-    : current.unitCostSnapshot;
+  const { movement, unitCostSnapshot } = await buildUpdateExitMovement(db, current, command);
 
   const now = nowIso();
-
-  const movement: StockMovementInput = {
-    itemId: command.itemId,
-    occurredAt: command.occurredAt,
-    businessDate: command.businessDate,
-    type: "EXIT_OUT",
-    // Positive on the event row, negative in the kardex — the sign convention is applied only at
-    // this boundary, identically to recordExit.
-    qty: -command.qty,
-    unitCost: unitCostSnapshot,
-    sourceEventType: "stock_exit",
-    sourceEventId: id,
-  };
 
   // R-2/INV-11, same contract as the create path. The plan reads this exit's CURRENT movements as
   // well as the pending ones, so moving an exit's date backwards is disturbed from BOTH points —
@@ -373,6 +424,27 @@ export async function updateStockExit(
 }
 
 /**
+ * Builds the `planCostingReplay` input for "this exit's kardex is going away" — `deleteStockExit`'s
+ * shape, and `previewStockExitImpact`'s "delete" branch (KOK-024 Phase F). There is no movement to
+ * build for a delete (`newMovements: []` IS the whole change, replay.ts's own encoding of "this
+ * source is going away"), so unlike create/update this helper only needs to pin down the trigger
+ * (taken from the CURRENT exit's businessDate/occurredAt — the touched point comes purely from
+ * where the existing movements ARE) so the preview and the mutation can never disagree on it.
+ */
+function buildDeleteExitReplayInput(current: StockExitRow, actor: AuditActor): CostingReplayInput {
+  return {
+    trigger: {
+      eventType: "stock_exit",
+      eventId: current.id,
+      businessDate: current.businessDate,
+      occurredAt: current.occurredAt,
+    },
+    changes: [{ sourceEventType: "stock_exit", sourceEventId: current.id, newMovements: [] }],
+    actor,
+  };
+}
+
+/**
  * R-3 + R-1: SOFT-delete one stock exit (D-8 — `deleted_at` is set, the row is never removed) and
  * reverse everything derived from it, in ONE atomic batch (D-3): the `stock_exits` UPDATE + a
  * replacement of its movements with the EMPTY set (which hard-deletes the derived kardex rows —
@@ -389,19 +461,9 @@ export async function deleteStockExit(
 ): Promise<DeleteStockExitResult> {
   const current = await loadLiveExit(db, id);
 
-  // `newMovements: []` is replay.ts's encoding of "this source is going away" — the touched point
-  // then comes purely from where the existing movements ARE. Deleting a backdated exit re-weights
-  // C-1 for every later entry of the item exactly as creating one does.
-  const plan = await planCostingReplay(db, {
-    trigger: {
-      eventType: "stock_exit",
-      eventId: id,
-      businessDate: current.businessDate,
-      occurredAt: current.occurredAt,
-    },
-    changes: [{ sourceEventType: "stock_exit", sourceEventId: id, newMovements: [] }],
-    actor,
-  });
+  // Deleting a backdated exit re-weights C-1 for every later entry of the item exactly as creating
+  // one does — see `buildDeleteExitReplayInput`'s header for why the trigger is built there now.
+  const plan = await planCostingReplay(db, buildDeleteExitReplayInput(current, actor));
 
   // R-5 — before db.batch, so a refused delete leaves the exit and its kardex rows untouched.
   if (plan.confirmationRequired && command.confirm !== true) {
@@ -441,6 +503,179 @@ export async function deleteStockExit(
   await db.batch(statements as [Statement, ...Statement[]]);
 
   return { exit: toStockExitDto(deletedRow), deletedAt: now };
+}
+
+/**
+ * KOK-024 Phase F: "what would this create / edit / delete do to costing?", answered WITHOUT
+ * writing anything — no `db.batch()` call anywhere in this function. Per replay.ts's module
+ * header ("the preview and the mutation it previews must run the exact same planner, or the
+ * preview is a lie with a UI around it"), each branch below calls the SAME helper the matching
+ * mutation calls (`buildRecordExitMovement` / `buildUpdateExitMovement` / `buildDeleteExitReplayInput`)
+ * to build its `planCostingReplay` input, then returns `.impact` and discards `.statements` — it
+ * never reaches the R-5 confirmation throw or a batch, both of which belong to the write path.
+ *
+ * `actor: "SYSTEM"` for the replay call: nothing here is ever written (the plan's `.statements`,
+ * including its `audit_log` insert, are thrown away), so no actor is ever attributed to a change.
+ * Same precedent as core/costing/repair.ts's read-only WAC repair path.
+ */
+export async function previewStockExitImpact(
+  db: Db,
+  request: StockExitImpactRequest,
+): Promise<ReplayImpactDto> {
+  if (request.op === "create") {
+    const { exitId, movement } = await buildRecordExitMovement(db, request.command);
+    const plan = await planCostingReplay(db, {
+      trigger: {
+        eventType: "stock_exit",
+        eventId: exitId,
+        businessDate: request.command.businessDate,
+        occurredAt: request.command.occurredAt,
+      },
+      changes: [{ sourceEventType: "stock_exit", sourceEventId: exitId, newMovements: [movement] }],
+      actor: "SYSTEM",
+    });
+    return plan.impact;
+  }
+
+  if (request.op === "update") {
+    // Same defensive re-check `updateStockExit` runs before its own `loadLiveExit` call (D-2) —
+    // kept at this call site for the same reason `buildUpdateExitMovement` doesn't run it itself.
+    if (!Number.isInteger(request.command.qty) || request.command.qty <= 0) {
+      throw validationError("La cantidad de la salida debe ser un entero positivo.", {
+        qty: request.command.qty,
+      });
+    }
+    const current = await loadLiveExit(db, request.id);
+    const { movement } = await buildUpdateExitMovement(db, current, request.command);
+    const plan = await planCostingReplay(db, {
+      trigger: {
+        eventType: "stock_exit",
+        eventId: request.id,
+        businessDate: request.command.businessDate,
+        occurredAt: request.command.occurredAt,
+      },
+      changes: [
+        { sourceEventType: "stock_exit", sourceEventId: request.id, newMovements: [movement] },
+      ],
+      actor: "SYSTEM",
+    });
+    return plan.impact;
+  }
+
+  // request.op === "delete"
+  const current = await loadLiveExit(db, request.id);
+  const plan = await planCostingReplay(db, buildDeleteExitReplayInput(current, "SYSTEM"));
+  return plan.impact;
+}
+
+/**
+ * Loads the SOFT-DELETED `stock_exits` row a restore targets, or throws NOT_FOUND — the mirror
+ * image of `loadLiveExit`: a row that is missing OR currently live has nothing for a restore to
+ * undo (D-8/R-3's reversal is for a row that WAS soft-deleted, not an ordinary edit target).
+ */
+async function loadDeletedExit(db: Db, id: string): Promise<StockExitRow> {
+  const row = await db.query.stockExits.findFirst({
+    where: (t, { and, eq: eqOp, isNotNull }) => and(eqOp(t.id, id), isNotNull(t.deletedAt)),
+  });
+  if (!row) {
+    throw notFound("No se encontró la salida de stock.", { id });
+  }
+  return row;
+}
+
+/**
+ * Undoes a soft-delete (D-8/R-3): the server side of the "Deshacer" 10s-undo toast (Doc 06
+ * principle 6) — delete commits immediately, restore is a real mutation that reconstructs the
+ * exit's derived rows, in ONE atomic batch (D-3).
+ *
+ * The exit row's own fields survived the delete unchanged (only its kardex row was removed), so
+ * restoring means: rebuild the ONE EXIT_OUT movement from those stored fields — same qty sign-flip
+ * convention as recordExit/updateStockExit — reusing the EXISTING `unit_cost_snapshot` VERBATIM
+ * (never re-snapshotted at today's WAC: C-6/R-4's spirit says a restore brings back exactly what
+ * was deleted, not a freshly-priced version of it), then clear `deleted_at`.
+ *
+ * Routed through `buildReplaceMovementsForSourceStatements` + `planCostingReplay` + the R-5
+ * confirmation gate exactly like `updateStockExit`: reinserting a historical movement can collide
+ * with newer bookings recorded WHILE the exit was gone, the same way a backdated edit does — that
+ * is left to the existing confirmation-gate logic rather than special-cased away.
+ *
+ * Audited as `"restore"`, not `"update"` — `buildAuditLogInsert`'s `action` column is free-form
+ * text with no CHECK constraint, so this needs no migration.
+ */
+export async function restoreStockExit(
+  db: Db,
+  id: string,
+  command: DeleteStockExitCommand,
+  actor: AuditActor,
+): Promise<UpdateStockExitResult> {
+  const current = await loadDeletedExit(db, id);
+
+  const movement: StockMovementInput = {
+    itemId: current.itemId,
+    occurredAt: current.occurredAt,
+    businessDate: current.businessDate,
+    type: "EXIT_OUT",
+    // Positive on the event row, negative in the kardex — same convention as recordExit/
+    // updateStockExit, applied only at this boundary.
+    qty: -current.qty,
+    unitCost: current.unitCostSnapshot,
+    sourceEventType: "stock_exit",
+    sourceEventId: id,
+  };
+
+  // R-2/R-5, same contract as updateStockExit: reinserting this movement can land behind history
+  // recorded AFTER the exit was deleted, re-weighting C-1 for everything after it.
+  const plan = await planCostingReplay(db, {
+    trigger: {
+      eventType: "stock_exit",
+      eventId: id,
+      businessDate: current.businessDate,
+      occurredAt: current.occurredAt,
+    },
+    changes: [{ sourceEventType: "stock_exit", sourceEventId: id, newMovements: [movement] }],
+    actor,
+  });
+
+  // R-5 — thrown BEFORE db.batch, so a refused restore leaves the exit soft-deleted and untouched.
+  if (plan.confirmationRequired && command.confirm !== true) {
+    throw conflict(
+      "Restaurar esta salida cambia costos ya calculados de movimientos posteriores. Revisa el impacto y confirma para restaurarla.",
+      { reason: REPLAY_CONFIRMATION_REQUIRED, impact: plan.impact },
+    );
+  }
+
+  const { statements: movementStatements } = await buildReplaceMovementsForSourceStatements(
+    db,
+    "stock_exit",
+    id,
+    [movement],
+  );
+
+  const now = nowIso();
+  const restoredRow = { ...current, deletedAt: null, updatedAt: now };
+
+  const statements: Statement[] = [
+    db.update(stockExits).set({ deletedAt: null, updatedAt: now }).where(eq(stockExits.id, id)),
+    ...movementStatements,
+    // Still NO financial_transactions statement and NO items.wac write of our own (C-6) — a
+    // restore is not exempt from the invisible-cost rule any more than create/update/delete are.
+    buildAuditLogInsert(db, {
+      actor,
+      action: "restore",
+      entityType: "stock_exits",
+      entityId: id,
+      before: current,
+      after: restoredRow,
+    }),
+    // MUST stay after `movementStatements` — replay.ts's module header: the `item_stock` upsert
+    // there recomputes `negative_since` incrementally, while the plan's UPDATE is the authoritative
+    // recomputation and has to land last to win.
+    ...plan.statements,
+  ];
+
+  await db.batch(statements as [Statement, ...Statement[]]);
+
+  return { exit: toStockExitDto(restoredRow) };
 }
 
 export async function getStockExit(db: Db, id: string): Promise<StockExitDto> {

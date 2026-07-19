@@ -24,6 +24,7 @@ import {
   getPurchase,
   listPurchases,
   recordPurchase,
+  restorePurchase,
   updatePurchase,
 } from "../src/core/purchasing/index.js";
 import { createDb } from "../src/db/index.js";
@@ -1504,6 +1505,243 @@ describe("deletePurchase (R-3, D-8)", () => {
 
     await deletePurchase(db, created.purchase.id, {}, ACTOR);
     await expect(deletePurchase(db, created.purchase.id, {}, ACTOR)).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// KOK-024 Phase F: restorePurchase — the server side of the "Deshacer" undo toast (Doc 06
+// principle 6). Un-deletes a soft-deleted purchase and reconstructs its derived rows by routing
+// through the SAME commitPurchaseMutation path update/delete already share, audited as "restore".
+// ---------------------------------------------------------------------------
+
+describe("restorePurchase (Doc 06 principle 6 — 'Deshacer')", () => {
+  it("restores a purchase that touched nothing downstream: kardex/cash/WAC/replacementCost come back exactly as they were, reads see it again, audit row carries action 'restore'", async () => {
+    const db = createDb(env.DB);
+    const item = await seedItem(db, "Purchase restore — sin efecto posterior");
+
+    const created = await recordPurchase(
+      db,
+      {
+        accountId: "acc_bank",
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        lines: [{ itemId: item.id, qty: 1000, lineTotal: 2000 }], // unit cost 2
+      },
+      ACTOR,
+    );
+
+    await deletePurchase(db, created.purchase.id, {}, ACTOR);
+
+    // Deleted state, mirroring the plain-delete test above: fully reversed.
+    const itemAfterDelete = await db.query.items.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
+    });
+    expect(itemAfterDelete?.wac).toBe(0);
+    expect(await purchaseMovements(db, created.purchase.id)).toHaveLength(0);
+
+    const restored = await restorePurchase(db, created.purchase.id, {}, ACTOR);
+
+    expect(restored.purchase.id).toBe(created.purchase.id);
+    expect(restored.purchase.total).toBe(2000);
+    expect(restored.purchase.lines).toEqual(created.purchase.lines);
+
+    // Kardex reconstructed: same qty/unitCost/type (ids/created_at are regenerated, per the
+    // regeneration primitive's own idempotency contract — see buildReplaceMovementsForSourceStatements).
+    const movementsAfter = await purchaseMovements(db, created.purchase.id);
+    expect(movementsAfter).toHaveLength(1);
+    expect(movementsAfter[0]).toMatchObject({ type: "PURCHASE_IN", qty: 1000, unitCost: 2 });
+
+    const stockRow = await db.query.itemStock.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.itemId, item.id),
+    });
+    expect(stockRow?.qtyOnHand).toBe(1000);
+
+    const itemAfterRestore = await db.query.items.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
+    });
+    expect(itemAfterRestore?.wac).toBe(2);
+    expect(itemAfterRestore?.replacementCost).toBe(2);
+
+    const txRow = await purchaseTx(db, created.purchase.id);
+    expect(txRow).toMatchObject({
+      type: "EXPENSE",
+      category: "SUPPLY_PURCHASE",
+      amount: 2000,
+      accountId: "acc_bank",
+    });
+
+    const accountRow = await db.query.financialAccounts.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.id, "acc_bank"),
+    });
+    expect(accountRow?.balance).toBe(-2000);
+    expect(restored.account.balance).toBe(-2000);
+
+    // Visible to both reads again.
+    const fetched = await getPurchase(db, created.purchase.id);
+    expect(fetched.id).toBe(created.purchase.id);
+    const { purchases: list } = await listPurchases(db, { accountId: "acc_bank" });
+    expect(list.map((p) => p.id)).toContain(created.purchase.id);
+
+    // Nothing to reconcile: same content, no history moved.
+    expect(
+      await db.select().from(costingAdjustments).where(eq(costingAdjustments.itemId, item.id)),
+    ).toHaveLength(0);
+
+    const auditRow = await db.query.auditLog.findFirst({
+      where: (t, { and, eq: eqOp }) =>
+        and(eqOp(t.entityId, created.purchase.id), eqOp(t.action, "restore")),
+    });
+    expect(auditRow).toMatchObject({ actor: ACTOR, entityType: "purchases" });
+    const before = JSON.parse(auditRow?.beforeJson ?? "null");
+    const after = JSON.parse(auditRow?.afterJson ?? "null");
+    expect(before.deletedAt).toEqual(expect.any(String));
+    expect(after.deletedAt).toBeNull();
+  });
+
+  it("restores a purchase whose kardex has been superseded by intervening history: refuses without confirm, then commits with confirm:true and books a costing_adjustments correction (R-4/R-5)", async () => {
+    const db = createDb(env.DB);
+    const item = await seedItem(db, "Purchase restore — historial posterior");
+
+    const p1 = await recordPurchase(
+      db,
+      {
+        accountId: "acc_bank",
+        occurredAt: "2026-07-10T10:00:00.000Z",
+        businessDate: "2026-07-10",
+        lines: [{ itemId: item.id, qty: 10_000, lineTotal: 20_000 }], // unit cost 2
+      },
+      ACTOR,
+    );
+
+    // Deleting P1 here touches nothing downstream yet (it is the item's only history) — succeeds
+    // without confirm, exactly like the plain-delete test above.
+    await deletePurchase(db, p1.purchase.id, {}, ACTOR);
+
+    // Intervening history recorded WHILE p1 is deleted: a later purchase, then an exit that
+    // freezes its snapshot against P2's cost alone (P1 does not exist right now).
+    await recordPurchase(
+      db,
+      {
+        accountId: "acc_bank",
+        occurredAt: "2026-07-12T10:00:00.000Z",
+        businessDate: "2026-07-12",
+        lines: [{ itemId: item.id, qty: 10_000, lineTotal: 40_000 }], // unit cost 4
+      },
+      ACTOR,
+    );
+    const exit = await recordExit(
+      db,
+      {
+        itemId: item.id,
+        qty: 8_000,
+        reason: "WASTE",
+        occurredAt: "2026-07-13T10:00:00.000Z",
+        businessDate: "2026-07-13",
+      },
+      ACTOR,
+    );
+
+    const exitRowBefore = await db.query.stockExits.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.id, exit.exit.id),
+    });
+    expect(exitRowBefore?.unitCostSnapshot).toBe(4); // frozen against P2 alone, P1 not restored yet
+
+    // Restoring P1 re-inserts its movement at 07-10, BEFORE both P2 and the exit — exactly the
+    // ordering guard a backdated create/edit trips (ADR-016 §1). Refused without confirm.
+    await expect(restorePurchase(db, p1.purchase.id, {}, ACTOR)).rejects.toMatchObject({
+      code: "CONFLICT",
+      details: {
+        reason: "REPLAY_CONFIRMATION_REQUIRED",
+        impact: { requiresConfirmation: true, affectedStockExitIds: [exit.exit.id] },
+      },
+    });
+
+    // Thrown before db.batch: p1 stays deleted, nothing about the kardex moved.
+    const p1RowAfterRefusal = await db.query.purchases.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.id, p1.purchase.id),
+    });
+    expect(p1RowAfterRefusal?.deletedAt).not.toBeNull();
+    expect(await purchaseMovements(db, p1.purchase.id)).toHaveLength(0);
+
+    const restored = await restorePurchase(db, p1.purchase.id, { confirm: true }, ACTOR);
+    expect(restored.purchase.total).toBe(20_000);
+
+    // Full kardex: P1(07-10,cost2) -> P2(07-12,cost4) -> exit(07-13,-8000). wac after P1=2, after
+    // P2=(10000*2+10000*4)/20000=3; the exit doesn't move it further (C-6).
+    const kardex = await db.query.stockMovements.findMany({
+      where: (t, { eq: eqOp }) => eqOp(t.itemId, item.id),
+      orderBy: (t, { asc }) => [asc(t.occurredAt), asc(t.createdAt)],
+    });
+    expect(kardex).toHaveLength(3);
+    const itemRow = await db.query.items.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
+    });
+    expect(itemRow?.wac).toBeCloseTo(3, 9);
+    expect(itemRow?.wac).toBeCloseTo(recomputeWacFromMovements(kardex), 9);
+
+    const stockRow = await db.query.itemStock.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.itemId, item.id),
+    });
+    expect(stockRow?.qtyOnHand).toBe(12_000); // 10000 + 10000 - 8000
+
+    // R-4: a sensible correction booked forward — the exit froze cost 4 but the corrected WAC at
+    // that point in the (now-restored) history is 3, so it overcosted the exit by (4-3)*8000.
+    const adjustments = await db
+      .select()
+      .from(costingAdjustments)
+      .where(eq(costingAdjustments.itemId, item.id));
+    expect(adjustments).toHaveLength(1);
+    expect(adjustments[0]).toMatchObject({
+      itemId: item.id,
+      triggerEventType: "purchase",
+      triggerEventId: p1.purchase.id,
+      costDelta: 8_000,
+    });
+
+    // R-4: the exit's own frozen snapshot is READ, never rewritten.
+    const exitRowAfter = await db.query.stockExits.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.id, exit.exit.id),
+    });
+    expect(exitRowAfter?.unitCostSnapshot).toBe(4);
+
+    const auditRow = await db.query.auditLog.findFirst({
+      where: (t, { and, eq: eqOp }) =>
+        and(eqOp(t.entityId, p1.purchase.id), eqOp(t.action, "restore")),
+    });
+    expect(auditRow).toMatchObject({ actor: ACTOR, entityType: "purchases" });
+  });
+
+  it("rejects an id that does not exist or is not currently deleted with NOT_FOUND", async () => {
+    const db = createDb(env.DB);
+    const item = await seedItem(db, "Purchase restore — not found");
+
+    await expect(restorePurchase(db, "does_not_exist", {}, ACTOR)).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+
+    const created = await recordPurchase(
+      db,
+      {
+        accountId: "acc_bank",
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        lines: [{ itemId: item.id, qty: 100, lineTotal: 200 }],
+      },
+      ACTOR,
+    );
+
+    // Live (never deleted): not restorable.
+    await expect(restorePurchase(db, created.purchase.id, {}, ACTOR)).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+
+    // Restore it once after an actual delete, then a SECOND restore attempt (now live again) is
+    // also NOT_FOUND — mirrors update/delete's identical "not in the right state" rejection.
+    await deletePurchase(db, created.purchase.id, {}, ACTOR);
+    await restorePurchase(db, created.purchase.id, {}, ACTOR);
+    await expect(restorePurchase(db, created.purchase.id, {}, ACTOR)).rejects.toMatchObject({
       code: "NOT_FOUND",
     });
   });

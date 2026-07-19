@@ -26,9 +26,11 @@ import type {
   ListPurchasesFilters,
   ListPurchasesResult,
   PurchaseDto,
+  PurchaseImpactRequest,
   PurchaseLineDto,
   RecordPurchaseCommand,
   RecordPurchaseResult,
+  ReplayImpactDto,
   UpdatePurchaseCommand,
   UpdatePurchaseResult,
 } from "@kokoro/shared";
@@ -149,13 +151,16 @@ async function hasLaterDatedPurchaseForItem(
   return rows.length > 0;
 }
 
-/** UC-01: record a multi-line purchase in one atomic batch (D-3). See this module's header for the
- * full statement list this builds. */
-export async function recordPurchase(
-  db: Db,
-  command: RecordPurchaseCommand,
-  actor: AuditActor,
-): Promise<RecordPurchaseResult> {
+/**
+ * Builds the create path's post-state: the C-1-threaded `itemStates`, this purchase's PURCHASE_IN
+ * `movements`, its `purchaseRow`/`purchaseLineRows`, and the validated destination `account` —
+ * everything `recordPurchase` needs to keep assembling its batch, and everything
+ * `previewPurchaseImpact`'s "create" dry run needs to call `planCostingReplay` with. Extracted
+ * (KOK-024 Phase F) so the two can never build these inputs differently — this module's header:
+ * "the preview and the mutation it previews must run the exact same planner, or the preview is a
+ * lie with a UI around it." Pure construction; never calls `db.batch()`.
+ */
+async function buildPurchaseCreateMovements(db: Db, command: RecordPurchaseCommand) {
   // Defensive re-check (core/ services never trust a caller already ran Zod, D-2) — mirrors
   // recordPurchaseCommandSchema's `.min(1)` on `lines`.
   if (command.lines.length === 0) {
@@ -241,6 +246,19 @@ export async function recordPurchase(
     qty: line.qty,
     lineTotal: line.lineTotal,
   }));
+
+  return { account, itemStates, purchaseId, now, movements, total, purchaseRow, purchaseLineRows };
+}
+
+/** UC-01: record a multi-line purchase in one atomic batch (D-3). See this module's header for the
+ * full statement list this builds. */
+export async function recordPurchase(
+  db: Db,
+  command: RecordPurchaseCommand,
+  actor: AuditActor,
+): Promise<RecordPurchaseResult> {
+  const { account, itemStates, purchaseId, now, movements, total, purchaseRow, purchaseLineRows } =
+    await buildPurchaseCreateMovements(db, command);
 
   // ---- INV-11 / R-2 ordering guard (ADR-016 §1) --------------------------------------------
   // A purchase is not exempt from the replay just because it is a CREATE: recording today's
@@ -607,10 +625,12 @@ const NO_KARDEX_CHANGE_PLAN: CostingReplayPlan = {
   statements: [],
 };
 
-/** Everything the shared edit/delete commit path needs. `newMovements` / `newTransactions` empty
- * means "this event no longer has a stock or cash effect" — which is precisely a delete. */
+/** Everything the shared edit/delete/restore commit path needs. `newMovements` / `newTransactions`
+ * empty means "this event no longer has a stock or cash effect" — which is precisely a delete; a
+ * restore is the mirror image (see `restorePurchase`): `newMovements`/`newTransactions` re-derived
+ * from the purchase's own unchanged lines, `newRow.deletedAt` going from set to `null`. */
 interface PurchaseMutationPlan {
-  action: "update" | "delete";
+  action: "update" | "delete" | "restore";
   existing: PurchaseRow;
   existingLines: readonly PurchaseLineRow[];
   newRow: PurchaseRow;
@@ -622,43 +642,48 @@ interface PurchaseMutationPlan {
 }
 
 /**
- * The single commit path shared by `updatePurchase` and `deletePurchase`: plans the replay, honours
- * R-5, and executes ONE atomic `db.batch()` (D-3) containing the event write, its regenerated
- * derived rows, the costing correction, and the audit row.
+ * Plans the costing replay ONE pending update/delete/restore implies (R-2/R-5): whether the kardex
+ * changed at ALL — load-bearing for R-5, not an optimisation. `planCostingReplay` decides by kardex
+ * POSITION — "is there history after the point this event sits at?" — which is the right question
+ * for a change that moves stock, and the wrong one for a change that does not. Without this guard,
+ * fixing a typo in the supplier name of a three-month-old invoice would compute a replay over every
+ * exit since, find those exits' frozen snapshots, and demand the owner confirm a cost correction of
+ * exactly zero. She would learn to click through confirmations that mean nothing, which is how
+ * R-5's actual warnings stop being read.
+ *
+ * It also makes the `kardexUnchanged` skip SAFE rather than merely cheap.
+ * `buildReplaceMovementsForSourceStatements` regenerates rows with a fresh `created_at`, which is
+ * the kardex tiebreak between movements sharing an instant — so replacing an identical movement set
+ * is not quite a no-op, it can reorder this purchase against a same-instant movement of another
+ * event. Emitting nothing is the only way "nothing changed" is actually true.
+ *
+ * Planned against the POST-state movement set, exactly as `recordPurchase` does. The planner itself
+ * notes the touched point is the EARLIEST kardex position disturbed across the union of the
+ * movements being removed and those being added — so an edit that MOVES a purchase's date is
+ * measured from whichever end is earlier, and a delete/restore is measured from where the
+ * purchase's movements are or were.
+ *
+ * SHARED, verbatim, between `commitPurchaseMutation` (which uses the full plan, including its
+ * `.statements`, inside its own batch) and `previewPurchaseImpact`'s "update"/"delete" dry run
+ * (which reads only `.costingPlan.impact` and never batches anything) — the one function both call
+ * so the preview can never compute a different number than the mutation it previews (this module's
+ * header).
  */
-async function commitPurchaseMutation(db: Db, plan: PurchaseMutationPlan): Promise<void> {
-  const { existing, newRow, newMovements, newTransactions } = plan;
-  const purchaseId = existing.id;
-  const now = newRow.updatedAt;
-
+async function planPurchaseMutationCostingImpact(
+  db: Db,
+  purchaseId: string,
+  newRow: Pick<PurchaseRow, "businessDate" | "occurredAt">,
+  newMovements: readonly StockMovementInput[],
+  actor: AuditActor,
+): Promise<{ kardexUnchanged: boolean; costingPlan: CostingReplayPlan }> {
   const existingMovementRows = await db.query.stockMovements.findMany({
     where: (t, { and: andOp, eq: eqOp }) =>
       andOp(eqOp(t.sourceEventType, "purchase"), eqOp(t.sourceEventId, purchaseId)),
   });
 
-  // Does this edit change the KARDEX at all, or only the purchase's descriptive fields?
-  //
-  // This distinction is load-bearing for R-5, not an optimisation. `planCostingReplay` decides by
-  // kardex POSITION — "is there history after the point this event sits at?" — which is the right
-  // question for a change that moves stock, and the wrong one for a change that does not. Without
-  // this guard, fixing a typo in the supplier name of a three-month-old invoice would compute a
-  // replay over every exit since, find those exits' frozen snapshots, and demand the owner confirm
-  // a cost correction of exactly zero. She would learn to click through confirmations that mean
-  // nothing, which is how R-5's actual warnings stop being read.
-  //
-  // It also makes the skip below SAFE rather than merely cheap. `buildReplaceMovementsForSource-
-  // Statements` regenerates rows with a fresh `created_at`, which is the kardex tiebreak between
-  // movements sharing an instant — so replacing an identical movement set is not quite a no-op, it
-  // can reorder this purchase against a same-instant movement of another event. Emitting nothing is
-  // the only way "nothing changed" is actually true.
   const kardexUnchanged = movementSetsEqual(existingMovementRows, newMovements);
 
-  // ---- INV-11 / R-2 ordering guard (ADR-016 §1) --------------------------------------------
-  // Planned against the POST-state movement set, exactly as `recordPurchase` does. The planner
-  // itself notes the touched point is the EARLIEST kardex position disturbed across the union of
-  // the movements being removed and those being added — so an edit that MOVES a purchase's date is
-  // measured from whichever end is earlier, and a delete is measured from where the purchase was.
-  // Planned BEFORE any statement is assembled so the R-5 refusal below writes nothing.
+  // Planned BEFORE any statement is assembled so the R-5 refusal at the call site writes nothing.
   const costingPlan = kardexUnchanged
     ? NO_KARDEX_CHANGE_PLAN
     : await planCostingReplay(db, {
@@ -668,16 +693,45 @@ async function commitPurchaseMutation(db: Db, plan: PurchaseMutationPlan): Promi
           businessDate: newRow.businessDate,
           occurredAt: newRow.occurredAt,
         },
-        changes: [{ sourceEventType: "purchase", sourceEventId: purchaseId, newMovements }],
-        actor: plan.actor,
+        changes: [
+          {
+            sourceEventType: "purchase",
+            sourceEventId: purchaseId,
+            newMovements: [...newMovements],
+          },
+        ],
+        actor,
       });
+
+  return { kardexUnchanged, costingPlan };
+}
+
+/**
+ * The single commit path shared by `updatePurchase`, `deletePurchase`, and `restorePurchase`: plans
+ * the replay, honours R-5, and executes ONE atomic `db.batch()` (D-3) containing the event write,
+ * its regenerated derived rows, the costing correction, and the audit row.
+ */
+async function commitPurchaseMutation(db: Db, plan: PurchaseMutationPlan): Promise<void> {
+  const { existing, newRow, newMovements, newTransactions } = plan;
+  const purchaseId = existing.id;
+  const now = newRow.updatedAt;
+
+  const { kardexUnchanged, costingPlan } = await planPurchaseMutationCostingImpact(
+    db,
+    purchaseId,
+    newRow,
+    newMovements,
+    plan.actor,
+  );
 
   // R-5, identical to the create path's: refuse BEFORE `db.batch` and hand back the impact preview.
   if (costingPlan.confirmationRequired && plan.confirm !== true) {
     throw conflict(
       plan.action === "delete"
         ? "Eliminar esta compra cambia costos ya calculados de ventas o salidas registradas. Revisa el impacto y confirma para eliminarla."
-        : "Esta edición cambia costos ya calculados de ventas o salidas registradas. Revisa el impacto y confirma para guardarla.",
+        : plan.action === "restore"
+          ? "Restaurar esta compra cambia costos ya calculados de ventas o salidas registradas. Revisa el impacto y confirma para restaurarla."
+          : "Esta edición cambia costos ya calculados de ventas o salidas registradas. Revisa el impacto y confirma para guardarla.",
       { reason: REPLAY_CONFIRMATION_REQUIRED, impact: costingPlan.impact },
     );
   }
@@ -877,21 +931,47 @@ async function readAccountDtoOrThrow(db: Db, accountId: string) {
   return toAccountDto(row);
 }
 
-/**
- * UC-01 edit (R-1): replaces a purchase's content and regenerates every row derived from it — the
- * kardex, `item_stock`, the WAC, `replacement_cost`, the cash transaction and the account balances —
- * in ONE atomic batch (D-3). See this section's header for the shape.
- *
- * The command is a FULL REPLACEMENT, not a patch: `command.lines` becomes the purchase's complete
- * line set, and `total` is re-derived server-side as Σ lineTotal (Doc 04 §5), never accepted from
- * the caller — identical to the create path.
- */
-export async function updatePurchase(
+/** Turns a purchase's post-state `lines` into their PURCHASE_IN kardex movements: unit cost
+ * re-derived per line (D-5 — never carried over from a previous generation, which may have had
+ * different quantities entirely), dated at the purchase's own `occurredAt`/`businessDate`. This is
+ * the exact construction `updatePurchase`'s `newMovements` has always used, factored out (KOK-024
+ * Phase F) so `restorePurchase` can reproduce a purchase's kardex from its UNCHANGED lines without
+ * a second, potentially-drifting copy of the unit-cost/sign logic. */
+function buildPurchaseInMovementsFromLines(
+  purchaseId: string,
+  lines: readonly PurchaseLineRow[],
+  occurredAt: string,
+  businessDate: string,
+): StockMovementInput[] {
+  return lines.map((line) => ({
+    itemId: line.itemId,
+    occurredAt,
+    businessDate,
+    type: "PURCHASE_IN",
+    qty: line.qty,
+    unitCost: computePurchaseLineUnitCost(line.lineTotal, line.qty),
+    sourceEventType: "purchase",
+    sourceEventId: purchaseId,
+  }));
+}
+
+/** Everything `updatePurchase` needs to keep assembling its batch, AND everything
+ * `previewPurchaseImpact`'s "update" dry run needs to call `planPurchaseMutationCostingImpact`
+ * with. Extracted (KOK-024 Phase F) for the same reason `buildPurchaseCreateMovements` was: the
+ * preview and the mutation it previews must build these inputs identically, never separately. Pure
+ * construction; never calls `db.batch()`. */
+async function buildPurchaseUpdateMutationInputs(
   db: Db,
   id: string,
   command: UpdatePurchaseCommand,
-  actor: AuditActor,
-): Promise<UpdatePurchaseResult> {
+): Promise<{
+  existing: PurchaseRow;
+  existingLines: PurchaseLineRow[];
+  newRow: PurchaseRow;
+  newLines: PurchaseLineRow[];
+  newMovements: StockMovementInput[];
+  newTransactions: FinancialTransactionInput[];
+}> {
   // Defensive re-check (core/ services never trust a caller already ran Zod, D-2).
   if (command.lines.length === 0) {
     throw validationError("Se requiere al menos una línea de compra.", {});
@@ -928,18 +1008,53 @@ export async function updatePurchase(
     lineTotal: line.lineTotal,
   }));
 
-  // The post-state kardex for this purchase. Unit cost is re-derived per line (D-5 — never carried
-  // over from the previous generation, which may have had different quantities entirely).
-  const newMovements: StockMovementInput[] = newLines.map((line) => ({
-    itemId: line.itemId,
-    occurredAt: newRow.occurredAt,
-    businessDate: newRow.businessDate,
-    type: "PURCHASE_IN",
-    qty: line.qty,
-    unitCost: computePurchaseLineUnitCost(line.lineTotal, line.qty),
-    sourceEventType: "purchase",
-    sourceEventId: id,
-  }));
+  const newMovements = buildPurchaseInMovementsFromLines(
+    id,
+    newLines,
+    newRow.occurredAt,
+    newRow.businessDate,
+  );
+
+  return {
+    existing,
+    existingLines,
+    newRow,
+    newLines,
+    newMovements,
+    newTransactions: buildPurchaseTransactionInputs(newRow),
+  };
+}
+
+/** Everything `deletePurchase` needs to keep assembling its batch, AND everything
+ * `previewPurchaseImpact`'s "delete" dry run needs — same extraction reasoning as
+ * `buildPurchaseUpdateMutationInputs`. */
+async function buildPurchaseDeleteMutationInputs(
+  db: Db,
+  id: string,
+): Promise<{ existing: PurchaseRow; existingLines: PurchaseLineRow[]; newRow: PurchaseRow }> {
+  const { row: existing, lines: existingLines } = await loadPurchaseForMutation(db, id);
+  const now = nowIso();
+  const newRow: PurchaseRow = { ...existing, deletedAt: now, updatedAt: now };
+  return { existing, existingLines, newRow };
+}
+
+/**
+ * UC-01 edit (R-1): replaces a purchase's content and regenerates every row derived from it — the
+ * kardex, `item_stock`, the WAC, `replacement_cost`, the cash transaction and the account balances —
+ * in ONE atomic batch (D-3). See this section's header for the shape.
+ *
+ * The command is a FULL REPLACEMENT, not a patch: `command.lines` becomes the purchase's complete
+ * line set, and `total` is re-derived server-side as Σ lineTotal (Doc 04 §5), never accepted from
+ * the caller — identical to the create path.
+ */
+export async function updatePurchase(
+  db: Db,
+  id: string,
+  command: UpdatePurchaseCommand,
+  actor: AuditActor,
+): Promise<UpdatePurchaseResult> {
+  const { existing, existingLines, newRow, newLines, newMovements, newTransactions } =
+    await buildPurchaseUpdateMutationInputs(db, id, command);
 
   await commitPurchaseMutation(db, {
     action: "update",
@@ -948,7 +1063,7 @@ export async function updatePurchase(
     newRow,
     newLines,
     newMovements,
-    newTransactions: buildPurchaseTransactionInputs(newRow),
+    newTransactions,
     confirm: command.confirm === true,
     actor,
   });
@@ -978,10 +1093,7 @@ export async function deletePurchase(
   command: DeletePurchaseCommand,
   actor: AuditActor,
 ): Promise<DeletePurchaseResult> {
-  const { row: existing, lines: existingLines } = await loadPurchaseForMutation(db, id);
-
-  const now = nowIso();
-  const newRow: PurchaseRow = { ...existing, deletedAt: now, updatedAt: now };
+  const { existing, existingLines, newRow } = await buildPurchaseDeleteMutationInputs(db, id);
 
   await commitPurchaseMutation(db, {
     action: "delete",
@@ -1000,6 +1112,83 @@ export async function deletePurchase(
   return {
     purchase: toPurchaseDto(newRow, existingLines),
     account: await readAccountDtoOrThrow(db, existing.accountId),
+  };
+}
+
+/** Loads a purchase and its lines for a restore, refusing one that is MISSING or already LIVE
+ * (i.e. not currently soft-deleted) — the mirror image of `loadPurchaseForMutation`'s "already
+ * -deleted is not editable" guard: here, "not deleted" is the state that isn't restorable. */
+async function loadPurchaseForRestore(
+  db: Db,
+  id: string,
+): Promise<{ row: PurchaseRow; lines: PurchaseLineRow[] }> {
+  const row = await db.query.purchases.findFirst({
+    where: (t, { and: andOp, eq: eqOp, isNotNull }) =>
+      andOp(eqOp(t.id, id), isNotNull(t.deletedAt)),
+  });
+  if (!row) {
+    throw notFound("No se encontró la compra eliminada.", { id });
+  }
+  const lines = await db.query.purchaseLines.findMany({
+    where: (t, { eq: eqOp }) => eqOp(t.purchaseId, id),
+  });
+  return { row, lines };
+}
+
+/**
+ * Server side of the "Deshacer" 10s-undo toast (Doc 06 principle 6): un-deletes a soft-deleted
+ * purchase and reconstructs everything `deletePurchase` reversed, in ONE atomic batch (D-3), routed
+ * through the SAME `commitPurchaseMutation` path `updatePurchase`/`deletePurchase` already share
+ * (audited as `"restore"`, a free-form `audit_log.action` string — no CHECK constraint, no
+ * migration needed).
+ *
+ * `purchase_lines` survive a delete unchanged (R-3: only the kardex and cash were reversed, the
+ * lines themselves were never touched), so this is functionally "an update with unchanged content,
+ * just un-deleting it": `newLines` is the purchase's own stored lines, `newMovements`/
+ * `newTransactions` are re-derived from those SAME lines via `buildPurchaseInMovementsFromLines`/
+ * `buildPurchaseTransactionInputs` — the identical constructions `updatePurchase` uses, never a
+ * re-implementation — and `newRow` is `existing` with `deletedAt` cleared. `total` is left exactly
+ * as stored: it already equals Σ lineTotal over these unchanged lines (Doc 04 §5), and `confirm` is
+ * the only content this command accepts from the caller at all.
+ *
+ * Re-inserting HISTORICAL movements at their original dates can itself require R-5 confirmation: if
+ * other purchases/exits/production happened while this purchase was deleted, reintroducing its
+ * kardex re-weights C-1 for everything after it exactly as a backdated edit would.
+ * `commitPurchaseMutation`'s existing `planPurchaseMutationCostingImpact` gate handles that with no
+ * special-casing here — a restore is simply another shape of pending kardex change to it.
+ */
+export async function restorePurchase(
+  db: Db,
+  id: string,
+  command: DeletePurchaseCommand,
+  actor: AuditActor,
+): Promise<UpdatePurchaseResult> {
+  const { row: existing, lines: existingLines } = await loadPurchaseForRestore(db, id);
+
+  const now = nowIso();
+  const newRow: PurchaseRow = { ...existing, deletedAt: null, updatedAt: now };
+  const newMovements = buildPurchaseInMovementsFromLines(
+    id,
+    existingLines,
+    newRow.occurredAt,
+    newRow.businessDate,
+  );
+
+  await commitPurchaseMutation(db, {
+    action: "restore",
+    existing,
+    existingLines,
+    newRow,
+    newLines: existingLines,
+    newMovements,
+    newTransactions: buildPurchaseTransactionInputs(newRow),
+    confirm: command.confirm === true,
+    actor,
+  });
+
+  return {
+    purchase: toPurchaseDto(newRow, existingLines),
+    account: await readAccountDtoOrThrow(db, newRow.accountId),
   };
 }
 
@@ -1051,4 +1240,74 @@ export async function listPurchases(
   return {
     purchases: rows.map((row) => toPurchaseDto(row, linesByPurchase.get(row.id) ?? [])),
   };
+}
+
+/**
+ * A placeholder `AuditActor` for `planCostingReplay` calls this dry run makes. `actor` only labels
+ * the (discarded) `costing_replay` audit-row statement `planCostingReplay` would otherwise build —
+ * it plays no part in computing `.impact` — and this function never reaches `db.batch()`, so no
+ * audit row, nor anything else naming this actor, is ever written. `"SYSTEM"` is the honest label
+ * for "no human actor initiated this specific read."
+ */
+const PREVIEW_ACTOR: AuditActor = "SYSTEM";
+
+/**
+ * R-5 / ADR-016's dry-run endpoint (Doc 03 §7): "what would this create/edit/delete do to costing?",
+ * answered WITHOUT writing anything — no `db.batch()` call anywhere in this function's call graph.
+ *
+ * THE hard requirement this module's header states ("the preview and the mutation it previews must
+ * run the exact same planner, or the preview is a lie with a UI around it") is met by construction,
+ * not by convention: every branch below calls the SAME builder the corresponding real mutation
+ * calls (`buildPurchaseCreateMovements` / `buildPurchaseUpdateMutationInputs` /
+ * `buildPurchaseDeleteMutationInputs`) and the SAME planning step
+ * (`planCostingReplay` / `planPurchaseMutationCostingImpact`) — never a re-implementation that
+ * could silently drift from the real path over time.
+ */
+export async function previewPurchaseImpact(
+  db: Db,
+  request: PurchaseImpactRequest,
+): Promise<ReplayImpactDto> {
+  if (request.op === "create") {
+    const { purchaseId, movements } = await buildPurchaseCreateMovements(db, request.command);
+    const plan = await planCostingReplay(db, {
+      trigger: {
+        eventType: "purchase",
+        eventId: purchaseId,
+        businessDate: request.command.businessDate,
+        occurredAt: request.command.occurredAt,
+      },
+      changes: [
+        { sourceEventType: "purchase", sourceEventId: purchaseId, newMovements: movements },
+      ],
+      actor: PREVIEW_ACTOR,
+    });
+    return plan.impact;
+  }
+
+  if (request.op === "update") {
+    const { newRow, newMovements } = await buildPurchaseUpdateMutationInputs(
+      db,
+      request.id,
+      request.command,
+    );
+    const { costingPlan } = await planPurchaseMutationCostingImpact(
+      db,
+      request.id,
+      newRow,
+      newMovements,
+      PREVIEW_ACTOR,
+    );
+    return costingPlan.impact;
+  }
+
+  // request.op === "delete"
+  const { newRow } = await buildPurchaseDeleteMutationInputs(db, request.id);
+  const { costingPlan } = await planPurchaseMutationCostingImpact(
+    db,
+    request.id,
+    newRow,
+    [],
+    PREVIEW_ACTOR,
+  );
+  return costingPlan.impact;
 }
