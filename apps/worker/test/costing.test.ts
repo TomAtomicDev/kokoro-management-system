@@ -14,6 +14,10 @@ import {
   recomputeWacFromMovements,
   snapshotUnitCost,
 } from "../src/core/costing/index.js";
+// KOK-024 Phase B additions are imported from the module directly rather than through the barrel:
+// core/costing/index.ts is being edited concurrently by the service half of this task, so this
+// phase deliberately does not touch it. Re-export them from the barrel when the halves merge.
+import { replayWacFrom, replayWacWithTrace } from "../src/core/costing/wac.js";
 
 function expectDomainValidationError(fn: () => unknown): void {
   let caught: unknown;
@@ -170,6 +174,107 @@ describe("recomputeWacFromMovements (R-2)", () => {
   });
 });
 
+describe("replayWacFrom (R-2/R-4 resume-from-a-point)", () => {
+  const history: ReplayMovement[] = [
+    { type: "PURCHASE_IN", qty: 1000, unitCost: 100 },
+    { type: "SALE_OUT", qty: -400, unitCost: 100 },
+    { type: "PURCHASE_IN", qty: 1000, unitCost: 300 },
+  ];
+
+  it("from a zero seed is exactly equivalent to recomputeWacFromMovements", () => {
+    expect(replayWacFrom({ onHand: 0, wac: 0 }, history).wac).toBe(
+      recomputeWacFromMovements(history),
+    );
+    expect(replayWacFrom({ onHand: 0, wac: 0 }, []).wac).toBe(recomputeWacFromMovements([]));
+  });
+
+  it("returns the running on-hand balance alongside the wac", () => {
+    // 1000 - 400 + 1000 = 1600 milli-units.
+    expect(replayWacFrom({ onHand: 0, wac: 0 }, history)).toEqual({ onHand: 1600, wac: 225 });
+  });
+
+  it("resumes from a non-zero seed: the seed acts as the pre-existing on-hand weight", () => {
+    // seed onHand=600 @ wac=100, then PURCHASE_IN(1000 @ 300) -> (600*100 + 1000*300)/1600 = 225.
+    // Identical to replaying the full `history`, whose state at that cut point is exactly the seed.
+    const tail: ReplayMovement[] = [{ type: "PURCHASE_IN", qty: 1000, unitCost: 300 }];
+    expect(replayWacFrom({ onHand: 600, wac: 100 }, tail)).toEqual({ onHand: 1600, wac: 225 });
+  });
+
+  it("an empty tail returns the seed unchanged", () => {
+    expect(replayWacFrom({ onHand: 750, wac: 42.5 }, [])).toEqual({ onHand: 750, wac: 42.5 });
+  });
+
+  it("honours a negative seed on-hand via C-1's max(on_hand,0) floor (INV-8)", () => {
+    expect(
+      replayWacFrom({ onHand: -2000, wac: 100 }, [
+        { type: "PURCHASE_IN", qty: 1000, unitCost: 400 },
+      ]),
+    ).toEqual({ onHand: -1000, wac: 400 });
+  });
+
+  it("rejects an invalid seed (negative wac, non-integer on-hand)", () => {
+    expectDomainValidationError(() => replayWacFrom({ onHand: 0, wac: -1 }, history));
+    expectDomainValidationError(() => replayWacFrom({ onHand: 1.5, wac: 0 }, history));
+  });
+
+  it("still rejects a zero-qty movement in the tail", () => {
+    expectDomainValidationError(() =>
+      replayWacFrom({ onHand: 100, wac: 10 }, [{ type: "PURCHASE_IN", qty: 0, unitCost: 100 }]),
+    );
+  });
+});
+
+describe("replayWacWithTrace (R-4 cost_delta inputs)", () => {
+  it("emits one index-aligned step per movement, exposing the WAC as of that movement", () => {
+    const movements: ReplayMovement[] = [
+      { type: "PURCHASE_IN", qty: 1000, unitCost: 100 },
+      { type: "SALE_OUT", qty: -400, unitCost: 100 },
+      { type: "PURCHASE_IN", qty: 1000, unitCost: 300 },
+      { type: "SALE_OUT", qty: -100, unitCost: 225 },
+    ];
+    const { final, steps } = replayWacWithTrace({ onHand: 0, wac: 0 }, movements);
+
+    expect(steps).toHaveLength(movements.length);
+    expect(steps[0]).toEqual({ wacBefore: 0, wacAfter: 100, onHandBefore: 0, onHandAfter: 1000 });
+    // The exit carries WAC forward untouched (C-6) — before and after are equal.
+    expect(steps[1]).toEqual({
+      wacBefore: 100,
+      wacAfter: 100,
+      onHandBefore: 1000,
+      onHandAfter: 600,
+    });
+    expect(steps[2]).toEqual({
+      wacBefore: 100,
+      wacAfter: 225,
+      onHandBefore: 600,
+      onHandAfter: 1600,
+    });
+    // The second sale's frozen snapshot (225) matches the replayed WAC at its point => no drift.
+    expect(steps[3]?.wacBefore).toBe(225);
+
+    expect(final).toEqual({ onHand: 1500, wac: 225 });
+  });
+
+  it("surfaces a stale exit snapshot as a non-zero difference against the replayed WAC (R-4)", () => {
+    // The sale was originally valued at 100, but an earlier purchase has since been corrected so
+    // the replay says WAC was 225 at that point: cost_delta is computed off exactly this gap.
+    const movements: ReplayMovement[] = [
+      { type: "PURCHASE_IN", qty: 1000, unitCost: 225 },
+      { type: "SALE_OUT", qty: -400, unitCost: 100 },
+    ];
+    const { steps } = replayWacWithTrace({ onHand: 0, wac: 0 }, movements);
+    // frozen snapshot (100) - replayed WAC at that point (225) = -125.
+    expect(100 - (steps[1]?.wacBefore ?? Number.NaN)).toBe(-125);
+  });
+
+  it("agrees with replayWacFrom on the final state and produces no steps for an empty tail", () => {
+    const seed = { onHand: 600, wac: 100 };
+    const movements: ReplayMovement[] = [{ type: "PURCHASE_IN", qty: 1000, unitCost: 300 }];
+    expect(replayWacWithTrace(seed, movements).final).toEqual(replayWacFrom(seed, movements));
+    expect(replayWacWithTrace(seed, []).steps).toEqual([]);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Property tests (Doc 11 §2, mandatory for money math per D-5/backlog 🧠5).
 // ---------------------------------------------------------------------------
@@ -271,6 +376,88 @@ describe("property: applyWacEntry loses no centavos — the C-1 formula is exact
           // proportionally scaled tolerance rather than a fixed absolute one.
           const scale = Math.max(Math.abs(lhs), Math.abs(rhs), 1);
           expect(Math.abs(lhs - rhs)).toBeLessThanOrEqual(scale * 1e-9);
+        },
+      ),
+    );
+  });
+});
+
+describe("property: a WAC replay is split-invariant — this is what makes resuming sound", () => {
+  // The whole KOK-024 correction mechanism rests on this one property: replaying only the kardex
+  // TAIL after the edited event, seeded with the state at the cut point, must land on exactly the
+  // same place as replaying the item's entire history. If it did not, a corrected item's WAC would
+  // depend on WHERE the correction happened to cut, which would be indefensible.
+  //
+  // Equality here is asserted EXACTLY, not approximately, and that is deliberate: the two runs
+  // perform the identical sequence of identical float operations, so any difference at all would
+  // mean the seed is not carrying the full state (e.g. a lost negative on-hand, or a WAC rounded
+  // on the way through) — precisely the class of bug this property exists to catch.
+  const anyMovementArb = fc.oneof(
+    fc.record({
+      type: fc.constantFrom("PURCHASE_IN" as const, "PRODUCTION_IN" as const),
+      qty: fc.integer({ min: 1, max: 1_000_000 }),
+      unitCost: fc.double({ min: 0, max: 100_000, noNaN: true, noDefaultInfinity: true }),
+    }),
+    fc.record({
+      type: fc.constantFrom("SALE_OUT" as const, "EXIT_OUT" as const, "PRODUCTION_OUT" as const),
+      qty: fc.integer({ min: -500_000, max: -1 }),
+      unitCost: fc.double({ min: 0, max: 100_000, noNaN: true, noDefaultInfinity: true }),
+    }),
+    fc.record({
+      type: fc.constant("ADJUST" as const),
+      qty: fc.integer({ min: -500_000, max: 500_000 }).filter((q) => q !== 0),
+      unitCost: fc.double({ min: 0, max: 100_000, noNaN: true, noDefaultInfinity: true }),
+    }),
+  );
+
+  const seedArb = fc.record({
+    onHand: fc.integer({ min: -1_000_000, max: 1_000_000 }), // may be negative, INV-8
+    wac: fc.double({ min: 0, max: 100_000, noNaN: true, noDefaultInfinity: true }),
+  });
+
+  it("∀ seed, movements, split index i: replay(prefix) then replay(suffix) == replay(whole)", () => {
+    fc.assert(
+      fc.property(
+        seedArb,
+        fc.array(anyMovementArb, { minLength: 0, maxLength: 60 }),
+        fc.nat(),
+        (seed, movements, rawSplit) => {
+          const split = movements.length === 0 ? 0 : rawSplit % (movements.length + 1);
+          const prefix = movements.slice(0, split);
+          const suffix = movements.slice(split);
+
+          const whole = replayWacFrom(seed, movements);
+          const resumed = replayWacFrom(replayWacFrom(seed, prefix), suffix);
+
+          expect(resumed.wac).toBe(whole.wac);
+          expect(resumed.onHand).toBe(whole.onHand);
+        },
+      ),
+    );
+  });
+
+  it("∀ seed, movements: the trace's per-step states agree with replaying each prefix", () => {
+    // steps[i] must describe movements[i] specifically — the R-4 cost_delta calculation reads
+    // steps[i].wacBefore as "the WAC in effect when movements[i] happened", so an off-by-one or a
+    // step that summarised the wrong movement would mis-price every corrected exit.
+    fc.assert(
+      fc.property(
+        seedArb,
+        fc.array(anyMovementArb, { minLength: 0, maxLength: 25 }),
+        (seed, movements) => {
+          const { final, steps } = replayWacWithTrace(seed, movements);
+          expect(steps).toHaveLength(movements.length);
+
+          for (const [i, step] of steps.entries()) {
+            const before = replayWacFrom(seed, movements.slice(0, i));
+            const after = replayWacFrom(seed, movements.slice(0, i + 1));
+            expect(step.wacBefore).toBe(before.wac);
+            expect(step.onHandBefore).toBe(before.onHand);
+            expect(step.wacAfter).toBe(after.wac);
+            expect(step.onHandAfter).toBe(after.onHand);
+          }
+
+          expect(final).toEqual(replayWacFrom(seed, movements));
         },
       ),
     );
