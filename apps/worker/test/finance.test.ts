@@ -12,8 +12,11 @@
 // both seeded accounts back at balance 0, with no leftover transactions/audit rows from prior tests.
 import { env } from "cloudflare:test";
 import { eq, inArray } from "drizzle-orm";
+import type { BatchItem } from "drizzle-orm/batch";
 import { beforeEach, describe, expect, it } from "vitest";
 
+import type { FinancialTransactionInput } from "../src/core/finance/accounts.js";
+import { buildReplaceTransactionsForSourceStatements } from "../src/core/finance/accounts.js";
 import {
   getAccount,
   getBalanceConsistencyMismatches,
@@ -478,6 +481,236 @@ describe("batch atomicity (INV-1)", () => {
       "SELECT id FROM financial_transactions WHERE id = 'tx_atomicity_test'",
     ).first();
     expect(txRow).toBeNull();
+  });
+});
+
+describe("buildReplaceTransactionsForSourceStatements (KOK-024 regeneration primitive)", () => {
+  const SOURCE_TYPE = "purchase";
+  const SOURCE_ID = "pur_regen_1";
+
+  /** The event-derived EXPENSE a purchase would write: one system-owned row (Doc 04 §5). */
+  function purchaseExpense(
+    accountId: string,
+    amount: number,
+    sourceEventId = SOURCE_ID,
+  ): FinancialTransactionInput {
+    return {
+      occurredAt: NOW,
+      businessDate: BUSINESS_DATE,
+      accountId,
+      type: "EXPENSE",
+      category: "SUPPLY_PURCHASE",
+      amount,
+      sourceEventType: SOURCE_TYPE,
+      sourceEventId,
+      description: "Compra de insumos",
+    };
+  }
+
+  /** Executes what the helper builds the way a real caller would: ONE db.batch() (D-3). The helper
+   * itself never batches — this test is the caller. */
+  async function applyRegeneration(
+    db: TestDb,
+    newRows: FinancialTransactionInput[],
+    sourceEventId = SOURCE_ID,
+  ): Promise<void> {
+    const { statements } = await buildReplaceTransactionsForSourceStatements(
+      db,
+      SOURCE_TYPE,
+      sourceEventId,
+      newRows,
+    );
+    await db.batch(statements as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]);
+  }
+
+  async function balanceOf(db: TestDb, accountId: string): Promise<number | undefined> {
+    const row = await db.query.financialAccounts.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.id, accountId),
+    });
+    return row?.balance;
+  }
+
+  async function rowsForSource(db: TestDb, sourceEventId = SOURCE_ID) {
+    return db.query.financialTransactions.findMany({
+      where: (t, { and: andOp, eq: eqOp }) =>
+        andOp(eqOp(t.sourceEventType, SOURCE_TYPE), eqOp(t.sourceEventId, sourceEventId)),
+    });
+  }
+
+  it("creates the derived rows and applies their balance effect on the first (no prior generation) call", async () => {
+    const db = createDb(env.DB);
+    await applyRegeneration(db, [purchaseExpense("acc_cash", 5000)]);
+
+    expect(await balanceOf(db, "acc_cash")).toBe(-5000);
+
+    const rows = await rowsForSource(db);
+    expect(rows).toHaveLength(1);
+    // INV-9: derived rows always carry the source pair, and are live (never tombstoned) after a
+    // regeneration.
+    expect(rows[0]).toMatchObject({
+      accountId: "acc_cash",
+      type: "EXPENSE",
+      category: "SUPPLY_PURCHASE",
+      amount: 5000,
+      sourceEventType: SOURCE_TYPE,
+      sourceEventId: SOURCE_ID,
+      deletedAt: null,
+    });
+  });
+
+  it("is idempotent: regenerating with an identical set nets a zero balance change", async () => {
+    const db = createDb(env.DB);
+    await applyRegeneration(db, [purchaseExpense("acc_cash", 5000)]);
+    const balanceAfterFirst = await balanceOf(db, "acc_cash");
+    const idAfterFirst = (await rowsForSource(db))[0]?.id;
+
+    await applyRegeneration(db, [purchaseExpense("acc_cash", 5000)]);
+
+    expect(await balanceOf(db, "acc_cash")).toBe(balanceAfterFirst);
+    expect(await balanceOf(db, "acc_cash")).toBe(-5000);
+
+    // The row SET is stable (same values, one row); the row itself was replaced, not accumulated.
+    const rows = await rowsForSource(db);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.amount).toBe(5000);
+    expect(rows[0]?.id).not.toBe(idAfterFirst);
+
+    // INV-5 stays satisfied end to end.
+    const mismatches = await getBalanceConsistencyMismatches(db);
+    expect(mismatches).toHaveLength(0);
+  });
+
+  it("regenerating with a changed amount applies only the difference", async () => {
+    const db = createDb(env.DB);
+    await applyRegeneration(db, [purchaseExpense("acc_cash", 5000)]);
+    await applyRegeneration(db, [purchaseExpense("acc_cash", 7500)]);
+
+    expect(await balanceOf(db, "acc_cash")).toBe(-7500);
+    expect(await rowsForSource(db)).toHaveLength(1);
+  });
+
+  it("account switch: the old account is credited back and the new one debited, in one delta each", async () => {
+    const db = createDb(env.DB);
+    await applyRegeneration(db, [purchaseExpense("acc_cash", 5000)]);
+    expect(await balanceOf(db, "acc_cash")).toBe(-5000);
+    expect(await balanceOf(db, "acc_bank")).toBe(0);
+
+    // The purchase is re-attributed from cash to bank: money must come BACK to acc_cash and leave
+    // acc_bank — two accounts, each netted into exactly one balance update.
+    await applyRegeneration(db, [purchaseExpense("acc_bank", 5000)]);
+
+    expect(await balanceOf(db, "acc_cash")).toBe(0);
+    expect(await balanceOf(db, "acc_bank")).toBe(-5000);
+
+    const rows = await rowsForSource(db);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.accountId).toBe("acc_bank");
+
+    const mismatches = await getBalanceConsistencyMismatches(db);
+    expect(mismatches).toHaveLength(0);
+  });
+
+  it("account switch with a changed amount nets both sides correctly", async () => {
+    const db = createDb(env.DB);
+    await applyRegeneration(db, [purchaseExpense("acc_cash", 5000)]);
+    await applyRegeneration(db, [purchaseExpense("acc_bank", 1200)]);
+
+    expect(await balanceOf(db, "acc_cash")).toBe(0);
+    expect(await balanceOf(db, "acc_bank")).toBe(-1200);
+  });
+
+  it("delete case (newRows = []): the balance is fully reversed and no orphan derived rows remain", async () => {
+    const db = createDb(env.DB);
+    await applyRegeneration(db, [purchaseExpense("acc_cash", 5000)]);
+
+    await applyRegeneration(db, []);
+
+    expect(await balanceOf(db, "acc_cash")).toBe(0);
+    // INV-9: no derived row may survive without its source event's current state backing it.
+    expect(await rowsForSource(db)).toHaveLength(0);
+
+    const mismatches = await getBalanceConsistencyMismatches(db);
+    expect(mismatches).toHaveLength(0);
+  });
+
+  it("delete case fully reverses a multi-account, multi-row generation", async () => {
+    const db = createDb(env.DB);
+    await applyRegeneration(db, [
+      purchaseExpense("acc_cash", 5000),
+      purchaseExpense("acc_cash", 1500),
+      purchaseExpense("acc_bank", 800),
+    ]);
+    expect(await balanceOf(db, "acc_cash")).toBe(-6500);
+    expect(await balanceOf(db, "acc_bank")).toBe(-800);
+
+    await applyRegeneration(db, []);
+
+    expect(await balanceOf(db, "acc_cash")).toBe(0);
+    expect(await balanceOf(db, "acc_bank")).toBe(0);
+    expect(await rowsForSource(db)).toHaveLength(0);
+  });
+
+  it("mixed INCOME/EXPENSE rows on one account net into a single delta", async () => {
+    const db = createDb(env.DB);
+    await applyRegeneration(db, [
+      purchaseExpense("acc_cash", 5000),
+      { ...purchaseExpense("acc_cash", 2000), type: "INCOME", category: "OTHER_INCOME" },
+    ]);
+
+    expect(await balanceOf(db, "acc_cash")).toBe(-3000);
+    expect(await rowsForSource(db)).toHaveLength(2);
+  });
+
+  it("leaves another event's derived rows untouched", async () => {
+    const db = createDb(env.DB);
+    await applyRegeneration(db, [purchaseExpense("acc_cash", 5000, "pur_other")], "pur_other");
+    await applyRegeneration(db, [purchaseExpense("acc_cash", 1000)]);
+
+    await applyRegeneration(db, []);
+
+    expect(await rowsForSource(db, "pur_other")).toHaveLength(1);
+    expect(await balanceOf(db, "acc_cash")).toBe(-5000);
+  });
+
+  it("does not double-reverse a soft-deleted derived row (its effect is already out of the balance)", async () => {
+    const db = createDb(env.DB);
+    await applyRegeneration(db, [purchaseExpense("acc_cash", 5000)]);
+
+    // Simulate a row that some earlier path soft-deleted AND already backed out of the balance:
+    // reversing it a second time here would credit acc_cash twice.
+    await db
+      .update(financialTransactions)
+      .set({ deletedAt: NOW })
+      .where(eq(financialTransactions.sourceEventId, SOURCE_ID));
+    await db
+      .update(financialAccounts)
+      .set({ balance: 0 })
+      .where(eq(financialAccounts.id, "acc_cash"));
+
+    await applyRegeneration(db, [purchaseExpense("acc_cash", 5000)]);
+
+    expect(await balanceOf(db, "acc_cash")).toBe(-5000);
+    const rows = await rowsForSource(db);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.deletedAt).toBeNull();
+  });
+
+  it("rejects a new row whose source pair disagrees with the source being regenerated", async () => {
+    const db = createDb(env.DB);
+    await expect(
+      buildReplaceTransactionsForSourceStatements(db, SOURCE_TYPE, SOURCE_ID, [
+        purchaseExpense("acc_cash", 5000, "a_different_event"),
+      ]),
+    ).rejects.toMatchObject({ code: "VALIDATION" });
+  });
+
+  it("rejects a non-positive amount (the sign belongs to `type`, never to the caller)", async () => {
+    const db = createDb(env.DB);
+    await expect(
+      buildReplaceTransactionsForSourceStatements(db, SOURCE_TYPE, SOURCE_ID, [
+        purchaseExpense("acc_cash", -5000),
+      ]),
+    ).rejects.toMatchObject({ code: "VALIDATION" });
   });
 });
 
