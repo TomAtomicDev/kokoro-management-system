@@ -68,4 +68,22 @@ export const purchasesLabels = {
     accountRequired: "Selecciona una cuenta.",
     photoUploadFailed: "No se pudo subir la foto del recibo. Intenta de nuevo.",
   },
+
+  // --- Edit / delete / restore (KOK-024 Phase G) ---------------------------------------------
+
+  edit: "Editar",
+  delete: "Eliminar",
+  /** Doc 06 principle 6: an ordinary delete gets no confirm-dialog wall, only the toast below. */
+  deletedUndo: "Compra eliminada.",
+  undo: "Deshacer",
+  restoreFailed: "No se pudo deshacer la eliminación. Intenta de nuevo.",
+
+  /** ImpactConfirmDialog copy — only shown when the server refuses with
+   * REPLAY_CONFIRMATION_REQUIRED (a backdated edit/delete that moves already-booked cost). */
+  impactEditTitle: "¿Guardar los cambios?",
+  impactEditDescription:
+    "Esta compra tiene una fecha anterior a movimientos ya registrados de sus ítems. Guardar los cambios recalculará el costo de esos movimientos.",
+  impactDeleteTitle: "¿Eliminar esta compra?",
+  impactDeleteDescription:
+    "Esta compra tiene una fecha anterior a movimientos ya registrados de sus ítems. Eliminarla recalculará el costo de esos movimientos.",
 } as const;

@@ -168,4 +168,22 @@ export const inventoryLabels = {
   confirmCountNoVariance: "No hay variaciones — el conteo coincide con el stock esperado.",
   confirmCountBack: "Volver",
   confirmCountSubmit: "Confirmar y ajustar stock",
+
+  // --- Edit / delete / restore de salidas (KOK-024 Phase G) ----------------------------------
+
+  editExit: "Editar",
+  deleteExit: "Eliminar",
+  /** Doc 06 principle 6: an ordinary delete gets no confirm-dialog wall, only the toast below. */
+  exitDeletedUndo: "Salida eliminada.",
+  undoExit: "Deshacer",
+  restoreExitFailed: "No se pudo deshacer la eliminación. Intenta de nuevo.",
+
+  /** ImpactConfirmDialog copy — only shown when the server refuses with
+   * REPLAY_CONFIRMATION_REQUIRED (a backdated edit/delete that moves already-booked cost). */
+  impactEditExitTitle: "¿Guardar los cambios?",
+  impactEditExitDescription:
+    "Esta salida tiene una fecha anterior a movimientos ya registrados de este ítem. Guardar los cambios recalculará el costo de esos movimientos.",
+  impactDeleteExitTitle: "¿Eliminar esta salida?",
+  impactDeleteExitDescription:
+    "Esta salida tiene una fecha anterior a movimientos ya registrados de este ítem. Eliminarla recalculará el costo de esos movimientos.",
 } as const;
