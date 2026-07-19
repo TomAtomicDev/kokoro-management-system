@@ -5,7 +5,15 @@ export {
   startCount,
   updateCountLine,
 } from "./counts.js";
-export { getStockExit, listStockExits, recordExit } from "./exits.js";
+export {
+  deleteStockExit,
+  getStockExit,
+  listStockExits,
+  previewStockExitImpact,
+  recordExit,
+  restoreStockExit,
+  updateStockExit,
+} from "./exits.js";
 export {
   buildReplaceMovementsForSourceStatements,
   buildStockMovementStatements,
