@@ -1,26 +1,26 @@
 // core/costing — the DB-touching half of KOK-013: reading the live WAC (`getCurrentWac`, the
 // integration point future exit-valuing services use to obtain the value to pass through
-// `snapshotUnitCost`) and building the nightly R-2 repair (`buildWacRepairIfDrifted`).
+// `snapshotUnitCost`) and detecting nightly WAC drift (`detectWacDrift`).
 //
-// ARCHITECTURAL CONSTRAINT (same rule as core/inventory and core/audit's buildAuditLogInsert —
-// "build, don't execute"): `buildWacRepairIfDrifted` never calls `db.batch()`. It only READS
-// (the item row + its full movement history) and BUILDS statement objects for a future top-level
-// job handler (KOK-021, not built by this task) to include in ITS OWN batch, possibly across many
-// items in one nightly run.
-
-import { nowIso } from "@kokoro/shared";
-import { eq } from "drizzle-orm";
-import type { BatchItem } from "drizzle-orm/batch";
+// KOK-024 / ADR-016 DEMOTED THIS FROM REPAIR TO DETECTION. Before KOK-024, this was the ONLY
+// mechanism that ever corrected `items.wac` — ADR-009's "nightly-only, O(1) edits" framing — so
+// it silently overwrote the column and left a `costing_repair` audit row as its only record.
+// KOK-024's synchronous replay (INV-11, `core/costing/replay.ts`) now corrects WAC drift
+// immediately, inside the triggering command's own batch, and does it R-4/R-5-correctly: it never
+// rewrites an already-frozen `unit_cost_snapshot` and it asks for confirmation before moving
+// already-booked cost. A blind nightly overwrite of `items.wac` does neither of those — it would
+// silently reintroduce exactly the history-rewriting risk R-4 exists to prevent, the day some
+// caller's replay has a bug or a direct DB fix bypasses services entirely. So this function no
+// longer builds a repair; it only detects and reports drift, exactly like
+// `core/inventory/queries.ts`'s `getStockConsistencyMismatches` and `core/finance/accounts.ts`'s
+// `getBalanceConsistencyMismatches` already do for their own consistency checks — a human
+// investigates, this doesn't guess which side is right.
 
 import type { Db } from "../../db/index.js";
-import { items } from "../../db/schema.js";
-import { buildAuditLogInsert } from "../audit.js";
 import { notFound } from "../errors.js";
 import { recomputeWacFromMovements } from "./wac.js";
 
-type Statement = BatchItem<"sqlite">;
-
-/** R-2: "if drift > 1% it repairs it". */
+/** R-2: "if drift > 1% it's worth a human's attention". */
 const DRIFT_THRESHOLD_RATIO = 0.01;
 /** Denominator floor for the drift ratio when `current` is 0, so `0/0` (no drift) doesn't divide
  * by zero, while any nonzero `recomputed` against a `current` of 0 still reads as ~infinite drift
@@ -42,13 +42,24 @@ export async function getCurrentWac(db: Db, itemId: string): Promise<number> {
   return row.wac;
 }
 
+/** One item's detected WAC drift: the currently-stored value, what the full kardex replay says it
+ * should be, and the relative drift ratio between them. */
+export interface WacDrift {
+  itemId: string;
+  current: number;
+  recomputed: number;
+  driftRatio: number;
+}
+
 /**
- * R-2's nightly consistency check for one item: recomputes WAC from the FULL kardex
- * (`recomputeWacFromMovements`) and compares it against the currently-stored `items.wac`. If the
- * relative drift exceeds 1%, RETURNS (does not execute) the repair statements — an `items.wac`
- * UPDATE plus a `costing_repair` audit_log row (Doc 04 §3.5's action enum). Returns `null` when
- * drift is within tolerance, meaning "no-op, nothing to include in this item's slot of the
- * nightly batch."
+ * The nightly backstop's per-item WAC check (R-2, INV-5): recomputes WAC from the FULL kardex
+ * (`recomputeWacFromMovements`) and compares it against the currently-stored `items.wac`.
+ * DETECTION ONLY — returns the drift for a human to see when the relative difference exceeds 1%,
+ * and never builds or executes a write. `items.wac` is now corrected exclusively by the
+ * synchronous replay (`core/costing/replay.ts`, INV-11); if this function ever finds real drift,
+ * that means the synchronous path missed something (a bug, or a direct DB fix bypassing services)
+ * and the fix belongs to a human investigating it, not to this job silently applying one. Returns
+ * `null` when drift is within tolerance, meaning "nothing to report for this item."
  *
  * Movements are read ordered by `occurredAt` then `createdAt` as a stable tiebreak (two movements
  * can share the same `occurred_at` instant, e.g. two purchase lines on the same invoice; ordering
@@ -56,10 +67,7 @@ export async function getCurrentWac(db: Db, itemId: string): Promise<number> {
  * Out of scope: this function never touches `items.replacement_cost` /
  * `replacement_cost_updated_at` (C-3 is KOK-029, not this task).
  */
-export async function buildWacRepairIfDrifted(
-  db: Db,
-  itemId: string,
-): Promise<{ statements: Statement[] } | null> {
+export async function detectWacDrift(db: Db, itemId: string): Promise<WacDrift | null> {
   const itemRow = await db.query.items.findFirst({
     where: (t, { eq: eqOp }) => eqOp(t.id, itemId),
   });
@@ -83,18 +91,5 @@ export async function buildWacRepairIfDrifted(
     return null;
   }
 
-  const now = nowIso();
-  const statements: Statement[] = [
-    db.update(items).set({ wac: recomputed, updatedAt: now }).where(eq(items.id, itemId)),
-    buildAuditLogInsert(db, {
-      actor: "SYSTEM",
-      action: "costing_repair",
-      entityType: "items",
-      entityId: itemId,
-      before: { wac: current },
-      after: { wac: recomputed },
-    }),
-  ];
-
-  return { statements };
+  return { itemId, current, recomputed, driftRatio };
 }

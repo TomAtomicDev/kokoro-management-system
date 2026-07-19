@@ -3,7 +3,7 @@
 // These functions are plain, synchronous, DB-free (see wac.ts's header comment), so unlike
 // inventory.test.ts / catalog.test.ts they do NOT need @cloudflare/vitest-pool-workers or a D1
 // binding — a plain Vitest run is enough. The DB-touching half of this task
-// (buildWacRepairIfDrifted / getCurrentWac) is covered separately in costing-repair.test.ts
+// (detectWacDrift / getCurrentWac) is covered separately in costing-repair.test.ts
 // against real D1, mirroring inventory.test.ts's pattern.
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";

@@ -208,9 +208,9 @@ export async function getStockValueTotal(db: Db): Promise<number> {
  * `SUM(stock_movements.qty)` — the append-only ledger's own truth, never soft-deleted (Doc 04
  * §3.4) — against the `item_stock.qty_on_hand` it should net to. A mismatch means an earlier batch
  * broke atomicity somewhere upstream (a movement written without its paired `item_stock` upsert,
- * or vice versa). This function only DETECTS and reports it; unlike WAC (R-2, `core/costing`'s
- * `buildWacRepairIfDrifted`), there is no defined repair procedure for a stock-qty mismatch, so
- * this is a pure read with no statements to build — a bug to surface, not silently patch.
+ * or vice versa). This function only DETECTS and reports it — same as WAC drift now does
+ * (`core/costing`'s `detectWacDrift`, since KOK-024/ADR-016 demoted its nightly repair to
+ * detection) — a pure read with no statements to build, a bug to surface, not silently patch.
  *
  * Not filtered to active items (unlike `listStock`/`v_stock`): a ledger inconsistency on an
  * inactive item is still a real inconsistency worth surfacing.

@@ -3,8 +3,9 @@
 // recordTransaction — the same seams inventory-queries.test.ts/finance.test.ts use), run the job
 // against real D1 (test/setup.ts applies migrations/0001_init.sql first), then assert the
 // daily_snapshots + job_runs rows it writes, plus (mirroring costing-repair.test.ts's assertion
-// style, but at the ORCHESTRATION level — this file doesn't re-derive buildWacRepairIfDrifted's
-// own unit coverage) the R-2 WAC-repair audit trail for a deliberately-drifted item.
+// style, but at the ORCHESTRATION level — this file doesn't re-derive detectWacDrift's own unit
+// coverage) that a deliberately-drifted item's WAC is DETECTED and reported, never repaired
+// (KOK-024/ADR-016 demoted this job from repair to backstop auditor).
 //
 // Storage is isolated per test FILE, not per test (mirrors every other integration test file's
 // identical note). The beforeEach below wipes every table this job reads/writes across a run
@@ -123,7 +124,7 @@ describe("runDailySnapshot (KOK-021)", () => {
     const detail = JSON.parse(jobRunRows[0]?.detail ?? "null");
     expect(Array.isArray(detail.stockMismatches)).toBe(true);
     expect(Array.isArray(detail.balanceMismatches)).toBe(true);
-    expect(typeof detail.wacRepairCount).toBe("number");
+    expect(Array.isArray(detail.wacDrift)).toBe(true);
   });
 
   it("is idempotent: a second run for the same business date upserts the snapshot row instead of duplicating it", async () => {
@@ -159,25 +160,25 @@ describe("runDailySnapshot (KOK-021)", () => {
     expect(jobRunRows.every((r) => r.ok === 1)).toBe(true);
   });
 
-  it("repairs a drifted item's WAC (R-2) during the run and writes a costing_repair audit row", async () => {
+  it("detects a drifted item's WAC (R-2 backstop) and reports it WITHOUT repairing it", async () => {
     const db = createDb(env.DB);
     const item = await seedDriftedItem(db, "Daily snapshot drifted item");
 
     await runDailySnapshot(db);
 
+    // Detection only: the drifted wac is left exactly as seeded, and no costing_repair audit row
+    // is written — items.wac is now corrected exclusively by the synchronous replay (INV-11), not
+    // by this job.
     const updatedItem = await db.query.items.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
     });
-    expect(updatedItem?.wac).toBe(200); // recomputed from the kardex, replacing the drifted 100
+    expect(updatedItem?.wac).toBe(100);
 
     const repairAuditRows = await db.query.auditLog.findMany({
       where: (t, { and, eq: eqOp }) =>
         and(eqOp(t.entityId, item.id), eqOp(t.action, "costing_repair")),
     });
-    expect(repairAuditRows).toHaveLength(1);
-    expect(repairAuditRows[0]).toMatchObject({ actor: "SYSTEM", entityType: "items" });
-    expect(JSON.parse(repairAuditRows[0]?.beforeJson ?? "null")).toEqual({ wac: 100 });
-    expect(JSON.parse(repairAuditRows[0]?.afterJson ?? "null")).toEqual({ wac: 200 });
+    expect(repairAuditRows).toHaveLength(0);
 
     const jobRunRows = await db.query.jobRuns.findMany({
       where: (t, { eq: eqOp }) => eqOp(t.job, "daily-snapshot"),
@@ -185,6 +186,16 @@ describe("runDailySnapshot (KOK-021)", () => {
     expect(jobRunRows).toHaveLength(1);
     expect(jobRunRows[0]?.ok).toBe(1);
     const detail = JSON.parse(jobRunRows[0]?.detail ?? "null");
-    expect(detail.wacRepairCount).toBeGreaterThanOrEqual(1);
+    // toContainEqual, not toEqual: `items` rows are never deleted between tests in this file (see
+    // header — items.name is UNIQUE so each test uses its own), but `stock_movements` IS wiped
+    // every `beforeEach`. An earlier test's item legitimately reads as "drifted" here too once its
+    // movements are gone and its stored wac isn't — that's detectWacDrift working correctly, not
+    // a bug this test needs to control for.
+    expect(detail.wacDrift).toContainEqual({
+      itemId: item.id,
+      current: 100,
+      recomputed: 200,
+      driftRatio: 1,
+    });
   });
 });

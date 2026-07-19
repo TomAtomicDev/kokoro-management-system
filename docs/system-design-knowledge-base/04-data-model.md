@@ -318,6 +318,11 @@ CREATE TABLE costing_adjustments (       -- R-4: cumulative P&L correction from 
 );
 ```
 
+No `affected_production_run_ids` column: the row is keyed to one `item_id`, and until production
+runs exist (KOK-026) no replay ever touches one — the impact-preview DTO (`packages/shared/src/
+costing.ts`'s `ReplayImpactDto`) already carries `affectedProductionRunIds` for the day it does,
+but persisting them here is deferred to KOK-026 rather than added speculatively now.
+
 Deposit liability is derived, not a table:
 `customer_deposits = Σ deposits received − Σ released/refunded`, computed from ORDER_DEPOSIT /
 DEPOSIT_REFUND transactions and delivered orders; exposed via view `v_liability` and snapshotted

@@ -7,11 +7,13 @@ Plain functions implementing the scheduled Cron Trigger jobs (Doc 02 §4.4): `da
 recorded in the `job_runs` table for observability, even the three jobs with no real
 implementation yet (they write an `ok=1`/`'not yet implemented'` row via a shared stub).
 
-- `daily-snapshot.ts` — `runDailySnapshot` (KOK-021): the `daily_snapshots` row (INV-5), the R-2
-  nightly WAC-drift repair across all active items (`core/costing`'s `buildWacRepairIfDrifted`),
-  and INV-5's stock/balance consistency sentinel (`core/inventory`'s
-  `getStockConsistencyMismatches`, `core/finance`'s `getBalanceConsistencyMismatches` — detection
-  only, logged into `job_runs.detail`, no auto-repair; see the file's header for why).
+- `daily-snapshot.ts` — `runDailySnapshot` (KOK-021): the `daily_snapshots` row (INV-5) and
+  INV-5's stock/balance/WAC consistency sentinel — `core/inventory`'s
+  `getStockConsistencyMismatches`, `core/finance`'s `getBalanceConsistencyMismatches`, and (as of
+  KOK-024/ADR-016) `core/costing`'s `detectWacDrift` across all active items. All three are
+  detection only, logged into `job_runs.detail`, no auto-repair; see the file's header for why —
+  WAC drift used to be silently repaired here (ADR-009), but the synchronous replay
+  (`core/costing/replay.ts`) now owns that correction R-4/R-5-correctly.
 - `backup.ts` — `runBackup` (KOK-022): dumps every business/event/derived/system table as SQL
   `INSERT` text, uploads it to R2 under `backups/<businessDate>-<isoTimestamp>.sql`, and sweeps
   `backups/` for objects past `app_settings.backup_retention_days`. See the file's header for the
