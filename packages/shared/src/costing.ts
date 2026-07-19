@@ -67,3 +67,23 @@ export type ReplayImpactDto = z.infer<typeof replayImpactSchema>;
  * to send it can never silently book a large correction.
  */
 export const confirmFlagSchema = z.boolean().optional().default(false);
+
+/**
+ * The `details.reason` discriminator a service puts on the CONFLICT `DomainError` it throws when
+ * `confirm` was required but not given (KOK-024 D1/D2). Deliberately a `details` field and NOT a new
+ * `DomainErrorCode`: Doc 08 §2's code list is a closed set of HTTP-status CATEGORIES, not a business
+ * error catalogue, and 409 is already the right status for "your command is fine, the STATE says
+ * ask first". Widening the enum would force a Doc 08 amendment for zero routing benefit.
+ *
+ * The full shape a caller can rely on:
+ *   `{ reason: REPLAY_CONFIRMATION_REQUIRED, impact: ReplayImpactDto }`
+ * which is everything the confirmation dialog needs to render the preview and re-submit with
+ * `confirm: true`.
+ */
+export const REPLAY_CONFIRMATION_REQUIRED = "REPLAY_CONFIRMATION_REQUIRED" as const;
+
+/** `details` payload of the 409 above — see `REPLAY_CONFIRMATION_REQUIRED`. */
+export interface ReplayConfirmationRequiredDetails {
+  reason: typeof REPLAY_CONFIRMATION_REQUIRED;
+  impact: ReplayImpactDto;
+}

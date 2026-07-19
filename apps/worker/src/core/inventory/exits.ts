@@ -13,6 +13,12 @@
 // cash again. Do NOT add a financial_transactions insert here, an account balance delta, or an
 // `items.wac` update: that would be a bug (double-counting the cost / silently corrupting WAC),
 // not a missing feature. This omission is intentional and pinned by test/exits.test.ts.
+//
+// ONE carve-out, added in KOK-024 and NOT a weakening of the above: when this exit is BACKDATED,
+// the batch may carry `items.wac` UPDATEs produced by `planCostingReplay`. Those correct the WAC of
+// entries recorded AFTER the point the exit lands (a backdated exit changes `on_hand`, and
+// `on_hand` is C-1's weight) — they are never a WAC for this exit, and they are never emitted by
+// this file. C-6 is intact: on the same-day path the plan is empty and not one of these exists.
 
 import type {
   AuditActor,
@@ -22,15 +28,16 @@ import type {
   RecordStockExitResult,
   StockExitDto,
 } from "@kokoro/shared";
-import { generateUuidV7, nowIso } from "@kokoro/shared";
+import { generateUuidV7, nowIso, REPLAY_CONFIRMATION_REQUIRED } from "@kokoro/shared";
 import type { BatchItem } from "drizzle-orm/batch";
 
 import type { Db } from "../../db/index.js";
 import { stockExits } from "../../db/schema.js";
 import { buildAuditLogInsert } from "../audit.js";
 import { getCurrentWac } from "../costing/repair.js";
+import { planCostingReplay } from "../costing/replay.js";
 import { snapshotUnitCost } from "../costing/wac.js";
-import { notFound, validationError } from "../errors.js";
+import { conflict, notFound, validationError } from "../errors.js";
 import { buildStockMovementStatements } from "./movements.js";
 import type { StockMovementInput } from "./types.js";
 
@@ -106,6 +113,34 @@ export async function recordExit(
     sourceEventType: "stock_exit",
     sourceEventId: exitId,
   };
+  // ---- INV-11 / R-2 ordering guard (ADR-016 §1) --------------------------------------------
+  // C-6 says an exit is not a WAC entry, and that stays true here: this exit books NO WAC of its
+  // own and the plan can never attribute one to it. What a BACKDATED exit does change is
+  // `on_hand` at the point it lands — and `on_hand` is the weight in C-1's
+  // `(max(on_hand,0)·wac + q·c) / (max(on_hand,0) + q)`. Every entry recorded after it therefore
+  // re-averages against a different weight, which can move the WAC that later sales/exits already
+  // froze a snapshot from. That downstream correction is what the plan carries; it is not this
+  // exit costing something.
+  const plan = await planCostingReplay(db, {
+    trigger: {
+      eventType: "stock_exit",
+      eventId: exitId,
+      businessDate: command.businessDate,
+      occurredAt: command.occurredAt,
+    },
+    changes: [{ sourceEventType: "stock_exit", sourceEventId: exitId, newMovements: [movement] }],
+    actor,
+  });
+
+  // R-5, identical contract to core/purchasing's (CONFLICT/409 + `details.reason`) — thrown before
+  // `db.batch`, so a refused exit writes nothing.
+  if (plan.confirmationRequired && command.confirm !== true) {
+    throw conflict(
+      "Esta salida tiene fecha anterior a movimientos ya registrados y cambia costos ya calculados. Revisa el impacto y confirma para guardarla.",
+      { reason: REPLAY_CONFIRMATION_REQUIRED, impact: plan.impact },
+    );
+  }
+
   const { statements: movementStatements } = buildStockMovementStatements(db, [movement]);
 
   const exitRow = {
@@ -136,6 +171,12 @@ export async function recordExit(
       before: null,
       after: exitRow,
     }),
+    // R-2: the downstream WAC correction a BACKDATED exit forces lands in THIS batch (D-3), and
+    // LAST — specifically after `movementStatements`, per replay.ts's module header, because the
+    // `item_stock` upsert there recomputes `negative_since` incrementally while the plan's is the
+    // authoritative recomputation and must win. Empty on the ordinary same-day capture. Note these
+    // are `items.wac` corrections for LATER entries, never a WAC for this exit (C-6 still holds).
+    ...plan.statements,
   ];
 
   // `statements` always starts with the fixed stock_exits insert above, so it is never empty —

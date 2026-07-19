@@ -59,8 +59,15 @@ better correction ergonomics for a solo operator (ADR-009).
   Exits consume at current `wac` and never change it.
 - **C-2 Purchase cost** per line: `unit_cost = line_total / qty` (freight/session shared costs are
   NOT capitalized into items; they go to OPERATING_EXPENSE — simplicity over precision, ADR-010).
-- **C-3 Replacement cost**: for RAW_MATERIAL, `replacement_cost = last purchase unit cost`
-  (updated on every purchase). For SEMI_FINISHED/FINISHED,
+- **C-3 Replacement cost**: for RAW_MATERIAL, `replacement_cost = last purchase unit cost`, where
+  **"last" means last by `business_date`, not last recorded** (ties on the same `business_date`
+  break by capture order, so the most recently recorded of that day wins). A purchase therefore
+  updates `replacement_cost` only when no purchase of that item carries a LATER `business_date`;
+  a backdated purchase leaves it untouched. Rationale (KOK-024): replacement cost answers "what
+  would it cost me to buy this again today", so backdating last week's invoice must not roll
+  today's price back to last week's — a real hazard in a high-inflation context, and the reason
+  C-5's `margin_replacement` and its price-health alert would otherwise drift optimistic. Soft
+  -deleted purchases (R-3) do not count. For SEMI_FINISHED/FINISHED,
   `replacement_cost = Σ(default-recipe line qty × ingredient replacement_cost) / expected_yield`,
   recomputed by the nightly job and on demand; cached with timestamp.
 - **C-4 Production run cost**:

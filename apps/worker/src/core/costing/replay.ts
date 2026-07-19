@@ -81,6 +81,25 @@ export interface CostingReplayPlan {
   /** INV-11 fired: at least one affected item has kardex history after the touched point. */
   required: boolean;
   impact: ReplayImpactDto;
+  /**
+   * The items this plan OWNS the `items.wac` of, in dependency order: every item it actually
+   * replayed — the seeds whose kardex the change disturbs, plus everything reached from them
+   * through the recipe graph.
+   *
+   * CALLERS MUST SUPPRESS THEIR OWN `items.wac` WRITE FOR EXACTLY THESE ITEMS. A command that
+   * threads C-1 incrementally (core/purchasing's `recordPurchase`) computes a value that is
+   * simply stale for a backdated item; this plan's replayed value is the authoritative one, and
+   * writing both would put two conflicting `items` UPDATEs in one batch.
+   *
+   * Deliberately NOT `impact.affectedItemIds`, which is the strictly smaller set of items whose
+   * WAC actually MOVED — an item can be replayed and land back on its stored value, in which case
+   * the plan emits no UPDATE for it but still owns the number, and the caller's naive write would
+   * reintroduce the ordering bug. This set is "would emit", not "did emit".
+   *
+   * Empty whenever `required === false`, so the fast path leaves callers' existing behaviour
+   * untouched.
+   */
+  replayedItemIds: string[];
   /** R-5: the impact touches already-recorded sales / exits / production runs. */
   confirmationRequired: boolean;
   /** `items.wac` UPDATEs + `costing_adjustments` INSERTs + `item_stock.negative_since` fixes +
@@ -142,6 +161,7 @@ function emptyImpact(): ReplayImpactDto {
 const NO_REPLAY: CostingReplayPlan = {
   required: false,
   impact: emptyImpact(),
+  replayedItemIds: [],
   confirmationRequired: false,
   statements: [],
 };
@@ -234,6 +254,10 @@ export async function planCostingReplay(
   const affectedStockExitIds: string[] = [];
   const affectedProductionRunIds = new Set<string>();
   const affectedItemIds: string[] = [];
+  /** Every item this loop actually replays — see `CostingReplayPlan.replayedItemIds`. Appended in
+   * dependency order, and only past the `stored === undefined` guard below: an item whose row has
+   * vanished is skipped entirely, so the plan computes no WAC for it and owns nothing. */
+  const replayedItemIds: string[] = [];
   /** Float centavos, summed across every corrected consumption and rounded ONCE at the end. */
   let costDeltaRaw = 0;
 
@@ -257,6 +281,7 @@ export async function planCostingReplay(
       where: (t, { eq: eqOp }) => eqOp(t.id, itemId),
     });
     if (stored === undefined) continue;
+    replayedItemIds.push(itemId);
 
     const rows = await loadProjectedKardex(
       db,
@@ -419,7 +444,7 @@ export async function planCostingReplay(
     );
   }
 
-  return { required: true, impact, confirmationRequired, statements };
+  return { required: true, impact, replayedItemIds, confirmationRequired, statements };
 }
 
 function sourceKey(sourceEventType: string, sourceEventId: string): string {

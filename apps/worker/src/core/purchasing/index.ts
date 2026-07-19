@@ -14,6 +14,10 @@
 //     sourceEventId are SET here (unlike core/finance/transactions.ts's standalone commands, which
 //     are always null), per Doc 04 §5's rule that purchase-sourced transactions carry their source
 //   - the `audit_log` row (core/audit's buildAuditLogInsert)
+//   - (KOK-024) whatever `planCostingReplay` returns when this purchase is BACKDATED — the
+//     corrected `items.wac` for every item whose kardex it re-weights, the `costing_adjustments`
+//     row booking the difference forward (R-4), the `item_stock.negative_since` fix, and its own
+//     audit row. Empty on the ordinary same-day capture, which is the overwhelmingly common case.
 
 import type {
   AuditActor,
@@ -24,15 +28,22 @@ import type {
   RecordPurchaseCommand,
   RecordPurchaseResult,
 } from "@kokoro/shared";
-import { addMoney, generateUuidV7, nowIso, subMoney } from "@kokoro/shared";
-import { eq } from "drizzle-orm";
+import {
+  addMoney,
+  generateUuidV7,
+  nowIso,
+  REPLAY_CONFIRMATION_REQUIRED,
+  subMoney,
+} from "@kokoro/shared";
+import { and, eq, gt, isNull } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 
 import type { Db } from "../../db/index.js";
 import { financialTransactions, items, purchaseLines, purchases } from "../../db/schema.js";
 import { buildAuditLogInsert } from "../audit.js";
+import { planCostingReplay } from "../costing/replay.js";
 import { applyWacEntry, computePurchaseLineUnitCost } from "../costing/wac.js";
-import { notFound, validationError } from "../errors.js";
+import { conflict, notFound, validationError } from "../errors.js";
 import { buildAccountBalanceDelta, findActiveAccountRowOrThrow } from "../finance/accounts.js";
 import { toAccountDto } from "../finance/dto.js";
 import { buildStockMovementStatements } from "../inventory/movements.js";
@@ -85,6 +96,43 @@ function toPurchaseDto(row: PurchaseRow, lineRows: readonly PurchaseLineRow[]): 
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
+}
+
+/**
+ * C-3, "last by `business_date`": does a purchase dated AFTER this one already supply `itemId`'s
+ * replacement cost?
+ *
+ * C-3 says `replacement_cost = last purchase unit cost`. Until KOK-024 "last" was implemented as
+ * "most recently RECORDED", which let a backdated purchase clobber a replacement cost set by a
+ * purchase with a later `business_date` — the owner backdates last week's invoice and today's
+ * price silently rolls back to last week's. Doc 03 §4 C-3 now defines "last" as last by
+ * `business_date` (D-1/D-6, amended in this same commit); this is that rule's query.
+ *
+ * Ties keep the previous behaviour deliberately (`>` not `>=`): two purchases on the SAME business
+ * date are ordered only by capture, so the later-recorded one still wins — which is what the
+ * ordinary same-day path has always done, and what "the last price I paid today" means.
+ *
+ * Runs BEFORE the insert, so this purchase's own (not yet written) line can never match. Soft
+ * -deleted purchases are excluded (INV-10 / D-8): a reverted invoice must not keep pinning a price.
+ */
+async function hasLaterDatedPurchaseForItem(
+  db: Db,
+  itemId: string,
+  businessDate: string,
+): Promise<boolean> {
+  const rows = await db
+    .select({ id: purchases.id })
+    .from(purchaseLines)
+    .innerJoin(purchases, eq(purchaseLines.purchaseId, purchases.id))
+    .where(
+      and(
+        eq(purchaseLines.itemId, itemId),
+        isNull(purchases.deletedAt),
+        gt(purchases.businessDate, businessDate),
+      ),
+    )
+    .limit(1);
+  return rows.length > 0;
 }
 
 /** UC-01: record a multi-line purchase in one atomic batch (D-3). See this module's header for the
@@ -180,30 +228,77 @@ export async function recordPurchase(
     lineTotal: line.lineTotal,
   }));
 
+  // ---- INV-11 / R-2 ordering guard (ADR-016 §1) --------------------------------------------
+  // A purchase is not exempt from the replay just because it is a CREATE: recording today's
+  // production and only then backdating last week's flour invoice is an ordinary Tuesday, and the
+  // C-1 threading above — which reads `items.wac` / `item_stock.qty_on_hand` at their CURRENT
+  // value — is simply wrong for it. Planned BEFORE the batch is assembled so the R-5 refusal below
+  // can happen before a single write.
+  const plan = await planCostingReplay(db, {
+    trigger: {
+      eventType: "purchase",
+      eventId: purchaseId,
+      businessDate: command.businessDate,
+      occurredAt: command.occurredAt,
+    },
+    changes: [{ sourceEventType: "purchase", sourceEventId: purchaseId, newMovements: movements }],
+    actor,
+  });
+
+  // R-5: the replay would move cost already booked against a recorded sale/exit/production run.
+  // Refuse — before `db.batch`, so nothing is written — and hand the caller the impact it needs to
+  // render the preview and re-submit with `confirm: true`. CONFLICT/409 (Doc 08 §2), discriminated
+  // by `details.reason`; see REPLAY_CONFIRMATION_REQUIRED for why this is not its own error code.
+  if (plan.confirmationRequired && command.confirm !== true) {
+    throw conflict(
+      "Esta compra tiene fecha anterior a movimientos ya registrados y cambia costos ya calculados. Revisa el impacto y confirma para guardarla.",
+      { reason: REPLAY_CONFIRMATION_REQUIRED, impact: plan.impact },
+    );
+  }
+
   const { statements: movementStatements } = buildStockMovementStatements(db, movements);
 
-  // One `items` UPDATE per distinct item touched, carrying its FINAL threaded wac (C-1) and, for
-  // RAW_MATERIAL only (C-3 — SEMI_FINISHED/FINISHED replacement cost is a recipe rollup, KOK-029,
-  // out of scope here), the last line's unit cost as the new replacement_cost.
+  // Which items' WAC does the plan own? For a backdated item the replay's value is authoritative
+  // and the naive threaded one is stale, so exactly ONE of the two writes it — never both, or the
+  // batch would contain two conflicting `items` UPDATEs for the same row. The planner already
+  // decided this, per item, to pick the items it replayed; `replayedItemIds` is that decision,
+  // reported rather than re-derived, so the two can no longer drift apart. Empty on the fast path
+  // (`required === false`), which leaves the ordinary same-day capture writing every naive value.
+  const replayOwnedItemIds = new Set(plan.replayedItemIds);
+
+  // C-3, "last by business_date" (Doc 03 §4): a backdated purchase must not roll a replacement cost
+  // back to an older price. Only RAW_MATERIAL is asked (C-3 restricts the rule to it), and only
+  // when the purchase could actually be backdated — the same-day path never queries.
+  const replacementCostSupersededItemIds = new Set<string>();
+  for (const [itemId, state] of itemStates) {
+    if (state.kind !== "RAW_MATERIAL") continue;
+    if (await hasLaterDatedPurchaseForItem(db, itemId, command.businessDate)) {
+      replacementCostSupersededItemIds.add(itemId);
+    }
+  }
+
+  // At most ONE `items` UPDATE per distinct item touched (D-3, and the invariant the "threads WAC
+  // across two lines" test pins), carrying whichever of the two columns this service still owns:
+  //   - `wac`: its FINAL threaded C-1 value, UNLESS the replay owns this item (above).
+  //   - `replacement_cost`: RAW_MATERIAL only, unless a later-dated purchase already supersedes it.
+  // An item where the replay owns the WAC and C-3 is superseded needs no statement at all.
   const itemUpdateStatements: Statement[] = [];
   for (const [itemId, state] of itemStates) {
-    if (state.kind === "RAW_MATERIAL") {
-      itemUpdateStatements.push(
-        db
-          .update(items)
-          .set({
-            wac: state.wac,
-            replacementCost: state.lastUnitCost,
-            replacementCostUpdatedAt: now,
-            updatedAt: now,
-          })
-          .where(eq(items.id, itemId)),
-      );
-    } else {
-      itemUpdateStatements.push(
-        db.update(items).set({ wac: state.wac, updatedAt: now }).where(eq(items.id, itemId)),
-      );
+    const values: Partial<typeof items.$inferInsert> = {};
+    if (!replayOwnedItemIds.has(itemId)) {
+      values.wac = state.wac;
     }
+    if (state.kind === "RAW_MATERIAL" && !replacementCostSupersededItemIds.has(itemId)) {
+      values.replacementCost = state.lastUnitCost;
+      values.replacementCostUpdatedAt = now;
+    }
+    if (Object.keys(values).length === 0) continue;
+    itemUpdateStatements.push(
+      db
+        .update(items)
+        .set({ ...values, updatedAt: now })
+        .where(eq(items.id, itemId)),
+    );
   }
 
   // financial_transactions.amount is always > 0 (no zero-value cash movements, Doc 04 §3.3) — a
@@ -247,6 +342,12 @@ export async function recordPurchase(
       before: null,
       after: purchaseRow,
     }),
+    // R-2: the replay lands in THIS batch, not a second one — a purchase and the cost correction it
+    // forces are one atomic fact (D-3). LAST on purpose, and specifically after `movementStatements`
+    // (replay.ts's module header states this requirement): the `item_stock` upsert there recomputes
+    // `negative_since` incrementally from its own delta, while the plan's is the authoritative
+    // recomputation over the whole projected kardex and must win. Empty on the fast path.
+    ...plan.statements,
   ];
 
   // `statements` always starts with the fixed purchase insert above, so it is never empty — this

@@ -17,9 +17,17 @@ import fc from "fast-check";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { createItem } from "../src/core/catalog/index.js";
+import { recomputeWacFromMovements } from "../src/core/costing/wac.js";
+import { recordExit } from "../src/core/inventory/exits.js";
 import { getPurchase, listPurchases, recordPurchase } from "../src/core/purchasing/index.js";
 import { createDb } from "../src/db/index.js";
-import { auditLog, financialAccounts, financialTransactions, purchases } from "../src/db/schema.js";
+import {
+  auditLog,
+  costingAdjustments,
+  financialAccounts,
+  financialTransactions,
+  purchases,
+} from "../src/db/schema.js";
 
 const ACTOR = "OWNER_WEB" as const;
 const NOW = "2026-07-16T10:00:00.000Z";
@@ -391,6 +399,334 @@ describe("recordPurchase (UC-01)", () => {
         ACTOR,
       ),
     ).rejects.toMatchObject({ code: "VALIDATION" });
+  });
+});
+
+// KOK-024 D1. ADR-016 §1: the replay is owed to ANY create/edit/delete that lands behind an
+// already-processed movement — a plain backdated CREATE included. Before this phase `recordPurchase`
+// read `items.wac` / `item_stock.qty_on_hand` at their CURRENT value and applied C-1 regardless of
+// `business_date`, with no ordering guard anywhere; these tests are that hole.
+describe("recordPurchase — backdated capture: INV-11 replay guard (R-2/R-5, ADR-016)", () => {
+  /**
+   * The canonical scenario, numbers worked by hand (identical to costing-replay.test.ts's, so the
+   * planner test and this committed-result test name the same regression from both sides).
+   *
+   * Recorded: P1 10 000 @ 2 (07-10) -> exit 8 000 (07-11, freezes snapshot 2) -> P2 10 000 @ 4
+   * (07-12), leaving onHand 12 000 and wac 44 000/12 000 = 3.6667.
+   *
+   * Now 10 000 @ 10 is backdated to 07-10T12:00, BETWEEN P1 and the exit:
+   *   prefix [P1] -> seed onHand 10 000, wac 2
+   *   P3         -> wac (10 000·2 + 10 000·10)/20 000 = 6
+   *   exit       -> consumes at 6, though it froze 2  => delta (2 − 6) × 8 000 = −32 000
+   *   P2         -> wac (12 000·6 + 10 000·4)/22 000 = 112 000/22 000 = 5.0909…
+   *
+   * The naive pre-KOK-024 threading would instead have produced
+   * (12 000·3.6667 + 10 000·10)/22 000 = 6.545…, so the assertion below discriminates the two.
+   */
+  it("refuses a backdated purchase landing behind an existing exit without `confirm`, carrying the impact", async () => {
+    const db = createDb(env.DB);
+    const item = await seedItem(db, "Harina — compra retroactiva rechazada");
+
+    await recordPurchase(
+      db,
+      {
+        accountId: "acc_bank",
+        occurredAt: "2026-07-10T10:00:00.000Z",
+        businessDate: "2026-07-10",
+        lines: [{ itemId: item.id, qty: 10_000, lineTotal: 20_000 }], // unit cost 2
+      },
+      ACTOR,
+    );
+    const exit = await recordExit(
+      db,
+      {
+        itemId: item.id,
+        qty: 8_000,
+        reason: "WASTE",
+        occurredAt: "2026-07-11T10:00:00.000Z",
+        businessDate: "2026-07-11",
+      },
+      ACTOR,
+    );
+    await recordPurchase(
+      db,
+      {
+        accountId: "acc_bank",
+        occurredAt: "2026-07-12T10:00:00.000Z",
+        businessDate: "2026-07-12",
+        lines: [{ itemId: item.id, qty: 10_000, lineTotal: 40_000 }], // unit cost 4
+      },
+      ACTOR,
+    );
+
+    const balanceBefore = await db.query.financialAccounts.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.id, "acc_bank"),
+    });
+
+    // R-5: 409 CONFLICT (Doc 08 §2) discriminated by `details.reason`, carrying the ReplayImpactDto
+    // the confirmation dialog renders. NOT a new DomainErrorCode — see REPLAY_CONFIRMATION_REQUIRED.
+    await expect(
+      recordPurchase(
+        db,
+        {
+          accountId: "acc_bank",
+          occurredAt: "2026-07-10T12:00:00.000Z",
+          businessDate: "2026-07-10",
+          lines: [{ itemId: item.id, qty: 10_000, lineTotal: 100_000 }], // unit cost 10
+        },
+        ACTOR,
+      ),
+    ).rejects.toMatchObject({
+      code: "CONFLICT",
+      details: {
+        reason: "REPLAY_CONFIRMATION_REQUIRED",
+        impact: {
+          costDelta: -32_000,
+          requiresConfirmation: true,
+          affectedItemIds: [item.id],
+          affectedStockExitIds: [exit.exit.id],
+        },
+      },
+    });
+
+    // Thrown BEFORE db.batch: not one row of the refused purchase exists, and no money moved.
+    const movementRows = await db.query.stockMovements.findMany({
+      where: (t, { eq: eqOp }) => eqOp(t.itemId, item.id),
+    });
+    expect(movementRows).toHaveLength(3); // P1 + exit + P2 only
+    const balanceAfter = await db.query.financialAccounts.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.id, "acc_bank"),
+    });
+    expect(balanceAfter?.balance).toBe(balanceBefore?.balance);
+    // Scoped to this test's own (uniquely-named) item: storage is isolated per FILE, not per test.
+    expect(
+      await db.select().from(costingAdjustments).where(eq(costingAdjustments.itemId, item.id)),
+    ).toHaveLength(0);
+  });
+
+  it("commits the same purchase with `confirm: true`, landing the FULL-KARDEX WAC and booking the correction forward (R-4)", async () => {
+    const db = createDb(env.DB);
+    const item = await seedItem(db, "Harina — compra retroactiva confirmada");
+
+    await recordPurchase(
+      db,
+      {
+        accountId: "acc_bank",
+        occurredAt: "2026-07-10T10:00:00.000Z",
+        businessDate: "2026-07-10",
+        lines: [{ itemId: item.id, qty: 10_000, lineTotal: 20_000 }],
+      },
+      ACTOR,
+    );
+    const exit = await recordExit(
+      db,
+      {
+        itemId: item.id,
+        qty: 8_000,
+        reason: "WASTE",
+        occurredAt: "2026-07-11T10:00:00.000Z",
+        businessDate: "2026-07-11",
+      },
+      ACTOR,
+    );
+    await recordPurchase(
+      db,
+      {
+        accountId: "acc_bank",
+        occurredAt: "2026-07-12T10:00:00.000Z",
+        businessDate: "2026-07-12",
+        lines: [{ itemId: item.id, qty: 10_000, lineTotal: 40_000 }],
+      },
+      ACTOR,
+    );
+
+    const result = await recordPurchase(
+      db,
+      {
+        accountId: "acc_bank",
+        occurredAt: "2026-07-10T12:00:00.000Z",
+        businessDate: "2026-07-10",
+        lines: [{ itemId: item.id, qty: 10_000, lineTotal: 100_000 }],
+        confirm: true,
+      },
+      ACTOR,
+    );
+
+    // THE assertion of this phase. 5.0909… is the replay's answer; 6.545… is what the naive
+    // threaded C-1 update would have written, and 3.6667 is what leaving the WAC alone would leave.
+    const itemRow = await db.query.items.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
+    });
+    expect(itemRow?.wac).toBeCloseTo(112_000 / 22_000, 9);
+
+    // ...and it equals a from-zero recompute over the whole committed kardex (R-2): whatever the
+    // service and the planner each wrote, the stored cache agrees with the movements it summarizes.
+    const kardex = await db.query.stockMovements.findMany({
+      where: (t, { eq: eqOp }) => eqOp(t.itemId, item.id),
+      orderBy: (t, { asc }) => [asc(t.occurredAt), asc(t.createdAt)],
+    });
+    expect(kardex).toHaveLength(4);
+    expect(itemRow?.wac).toBeCloseTo(recomputeWacFromMovements(kardex), 9);
+
+    // R-4: the correction is booked forward, and the exit's frozen snapshot is NOT rewritten.
+    const adjustments = await db
+      .select()
+      .from(costingAdjustments)
+      .where(eq(costingAdjustments.itemId, item.id));
+    expect(adjustments).toHaveLength(1);
+    expect(adjustments[0]).toMatchObject({
+      itemId: item.id,
+      triggerEventType: "purchase",
+      triggerEventId: result.purchase.id,
+      costDelta: -32_000,
+    });
+    const exitRow = await db.query.stockExits.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.id, exit.exit.id),
+    });
+    expect(exitRow?.unitCostSnapshot).toBe(2);
+
+    // The purchase itself still behaves exactly like any other purchase (Σ lineTotal, cash out).
+    expect(result.purchase.total).toBe(100_000);
+    expect(result.account.balance).toBe(-160_000);
+  });
+
+  it("commits a backdated purchase with NO frozen consumer downstream WITHOUT `confirm`, still replaying the WAC", async () => {
+    const db = createDb(env.DB);
+    const item = await seedItem(db, "Harina — retroactiva sin consumidores");
+
+    // Two entries and nothing that consumed the item: INV-11 still fires (there IS a later
+    // movement) but no already-reported cost is contradicted, so R-5 has nothing to confirm.
+    await recordPurchase(
+      db,
+      {
+        accountId: "acc_bank",
+        occurredAt: "2026-07-10T10:00:00.000Z",
+        businessDate: "2026-07-10",
+        lines: [{ itemId: item.id, qty: 10_000, lineTotal: 20_000 }],
+      },
+      ACTOR,
+    );
+    await recordPurchase(
+      db,
+      {
+        accountId: "acc_bank",
+        occurredAt: "2026-07-14T10:00:00.000Z",
+        businessDate: "2026-07-14",
+        lines: [{ itemId: item.id, qty: 10_000, lineTotal: 40_000 }],
+      },
+      ACTOR,
+    );
+
+    await recordPurchase(
+      db,
+      {
+        accountId: "acc_bank",
+        occurredAt: "2026-07-12T10:00:00.000Z",
+        businessDate: "2026-07-12",
+        lines: [{ itemId: item.id, qty: 10_000, lineTotal: 100_000 }],
+      },
+      ACTOR,
+    );
+
+    const kardex = await db.query.stockMovements.findMany({
+      where: (t, { eq: eqOp }) => eqOp(t.itemId, item.id),
+      orderBy: (t, { asc }) => [asc(t.occurredAt), asc(t.createdAt)],
+    });
+    const itemRow = await db.query.items.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
+    });
+    expect(itemRow?.wac).toBeCloseTo(recomputeWacFromMovements(kardex), 9);
+    // Zero delta => no correction row (nothing downstream had frozen a cost).
+    expect(
+      await db.select().from(costingAdjustments).where(eq(costingAdjustments.itemId, item.id)),
+    ).toHaveLength(0);
+  });
+});
+
+// KOK-024 D1, C-3 as amended in Doc 03 §4: "last purchase unit cost" means last by `business_date`,
+// not last RECORDED. Backdating last week's invoice must not roll today's replacement cost back to
+// last week's price — in a high-inflation context that quietly makes C-5's margin look better than
+// it is.
+describe("recordPurchase — C-3 replacement_cost is last by business_date", () => {
+  it("a BACKDATED purchase does not overwrite a replacement_cost set by a later-dated one; a FORWARD-dated one does", async () => {
+    const db = createDb(env.DB);
+    const item = await seedItem(db, "Harina — C-3 por fecha de negocio");
+
+    // 07-16 @ unit cost 5 — the current replacement cost.
+    await recordPurchase(
+      db,
+      {
+        accountId: "acc_bank",
+        occurredAt: "2026-07-16T10:00:00.000Z",
+        businessDate: "2026-07-16",
+        lines: [{ itemId: item.id, qty: 1_000, lineTotal: 5_000 }],
+      },
+      ACTOR,
+    );
+    const afterFirst = await db.query.items.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
+    });
+    expect(afterFirst?.replacementCost).toBe(5);
+
+    // A backdated 07-14 invoice at unit cost 9 — captured late, but it is NOT the last price paid.
+    await recordPurchase(
+      db,
+      {
+        accountId: "acc_bank",
+        occurredAt: "2026-07-14T10:00:00.000Z",
+        businessDate: "2026-07-14",
+        lines: [{ itemId: item.id, qty: 1_000, lineTotal: 9_000 }],
+      },
+      ACTOR,
+    );
+    const afterBackdated = await db.query.items.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
+    });
+    expect(afterBackdated?.replacementCost).toBe(5); // unchanged — 07-16 is still the last date
+    expect(afterBackdated?.replacementCostUpdatedAt).toBe(afterFirst?.replacementCostUpdatedAt);
+    // The WAC, unlike the replacement cost, absolutely does move: it is a weighted average over
+    // ALL entries, so a backdated one belongs in it (C-1 vs C-3 are different questions).
+    expect(afterBackdated?.wac).toBeCloseTo(14_000 / 2_000, 9);
+
+    // A forward-dated 07-18 invoice at unit cost 7 — this one IS the last price paid.
+    await recordPurchase(
+      db,
+      {
+        accountId: "acc_bank",
+        occurredAt: "2026-07-18T10:00:00.000Z",
+        businessDate: "2026-07-18",
+        lines: [{ itemId: item.id, qty: 1_000, lineTotal: 7_000 }],
+      },
+      ACTOR,
+    );
+    const afterForward = await db.query.items.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
+    });
+    expect(afterForward?.replacementCost).toBe(7);
+  });
+
+  it("keeps same-day capture order as the tiebreak: a second purchase on the SAME business_date still wins", async () => {
+    const db = createDb(env.DB);
+    const item = await seedItem(db, "Harina — C-3 empate mismo día");
+
+    for (const lineTotal of [5_000, 9_000]) {
+      await recordPurchase(
+        db,
+        {
+          accountId: "acc_bank",
+          occurredAt: NOW,
+          businessDate: BUSINESS_DATE,
+          lines: [{ itemId: item.id, qty: 1_000, lineTotal }],
+        },
+        ACTOR,
+      );
+    }
+
+    const itemRow = await db.query.items.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
+    });
+    // `>` not `>=` in the supersede check: two invoices on one day are ordered only by capture.
+    expect(itemRow?.replacementCost).toBe(9);
   });
 });
 

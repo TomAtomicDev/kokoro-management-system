@@ -12,6 +12,7 @@
 
 import { z } from "zod";
 
+import { confirmFlagSchema } from "./costing.js";
 import type { FinancialAccountDto } from "./finance.js";
 
 /** Milli-units of the item's own stored unit (Doc 04 §2), matching qty.ts's representation. Always
@@ -54,8 +55,23 @@ export const recordPurchaseCommandSchema = z.object({
   occurredAt: occurredAtSchema,
   businessDate: businessDateSchema,
   lines: z.array(purchaseLineCommandSchema).min(1, "Se requiere al menos una línea de compra."),
+  // R-5 / ADR-016 (KOK-024): a purchase whose `business_date` lands BEFORE the latest already
+  // -processed movement of an item it touches re-weights C-1 for every later kardex entry, which
+  // can change cost already booked against a recorded sale/exit. When it does, the service refuses
+  // with a CONFLICT carrying a ReplayImpactDto until the caller re-sends with `confirm: true`.
+  // Shared flag (D-4) — the same one every other replay-triggering command uses.
+  confirm: confirmFlagSchema,
 });
-export type RecordPurchaseCommand = z.infer<typeof recordPurchaseCommandSchema>;
+/**
+ * NOTE the deliberate `z.input` (not `z.infer`): `confirm` is the only field with a Zod `.default()`,
+ * and the OUTPUT type would make it REQUIRED on every command literal — including the many
+ * unrelated call sites (web mutation hooks, tests) that legitimately omit it and mean "false".
+ * The input type keeps it optional; the service reads it as `=== true`, so an omitted flag is the
+ * safe value with or without a `.parse()` in front (which is exactly `confirmFlagSchema`'s intent).
+ * Every other field is identical between input and output — nothing else here defaults, coerces,
+ * or transforms.
+ */
+export type RecordPurchaseCommand = z.input<typeof recordPurchaseCommandSchema>;
 
 /** GET /purchases query filters — mirrors listTransactionsFiltersSchema's shape (finance.ts). */
 export const listPurchasesFiltersSchema = z.object({

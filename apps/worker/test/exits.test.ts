@@ -21,6 +21,7 @@ import fc from "fast-check";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { createItem } from "../src/core/catalog/index.js";
+import { recomputeWacFromMovements } from "../src/core/costing/wac.js";
 import { getStockExit, listStockExits, recordExit } from "../src/core/inventory/exits.js";
 import { listWasteSummary } from "../src/core/inventory/waste.js";
 import { recordPurchase } from "../src/core/purchasing/index.js";
@@ -217,6 +218,131 @@ describe("recordExit (UC-09)", () => {
         ACTOR,
       ),
     ).rejects.toMatchObject({ code: "VALIDATION" });
+  });
+});
+
+// KOK-024 D2. ADR-016 §1 applies the replay to ANY movement-affecting create that lands behind an
+// already-processed movement, exits included. An exit books no WAC of its own (C-6) — but it does
+// change `on_hand` at the point it lands, and `on_hand` is the WEIGHT in C-1's
+// `(max(on_hand,0)·wac + q·c) / (max(on_hand,0) + q)`, so every entry recorded after a backdated
+// exit re-averages differently. That downstream movement is what the guard is for.
+describe("recordExit — backdated capture: INV-11 replay guard (R-2/R-5, ADR-016)", () => {
+  /**
+   * Recorded: P1 10 000 @ 2 (07-10) -> exit A 8 000 (07-11, freezes 2) -> P2 10 000 @ 4 (07-12),
+   * leaving onHand 12 000, wac 44 000/12 000 = 3.6667.
+   *
+   * A second exit of 8 000 is now backdated to 07-10T12:00, i.e. BEFORE exit A:
+   *   prefix [P1]  -> onHand 10 000, wac 2
+   *   new exit     -> onHand  2 000, wac 2 (C-6: an exit never moves the WAC)
+   *   exit A       -> onHand −6 000, wac 2
+   *   P2           -> wac (max(−6 000,0)·2 + 10 000·4) / (0 + 10 000) = 4, NOT 3.6667
+   * So the backdated exit moved a LATER purchase's WAC without ever having a WAC of its own —
+   * exactly the C-6-compatible mechanism this guard exists for. Exit A's frozen snapshot is
+   * contradicted (it consumed at a replayed 2 as well, so the delta is 0, but it IS touched),
+   * which is what makes R-5 demand confirmation.
+   */
+  async function seedBackdatedExitScenario(db: TestDb, itemName: string) {
+    const item = await seedItem(db, itemName);
+    await recordPurchase(
+      db,
+      {
+        accountId: "acc_bank",
+        occurredAt: "2026-07-10T10:00:00.000Z",
+        businessDate: "2026-07-10",
+        lines: [{ itemId: item.id, qty: 10_000, lineTotal: 20_000 }],
+      },
+      ACTOR,
+    );
+    const exitA = await recordExit(
+      db,
+      {
+        itemId: item.id,
+        qty: 8_000,
+        reason: "WASTE",
+        occurredAt: "2026-07-11T10:00:00.000Z",
+        businessDate: "2026-07-11",
+      },
+      ACTOR,
+    );
+    await recordPurchase(
+      db,
+      {
+        accountId: "acc_bank",
+        occurredAt: "2026-07-12T10:00:00.000Z",
+        businessDate: "2026-07-12",
+        lines: [{ itemId: item.id, qty: 10_000, lineTotal: 40_000 }],
+      },
+      ACTOR,
+    );
+    return { item, exitA };
+  }
+
+  const BACKDATED_EXIT = {
+    qty: 8_000,
+    reason: "WASTE" as const,
+    occurredAt: "2026-07-10T12:00:00.000Z",
+    businessDate: "2026-07-10",
+  };
+
+  it("refuses a backdated exit without `confirm`, writing nothing", async () => {
+    const db = createDb(env.DB);
+    const { item, exitA } = await seedBackdatedExitScenario(db, "Salida retroactiva rechazada");
+
+    await expect(
+      recordExit(db, { itemId: item.id, ...BACKDATED_EXIT }, ACTOR),
+    ).rejects.toMatchObject({
+      code: "CONFLICT",
+      details: {
+        reason: "REPLAY_CONFIRMATION_REQUIRED",
+        impact: { requiresConfirmation: true, affectedStockExitIds: [exitA.exit.id] },
+      },
+    });
+
+    // Thrown before db.batch: no second stock_exits row, no second EXIT_OUT movement, and the
+    // stored WAC is untouched.
+    const exitRows = await db.query.stockExits.findMany({
+      where: (t, { eq: eqOp }) => eqOp(t.itemId, item.id),
+    });
+    expect(exitRows).toHaveLength(1);
+    const itemRow = await db.query.items.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
+    });
+    expect(itemRow?.wac).toBeCloseTo(44_000 / 12_000, 9);
+  });
+
+  it("commits with `confirm: true` and C-6 still holds verbatim: no financial transaction, and the exit itself books no WAC", async () => {
+    const db = createDb(env.DB);
+    const { item } = await seedBackdatedExitScenario(db, "Salida retroactiva confirmada");
+
+    const wacAtCaptureTime = 44_000 / 12_000;
+    const result = await recordExit(
+      db,
+      { itemId: item.id, ...BACKDATED_EXIT, confirm: true },
+      ACTOR,
+    );
+
+    // C-6 half 1: the exit is VALUED at the item's current WAC, snapshotted onto its own row.
+    expect(result.exit.unitCostSnapshot).toBeCloseTo(wacAtCaptureTime, 9);
+    // C-6 half 2: NO financial_transactions row, ever — the cost was paid at purchase time.
+    const exitTxRows = await db.query.financialTransactions.findMany({
+      where: (t, { eq: eqOp }) => eqOp(t.sourceEventType, "stock_exit"),
+    });
+    expect(exitTxRows).toHaveLength(0);
+
+    // C-6 half 3, the subtle one: the WAC did move — but NOT because this exit booked one. It
+    // moved because the later 07-12 purchase now re-averages against a different on-hand weight
+    // (C-1). The proof is that the new value is the from-zero recompute of the whole kardex, in
+    // which the EXIT_OUT rows contribute qty only and never a cost.
+    const kardex = await db.query.stockMovements.findMany({
+      where: (t, { eq: eqOp }) => eqOp(t.itemId, item.id),
+      orderBy: (t, { asc }) => [asc(t.occurredAt), asc(t.createdAt)],
+    });
+    expect(kardex).toHaveLength(4);
+    const itemRow = await db.query.items.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
+    });
+    expect(itemRow?.wac).toBeCloseTo(4, 9);
+    expect(itemRow?.wac).toBeCloseTo(recomputeWacFromMovements(kardex), 9);
   });
 });
 

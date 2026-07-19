@@ -14,6 +14,7 @@
 
 import { z } from "zod";
 
+import { confirmFlagSchema } from "./costing.js";
 import type { StockExitReason } from "./enums.js";
 import { stockExitReasonSchema } from "./enums.js";
 
@@ -45,8 +46,15 @@ export const recordStockExitCommandSchema = z.object({
   notes: z.string().trim().max(2000).optional(),
   occurredAt: occurredAtSchema,
   businessDate: businessDateSchema,
+  // R-5 / ADR-016 (KOK-024). An exit books no WAC of its own (C-6), but a BACKDATED one changes
+  // `on_hand` at the point it lands, and `on_hand` is C-1's weight — so every entry after it
+  // re-averages differently, which can move cost already booked against a later sale/exit. Same
+  // shared flag as purchasing.ts (D-4).
+  confirm: confirmFlagSchema,
 });
-export type RecordStockExitCommand = z.infer<typeof recordStockExitCommandSchema>;
+/** `z.input`, not `z.infer` — see purchasing.ts's `RecordPurchaseCommand` for why (the `confirm`
+ * default would otherwise make the flag required on every command literal). */
+export type RecordStockExitCommand = z.input<typeof recordStockExitCommandSchema>;
 
 /** GET /inventory/exits query filters — mirrors listPurchasesFiltersSchema's shape. */
 export const listStockExitsFiltersSchema = z.object({
