@@ -173,6 +173,12 @@ export const inventoryLabels = {
 
   editExit: "Editar",
   deleteExit: "Eliminar",
+  /** ExitForm's dialog header + submit button when it's editing an existing exit rather than
+   * creating a new one. */
+  editExitTitle: "Editar salida",
+  saveExitChanges: "Guardar cambios",
+  exitDetailTitle: "Salida",
+  noExitNotes: "Sin notas.",
   /** Doc 06 principle 6: an ordinary delete gets no confirm-dialog wall, only the toast below. */
   exitDeletedUndo: "Salida eliminada.",
   undoExit: "Deshacer",
@@ -186,4 +192,9 @@ export const inventoryLabels = {
   impactDeleteExitTitle: "¿Eliminar esta salida?",
   impactDeleteExitDescription:
     "Esta salida tiene una fecha anterior a movimientos ya registrados de este ítem. Eliminarla recalculará el costo de esos movimientos.",
+  /** Shown only if "Deshacer" itself comes back with REPLAY_CONFIRMATION_REQUIRED — restoring a
+   * backdated exit re-weights C-1 for every later entry of that item exactly like create/edit. */
+  impactRestoreExitTitle: "¿Deshacer esta eliminación?",
+  impactRestoreExitDescription:
+    "Esta salida tiene una fecha anterior a movimientos ya registrados de este ítem. Deshacer la eliminación recalculará el costo de esos movimientos.",
 } as const;

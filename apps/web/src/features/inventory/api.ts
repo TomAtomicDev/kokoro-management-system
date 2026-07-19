@@ -25,6 +25,7 @@ import type {
   ReplayImpactDto,
   StartCountCommand,
   StartCountResult,
+  StockExitDto,
   StockExitImpactRequest,
   UpdateCountLineResult,
   UpdateStockExitCommand,
@@ -95,6 +96,17 @@ export function useStockExits(filters: ListStockExitsFilters = {}) {
     queryKey: [...INVENTORY_ROOT_KEY, "exits", filters] as const,
     queryFn: () =>
       api.get<ListStockExitsResult>(`/inventory/exits${exitsFiltersToQueryString(filters)}`),
+  });
+}
+
+/** `enabled: !!id` — mirrors `usePurchase`'s / `useCount`'s precedent: the detail drawer only
+ * fetches once an exit is selected. GET /inventory/exits/:id returns the bare `StockExitDto`
+ * (not wrapped in `{ exit }`), same as the record/update mutations' `.exit` is unwrapped here. */
+export function useStockExit(id: string | undefined) {
+  return useQuery({
+    queryKey: [...INVENTORY_ROOT_KEY, "exits", "detail", id ?? ""] as const,
+    queryFn: () => api.get<StockExitDto>(`/inventory/exits/${id}`),
+    enabled: Boolean(id),
   });
 }
 

@@ -17,9 +17,11 @@ export interface ExitsTableProps {
    * acceptable per the task's own guidance not to over-engineer this fallback. */
   items: Map<string, { name: string; unit: Unit }>;
   loading?: boolean;
+  /** Row -> detail drawer (KOK-024 Phase G) — same optional-prop precedent as PurchasesTable's. */
+  onRowClick?: (row: StockExitDto) => void;
 }
 
-export function ExitsTable({ rows, items, loading }: ExitsTableProps) {
+export function ExitsTable({ rows, items, loading, onRowClick }: ExitsTableProps) {
   const columns: EventTableColumn<StockExitDto>[] = [
     {
       id: "date",
@@ -62,6 +64,7 @@ export function ExitsTable({ rows, items, loading }: ExitsTableProps) {
       columns={columns}
       rows={rows}
       getRowId={(row) => row.id}
+      onRowClick={onRowClick}
       emptyMessage={inventoryLabels.noExits}
       loading={loading}
       loadingMessage={inventoryLabels.loading}

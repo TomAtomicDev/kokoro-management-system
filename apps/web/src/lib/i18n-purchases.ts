@@ -23,6 +23,7 @@ export const purchasesLabels = {
   loading: "Cargando…",
 
   recordTitle: "Registrar compra",
+  editTitle: "Editar compra",
   fieldSupplier: "Proveedor",
   supplierPlaceholder: "Opcional",
   fieldAccount: "Cuenta",
@@ -86,4 +87,9 @@ export const purchasesLabels = {
   impactDeleteTitle: "¿Eliminar esta compra?",
   impactDeleteDescription:
     "Esta compra tiene una fecha anterior a movimientos ya registrados de sus ítems. Eliminarla recalculará el costo de esos movimientos.",
+  /** Restore's own R-5 edge case: something else happened to the item(s) between the delete and
+   * the "Deshacer" click, so undoing the delete itself now moves already-booked cost. */
+  impactRestoreTitle: "¿Deshacer la eliminación?",
+  impactRestoreDescription:
+    "Esta compra tiene una fecha anterior a movimientos ya registrados de sus ítems. Deshacer la eliminación recalculará el costo de esos movimientos.",
 } as const;
