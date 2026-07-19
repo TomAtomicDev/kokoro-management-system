@@ -22,7 +22,13 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { createItem } from "../src/core/catalog/index.js";
 import { recomputeWacFromMovements } from "../src/core/costing/wac.js";
-import { getStockExit, listStockExits, recordExit } from "../src/core/inventory/exits.js";
+import {
+  deleteStockExit,
+  getStockExit,
+  listStockExits,
+  recordExit,
+  updateStockExit,
+} from "../src/core/inventory/exits.js";
 import { listWasteSummary } from "../src/core/inventory/waste.js";
 import { recordPurchase } from "../src/core/purchasing/index.js";
 import { createDb } from "../src/db/index.js";
@@ -622,5 +628,577 @@ describe("property: mixed purchase/exit sequences keep item_stock consistent (IN
       ),
       { numRuns: 15 },
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// KOK-024 Phase E: updateStockExit / deleteStockExit (Doc 03 §7 R-1/R-3/R-4/R-5, INV-9/10, D-8).
+//
+// The C-6 assertions from the create path are repeated deliberately on BOTH correction paths: the
+// easiest way to reintroduce the "invisible cost" bug is to add a financial reversal to a delete,
+// or an `items.wac` write to an edit, on the reasonable-sounding grounds that a correction must
+// "undo" something. Neither exists to undo.
+// ---------------------------------------------------------------------------
+
+/** Seeds an item plus one purchase, so it has stock and a non-trivial WAC to snapshot from. */
+async function seedPurchasedItem(db: TestDb, name: string, qty: number, lineTotal: number) {
+  const item = await seedItem(db, name);
+  await recordPurchase(
+    db,
+    {
+      accountId: "acc_bank",
+      occurredAt: NOW,
+      businessDate: BUSINESS_DATE,
+      lines: [{ itemId: item.id, qty, lineTotal }],
+    },
+    ACTOR,
+  );
+  return item;
+}
+
+async function exitMovements(db: TestDb, exitId: string) {
+  return db.query.stockMovements.findMany({
+    where: (t, { eq: eqOp }) => eqOp(t.sourceEventId, exitId),
+  });
+}
+
+describe("updateStockExit (R-1)", () => {
+  it("edit changing qty: kardex and item_stock are regenerated, and C-6 still holds (no financial transaction, no WAC write, snapshot preserved)", async () => {
+    const db = createDb(env.DB);
+    const item = await seedPurchasedItem(db, "Exit edit — qty", 2000, 4000); // wac 2
+
+    const created = await recordExit(
+      db,
+      {
+        itemId: item.id,
+        qty: 500,
+        reason: "WASTE",
+        notes: "Estimado inicial",
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+      },
+      ACTOR,
+    );
+    expect(created.exit.unitCostSnapshot).toBe(2);
+
+    const updated = await updateStockExit(
+      db,
+      created.exit.id,
+      {
+        itemId: item.id,
+        qty: 800,
+        reason: "WASTE",
+        notes: "Pesado de verdad: 800",
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+      },
+      ACTOR,
+    );
+
+    expect(updated.exit).toMatchObject({
+      id: created.exit.id,
+      qty: 800,
+      notes: "Pesado de verdad: 800",
+      // Same item, so the frozen valuation survives the edit (module header's policy / R-4 spirit).
+      unitCostSnapshot: 2,
+    });
+
+    const exitRow = await db.query.stockExits.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.id, created.exit.id),
+    });
+    expect(exitRow).toMatchObject({ qty: 800, unitCostSnapshot: 2, deletedAt: null });
+
+    // INV-9: exactly ONE derived movement for this source — regenerated, never appended to.
+    const movements = await exitMovements(db, created.exit.id);
+    expect(movements).toHaveLength(1);
+    expect(movements[0]).toMatchObject({
+      type: "EXIT_OUT",
+      itemId: item.id,
+      qty: -800,
+      unitCost: 2,
+      totalCost: -1600,
+    });
+
+    const stockRow = await db.query.itemStock.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.itemId, item.id),
+    });
+    expect(stockRow?.qtyOnHand).toBe(1200); // 2000 − 800, NOT 2000 − 500 − 800
+
+    // C-6, both halves, on the edit path.
+    const itemAfter = await db.query.items.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
+    });
+    expect(itemAfter?.wac).toBe(2);
+    const exitTxRows = await db.query.financialTransactions.findMany({
+      where: (t, { eq: eqOp }) => eqOp(t.sourceEventType, "stock_exit"),
+    });
+    expect(exitTxRows).toHaveLength(0);
+  });
+
+  it("edit changing item_id RE-SNAPSHOTS at the new item's WAC, and moves the stock effect between the two items", async () => {
+    const db = createDb(env.DB);
+    const itemA = await seedPurchasedItem(db, "Exit edit — item A", 2000, 4000); // wac 2
+    const itemB = await seedPurchasedItem(db, "Exit edit — item B", 1000, 5000); // wac 5
+
+    const created = await recordExit(
+      db,
+      {
+        itemId: itemA.id,
+        qty: 500,
+        reason: "SPOILAGE",
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+      },
+      ACTOR,
+    );
+    expect(created.exit.unitCostSnapshot).toBe(2);
+
+    const updated = await updateStockExit(
+      db,
+      created.exit.id,
+      {
+        itemId: itemB.id,
+        qty: 500,
+        reason: "SPOILAGE",
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+      },
+      ACTOR,
+    );
+
+    // The old snapshot was a price per milli-unit of a DIFFERENT item — meaningless here.
+    expect(updated.exit).toMatchObject({ itemId: itemB.id, unitCostSnapshot: 5 });
+
+    const movements = await exitMovements(db, created.exit.id);
+    expect(movements).toHaveLength(1);
+    expect(movements[0]).toMatchObject({ itemId: itemB.id, qty: -500, unitCost: 5 });
+
+    const stockA = await db.query.itemStock.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.itemId, itemA.id),
+    });
+    const stockB = await db.query.itemStock.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.itemId, itemB.id),
+    });
+    expect(stockA?.qtyOnHand).toBe(2000); // fully reversed on the item it left
+    expect(stockB?.qtyOnHand).toBe(500); // 1000 − 500 on the item it moved to
+
+    // C-6: neither item's WAC was touched by the exit moving between them.
+    const itemARow = await db.query.items.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.id, itemA.id),
+    });
+    const itemBRow = await db.query.items.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.id, itemB.id),
+    });
+    expect(itemARow?.wac).toBe(2);
+    expect(itemBRow?.wac).toBe(5);
+  });
+
+  it("edit changing ONLY qty preserves the original snapshot even after the item's WAC has moved since", async () => {
+    const db = createDb(env.DB);
+    const item = await seedPurchasedItem(db, "Exit edit — snapshot preservation", 1000, 1000); // wac 1
+
+    const created = await recordExit(
+      db,
+      { itemId: item.id, qty: 100, reason: "WASTE", occurredAt: NOW, businessDate: BUSINESS_DATE },
+      ACTOR,
+    );
+    expect(created.exit.unitCostSnapshot).toBe(1);
+
+    // A later purchase moves the WAC well away from the frozen snapshot.
+    await recordPurchase(
+      db,
+      {
+        accountId: "acc_bank",
+        occurredAt: "2026-07-17T10:00:00.000Z",
+        businessDate: "2026-07-17",
+        lines: [{ itemId: item.id, qty: 900, lineTotal: 9000 }],
+      },
+      ACTOR,
+    );
+    const movedWac = await db.query.items.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
+    });
+    expect(movedWac?.wac).not.toBe(1);
+
+    const updated = await updateStockExit(
+      db,
+      created.exit.id,
+      {
+        itemId: item.id,
+        qty: 150,
+        reason: "WASTE",
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        // Backdated relative to the 07-17 purchase, so the replay guard is in play — confirmed
+        // here because this test is about the SNAPSHOT policy, not about R-5.
+        confirm: true,
+      },
+      ACTOR,
+    );
+
+    // Re-valuing a past day at today's WAC is exactly what R-4's spirit forbids.
+    expect(updated.exit.unitCostSnapshot).toBe(1);
+    expect(updated.exit.qty).toBe(150);
+  });
+
+  it("leaves a complete before/after audit_log row (INV-9/10)", async () => {
+    const db = createDb(env.DB);
+    const item = await seedPurchasedItem(db, "Exit edit — audit", 2000, 4000);
+
+    const created = await recordExit(
+      db,
+      {
+        itemId: item.id,
+        qty: 300,
+        reason: "WASTE",
+        notes: "antes",
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+      },
+      ACTOR,
+    );
+    await updateStockExit(
+      db,
+      created.exit.id,
+      {
+        itemId: item.id,
+        qty: 700,
+        reason: "GIFT_SAMPLE",
+        notes: "después",
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+      },
+      ACTOR,
+    );
+
+    const auditRow = await db.query.auditLog.findFirst({
+      where: (t, { and, eq: eqOp }) =>
+        and(eqOp(t.entityId, created.exit.id), eqOp(t.action, "update")),
+    });
+    expect(auditRow).toMatchObject({ actor: ACTOR, entityType: "stock_exits" });
+    const before = JSON.parse(auditRow?.beforeJson ?? "null");
+    const after = JSON.parse(auditRow?.afterJson ?? "null");
+    expect(before).toMatchObject({
+      id: created.exit.id,
+      qty: 300,
+      reason: "WASTE",
+      notes: "antes",
+    });
+    expect(after).toMatchObject({
+      id: created.exit.id,
+      qty: 700,
+      reason: "GIFT_SAMPLE",
+      notes: "después",
+    });
+  });
+
+  it("rejects an unknown or already-deleted exit with NOT_FOUND", async () => {
+    const db = createDb(env.DB);
+    const item = await seedPurchasedItem(db, "Exit edit — not found", 1000, 1000);
+    const command = {
+      itemId: item.id,
+      qty: 100,
+      reason: "WASTE" as const,
+      occurredAt: NOW,
+      businessDate: BUSINESS_DATE,
+    };
+
+    await expect(updateStockExit(db, "does_not_exist", command, ACTOR)).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+
+    const created = await recordExit(db, command, ACTOR);
+    await deleteStockExit(db, created.exit.id, {}, ACTOR);
+    await expect(updateStockExit(db, created.exit.id, command, ACTOR)).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+  });
+});
+
+describe("deleteStockExit (R-3, D-8)", () => {
+  it("soft-deletes: stock effect reversed, deleted_at set, derived movements gone with no orphans, absent from reads", async () => {
+    const db = createDb(env.DB);
+    const item = await seedPurchasedItem(db, "Exit delete — reversal", 2000, 4000);
+
+    const created = await recordExit(
+      db,
+      { itemId: item.id, qty: 500, reason: "WASTE", occurredAt: NOW, businessDate: BUSINESS_DATE },
+      ACTOR,
+    );
+    const stockBefore = await db.query.itemStock.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.itemId, item.id),
+    });
+    expect(stockBefore?.qtyOnHand).toBe(1500);
+
+    const result = await deleteStockExit(db, created.exit.id, { confirm: false }, ACTOR);
+    expect(result.deletedAt).toEqual(expect.any(String));
+
+    // D-8/R-3: the row is still there, flagged — never hard-deleted.
+    const row = await db.query.stockExits.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.id, created.exit.id),
+    });
+    expect(row?.deletedAt).toBe(result.deletedAt);
+    expect(row?.qty).toBe(500);
+
+    // INV-9: the derived kardex rows ARE hard-deleted (D-8's carve-out) and leave no orphans.
+    expect(await exitMovements(db, created.exit.id)).toHaveLength(0);
+
+    const stockAfter = await db.query.itemStock.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.itemId, item.id),
+    });
+    expect(stockAfter?.qtyOnHand).toBe(2000); // fully reversed
+
+    // C-6 on the delete path: nothing financial to reverse, and the WAC is untouched.
+    const itemAfter = await db.query.items.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
+    });
+    expect(itemAfter?.wac).toBe(2);
+    const exitTxRows = await db.query.financialTransactions.findMany({
+      where: (t, { eq: eqOp }) => eqOp(t.sourceEventType, "stock_exit"),
+    });
+    expect(exitTxRows).toHaveLength(0);
+
+    // Invisible to both reads.
+    await expect(getStockExit(db, created.exit.id)).rejects.toMatchObject({ code: "NOT_FOUND" });
+    const { exits } = await listStockExits(db, { itemId: item.id });
+    expect(exits.map((e) => e.id)).not.toContain(created.exit.id);
+  });
+
+  it("leaves a complete before/after audit_log row, and refuses a second delete with NOT_FOUND", async () => {
+    const db = createDb(env.DB);
+    const item = await seedPurchasedItem(db, "Exit delete — audit", 1000, 2000);
+
+    const created = await recordExit(
+      db,
+      {
+        itemId: item.id,
+        qty: 250,
+        reason: "SELF_CONSUMPTION",
+        notes: "para la casa",
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+      },
+      ACTOR,
+    );
+    await deleteStockExit(db, created.exit.id, {}, ACTOR);
+
+    const auditRow = await db.query.auditLog.findFirst({
+      where: (t, { and, eq: eqOp }) =>
+        and(eqOp(t.entityId, created.exit.id), eqOp(t.action, "delete")),
+    });
+    expect(auditRow).toMatchObject({ actor: ACTOR, entityType: "stock_exits" });
+    const before = JSON.parse(auditRow?.beforeJson ?? "null");
+    const after = JSON.parse(auditRow?.afterJson ?? "null");
+    expect(before).toMatchObject({ id: created.exit.id, qty: 250, deletedAt: null });
+    expect(after).toMatchObject({ id: created.exit.id, qty: 250 });
+    expect(after.deletedAt).toEqual(expect.any(String));
+
+    await expect(deleteStockExit(db, created.exit.id, {}, ACTOR)).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+  });
+});
+
+describe("updateStockExit / deleteStockExit — backdated: R-5 confirmation (ADR-016)", () => {
+  /**
+   * P1 10 000 @ 2 (07-10) -> exit A 8 000 (07-11, freezes 2) -> P2 10 000 @ 4 (07-12).
+   * Editing or deleting exit A therefore lands BEHIND P2: P2's WAC was averaged against the
+   * on-hand weight exit A left, so changing exit A re-weights C-1 for P2 (INV-11). Exit A's own
+   * frozen snapshot is among the ones the replay contradicts, which is what makes R-5 demand
+   * confirmation before the correction is booked.
+   */
+  async function seedBackdatedEditScenario(db: TestDb, itemName: string) {
+    const item = await seedItem(db, itemName);
+    await recordPurchase(
+      db,
+      {
+        accountId: "acc_bank",
+        occurredAt: "2026-07-10T10:00:00.000Z",
+        businessDate: "2026-07-10",
+        lines: [{ itemId: item.id, qty: 10_000, lineTotal: 20_000 }],
+      },
+      ACTOR,
+    );
+    const exitA = await recordExit(
+      db,
+      {
+        itemId: item.id,
+        qty: 8_000,
+        reason: "WASTE",
+        occurredAt: "2026-07-11T10:00:00.000Z",
+        businessDate: "2026-07-11",
+      },
+      ACTOR,
+    );
+    await recordPurchase(
+      db,
+      {
+        accountId: "acc_bank",
+        occurredAt: "2026-07-12T10:00:00.000Z",
+        businessDate: "2026-07-12",
+        lines: [{ itemId: item.id, qty: 10_000, lineTotal: 40_000 }],
+      },
+      ACTOR,
+    );
+    return { item, exitA };
+  }
+
+  const EDIT = {
+    qty: 4_000,
+    reason: "WASTE" as const,
+    occurredAt: "2026-07-11T10:00:00.000Z",
+    businessDate: "2026-07-11",
+  };
+
+  it("refuses a backdated EDIT without `confirm`, writing nothing", async () => {
+    const db = createDb(env.DB);
+    const { item, exitA } = await seedBackdatedEditScenario(db, "Edición retroactiva rechazada");
+
+    await expect(
+      updateStockExit(db, exitA.exit.id, { itemId: item.id, ...EDIT }, ACTOR),
+    ).rejects.toMatchObject({
+      code: "CONFLICT",
+      details: {
+        reason: "REPLAY_CONFIRMATION_REQUIRED",
+        impact: { requiresConfirmation: true },
+      },
+    });
+
+    // Thrown before db.batch: the exit, its movement, and the stored WAC are all untouched.
+    const row = await db.query.stockExits.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.id, exitA.exit.id),
+    });
+    expect(row?.qty).toBe(8_000);
+    const movements = await exitMovements(db, exitA.exit.id);
+    expect(movements).toHaveLength(1);
+    expect(movements[0]?.qty).toBe(-8_000);
+    const itemRow = await db.query.items.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
+    });
+    expect(itemRow?.wac).toBeCloseTo(44_000 / 12_000, 9);
+  });
+
+  it("commits the backdated EDIT with `confirm: true`, replaying the later purchase's WAC", async () => {
+    const db = createDb(env.DB);
+    const { item, exitA } = await seedBackdatedEditScenario(db, "Edición retroactiva confirmada");
+
+    const updated = await updateStockExit(
+      db,
+      exitA.exit.id,
+      { itemId: item.id, ...EDIT, confirm: true },
+      ACTOR,
+    );
+    expect(updated.exit.qty).toBe(4_000);
+    // R-4: this exit's own frozen snapshot survives its qty edit (same item).
+    expect(updated.exit.unitCostSnapshot).toBe(2);
+
+    const stockRow = await db.query.itemStock.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.itemId, item.id),
+    });
+    expect(stockRow?.qtyOnHand).toBe(16_000); // 20 000 − 4 000
+
+    // P2 now re-averages against on-hand 6 000 @ 2 instead of 2 000 @ 2:
+    // (6 000·2 + 10 000·4) / 16 000 = 3.25 — and that is exactly the from-zero recompute.
+    const kardex = await db.query.stockMovements.findMany({
+      where: (t, { eq: eqOp }) => eqOp(t.itemId, item.id),
+      orderBy: (t, { asc }) => [asc(t.occurredAt), asc(t.createdAt)],
+    });
+    expect(kardex).toHaveLength(3);
+    const itemRow = await db.query.items.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
+    });
+    expect(itemRow?.wac).toBeCloseTo(3.25, 9);
+    expect(itemRow?.wac).toBeCloseTo(recomputeWacFromMovements(kardex), 9);
+
+    // C-6 survives the replay: still not one financial transaction from an exit.
+    const exitTxRows = await db.query.financialTransactions.findMany({
+      where: (t, { eq: eqOp }) => eqOp(t.sourceEventType, "stock_exit"),
+    });
+    expect(exitTxRows).toHaveLength(0);
+  });
+
+  /**
+   * R-5's precondition is a frozen consumer AFTER the touched point, not backdating as such
+   * ("...whose replay would touch sales or production runs already recorded after the touched
+   * point"). Deleting exit A removes the only EXIT_OUT from the projected kardex, so the suffix
+   * holds nothing but P2 — the WAC moves (3.667 -> 3) but no reported cost is contradicted, and
+   * replay.ts treats that as a silent internal correction. Asserted explicitly so that this is a
+   * recorded reading of R-5 rather than an accident nobody noticed.
+   */
+  it("commits a backdated DELETE without `confirm` when NOTHING frozen sits after the touched point", async () => {
+    const db = createDb(env.DB);
+    const { item, exitA } = await seedBackdatedEditScenario(db, "Borrado retroactivo sin consumo");
+
+    await deleteStockExit(db, exitA.exit.id, {}, ACTOR);
+
+    const deleted = await db.query.stockExits.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.id, exitA.exit.id),
+    });
+    expect(deleted?.deletedAt).toEqual(expect.any(String));
+    expect(await exitMovements(db, exitA.exit.id)).toHaveLength(0);
+
+    // With the exit gone, P2 averages against the full 10 000 @ 2 that P1 left.
+    const kardex = await db.query.stockMovements.findMany({
+      where: (t, { eq: eqOp }) => eqOp(t.itemId, item.id),
+      orderBy: (t, { asc }) => [asc(t.occurredAt), asc(t.createdAt)],
+    });
+    expect(kardex).toHaveLength(2);
+    const itemRow = await db.query.items.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
+    });
+    expect(itemRow?.wac).toBeCloseTo(3, 9); // (10 000·2 + 10 000·4) / 20 000
+    expect(itemRow?.wac).toBeCloseTo(recomputeWacFromMovements(kardex), 9);
+  });
+
+  it("refuses a backdated DELETE that contradicts a LATER exit's frozen snapshot, and commits it with `confirm: true` without rewriting that snapshot (R-4)", async () => {
+    const db = createDb(env.DB);
+    const { item, exitA } = await seedBackdatedEditScenario(db, "Borrado retroactivo con consumo");
+
+    // Exit B sits AFTER P2 and froze its cost at the WAC of the moment, 44 000/12 000 = 3.6667.
+    // Deleting exit A re-weights P2 (on-hand 10 000 instead of 2 000), so the cost exit B was
+    // reported at no longer matches the replay — that is the number R-5 wants acknowledged.
+    const exitB = await recordExit(
+      db,
+      {
+        itemId: item.id,
+        qty: 1_000,
+        reason: "SPOILAGE",
+        occurredAt: "2026-07-13T10:00:00.000Z",
+        businessDate: "2026-07-13",
+      },
+      ACTOR,
+    );
+    expect(exitB.exit.unitCostSnapshot).toBeCloseTo(44_000 / 12_000, 9);
+
+    await expect(deleteStockExit(db, exitA.exit.id, {}, ACTOR)).rejects.toMatchObject({
+      code: "CONFLICT",
+      details: {
+        reason: "REPLAY_CONFIRMATION_REQUIRED",
+        impact: { requiresConfirmation: true, affectedStockExitIds: [exitB.exit.id] },
+      },
+    });
+    const stillThere = await db.query.stockExits.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.id, exitA.exit.id),
+    });
+    expect(stillThere?.deletedAt).toBeNull();
+
+    await deleteStockExit(db, exitA.exit.id, { confirm: true }, ACTOR);
+
+    expect(await exitMovements(db, exitA.exit.id)).toHaveLength(0);
+    const stockRow = await db.query.itemStock.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.itemId, item.id),
+    });
+    expect(stockRow?.qtyOnHand).toBe(19_000); // 20 000 − exit B's 1 000
+
+    const itemRow = await db.query.items.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
+    });
+    expect(itemRow?.wac).toBeCloseTo(3, 9);
+
+    // R-4, the whole point: exit B's frozen snapshot is READ by the replay and never rewritten.
+    const exitBRow = await db.query.stockExits.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.id, exitB.exit.id),
+    });
+    expect(exitBRow?.unitCostSnapshot).toBeCloseTo(44_000 / 12_000, 9);
   });
 });

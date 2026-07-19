@@ -56,6 +56,56 @@ export const recordStockExitCommandSchema = z.object({
  * default would otherwise make the flag required on every command literal). */
 export type RecordStockExitCommand = z.input<typeof recordStockExitCommandSchema>;
 
+/**
+ * PUT /inventory/exits/:id (KOK-024 Phase E). FULL REPLACEMENT semantics, not a patch: the service
+ * regenerates this exit's derived kardex rows from the command's post-state (R-1), so a caller that
+ * omitted a field would be asking for it to be cleared, not preserved. The web form and any future
+ * AI edit tool must therefore submit the whole event, exactly like the create form does.
+ *
+ * Deliberately an ALIAS of the record schema rather than a second object literal. The record
+ * command already carries no server-derived field — `unit_cost_snapshot` is computed inside
+ * core/inventory/exits.ts and has never been accepted from a caller — so "the record fields minus
+ * the server-derived ones, plus `confirm`" is, term for term, the record schema itself. Two copies
+ * of the same seven fields would be a D-4 drift hazard for zero benefit. It is exported under its
+ * own name so routes/forms/tools bind to the edit contract by name and this can become a distinct
+ * schema the day the two shapes genuinely diverge.
+ */
+export const updateStockExitCommandSchema = recordStockExitCommandSchema;
+/** `z.input` for the same reason as `RecordStockExitCommand` — the `confirm` default. */
+export type UpdateStockExitCommand = z.input<typeof updateStockExitCommandSchema>;
+
+/**
+ * DELETE /inventory/exits/:id (KOK-024 Phase E). Carries only the R-5 acknowledgement: a delete
+ * names its target in the path, and deleting a BACKDATED exit re-weights C-1 for every later entry
+ * of that item exactly as creating one does, so it needs the same confirmation gate.
+ */
+export const deleteStockExitCommandSchema = z.object({
+  confirm: confirmFlagSchema,
+});
+export type DeleteStockExitCommand = z.input<typeof deleteStockExitCommandSchema>;
+
+/**
+ * Body of the dry-run impact endpoint (Phase F): "what would this create / edit / delete do?",
+ * answered without writing anything. Discriminated on `op` so a `create` (no id yet) and an
+ * `update` (id + full post-state) and a `delete` (id only) cannot be confused for one another at
+ * the type level or the validation boundary.
+ *
+ * The `command` members reuse the very schemas the mutations parse (D-4): a preview validated
+ * against a laxer shape than the write it previews would be able to promise something the write
+ * then rejects.
+ */
+export const stockExitImpactRequestSchema = z.discriminatedUnion("op", [
+  z.object({ op: z.literal("create"), command: recordStockExitCommandSchema }),
+  z.object({
+    op: z.literal("update"),
+    id: z.string().min(1),
+    command: updateStockExitCommandSchema,
+  }),
+  z.object({ op: z.literal("delete"), id: z.string().min(1) }),
+]);
+/** `z.input` — the nested command's `confirm` default would otherwise be required on a literal. */
+export type StockExitImpactRequest = z.input<typeof stockExitImpactRequestSchema>;
+
 /** GET /inventory/exits query filters — mirrors listPurchasesFiltersSchema's shape. */
 export const listStockExitsFiltersSchema = z.object({
   itemId: z.string().min(1).optional(),
@@ -93,6 +143,21 @@ export interface StockExitDto {
 
 export interface RecordStockExitResult {
   exit: StockExitDto;
+}
+
+/** Mirrors `RecordStockExitResult`: the exit as it stands AFTER the edit. */
+export interface UpdateStockExitResult {
+  exit: StockExitDto;
+}
+
+/**
+ * Mirrors `RecordStockExitResult`, plus R-3's timestamp. The row still exists (soft delete, D-8) —
+ * `exit` is its final state — and `deletedAt` is the instant it was retired, the value the 90-day
+ * reversal window in R-3 is measured from.
+ */
+export interface DeleteStockExitResult {
+  exit: StockExitDto;
+  deletedAt: string;
 }
 
 export interface ListStockExitsResult {
