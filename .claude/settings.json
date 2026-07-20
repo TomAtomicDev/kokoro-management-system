@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "mcp__codegraph__*"
+      "mcp__codegraph__*",
+      "Skill(playwright-cli)",
+      "Skill(run)"
     ]
   },
   "hooks": {

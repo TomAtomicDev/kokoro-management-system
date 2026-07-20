@@ -59,6 +59,8 @@ Every backlog task ships only when:
 4. Spanish UI strings reviewed for tone (concise, warm, no tech jargon).
 5. Deployed to staging, smoke-tested via Playwright suite; manual exercises on staging Telegram bot when the task touches them.
 
+For local UI verification against the dev server (before staging), use the `verify-ui` skill.
+
 ## Where Things Live
 
 See the root `README.md` for the full monorepo directory tree and workspace dependency rules. Key points:
