@@ -304,9 +304,12 @@ tomorrow" as ADR-009 implied.
    **impact preview** (count of affected records + estimated `cost_delta`); the UI requires
    explicit confirmation before commit (R-5).
 
-**Consequences.** Edit/insert/delete cost is no longer strictly O(1) — it's O(k), k = movements
-since the earliest touched point for the affected item(s), bounded in practice by tens to low
-hundreds of movements for a solo-operator business, which is cheap enough to do synchronously.
+**Consequences.** Edit/insert/delete cost is no longer strictly O(1) — it's O(n), n = an affected
+item's TOTAL movement count, not just the movements after the touched point. There is no
+per-movement WAC cache to resume the seed state from (a cache would be a third place for the WAC
+to be wrong), so the replay recomputes the untouched prefix from zero on every run, in addition to
+the touched suffix. Bounded in practice by tens to low hundreds of movements for a solo-operator
+business, which is cheap enough to do synchronously.
 This removes the "stale until tomorrow" WAC window entirely and — more importantly — stops
 historical sale margins from silently absorbing an old costing mistake with no visibility.
 Historical per-day reports stay trustworthy (never rewritten); cumulative rentabilidad stays

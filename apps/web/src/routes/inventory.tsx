@@ -10,6 +10,7 @@ import { useMemo, useState } from "react";
 import { CountDetailView } from "@/components/inventory/CountDetailView";
 import { CountForm } from "@/components/inventory/CountForm";
 import { CountsTable } from "@/components/inventory/CountsTable";
+import { ExitDetailDrawer } from "@/components/inventory/ExitDetailDrawer";
 import { ExitForm } from "@/components/inventory/ExitForm";
 import { ExitsTable } from "@/components/inventory/ExitsTable";
 import { KardexView } from "@/components/inventory/KardexView";
@@ -68,6 +69,7 @@ export function InventoryRoute() {
   const [negativeOnly, setNegativeOnly] = useState(false);
   const [selected, setSelected] = useState<StockRowDto | null>(null);
   const [exitFormOpen, setExitFormOpen] = useState(false);
+  const [selectedExitId, setSelectedExitId] = useState<string | null>(null);
   const [countFormOpen, setCountFormOpen] = useState(false);
   const [selectedCountId, setSelectedCountId] = useState<string | null>(null);
 
@@ -161,9 +163,18 @@ export function InventoryRoute() {
             rows={exitsQuery.data?.exits ?? []}
             items={itemLookup}
             loading={exitsQuery.isLoading}
+            onRowClick={(row) => setSelectedExitId(row.id)}
           />
 
           <ExitForm open={exitFormOpen} onOpenChange={setExitFormOpen} />
+
+          <ExitDetailDrawer
+            exitId={selectedExitId}
+            open={selectedExitId !== null}
+            onOpenChange={(nextOpen) => {
+              if (!nextOpen) setSelectedExitId(null);
+            }}
+          />
         </div>
       ) : (
         <div className="flex flex-col gap-4">

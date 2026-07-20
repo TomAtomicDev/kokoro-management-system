@@ -14,14 +14,25 @@
 // path segment that itself contains `/`, since keys are `receipts/<uuid>.<ext>`).
 
 import {
+  deletePurchaseCommandSchema,
   generateUuidV7,
   listPurchasesFiltersSchema,
+  purchaseImpactRequestSchema,
   recordPurchaseCommandSchema,
+  updatePurchaseCommandSchema,
 } from "@kokoro/shared";
 import { Hono } from "hono";
 
 import { notFound } from "../core/errors.js";
-import { getPurchase, listPurchases, recordPurchase } from "../core/purchasing/index.js";
+import {
+  deletePurchase,
+  getPurchase,
+  listPurchases,
+  previewPurchaseImpact,
+  recordPurchase,
+  restorePurchase,
+  updatePurchase,
+} from "../core/purchasing/index.js";
 import { createDb } from "../db/index.js";
 import type { Env, Variables } from "../env.js";
 import { getObject, putObject } from "../lib/r2.js";
@@ -89,4 +100,29 @@ export const purchasingRoute = new Hono<{ Bindings: Env; Variables: Variables }>
   .get("/purchases/:id", async (c) => {
     const db = createDb(c.env.DB);
     return c.json(await getPurchase(db, c.req.param("id")));
+  })
+  .patch("/purchases/:id", async (c) => {
+    const db = createDb(c.env.DB);
+    const body = updatePurchaseCommandSchema.parse(await c.req.json());
+    return c.json(await updatePurchase(db, c.req.param("id"), body, ACTOR));
+  })
+  .delete("/purchases/:id", async (c) => {
+    const db = createDb(c.env.DB);
+    // A plain delete with no confirmation needed sends no body at all — `c.req.json()` throws on
+    // an empty body, so it falls back to `{}` (deletePurchaseCommandSchema's `confirm` then
+    // defaults to false, the same as an explicit `{ confirm: false }`).
+    const body = deletePurchaseCommandSchema.parse(await c.req.json().catch(() => ({})));
+    return c.json(await deletePurchase(db, c.req.param("id"), body, ACTOR));
+  })
+  .post("/purchases/:id/restore", async (c) => {
+    const db = createDb(c.env.DB);
+    // Same empty-body handling as the delete route, and the same schema — a restore's body is
+    // only ever `{ confirm }`.
+    const body = deletePurchaseCommandSchema.parse(await c.req.json().catch(() => ({})));
+    return c.json(await restorePurchase(db, c.req.param("id"), body, ACTOR));
+  })
+  .post("/purchases/impact", async (c) => {
+    const db = createDb(c.env.DB);
+    const body = purchaseImpactRequestSchema.parse(await c.req.json());
+    return c.json(await previewPurchaseImpact(db, body));
   });

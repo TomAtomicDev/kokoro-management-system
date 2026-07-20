@@ -152,8 +152,85 @@ const WAC_ENTRY_TYPES: ReadonlySet<StockMovementType> = new Set(["PURCHASE_IN", 
  * the true running balance at each step, not just the entries' running total.
  */
 export function recomputeWacFromMovements(movements: readonly ReplayMovement[]): number {
-  let onHand = 0;
-  let wac = 0;
+  return replayWacFrom(ZERO_WAC_STATE, movements).wac;
+}
+
+/**
+ * The complete running state a WAC replay carries between movements: the on-hand balance
+ * (milli-unit integer, may be negative per INV-8) and the weighted-average cost (centavos per
+ * milli-unit, float — same convention as `items.wac`). This is deliberately the WHOLE state, which
+ * is what makes a replay resumable: `replayWacFrom(replayWacFrom(seed, a).final, b)` is identical
+ * to `replayWacFrom(seed, [...a, ...b])` (pinned by a property test in costing.test.ts).
+ */
+export interface WacState {
+  onHand: number;
+  wac: number;
+}
+
+const ZERO_WAC_STATE: WacState = { onHand: 0, wac: 0 };
+
+/** Per-movement WAC snapshot produced by `replayWacWithTrace`. `steps[i]` describes
+ * `movements[i]`: the state immediately BEFORE that movement was applied and immediately AFTER.
+ *
+ * R-4's `cost_delta` is computed from `wacBefore`: for a SALE_OUT/EXIT_OUT movement, the frozen
+ * `unit_cost_snapshot` written at event time is compared against the WAC the replay says was in
+ * effect at that point in the kardex. (For exits the two WAC fields are equal — C-6 carries WAC
+ * forward across exits — but both are exposed so the caller never has to know which type it is
+ * holding, and so an entry's before/after are both available for debugging a drift report.)
+ */
+export interface WacTraceStep {
+  wacBefore: number;
+  wacAfter: number;
+  onHandBefore: number;
+  onHandAfter: number;
+}
+
+/**
+ * Resume-from-a-point version of `recomputeWacFromMovements` (R-2/R-4): replays `movements`
+ * starting from an ARBITRARY `seed` state instead of always from `onHand = 0, wac = 0`, and
+ * returns the final state rather than just the final `wac`.
+ *
+ * This is what lets a correction replay only the kardex TAIL after the edited event: the caller
+ * reads the last known-good `{ on_hand, wac }` at the cut point and feeds it in here, instead of
+ * re-reading and re-replaying an item's entire history.
+ *
+ * Same PRECONDITION as `recomputeWacFromMovements`: `movements` MUST already be sorted
+ * chronologically (see that function's note on why this is not checked here), and must all fall
+ * AFTER the point `seed` describes. Same C-1/C-6 semantics: only `WAC_ENTRY_TYPES`
+ * (PURCHASE_IN/PRODUCTION_IN) run the C-1 formula via `applyWacEntry`; every other type carries
+ * `wac` forward untouched and only moves `onHand`.
+ */
+export function replayWacFrom(seed: WacState, movements: readonly ReplayMovement[]): WacState {
+  return runReplay(seed, movements);
+}
+
+/**
+ * `replayWacFrom` plus the per-movement trace (see `WacTraceStep`). `steps` is index-aligned with
+ * `movements` — `steps.length === movements.length` — because R-4 needs the WAC as of each
+ * INDIVIDUAL movement, not just the end state.
+ */
+export function replayWacWithTrace(
+  seed: WacState,
+  movements: readonly ReplayMovement[],
+): { final: WacState; steps: WacTraceStep[] } {
+  const steps: WacTraceStep[] = [];
+  const final = runReplay(seed, movements, steps);
+  return { final, steps };
+}
+
+/** Shared replay loop behind `replayWacFrom` / `replayWacWithTrace` / `recomputeWacFromMovements`
+ * — one implementation so the three can never drift apart. Collecting the trace is opt-in (pass
+ * `steps`) so the untraced callers allocate nothing per movement. */
+function runReplay(
+  seed: WacState,
+  movements: readonly ReplayMovement[],
+  steps?: WacTraceStep[],
+): WacState {
+  assertSafeIntegerInput(seed.onHand, "seed.onHand");
+  assertFiniteNonNegative(seed.wac, "seed.wac");
+
+  let onHand = seed.onHand;
+  let wac = seed.wac;
 
   for (const movement of movements) {
     assertSafeIntegerInput(movement.qty, "qty");
@@ -165,11 +242,16 @@ export function recomputeWacFromMovements(movements: readonly ReplayMovement[]):
       throw validationError("Un movimiento de stock no puede tener cantidad cero.", { movement });
     }
 
+    const onHandBefore = onHand;
+    const wacBefore = wac;
+
     if (WAC_ENTRY_TYPES.has(movement.type)) {
       wac = applyWacEntry(wac, onHand, movement.qty, movement.unitCost);
     }
     onHand += movement.qty;
+
+    steps?.push({ wacBefore, wacAfter: wac, onHandBefore, onHandAfter: onHand });
   }
 
-  return wac;
+  return { onHand, wac };
 }

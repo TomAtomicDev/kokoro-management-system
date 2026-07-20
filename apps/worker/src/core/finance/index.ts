@@ -1,5 +1,6 @@
-export type { BalanceMismatchDto } from "./accounts.js";
+export type { BalanceMismatchDto, FinancialTransactionInput } from "./accounts.js";
 export {
+  buildReplaceTransactionsForSourceStatements,
   getAccount,
   getBalanceConsistencyMismatches,
   listAccounts,

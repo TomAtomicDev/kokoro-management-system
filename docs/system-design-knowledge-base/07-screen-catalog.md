@@ -48,20 +48,27 @@ Recipe list by output item; editor: output item, expected yield, `LineEditor` of
 theoretical cost at WAC and at replacement cost per output unit (C-3) with margin preview
 against sale price.
 
-## SC-07 · Purchases list — `/purchases` (UC-01)
+## SC-07 · Purchases list — `/purchases` (UC-01, UC-18)
 
-Table: fecha, proveedor, items, total, cuenta, sesión, foto icon (R2 signed URL viewer). Form:
+Table: fecha, proveedor, items, total, cuenta, sesión, foto icon (R2 signed URL viewer). Row →
+detail drawer with Editar/Eliminar (KOK-024). Form (shared by create and edit, `PurchaseForm`):
 `LineEditor` (item, qty, line total → unit cost preview + Δ vs previous replacement cost
-highlighted, the inflation signal), account, supplier, photo upload, session.
+highlighted, the inflation signal), account, supplier, photo upload, session. Eliminar commits
+immediately (R-3, principle 6) with a 10s "Deshacer" undo toast; both edit and delete fall back to
+an impact-confirmation dialog instead of the toast when the change would move already-booked cost
+(R-5) — see UC-18 and Doc 06 principle 6 for the general pattern this and SC-08's Salidas tab
+both follow.
 
-## SC-08 · Inventory — `/inventory` (UC-09, UC-10)
+## SC-08 · Inventory — `/inventory` (UC-09, UC-10, UC-18)
 
 Tabs:
 - **Stock** (default): v_stock table — item, kind, on hand, min, WAC, replacement cost, stock
   value; low-stock and negative-stock (INV-8 flag) rows pinned on top. Row → **Kardex** drawer
   (`KardexView`).
 - **Salidas** (exits): list + form (item, qty, reason, session) showing valued cost; monthly
-  "costo invisible" total by reason (v_waste).
+  "costo invisible" total by reason (v_waste). Row → detail drawer (`ExitDetailDrawer`,
+  KOK-024) with Editar/Eliminar, same edit-form-reuse / immediate-delete-with-undo-toast /
+  impact-confirmation-on-R-5 pattern as SC-07's Purchases screen.
 - **Conteos** (counts): count sessions; new count → item checklist (filter by category) with
   expected vs counted; commit shows variance summary and creates ADJUST movements.
 

@@ -568,6 +568,45 @@ export const financialTransactions = sqliteTable(
   }),
 );
 
+// R-4: cumulative P&L correction booked when a backdated WAC replay (ADR-016) changes the cost of
+// already-recorded consumption; never rewrites frozen snapshots.
+//
+// KOK-024 amendment: `trigger_event_type` admits 'stock_exit' alongside 'purchase' and
+// 'production_run'. A backdated exit changes on-hand, which changes C-1's `max(on_hand,0)` weight
+// for every later entry — so an exit CAN move downstream WAC, and that correction must be
+// bookable. Doc 04 §3.4 carries the same DDL.
+export const costingAdjustments = sqliteTable(
+  "costing_adjustments",
+  {
+    id: text("id").primaryKey(),
+    occurredAt: text("occurred_at").notNull(),
+    // Date of the CORRECTION, not of the backdated event that triggered it.
+    businessDate: text("business_date").notNull(),
+    itemId: text("item_id")
+      .notNull()
+      .references(() => items.id, { onDelete: "restrict" }),
+    triggerEventType: text("trigger_event_type", {
+      enum: ["purchase", "production_run", "stock_exit"],
+    }).notNull(),
+    // The create/edit/delete that triggered the replay.
+    triggerEventId: text("trigger_event_id").notNull(),
+    // JSON array of sale_lines.id, for UI drill-down.
+    affectedSaleLineIds: text("affected_sale_line_ids").notNull(),
+    // JSON array of stock_exits.id.
+    affectedStockExitIds: text("affected_stock_exit_ids").notNull(),
+    // Centavos, signed: negative = accumulated margin fell.
+    costDelta: integer("cost_delta").notNull(),
+    createdAt: text("created_at").notNull(),
+  },
+  (t) => ({
+    triggerEventTypeCheck: check(
+      "costing_adjustments_trigger_event_type_check",
+      sql`${t.triggerEventType} IN ('purchase','production_run','stock_exit')`,
+    ),
+    ixItemDate: index("ix_costing_adj_item_date").on(t.itemId, t.businessDate),
+  }),
+);
+
 // ============================================================================
 // 5. System & observability (Doc 04 §3.5)
 // ============================================================================

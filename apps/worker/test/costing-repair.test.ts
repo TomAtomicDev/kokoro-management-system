@@ -1,17 +1,19 @@
-// Integration tests for core/costing's DB-touching half (KOK-013): buildWacRepairIfDrifted /
-// getCurrentWac against real D1, following the same Doc 11 §3 template as inventory.test.ts —
-// seed a fixture item + hand-written stock_movements rows (no purchase/sale service exists yet to
-// generate them), build statements, execute via the TEST's own db.batch() (core/costing never
-// batches on its own — same "build, don't execute" rule as core/inventory / core/audit), assert
-// state.
+// Integration tests for core/costing's DB-touching half (KOK-013): detectWacDrift / getCurrentWac
+// against real D1, following the same Doc 11 §3 template as inventory.test.ts — seed a fixture
+// item + hand-written stock_movements rows (no purchase/sale service exists yet to generate
+// them), assert on the returned drift (or lack of it).
+//
+// detectWacDrift is DETECTION ONLY (KOK-024/ADR-016 demoted the nightly job from repair to
+// backstop auditor — see core/costing/repair.ts's header) — it never writes anything, so these
+// tests assert `items.wac` stays exactly as seeded and no `costing_repair` audit row appears,
+// alongside the returned `WacDrift` shape.
 import { env } from "cloudflare:test";
 import { generateUuidV7 } from "@kokoro/shared";
 import { eq } from "drizzle-orm";
-import type { BatchItem } from "drizzle-orm/batch";
 import { describe, expect, it } from "vitest";
 
 import { createItem } from "../src/core/catalog/index.js";
-import { buildWacRepairIfDrifted, getCurrentWac } from "../src/core/costing/index.js";
+import { detectWacDrift, getCurrentWac } from "../src/core/costing/index.js";
 import { createDb } from "../src/db/index.js";
 import { items, stockMovements } from "../src/db/schema.js";
 
@@ -55,11 +57,6 @@ async function seedMovement(
   });
 }
 
-async function execBatch(db: TestDb, statements: BatchItem<"sqlite">[]) {
-  if (statements.length === 0) throw new Error("execBatch: empty statement list");
-  return db.batch(statements as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]);
-}
-
 describe("getCurrentWac", () => {
   it("returns the item's live wac", async () => {
     const db = createDb(env.DB);
@@ -75,8 +72,8 @@ describe("getCurrentWac", () => {
   });
 });
 
-describe("buildWacRepairIfDrifted (R-2)", () => {
-  it("detects >1% drift, returns an items.wac UPDATE + a costing_repair audit row, and applies cleanly via the caller's own db.batch()", async () => {
+describe("detectWacDrift (R-2 backstop)", () => {
+  it("detects >1% drift and reports it WITHOUT writing anything", async () => {
     const db = createDb(env.DB);
     // Seed with a deliberately-wrong wac (100) that disagrees with what the kardex implies.
     const item = await seedItem(db, "Drifted item", 100);
@@ -90,27 +87,17 @@ describe("buildWacRepairIfDrifted (R-2)", () => {
       occurredAt: "2026-07-01T10:00:00.000Z",
     });
 
-    const result = await buildWacRepairIfDrifted(db, item.id);
-    expect(result).not.toBeNull();
-    // 1 items.wac UPDATE + 1 audit_log INSERT.
-    expect(result?.statements).toHaveLength(2);
+    const drift = await detectWacDrift(db, item.id);
+    expect(drift).toEqual({ itemId: item.id, current: 100, recomputed: 200, driftRatio: 1 });
 
-    await execBatch(db, result?.statements ?? []);
-
-    const updatedWac = await getCurrentWac(db, item.id);
-    expect(updatedWac).toBe(200);
-
-    // createItem itself writes its own 'create' audit row for this item (core/catalog), so filter
-    // to the 'costing_repair' action specifically rather than asserting on entityId alone.
+    // Detection only: the stored wac is untouched, and no costing_repair audit row was written
+    // (createItem itself writes its own 'create' audit row for this item, so filter to the
+    // 'costing_repair' action specifically rather than asserting on entityId alone).
+    expect(await getCurrentWac(db, item.id)).toBe(100);
     const auditRows = await db.query.auditLog.findMany({
       where: (t, { and, eq }) => and(eq(t.entityId, item.id), eq(t.action, "costing_repair")),
     });
-    expect(auditRows).toHaveLength(1);
-    expect(auditRows[0]?.action).toBe("costing_repair");
-    expect(auditRows[0]?.entityType).toBe("items");
-    expect(auditRows[0]?.actor).toBe("SYSTEM");
-    expect(JSON.parse(auditRows[0]?.beforeJson ?? "null")).toEqual({ wac: 100 });
-    expect(JSON.parse(auditRows[0]?.afterJson ?? "null")).toEqual({ wac: 200 });
+    expect(auditRows).toHaveLength(0);
   });
 
   it("returns null when the stored wac already matches the recomputed value (within 1%)", async () => {
@@ -125,16 +112,9 @@ describe("buildWacRepairIfDrifted (R-2)", () => {
       occurredAt: "2026-07-01T10:00:00.000Z",
     });
 
-    const result = await buildWacRepairIfDrifted(db, item.id);
-    expect(result).toBeNull();
-
-    // Confirm it's truly a no-op: wac unchanged, no costing_repair audit row (createItem's own
-    // 'create' audit row for this item is expected and ignored here — see the previous test).
+    const drift = await detectWacDrift(db, item.id);
+    expect(drift).toBeNull();
     expect(await getCurrentWac(db, item.id)).toBe(200);
-    const auditRows = await db.query.auditLog.findMany({
-      where: (t, { and, eq }) => and(eq(t.entityId, item.id), eq(t.action, "costing_repair")),
-    });
-    expect(auditRows).toHaveLength(0);
   });
 
   it("replays movements ordered by occurred_at (with created_at tiebreak), not insertion order", async () => {
@@ -159,16 +139,14 @@ describe("buildWacRepairIfDrifted (R-2)", () => {
     });
 
     // Correct chronological replay: onHand=0,wac=0 -> purchase(100) -> wac=100, onHand=1000
-    //  -> purchase(300): (1000*100 + 1000*300)/2000 = 200.
-    const result = await buildWacRepairIfDrifted(db, item.id);
-    expect(result).not.toBeNull();
-    await execBatch(db, result?.statements ?? []);
-    expect(await getCurrentWac(db, item.id)).toBe(200);
+    //  -> purchase(300): (1000*100 + 1000*300)/2000 = 200. Seeded wac (0) vs 200 is >1% drift.
+    const drift = await detectWacDrift(db, item.id);
+    expect(drift?.recomputed).toBe(200);
   });
 
   it("throws NOT_FOUND for a nonexistent item", async () => {
     const db = createDb(env.DB);
-    await expect(buildWacRepairIfDrifted(db, "does_not_exist")).rejects.toMatchObject({
+    await expect(detectWacDrift(db, "does_not_exist")).rejects.toMatchObject({
       code: "NOT_FOUND",
     });
   });

@@ -34,7 +34,7 @@ better correction ergonomics for a solo operator (ADR-009).
 | INV-8 | Stock MAY go negative (capture-first); negative stock raises a persistent reconciliation flag, never a blocking error. |
 | INV-9 | Derived rows always carry `source_event_type` + `source_event_id`; orphan derived rows are forbidden. |
 | INV-10 | Deleting an event soft-deletes it and removes/reverses its derived rows in the same batch; history stays in `audit_log`. |
-| INV-11 | A create/edit/delete of a movement-affecting event whose `business_date` precedes the latest already-processed movement for an affected item triggers a synchronous, bounded WAC/cost replay before the command commits (R-2, ADR-016); the nightly sentinel (INV-5) is a backstop auditor, never the primary corrector. |
+| INV-11 | A create/edit/delete of a movement-affecting event whose `(occurred_at, created_at)` point precedes the latest already-processed movement for an affected item triggers a synchronous, bounded WAC/cost replay before the command commits (R-2, ADR-016); the nightly sentinel (INV-5) is a backstop auditor, never the primary corrector. |
 
 ## 3. Aggregates and key entities
 
@@ -59,8 +59,15 @@ better correction ergonomics for a solo operator (ADR-009).
   Exits consume at current `wac` and never change it.
 - **C-2 Purchase cost** per line: `unit_cost = line_total / qty` (freight/session shared costs are
   NOT capitalized into items; they go to OPERATING_EXPENSE — simplicity over precision, ADR-010).
-- **C-3 Replacement cost**: for RAW_MATERIAL, `replacement_cost = last purchase unit cost`
-  (updated on every purchase). For SEMI_FINISHED/FINISHED,
+- **C-3 Replacement cost**: for RAW_MATERIAL, `replacement_cost = last purchase unit cost`, where
+  **"last" means last by `business_date`, not last recorded** (ties on the same `business_date`
+  break by capture order, so the most recently recorded of that day wins). A purchase therefore
+  updates `replacement_cost` only when no purchase of that item carries a LATER `business_date`;
+  a backdated purchase leaves it untouched. Rationale (KOK-024): replacement cost answers "what
+  would it cost me to buy this again today", so backdating last week's invoice must not roll
+  today's price back to last week's — a real hazard in a high-inflation context, and the reason
+  C-5's `margin_replacement` and its price-health alert would otherwise drift optimistic. Soft
+  -deleted purchases (R-3) do not count. For SEMI_FINISHED/FINISHED,
   `replacement_cost = Σ(default-recipe line qty × ingredient replacement_cost) / expected_yield`,
   recomputed by the nightly job and on demand; cached with timestamp.
 - **C-4 Production run cost**:
@@ -123,28 +130,32 @@ Rules:
 
 - **R-1** Editing an event regenerates its derived rows (INV-9/10) in one batch.
 - **R-2** WAC and dependent costs **are** replayed synchronously, inside the triggering
-  command's own batch, whenever a create/edit/delete lands with a `business_date` earlier than
-  the latest already-processed movement for an affected item (INV-11) — this covers plain
-  out-of-order inserts too, not only edits of existing events (e.g. recording today's production
-  before backdating last week's purchase). The replay resumes `recomputeWacFromMovements`
-  (KOK-013) from the touched point forward rather than only from zero, and cascades across items
-  linked by production recipes (raw material → semi-finished → finished, dependency order),
-  since a `ProductionRun`'s cost (C-4) depends on its consumed items' WAC. The nightly
-  consistency job (INV-5) remains a backstop auditor for drift the synchronous path might miss
-  (e.g. a direct DB fix bypassing services) — not the primary correction mechanism. This
-  supersedes ADR-009's "nightly-only, O(1) edits" framing; see ADR-016.
+  command's own batch, whenever a create/edit/delete lands with an `(occurred_at, created_at)`
+  point earlier than the latest already-processed movement for an affected item (INV-11) — this
+  covers plain out-of-order inserts too, not only edits of existing events (e.g. recording
+  today's production before backdating last week's purchase). `business_date` is not the ordering
+  key: two movements can share a `business_date` but disagree on `occurred_at`, and the kardex
+  orders by the latter (`created_at` as a stable tiebreak). The replay resumes
+  `recomputeWacFromMovements` (KOK-013) from the touched point forward rather than only from
+  zero, and cascades across items linked by ACTIVE production recipes (raw material →
+  semi-finished → finished, dependency order; a deactivated recipe edge is not followed), since a
+  `ProductionRun`'s cost (C-4) depends on its consumed items' WAC. The nightly consistency job
+  (INV-5) remains a backstop auditor for drift the synchronous path might miss (e.g. a direct DB
+  fix bypassing services) — not the primary correction mechanism. This supersedes ADR-009's
+  "nightly-only, O(1) edits" framing; see ADR-016.
 - **R-3** Deletions are soft (`deleted_at`), reversible for 90 days via audit data.
 - **R-4** A replay (R-2) never rewrites an already-frozen cost snapshot
   (`sale_lines.unit_cost_snapshot`, `stock_exits.unit_cost_snapshot`) — historical per-day
-  margins stay exactly as they were reported at the time. Instead it books a
-  `costing_adjustment` row (Doc 04 §3.4) capturing the aggregate `cost_delta` in Bs, dated to the
-  *correction's* `business_date` (today), so cumulative profitability absorbs the correction
-  without silently altering history (ADR-016).
-- **R-5** Before committing a create/edit/delete whose replay (R-2) would touch sales or
-  production runs already recorded after the touched point, the service computes — and the UI
-  surfaces — an impact preview (count of affected records + estimated `cost_delta`) and requires
-  explicit user confirmation. Applies equally to a plain backdated insert and to an edit/delete
-  of a past event (ADR-016).
+  margins stay exactly as they were reported at the time. Instead it books, for EACH item the
+  replay touched whose `cost_delta` is nonzero, one `costing_adjustment` row (Doc 04 §3.4)
+  capturing that item's `cost_delta` in Bs, dated to the *correction's* `business_date` (today) —
+  an item the replay recomputed but whose WAC didn't actually move gets no row, so cumulative
+  profitability absorbs the correction without silently altering history (ADR-016).
+- **R-5** Before committing a create/edit/delete whose replay (R-2) would touch sales, stock
+  exits, or production runs already recorded after the touched point, the service computes — and
+  the UI surfaces — an impact preview (count of affected records + estimated `cost_delta`) and
+  requires explicit user confirmation. Applies equally to a plain backdated insert and to an
+  edit/delete/restore of a past event (ADR-016).
 
 ## 8. Domain events (naming: past tense, for logs/hooks/UI toasts)
 

@@ -304,7 +304,12 @@ CREATE TABLE costing_adjustments (       -- R-4: cumulative P&L correction from 
   occurred_at TEXT NOT NULL, business_date TEXT NOT NULL,  -- date of the CORRECTION, not of the
                                                             -- backdated event that triggered it
   item_id TEXT NOT NULL REFERENCES items(id),
-  trigger_event_type TEXT NOT NULL CHECK (trigger_event_type IN ('purchase','production_run')),
+  trigger_event_type TEXT NOT NULL CHECK (trigger_event_type IN
+    ('purchase','production_run','stock_exit')),   -- KOK-024: a backdated exit changes on-hand,
+                                          -- which changes C-1's max(on_hand,0) weight for every
+                                          -- later entry — so an exit CAN move downstream WAC and
+                                          -- that correction must be bookable
+
   trigger_event_id TEXT NOT NULL,        -- the create/edit/delete that triggered the replay
   affected_sale_line_ids TEXT NOT NULL,  -- JSON array of sale_lines.id, for UI drill-down
   affected_stock_exit_ids TEXT NOT NULL, -- JSON array of stock_exits.id
@@ -312,6 +317,11 @@ CREATE TABLE costing_adjustments (       -- R-4: cumulative P&L correction from 
   created_at TEXT NOT NULL
 );
 ```
+
+No `affected_production_run_ids` column: the row is keyed to one `item_id`, and until production
+runs exist (KOK-026) no replay ever touches one — the impact-preview DTO (`packages/shared/src/
+costing.ts`'s `ReplayImpactDto`) already carries `affectedProductionRunIds` for the day it does,
+but persisting them here is deferred to KOK-026 rather than added speculatively now.
 
 Deposit liability is derived, not a table:
 `customer_deposits = Σ deposits received − Σ released/refunded`, computed from ORDER_DEPOSIT /
@@ -414,6 +424,7 @@ CREATE INDEX ix_runs_date ON production_runs(business_date);
 CREATE INDEX ix_runs_order ON production_runs(custom_order_id);
 CREATE INDEX ix_orders_status_date ON custom_orders(status, delivery_date);
 CREATE INDEX ix_exits_date ON stock_exits(business_date);
+CREATE INDEX ix_costing_adj_item_date ON costing_adjustments(item_id, business_date);
 CREATE INDEX ix_audit_entity ON audit_log(entity_type, entity_id);
 CREATE INDEX ix_ai_at ON assistant_interactions(at);
 ```

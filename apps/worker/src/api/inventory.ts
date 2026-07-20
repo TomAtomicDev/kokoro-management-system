@@ -8,6 +8,7 @@
 
 import {
   commitCountCommandSchema,
+  deleteStockExitCommandSchema,
   listCountsFiltersSchema,
   listKardexFiltersSchema,
   listStockExitsFiltersSchema,
@@ -15,12 +16,14 @@ import {
   listWasteSummaryFiltersSchema,
   recordStockExitCommandSchema,
   startCountCommandSchema,
+  stockExitImpactRequestSchema,
   updateCountLineCommandSchema,
+  updateStockExitCommandSchema,
 } from "@kokoro/shared";
 import { Hono } from "hono";
-
 import {
   commitCount,
+  deleteStockExit,
   getCount,
   getStockExit,
   listCounts,
@@ -28,9 +31,12 @@ import {
   listStock,
   listStockExits,
   listWasteSummary,
+  previewStockExitImpact,
   recordExit,
+  restoreStockExit,
   startCount,
   updateCountLine,
+  updateStockExit,
 } from "../core/inventory/index.js";
 import { createDb } from "../db/index.js";
 import type { Env, Variables } from "../env.js";
@@ -72,6 +78,31 @@ export const inventoryRoute = new Hono<{ Bindings: Env; Variables: Variables }>(
   .get("/inventory/exits/:id", async (c) => {
     const db = createDb(c.env.DB);
     return c.json(await getStockExit(db, c.req.param("id")));
+  })
+  .patch("/inventory/exits/:id", async (c) => {
+    const db = createDb(c.env.DB);
+    const body = updateStockExitCommandSchema.parse(await c.req.json());
+    return c.json(await updateStockExit(db, c.req.param("id"), body, ACTOR));
+  })
+  .delete("/inventory/exits/:id", async (c) => {
+    const db = createDb(c.env.DB);
+    // A plain delete with no confirmation needed sends no body at all — `c.req.json()` throws on
+    // an empty body, so it falls back to `{}` (deleteStockExitCommandSchema's `confirm` then
+    // defaults to false, same as an explicit `{ confirm: false }`).
+    const body = deleteStockExitCommandSchema.parse(await c.req.json().catch(() => ({})));
+    return c.json(await deleteStockExit(db, c.req.param("id"), body, ACTOR));
+  })
+  .post("/inventory/exits/:id/restore", async (c) => {
+    const db = createDb(c.env.DB);
+    // Same empty-body handling as the delete route, and the same schema — a restore's body is
+    // only ever `{ confirm }`.
+    const body = deleteStockExitCommandSchema.parse(await c.req.json().catch(() => ({})));
+    return c.json(await restoreStockExit(db, c.req.param("id"), body, ACTOR));
+  })
+  .post("/inventory/exits/impact", async (c) => {
+    const db = createDb(c.env.DB);
+    const body = stockExitImpactRequestSchema.parse(await c.req.json());
+    return c.json(await previewStockExitImpact(db, body));
   })
   .post("/inventory/counts", async (c) => {
     const db = createDb(c.env.DB);

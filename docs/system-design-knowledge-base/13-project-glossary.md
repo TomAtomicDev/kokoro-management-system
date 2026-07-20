@@ -16,6 +16,8 @@ term exactly**. When speaking with the owner, use Spanish. Enum literals per Doc
 | Kardex / stock movement | Kárdex / Movimiento | System-derived, user-immutable ledger of stock entries/exits; source of truth for stock (INV-5). |
 | Stock on hand | Stock / Existencias | Current quantity = Σ kardex; may be negative (INV-8). |
 | WAC (weighted average cost) | Costo promedio | Item valuation cost, updated on entries (C-1). |
+| Cost replay | Recálculo de costo | The synchronous, forward-only recomputation of WAC/cost triggered by a backdated create/edit/delete/restore (R-2, INV-11, ADR-016); never rewrites an already-frozen snapshot (R-4). |
+| Costing adjustment | Ajuste de costo | The persisted `costing_adjustments` row a cost replay books, per affected item, when its `cost_delta` is nonzero — the forward-dated correction R-4 uses instead of rewriting history. |
 | Replacement cost | Costo de reposición | What it costs **today** to re-acquire/re-produce one unit (C-3); the inflation-honest cost. |
 | Margin at replacement | Margen real | `price − replacement_cost`; the anti-decapitalization metric (C-5). |
 | Price health | Salud de precios | Report comparing prices vs both costs, with threshold alerts (SC-12). |

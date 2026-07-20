@@ -7,6 +7,8 @@
 
 import type {
   CommitCountResult,
+  DeleteStockExitCommand,
+  DeleteStockExitResult,
   InventoryCountDto,
   ListCountsFilters,
   ListCountsResult,
@@ -20,9 +22,14 @@ import type {
   ListWasteSummaryResult,
   RecordStockExitCommand,
   RecordStockExitResult,
+  ReplayImpactDto,
   StartCountCommand,
   StartCountResult,
+  StockExitDto,
+  StockExitImpactRequest,
   UpdateCountLineResult,
+  UpdateStockExitCommand,
+  UpdateStockExitResult,
 } from "@kokoro/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -92,6 +99,17 @@ export function useStockExits(filters: ListStockExitsFilters = {}) {
   });
 }
 
+/** `enabled: !!id` — mirrors `usePurchase`'s / `useCount`'s precedent: the detail drawer only
+ * fetches once an exit is selected. GET /inventory/exits/:id returns the bare `StockExitDto`
+ * (not wrapped in `{ exit }`), same as the record/update mutations' `.exit` is unwrapped here. */
+export function useStockExit(id: string | undefined) {
+  return useQuery({
+    queryKey: [...INVENTORY_ROOT_KEY, "exits", "detail", id ?? ""] as const,
+    queryFn: () => api.get<StockExitDto>(`/inventory/exits/${id}`),
+    enabled: Boolean(id),
+  });
+}
+
 function wasteSummaryFiltersToQueryString(filters: ListWasteSummaryFilters): string {
   const params = new URLSearchParams();
   if (filters.fromDate) params.set("fromDate", filters.fromDate);
@@ -121,6 +139,49 @@ export function useRecordStockExit() {
     mutationFn: (command: RecordStockExitCommand) =>
       api.post<RecordStockExitResult>("/inventory/exits", command),
     onSuccess: invalidate,
+  });
+}
+
+// --- Edit / delete / restore / impact preview (KOK-024 Phase G) -----------------------------
+//
+// Same shape and same non-goal as purchasing's equivalent four (features/purchases/api.ts):
+// plain, correctly-typed mutations only. The retry-with-confirm dance for the R-5 replay-
+// confirmation contract belongs to whatever UI composes these with
+// `useReplayConfirmableMutation` (apps/web/src/hooks/useReplayConfirmableMutation.ts).
+
+export function useUpdateStockExit(id: string) {
+  const invalidate = useInvalidateInventory();
+  return useMutation({
+    mutationFn: (command: UpdateStockExitCommand) =>
+      api.patch<UpdateStockExitResult>(`/inventory/exits/${id}`, command),
+    onSuccess: invalidate,
+  });
+}
+
+export function useDeleteStockExit(id: string) {
+  const invalidate = useInvalidateInventory();
+  return useMutation({
+    mutationFn: (command: DeleteStockExitCommand) =>
+      api.delete<DeleteStockExitResult>(`/inventory/exits/${id}`, command),
+    onSuccess: invalidate,
+  });
+}
+
+export function useRestoreStockExit(id: string) {
+  const invalidate = useInvalidateInventory();
+  return useMutation({
+    mutationFn: (command: DeleteStockExitCommand) =>
+      api.post<UpdateStockExitResult>(`/inventory/exits/${id}/restore`, command),
+    onSuccess: invalidate,
+  });
+}
+
+/** Dry-run preview (no write, so no cache to invalidate) — mirrors
+ * usePreviewPurchaseImpact's precedent (features/purchases/api.ts). */
+export function usePreviewStockExitImpact() {
+  return useMutation({
+    mutationFn: (request: StockExitImpactRequest) =>
+      api.post<ReplayImpactDto>("/inventory/exits/impact", request),
   });
 }
 
