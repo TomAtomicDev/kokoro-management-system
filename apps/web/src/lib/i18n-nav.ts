@@ -26,7 +26,6 @@ export const topbarLabels = {
   searchShortcutHint: "⌘K",
   quickAdd: "+ Registrar",
   alerts: "Alertas",
-  noOpenSession: "Sin sesión abierta",
 } as const;
 
 export const mobileTabLabels = {

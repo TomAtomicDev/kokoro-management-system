@@ -118,6 +118,15 @@ const inventoryRoute = createRoute({
 const sessionsRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: "/sessions",
+  // `?open=<id>` deep-links straight into one session's detail drawer (KOK-027's own addition,
+  // consumed by SessionsRoute via `getRouteApi("/sessions").useSearch()`) — the topbar SessionChip
+  // uses this to jump right into the close-session flow for the one currently OPEN session,
+  // mirroring loginRoute's `redirect` search param as the only other precedent for a validated
+  // search param in this router. Loosely typed on purpose, same as loginRoute (no zod dependency
+  // here, D-10).
+  validateSearch: (search: Record<string, unknown>): { open?: string } => ({
+    open: typeof search.open === "string" ? search.open : undefined,
+  }),
   component: SessionsRoute,
 });
 
