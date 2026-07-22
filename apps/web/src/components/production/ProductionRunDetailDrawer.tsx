@@ -1,0 +1,273 @@
+// Detail drawer for a single production run (Doc 06 §4 DetailDrawer contract, SC-05). Mirrors
+// PurchaseDetailDrawer.tsx's edit/delete/undo/restore composition exactly: edit opens
+// `ProductionRunForm` in edit mode as a sibling dialog, delete is a soft-delete + undo toast (Doc
+// 06 principle 6) with the ImpactConfirmDialog exception for an R-5 replay-affecting delete/restore.
+
+import type {
+  DeleteProductionRunCommand,
+  DeleteProductionRunResult,
+  ItemDto,
+  RecipeDto,
+  UpdateProductionRunResult,
+} from "@kokoro/shared";
+import { formatMoney, formatQty } from "@kokoro/shared";
+import { useMemo, useState } from "react";
+
+import { DetailDrawer } from "@/components/data-table/DetailDrawer";
+import { Button } from "@/components/ui/button";
+import { ImpactConfirmDialog } from "@/components/ui/ImpactConfirmDialog";
+import { useToast } from "@/components/ui/toast";
+import { useItemsQuery } from "@/features/catalog/api";
+import {
+  useDeleteProductionRun,
+  useProductionRun,
+  useRestoreProductionRun,
+} from "@/features/production-runs/api";
+import { useRecipesQuery } from "@/features/recipes/api";
+import { useReplayConfirmableMutation } from "@/hooks/useReplayConfirmableMutation";
+import { productionLabels } from "@/lib/i18n-production";
+
+import { ProductionRunForm } from "./ProductionRunForm";
+
+export interface ProductionRunDetailDrawerProps {
+  productionRunId: string | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}
+
+export function ProductionRunDetailDrawer({
+  productionRunId,
+  open,
+  onOpenChange,
+}: ProductionRunDetailDrawerProps) {
+  const productionRunQuery = useProductionRun(productionRunId ?? undefined);
+  const itemsQuery = useItemsQuery({ isActive: true });
+  const recipesQuery = useRecipesQuery({ isActive: true });
+  const { showUndo } = useToast();
+
+  const [editOpen, setEditOpen] = useState(false);
+
+  // Called unconditionally (rules of hooks) with "" when nothing is selected yet — never actually
+  // invoked in that state, since the buttons that call `execute`/`confirm` only render once
+  // `productionRun` (below) is loaded.
+  const deleteMutation = useDeleteProductionRun(productionRunId ?? "");
+  const restoreMutation = useRestoreProductionRun(productionRunId ?? "");
+
+  const restoreReplay = useReplayConfirmableMutation<
+    DeleteProductionRunCommand,
+    UpdateProductionRunResult
+  >((command) => restoreMutation.mutateAsync(command));
+
+  const deleteReplay = useReplayConfirmableMutation<
+    DeleteProductionRunCommand,
+    DeleteProductionRunResult
+  >((command) => deleteMutation.mutateAsync(command), {
+    onSuccess: () => {
+      onOpenChange(false);
+      showUndo({
+        message: productionLabels.deletedUndo,
+        actionLabel: productionLabels.undo,
+        onAction: () => restoreReplay.execute({}),
+      });
+    },
+  });
+
+  const itemById = useMemo(() => {
+    const map = new Map<string, ItemDto>();
+    for (const item of itemsQuery.data?.items ?? []) map.set(item.id, item);
+    return map;
+  }, [itemsQuery.data]);
+
+  const recipesById = useMemo(() => {
+    const map = new Map<string, RecipeDto>();
+    for (const recipe of recipesQuery.data?.recipes ?? []) map.set(recipe.id, recipe);
+    return map;
+  }, [recipesQuery.data]);
+
+  if (!productionRunId) return null;
+  const productionRun = productionRunQuery.data;
+  const recipe = productionRun ? recipesById.get(productionRun.recipeId) : undefined;
+  const outputItem = productionRun ? itemById.get(productionRun.outputItemId) : undefined;
+
+  return (
+    <>
+      <DetailDrawer
+        open={open}
+        onOpenChange={onOpenChange}
+        title={recipe?.name ?? productionLabels.detailTitle}
+        subtitle={productionRun?.businessDate}
+        footer={
+          productionRun ? (
+            <span>
+              Creado {new Date(productionRun.createdAt).toLocaleDateString("es-BO")} · Actualizado{" "}
+              {new Date(productionRun.updatedAt).toLocaleDateString("es-BO")}
+            </span>
+          ) : undefined
+        }
+      >
+        {!productionRun ? (
+          <p className="text-muted-foreground text-sm">{productionLabels.loading}</p>
+        ) : (
+          <div className="flex flex-col gap-5 text-sm">
+            <div className="flex items-center justify-end gap-2">
+              <Button type="button" variant="outline" size="sm" onClick={() => setEditOpen(true)}>
+                {productionLabels.edit}
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                size="sm"
+                onClick={() => deleteReplay.execute({})}
+                disabled={deleteReplay.isPending}
+              >
+                {productionLabels.delete}
+              </Button>
+            </div>
+
+            <div className="flex flex-col gap-1 rounded-md border border-border bg-muted px-3 py-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">{productionLabels.detailRecipe}</span>
+                <span className="font-medium text-foreground">
+                  {recipe?.name ?? productionRun.recipeId}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">{productionLabels.detailBatches}</span>
+                <span className="numeric-cell font-medium text-foreground">
+                  {productionRun.batches.toLocaleString("es-BO", { maximumFractionDigits: 3 })}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">{productionLabels.detailOutputItem}</span>
+                <span className="font-medium text-foreground">
+                  {outputItem?.name ?? productionRun.outputItemId}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">{productionLabels.detailActualOutput}</span>
+                <span className="numeric-cell font-medium text-foreground">
+                  {outputItem
+                    ? formatQty(productionRun.actualOutputQty, outputItem.unit)
+                    : productionRun.actualOutputQty}
+                </span>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-1 rounded-md border border-border bg-muted px-3 py-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">{productionLabels.detailDirectCost}</span>
+                <span className="numeric-cell text-foreground">
+                  {formatMoney(productionRun.directCost)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">{productionLabels.detailIndirectCost}</span>
+                <span className="numeric-cell text-foreground">
+                  {formatMoney(productionRun.indirectCost)}
+                </span>
+              </div>
+              {productionRun.allocatedSessionCost > 0 ? (
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">
+                    {productionLabels.detailAllocatedCost}
+                  </span>
+                  <span className="numeric-cell text-foreground">
+                    {formatMoney(productionRun.allocatedSessionCost)}
+                  </span>
+                </div>
+              ) : null}
+              <div className="flex items-center justify-between border-border border-t pt-1">
+                <span className="font-medium text-muted-foreground">
+                  {productionLabels.detailTotalCost}
+                </span>
+                <span className="numeric-cell font-medium text-foreground">
+                  {formatMoney(productionRun.totalCost)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="font-medium text-muted-foreground">
+                  {productionLabels.detailUnitCost}
+                </span>
+                <span className="numeric-cell font-semibold text-foreground">
+                  {formatMoney(productionRun.outputUnitCost)}
+                </span>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <span className="font-medium text-foreground">{productionLabels.detailLines}</span>
+              <ul className="flex flex-col gap-2">
+                {productionRun.lines.map((line) => {
+                  const item = itemById.get(line.itemId);
+                  return (
+                    <li
+                      key={line.id}
+                      className="flex flex-col gap-1 rounded-md border border-border px-3 py-2"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium text-foreground">
+                          {item?.name ?? line.itemId}
+                        </span>
+                        <span className="numeric-cell font-medium">
+                          {item ? formatQty(line.qty, item.unit) : line.qty}
+                        </span>
+                      </div>
+                      {item ? (
+                        <div className="flex items-center justify-end text-muted-foreground text-xs">
+                          <span className="numeric-cell">
+                            {productionLabels.unitCostLabel}:{" "}
+                            {formatMoney(line.unitCostSnapshot * 1000)} /{" "}
+                            {productionLabels.unitAbbrev[item.unit]}
+                          </span>
+                        </div>
+                      ) : null}
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <span className="font-medium text-foreground">{productionLabels.fieldNotes}</span>
+              <p className="text-muted-foreground">
+                {productionRun.notes ?? productionLabels.noNotes}
+              </p>
+            </div>
+          </div>
+        )}
+      </DetailDrawer>
+
+      {productionRun ? (
+        <ProductionRunForm
+          open={editOpen}
+          onOpenChange={setEditOpen}
+          productionRun={productionRun}
+        />
+      ) : null}
+
+      {deleteReplay.pendingConfirmation ? (
+        <ImpactConfirmDialog
+          open
+          impact={deleteReplay.pendingConfirmation.impact}
+          onConfirm={deleteReplay.confirm}
+          onCancel={deleteReplay.cancel}
+          confirmLoading={deleteReplay.isPending}
+          title={productionLabels.impactDeleteTitle}
+          description={productionLabels.impactDeleteDescription}
+        />
+      ) : null}
+
+      {restoreReplay.pendingConfirmation ? (
+        <ImpactConfirmDialog
+          open
+          impact={restoreReplay.pendingConfirmation.impact}
+          onConfirm={restoreReplay.confirm}
+          onCancel={restoreReplay.cancel}
+          confirmLoading={restoreReplay.isPending}
+          title={productionLabels.impactRestoreTitle}
+          description={productionLabels.impactRestoreDescription}
+        />
+      ) : null}
+    </>
+  );
+}

@@ -1,30 +1,64 @@
+// SC-05 · Producción — /production (UC-02). Header: "Nueva producción" action + a secondary link
+// to Recetas (KOK-025's sub-feature, which has no other nav entry — Doc 06 §2 lists only one
+// top-level "Producción" item, see nav-items.ts's AppPath union / primaryNav); table of all
+// production runs; detail drawer on row click. Mirrors routes/purchases.tsx's composition.
+//
+// Replaces the former placeholder body (a single full-width link card to /production/recipes) now
+// that the real screen exists — the link to Recipes is kept, just demoted to a header button
+// alongside the primary action, per this task's brief.
+
 import { Link } from "@tanstack/react-router";
-import { BookOpen } from "lucide-react";
+import { useState } from "react";
 
-import { navLabels } from "@/lib/i18n-nav";
-import { recipesLabels } from "@/lib/i18n-recipes";
+import { ProductionRunDetailDrawer } from "@/components/production/ProductionRunDetailDrawer";
+import { ProductionRunForm } from "@/components/production/ProductionRunForm";
+import { ProductionRunsTable } from "@/components/production/ProductionRunsTable";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { useProductionRuns } from "@/features/production-runs/api";
+import { useRecipesQuery } from "@/features/recipes/api";
+import { productionLabels } from "@/lib/i18n-production";
 
-// Placeholder — the real Production screen is built in a later SC-xx task (KOK-026, see Doc 07
-// screen catalog). Recipes (KOK-025) is its first real sub-feature and is reached from here via a
-// link card rather than a second top-level nav entry (Doc 06 §2 lists only one "Producción" item
-// — see nav-items.ts). This also makes good on StepRecipes.tsx's onboarding promise ("Configura
-// tus recetas en Producción → Recetas cuando estés lista"). Mirrors routes/settings.tsx's hub
-// pattern rather than RouteStub (which has no room for a link) — kept intentionally minimal, not
-// a redesign of this still-placeholder screen.
 export function ProductionRoute() {
+  const productionRunsQuery = useProductionRuns();
+  const recipesQuery = useRecipesQuery({ isActive: true });
+
+  const [formOpen, setFormOpen] = useState(false);
+  const [selectedProductionRunId, setSelectedProductionRunId] = useState<string | null>(null);
+
+  const recipes = recipesQuery.data?.recipes ?? [];
+
   return (
     <div className="flex flex-col gap-4">
-      <h1 className="font-semibold text-2xl text-foreground">{navLabels.produccion}</h1>
-      <Link
-        to="/production/recipes"
-        className="flex items-center gap-3 rounded-lg border border-border bg-card px-4 py-3 text-sm hover:bg-accent"
-      >
-        <BookOpen className="size-4 text-muted-foreground" />
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <span className="font-medium text-foreground">{recipesLabels.title}</span>
-          <p className="text-muted-foreground text-xs">{recipesLabels.productionLinkBody}</p>
+          <h1 className="font-semibold text-2xl text-foreground">{productionLabels.title}</h1>
+          <p className="text-muted-foreground text-sm">{productionLabels.subtitle}</p>
         </div>
-      </Link>
+        <div className="flex items-center gap-2">
+          <Link to="/production/recipes" className={buttonVariants({ variant: "outline" })}>
+            {productionLabels.goToRecipes}
+          </Link>
+          <Button type="button" onClick={() => setFormOpen(true)}>
+            {productionLabels.actionRecord}
+          </Button>
+        </div>
+      </div>
+
+      <ProductionRunsTable
+        productionRuns={productionRunsQuery.data?.productionRuns ?? []}
+        recipes={recipes}
+        loading={productionRunsQuery.isLoading}
+        onRowClick={(productionRun) => setSelectedProductionRunId(productionRun.id)}
+      />
+
+      <ProductionRunForm open={formOpen} onOpenChange={setFormOpen} />
+      <ProductionRunDetailDrawer
+        productionRunId={selectedProductionRunId}
+        open={selectedProductionRunId !== null}
+        onOpenChange={(open) => {
+          if (!open) setSelectedProductionRunId(null);
+        }}
+      />
     </div>
   );
 }
