@@ -41,7 +41,7 @@ better correction ergonomics for a solo operator (ADR-009).
 | Aggregate root | Contains | Notes |
 |----------------|----------|-------|
 | **Item** | aliases, costing state, stock summary | `kind`: RAW_MATERIAL / SEMI_FINISHED / FINISHED; `category`: INGREDIENT / PACKAGING / LABEL / BAKERY / DAIRY / OTHER. Packaging rule: high-value packaging = RAW_MATERIAL consumed by recipes; minor consumables are bought as OPERATING_EXPENSE with no item (hybrid, per original spec). |
-| **Recipe** | recipe lines (item + qty), expected yield, est. labor minutes | One output item per recipe; an item MAY have several recipes (variants); one is `is_default`. |
+| **Recipe** | recipe lines (item + qty), expected yield, est. labor minutes | One output item per recipe; an item MAY have several recipes (variants); one is `is_default`. Deletion is a soft **deactivate** (`is_active = 0`), mirroring `items.is_active` — never a hard DELETE (a recipe already referenced by a production run is protected by `ON DELETE RESTRICT` on `production_runs.recipe_id` regardless). |
 | **Purchase** | purchase lines, payment info, optional session link, photo | Creates PURCHASE_IN movements + expense transaction; updates WAC + replacement cost. A line's `lineTotal` may be 0 (free/promotional stock); if the purchase's total across all lines is 0, no `financial_transactions` row is created (no cash moved) — `financial_transactions.amount` is always > 0. |
 | **ProductionRun** | consumed lines (actual), output (actual qty), indirect cost, optional session link | Recipe is a template: consumption defaults from recipe × batches, editable before commit. |
 | **Sale** | sale lines, channel (CATALOG / CUSTOM_ORDER), payment status, customer ref | Creates SALE_OUT movements (+ income transaction if paid). |
@@ -70,6 +70,15 @@ better correction ergonomics for a solo operator (ADR-009).
   -deleted purchases (R-3) do not count. For SEMI_FINISHED/FINISHED,
   `replacement_cost = Σ(default-recipe line qty × ingredient replacement_cost) / expected_yield`,
   recomputed by the nightly job and on demand; cached with timestamp.
+- **C-3b Recipe theoretical cost (KOK-025 KB amendment)**: the Recipes screen (SC-06) previews a
+  recipe's cost per output unit at both valuations, generalizing C-3's replacement-cost formula
+  (which is defined there only for the *default* recipe feeding the cached column) to ANY recipe
+  — default or variant — so the owner can compare candidates before promoting one to default:
+  `theoretical_cost_wac = Σ(recipe line qty × ingredient wac) / expected_yield`;
+  `theoretical_cost_replacement = Σ(recipe line qty × ingredient replacement_cost) / expected_yield`.
+  Both are computed live and returned by the recipe read APIs; neither is cached nor written to
+  `items.wac` / `items.replacement_cost` — only the *default* recipe's replacement-cost figure
+  feeds that cache, and only via the nightly/on-demand job (KOK-029), never from KOK-025 itself.
 - **C-4 Production run cost**:
   `direct = Σ(consumed qty × consumed item's WAC at commit time)`;
   `total = direct + indirect_cost + allocated session shared cost (§6)`;

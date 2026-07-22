@@ -19,6 +19,7 @@ import { PanelRoute } from "@/routes/panel";
 import { PriceHealthRoute } from "@/routes/price-health";
 import { ProductionRoute } from "@/routes/production";
 import { PurchasesRoute } from "@/routes/purchases";
+import { RecipesRoute } from "@/routes/recipes";
 import { ReportsRoute } from "@/routes/reports";
 import { SalesRoute } from "@/routes/sales";
 import { SessionsRoute } from "@/routes/sessions";
@@ -98,6 +99,16 @@ const purchasesRoute = createRoute({
   component: PurchasesRoute,
 });
 
+// Sibling of productionRoute, NOT a nested child — /production stays a bare placeholder route
+// (KOK-026 owns building the real nested Production layout later). Doc 06 §2's nav tree lists
+// only one top-level "Producción" entry; recipes is reached from within that screen via a link
+// card, not a second sidebar item (see nav-items.ts's AppPath union / primaryNav).
+const productionRecipesRoute = createRoute({
+  getParentRoute: () => authenticatedRoute,
+  path: "/production/recipes",
+  component: RecipesRoute,
+});
+
 const inventoryRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: "/inventory",
@@ -170,6 +181,7 @@ const routeTree = rootRoute.addChildren([
     salesRoute,
     ordersRoute,
     productionRoute,
+    productionRecipesRoute,
     purchasesRoute,
     inventoryRoute,
     sessionsRoute,

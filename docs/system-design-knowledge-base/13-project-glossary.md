@@ -10,6 +10,8 @@ term exactly**. When speaking with the owner, use Spanish. Enum literals per Doc
 | Item | Ítem / Producto | Any physical thing tracked in inventory: raw material, semi-finished, or finished good. |
 | Item kind | Tipo | `RAW_MATERIAL` (materia prima), `SEMI_FINISHED` (semielaborado: masa madre, kéfir base, masa en frío), `FINISHED` (producto final). |
 | Recipe | Receta | Transformation formula: ingredient quantities per batch → one output item with an expected yield. |
+| Expected yield | Rendimiento esperado | The recipe's planned output quantity for one batch (`recipes.expected_yield_qty`); the denominator of theoretical unit cost (C-3b). Distinct from actual yield (below), which is what a production run actually gets. |
+| Theoretical cost | Costo teórico | A recipe's cost per output unit computed from its lines and `expected_yield`, at WAC or at replacement cost (C-3b) — a live preview, not a cached/committed figure. Distinct from a production run's actual unit cost (C-4), which uses real consumption and actual yield. |
 | Batch | Tanda / Lote | One execution unit of a recipe; production is recorded in batches, costed by actual output. |
 | Production run | Producción | A recorded transformation event (consumes inputs, yields output, absorbs costs). C-4. |
 | Yield (actual) | Salida real | Actual quantity obtained; the denominator of unit cost, absorbs shrinkage. |

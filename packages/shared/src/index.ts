@@ -18,4 +18,5 @@ export * from "./money";
 export * from "./onboarding";
 export * from "./purchasing";
 export * from "./qty";
+export * from "./recipes";
 export * from "./uuid";

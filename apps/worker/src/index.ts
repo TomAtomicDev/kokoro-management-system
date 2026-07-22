@@ -13,6 +13,7 @@ import { healthRoute } from "./api/health.js";
 import { inventoryRoute } from "./api/inventory.js";
 import { onboardingRoute } from "./api/onboarding.js";
 import { purchasingRoute } from "./api/purchasing.js";
+import { recipesRoute } from "./api/recipes.js";
 import { createDb } from "./db/index.js";
 import type { Env, Variables } from "./env.js";
 import { runJob } from "./jobs/index.js";
@@ -33,6 +34,7 @@ app.use("/api/*", requireCsrf());
 app.route("/api", healthRoute);
 app.route("/api", authRoute);
 app.route("/api", catalogRoute); // KOK-011 — items & aliases (Doc 07 SC-15).
+app.route("/api", recipesRoute); // KOK-025 — recipes (Doc 07 SC-06).
 app.route("/api", financeRoute); // KOK-014 — standalone transactions, transfers, withdrawals (Doc 03 UC-11/12/13).
 app.route("/api", purchasingRoute); // KOK-016 — purchases (Doc 03 UC-01), the template event vertical.
 app.route("/api", inventoryRoute); // KOK-017 — v_stock/v_kardex reads (Doc 07 SC-08).
