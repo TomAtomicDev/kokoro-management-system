@@ -1,0 +1,226 @@
+// Session command DTOs (KOK-027, Doc 03 §6 S-1/S-2/S-3, Doc 04 §3.2 `sessions`/`session_costs`).
+// Single-contract rule (D-4): the API route and any future web form / AI draft tool for sessions
+// import these same schemas — never redeclare field validation elsewhere.
+//
+// Mirrors packages/shared/src/purchasing.ts's shape (field schemas -> command schema -> hand
+// -written DTOs), simplified where sessions genuinely differ from every other event vertical:
+//   - NO costing replay (R-5 / ADR-016) applies here at all — a session touches no kardex, no WAC,
+//     no `unit_cost_snapshot`. There is therefore no `confirm` flag and no impact-preview endpoint
+//     anywhere in this module.
+//   - A session has no `occurred_at` column of its own (Doc 04 §3.2: only `business_date` +
+//     `started_at`/`ended_at`/`duration_min`) — apps/worker/src/core/sessions derives one for its
+//     cost-line `financial_transactions` rows (see that module's `sessionTransactionOccurredAt`).
+//   - `session_costs` lines are NOT all cash: `is_estimate` lines never create a
+//     `financial_transactions` row or touch an account balance (Doc 03 §6 S-2) — they exist purely
+//     for KOK-051's later profitability analysis. `accountId` is therefore required only when
+//     `isEstimate` is false (enforced below by `.superRefine`, the same pattern
+//     `core/finance/transactions.ts`'s `assertLegalCategoryForType` / finance.ts's
+//     `recordTransactionCommandSchema` use for their own type/category pairing).
+//
+// KOK-028 (S-3, ADR-010c, shared-cost allocation on a PRODUCTION session's close) is OUT OF SCOPE:
+// nothing here names `production_runs.allocated_session_cost` or hints at that job's shape.
+
+import { z } from "zod";
+import type { SessionStatus, SessionType } from "./enums.js";
+import { sessionStatusSchema, sessionTypeSchema } from "./enums.js";
+
+/** `YYYY-MM-DD`, America/La_Paz local calendar date (Doc 04 §1, INV-3). */
+const businessDateSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "La fecha debe tener el formato AAAA-MM-DD.");
+/** UTC ISO-8601 instant (Doc 04 §1) — the representation `startedAt`/`endedAt` share with every
+ * other event vertical's `occurredAt`. */
+const instantSchema = z
+  .string()
+  .datetime({ offset: true, message: "Debe ser una fecha ISO-8601." });
+/** Minutes, matching `sessions.duration_min` (Doc 04 §3.2). Always positive — a session that took
+ * zero minutes has nothing to record. */
+const durationMinSchema = z
+  .number()
+  .int()
+  .positive("La duración debe ser un entero positivo (minutos).");
+/** Centavos (INV-6) for one shared-cost line. May be zero (Doc 04 §3.2's `amount >= 0` CHECK,
+ * mirroring `purchaseLineCommandSchema`'s `lineTotal` allowing a free/promotional line) but never
+ * negative. */
+const costLineAmountSchema = z
+  .number()
+  .int()
+  .nonnegative("El monto debe ser un entero no negativo (centavos).");
+
+export const sessionCostLineCommandSchema = z
+  .object({
+    label: z.string().trim().min(1, "La etiqueta del costo es obligatoria.").max(200),
+    amount: costLineAmountSchema,
+    isEstimate: z.boolean().optional().default(false),
+    // Required only when isEstimate is false (Doc 03 §6 S-2: estimates never touch cash). This is
+    // the Zod-level half of the rule; core/sessions re-checks it at the service boundary (D-2:
+    // core/ never trusts a caller already ran Zod) using the exact same condition.
+    accountId: z.string().min(1).optional(),
+  })
+  .superRefine((line, ctx) => {
+    if (!line.isEstimate && !line.accountId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["accountId"],
+        message: "Se requiere una cuenta cuando el costo no es una estimación.",
+      });
+    }
+  });
+/** `z.input`, not `z.infer`: `isEstimate`'s `.default()` would otherwise make the field required on
+ * every literal (web mutation hooks, tests) that legitimately omits it and means "false" — same
+ * reasoning as purchasing.ts's `RecordPurchaseCommand`. */
+export type SessionCostLineCommand = z.input<typeof sessionCostLineCommandSchema>;
+
+export const recordSessionCommandSchema = z.object({
+  type: sessionTypeSchema,
+  businessDate: businessDateSchema,
+  startedAt: instantSchema.optional(),
+  endedAt: instantSchema.optional(),
+  durationMin: durationMinSchema.optional(),
+  notes: z.string().trim().max(2000).optional(),
+  // Empty is legitimate — a session may be opened with no shared costs yet and have lines added
+  // later via an edit (unlike purchaseLineCommandSchema's lines, Doc 03 §6 states no "at least one
+  // cost line" rule for sessions).
+  costLines: z.array(sessionCostLineCommandSchema).optional().default([]),
+});
+/** `z.input` — `costLines`'s and its own lines' `.default()`s, same reasoning throughout this
+ * module. A session is always created OPEN (`sessions.status`'s own DB default, Doc 04 §3.2); there
+ * is no `status` field on this command at all. */
+export type RecordSessionCommand = z.input<typeof recordSessionCommandSchema>;
+
+/**
+ * UC-14 edit / close (Doc 03 §6 S-2/S-3). Full replacement, same convention as
+ * `updatePurchaseCommandSchema`: the caller sends the session's complete post-state, cost lines
+ * included, never a patch. `status` is the one field this schema adds over the create shape.
+ * Closing (`status: "CLOSED"`) additionally requires `endedAt` or `durationMin` to be resolvable —
+ * a cross-field rule that reads as "the post-edit state", so `core/sessions` enforces it against
+ * THIS command's own fields, not against the row being replaced.
+ */
+export const updateSessionCommandSchema = recordSessionCommandSchema.extend({
+  status: sessionStatusSchema,
+});
+export type UpdateSessionCommand = z.input<typeof updateSessionCommandSchema>;
+
+/** DELETE/restore body (D-8 soft delete). No `confirm` flag anywhere in this module — unlike every
+ * other event vertical, a session triggers no costing replay (see this file's header), so there is
+ * nothing to confirm. An explicit empty object, not a bare inline `{}`, so the type has a name at
+ * the call site. */
+export const deleteSessionCommandSchema = z.object({});
+export type DeleteSessionCommand = z.infer<typeof deleteSessionCommandSchema>;
+
+/** GET /sessions query filters — mirrors listPurchasesFiltersSchema's shape. */
+export const listSessionsFiltersSchema = z.object({
+  type: sessionTypeSchema.optional(),
+  status: sessionStatusSchema.optional(),
+  fromDate: businessDateSchema.optional(),
+  toDate: businessDateSchema.optional(),
+  limit: z.coerce.number().int().positive().max(500).optional(),
+});
+export type ListSessionsFilters = z.infer<typeof listSessionsFiltersSchema>;
+
+export interface SessionCostLineDto {
+  id: string;
+  label: string;
+  /** Centavos (INV-6). */
+  amount: number;
+  isEstimate: boolean;
+  /** Null only when `isEstimate` is true (the command schema's `.superRefine` requires it
+   * otherwise). */
+  accountId: string | null;
+}
+
+export interface SessionDto {
+  id: string;
+  type: SessionType;
+  businessDate: string;
+  startedAt: string | null;
+  endedAt: string | null;
+  /** Minutes, exactly as stored (Doc 04 §3.2) — NOT the COALESCEd/computed value
+   * `SessionListItemDto.durationMin` exposes for the list screen. */
+  durationMin: number | null;
+  status: SessionStatus;
+  notes: string | null;
+  costLines: SessionCostLineDto[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RecordSessionResult {
+  session: SessionDto;
+  /**
+   * Doc 04 §5: "one OPEN session per type at a time" is a SOFT, overridable rule, not a DB
+   * constraint — `recordSession` never refuses on it, it only warns. Non-null (a Spanish message)
+   * when another non-deleted OPEN session of the same `type` already existed at the moment this one
+   * was recorded; null otherwise.
+   *
+   * JUDGMENT CALL: no existing result DTO in this codebase surfaces a non-blocking warning today —
+   * the closest thing, `item_stock.negativeSince` (inventory-views.ts), is a persisted flag read
+   * back via `v_stock`, not a command-result field, and SC-03's "stock going negative" warning is
+   * computed client-side, not returned by any service. This field is this module's own shape:
+   * minimal, Spanish-first like every `message_es` in this codebase, but a plain result field
+   * rather than a thrown error, since the command must still succeed.
+   */
+  openSessionWarning: string | null;
+}
+
+export interface UpdateSessionResult {
+  session: SessionDto;
+}
+
+/** Mirrors `DeleteStockExitResult`/`DeleteProductionRunResult` (exits.ts/production-runs.ts) — no
+ * account, unlike `DeletePurchaseResult`: a session's shared costs can touch MANY accounts (one per
+ * non-estimate cost line), never exactly one. */
+export interface DeleteSessionResult {
+  session: SessionDto;
+  deletedAt: string;
+}
+
+/** Mirrors `UpdateSessionResult` — same shape purchasing.ts's `restorePurchase` reuses
+ * `UpdatePurchaseResult` for. */
+export type RestoreSessionResult = UpdateSessionResult;
+
+/** One linked-event row for the "linked events viewer" (Doc 07 SC-09). Deliberately minimal — id,
+ * instant, a short label — never a generic polymorphic type across the four event tables. */
+export interface SessionLinkedEventDto {
+  id: string;
+  occurredAt: string;
+  businessDate: string;
+  label: string;
+}
+
+export interface SessionLinkedEventsDto {
+  purchases: SessionLinkedEventDto[];
+  productionRuns: SessionLinkedEventDto[];
+  sales: SessionLinkedEventDto[];
+  stockExits: SessionLinkedEventDto[];
+}
+
+export interface GetSessionResult {
+  session: SessionDto;
+  linkedEvents: SessionLinkedEventsDto;
+}
+
+/** One row of the sessions list (Doc 07 SC-09), backed by `v_session_hours`
+ * (apps/worker/migrations/0001_init.sql) for duration/linked-event count, joined in application
+ * code with each session's cost-lines total. */
+export interface SessionListItemDto {
+  id: string;
+  type: SessionType;
+  businessDate: string;
+  status: SessionStatus;
+  startedAt: string | null;
+  endedAt: string | null;
+  /** Minutes, COALESCEd from the stored value or computed from `started_at`/`ended_at` by
+   * `v_session_hours` — null when neither is resolvable. */
+  durationMin: number | null;
+  /** Count of non-deleted purchases/production_runs/sales/stock_exits referencing this session
+   * (`v_session_hours.linked_event_count`). */
+  linkedEventCount: number;
+  /** Centavos (INV-6): Σ `session_costs.amount` across ALL lines, estimates included — Doc 03 §6
+   * distinguishes estimates only for cash creation, never for this display total. */
+  costsTotal: number;
+}
+
+export interface ListSessionsResult {
+  sessions: SessionListItemDto[];
+}
