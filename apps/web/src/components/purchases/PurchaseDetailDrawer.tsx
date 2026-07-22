@@ -42,12 +42,22 @@ export function PurchaseDetailDrawer({
   const { showUndo } = useToast();
 
   const [editOpen, setEditOpen] = useState(false);
+  // Frozen at the moment delete succeeds — see deleteReplay's onSuccess below. The restore mutation
+  // is deliberately built from THIS, never from the live `purchaseId` prop: `onOpenChange(false)`
+  // closes the drawer as part of that same onSuccess, which flips `purchaseId` to `null` on the
+  // parent's next render. `useReplayConfirmableMutation`'s `mutateAsync` always calls the LATEST
+  // `mutationFn` a render produced (TanStack Query re-applies options every render), so a restore
+  // mutation built from the live prop would, by the time the owner actually clicks the toast's
+  // "Deshacer" a moment later, close over an empty id and POST `/purchases//restore` — a 404 that
+  // silently drops the undo. Same bug found live (via Playwright) and fixed in
+  // ProductionRunDetailDrawer.tsx (KOK-026); ported here.
+  const [pendingRestoreId, setPendingRestoreId] = useState<string | null>(null);
 
   // Called unconditionally (rules of hooks) with "" when nothing is selected yet — never actually
   // invoked in that state, since the buttons that call `execute`/`confirm` only render once
   // `purchase` (below) is loaded.
   const deleteMutation = useDeletePurchase(purchaseId ?? "");
-  const restoreMutation = useRestorePurchase(purchaseId ?? "");
+  const restoreMutation = useRestorePurchase(pendingRestoreId ?? "");
 
   const restoreReplay = useReplayConfirmableMutation<DeletePurchaseCommand, UpdatePurchaseResult>(
     (command) => restoreMutation.mutateAsync(command),
@@ -57,6 +67,7 @@ export function PurchaseDetailDrawer({
     (command) => deleteMutation.mutateAsync(command),
     {
       onSuccess: () => {
+        setPendingRestoreId(purchaseId);
         onOpenChange(false);
         showUndo({
           message: purchasesLabels.deletedUndo,
