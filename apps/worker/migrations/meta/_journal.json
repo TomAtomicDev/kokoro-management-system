@@ -15,6 +15,13 @@
       "when": 1784422569830,
       "tag": "0002_costing_adjustments",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1784899273562,
+      "tag": "0003_allow_session_costing_trigger",
+      "breakpoints": true
     }
   ]
 }

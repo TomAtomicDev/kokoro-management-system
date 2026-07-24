@@ -1,7 +1,12 @@
 // TanStack Query hooks over /api/sessions (KOK-027 frontend). Mirrors features/purchases/api.ts's
-// shape, minus the replay-confirmation / photo-upload surface: sessions never trigger a costing
-// replay (packages/shared/src/sessions.ts's header), so update/delete/restore are plain mutations
-// here — no `useReplayConfirmableMutation` wrapping, unlike purchases/production-runs.
+// shape, minus the replay-confirmation / photo-upload surface: the session command CONTRACT never
+// exposes a costing replay (packages/shared/src/sessions.ts's header — no `confirm` field), so
+// update/delete/restore are plain mutations here — no `useReplayConfirmableMutation` wrapping,
+// unlike purchases/production-runs. KOK-028 (S-3) is a server-side-only side effect of closing a
+// PRODUCTION session (see core/sessions's `updateSession`), applied without a confirmation step
+// (that module's header explains why) — so it needs no new field or wrapper here either, just the
+// production-runs query invalidation below so a close's per-run cost updates show without a
+// manual refresh.
 
 import type {
   DeleteSessionCommand,
@@ -76,10 +81,21 @@ export function useRecordSession() {
 
 export function useUpdateSession(id: string) {
   const invalidate = useInvalidateSessions();
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (command: UpdateSessionCommand) =>
       api.patch<UpdateSessionResult>(`/sessions/${id}`, command),
-    onSuccess: invalidate,
+    onSuccess: () => {
+      invalidate();
+      // KOK-028: closing a PRODUCTION session may silently rewrite its linked production runs'
+      // allocated_session_cost/total_cost server-side (core/sessions's updateSession) — this
+      // module has no visibility into whether that happened for THIS command, so it always
+      // invalidates rather than trying to detect it client-side. Root key literal, not imported:
+      // features/production-runs/api.ts's key is module-private by design (this codebase's own
+      // convention — see that file), so this mirrors its exact `["production-runs"]` shape rather
+      // than reaching into its module.
+      queryClient.invalidateQueries({ queryKey: ["production-runs"] });
+    },
   });
 }
 

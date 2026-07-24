@@ -4,9 +4,14 @@
 //
 // Mirrors packages/shared/src/purchasing.ts's shape (field schemas -> command schema -> hand
 // -written DTOs), simplified where sessions genuinely differ from every other event vertical:
-//   - NO costing replay (R-5 / ADR-016) applies here at all — a session touches no kardex, no WAC,
-//     no `unit_cost_snapshot`. There is therefore no `confirm` flag and no impact-preview endpoint
-//     anywhere in this module.
+//   - NO costing replay (R-5 / ADR-016) is exposed on THIS CONTRACT — there is no `confirm` field
+//     on `updateSessionCommandSchema` and no impact-preview endpoint anywhere in this module, since
+//     a session row itself touches no kardex, no WAC, no `unit_cost_snapshot`. KOK-028 (S-3) is a
+//     caveat on that claim at the SERVICE level, not the schema level: closing a PRODUCTION session
+//     (`status: "CLOSED"` on this same command) does trigger a costing replay of its linked
+//     production runs inside `apps/worker/src/core/sessions`'s `updateSession` — deliberately
+//     without a confirmation gate (see that module's header for why) — but nothing about that
+//     behavior is visible on this schema; the command a caller sends is identical either way.
 //   - A session has no `occurred_at` column of its own (Doc 04 §3.2: only `business_date` +
 //     `started_at`/`ended_at`/`duration_min`) — apps/worker/src/core/sessions derives one for its
 //     cost-line `financial_transactions` rows (see that module's `sessionTransactionOccurredAt`).
@@ -17,8 +22,9 @@
 //     `core/finance/transactions.ts`'s `assertLegalCategoryForType` / finance.ts's
 //     `recordTransactionCommandSchema` use for their own type/category pairing).
 //
-// KOK-028 (S-3, ADR-010c, shared-cost allocation on a PRODUCTION session's close) is OUT OF SCOPE:
-// nothing here names `production_runs.allocated_session_cost` or hints at that job's shape.
+// KOK-028 (S-3, ADR-010c, shared-cost allocation on a PRODUCTION session's close) is implemented
+// (see above), but entirely on the SERVICE side: nothing here names
+// `production_runs.allocated_session_cost` and no DTO in this file changed shape for it.
 
 import { z } from "zod";
 import type { SessionStatus, SessionType } from "./enums.js";

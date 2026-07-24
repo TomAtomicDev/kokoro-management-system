@@ -4,10 +4,21 @@
 // entry points, not building blocks — each does its own defensive validation, builds every row
 // itself, and executes exactly ONE atomic `db.batch()` (D-3).
 //
-// Simpler than every other event vertical in two structural ways:
-//   - NO costing replay (R-5 / ADR-016): a session touches no kardex, no WAC, nothing
-//     `core/costing` owns. There is no `confirm` flag, no impact-preview endpoint, nothing to
-//     refuse-then-confirm — every command here either succeeds or throws outright.
+// Simpler than every other event vertical in one structural way, with one KOK-028 exception:
+//   - A session touches no kardex/WAC of its OWN — there is no `confirm` flag on this module's own
+//     command schemas, no impact-preview endpoint, nothing to refuse-then-confirm for the session
+//     row itself; every command here either succeeds or throws outright. KOK-028 (S-3, ADR-010c)
+//     is the one place `core/costing` gets pulled in anyway: closing a PRODUCTION session can
+//     change its linked production runs' `allocated_session_cost`, which cascades into the kardex
+//     exactly as an edit of one of those runs would (see `updateSession`'s own doc comment and
+//     `core/production`'s `planSessionCostAllocation`, which does the actual work). JUDGMENT CALL:
+//     that cascade is applied UNCONDITIONALLY, never gated behind a confirmation the caller lacks a
+//     field to carry — a session-close-triggered recompute is a system-derived, deterministic
+//     consequence of S-3, not a free-form edit a human is proposing, so `planCostingReplay`'s
+//     `confirmationRequired` (R-5, meant for a human edit that surprises an already-reported
+//     number) is read for its statements but its confirmation gate is intentionally not enforced
+//     here. Doc 07 SC-09 describes the UI result as "shows the resulting per-run cost updates",
+//     not "may ask to confirm", which reads as the same judgment.
 //   - `session_costs` lines, not a single aggregate total: each line owns its OWN
 //     `financial_transactions` row (system-owned, `sourceEventType: "session_cost"`,
 //     `sourceEventId: <session_costs.id>` — mirrors core/purchasing's `SUPPLY_PURCHASE` row
@@ -26,9 +37,12 @@
 // is keyed on exactly ONE `(sourceEventType, sourceEventId)`, which does not fit a per-line source
 // id set, so this module composes the same idea itself rather than force-fitting that primitive.
 //
-// KOK-028 (S-3, ADR-010c: shared-cost allocation on a PRODUCTION session's close) is explicitly OUT
-// OF SCOPE here — `updateSession`'s CLOSED transition never touches
-// `production_runs.allocated_session_cost` or any `production_runs` row.
+// KOK-028 (S-3, ADR-010c: shared-cost allocation on a PRODUCTION session's close) IS wired in here
+// — see `updateSession`'s own doc comment — but the actual allocation/replay mechanics live in
+// `core/production`'s `planSessionCostAllocation`, not in this file: this module only decides WHEN
+// to call it (post-edit `type === "PRODUCTION" && status === "CLOSED"`) and sums the cost-line
+// total it passes in. Nothing in `packages/shared/src/sessions.ts` changed for this — the
+// allocation is a pure side effect of the existing `updateSession` command, not a new field.
 
 import type {
   AuditActor,
@@ -57,6 +71,7 @@ import { buildAuditLogInsert } from "../audit.js";
 import { conflict, notFound, validationError } from "../errors.js";
 import type { FinancialTransactionInput } from "../finance/accounts.js";
 import { buildAccountBalanceDelta, findActiveAccountRowOrThrow } from "../finance/accounts.js";
+import { planSessionCostAllocation } from "../production/index.js";
 
 type Statement = BatchItem<"sqlite">;
 type SessionRow = typeof sessions.$inferSelect;
@@ -416,8 +431,16 @@ function assertClosableDuration(command: UpdateSessionCommand): void {
  * on `session_costs` at all), and the OLD lines' transactions are reversed / the NEW lines' created
  * via `buildSessionCostTransactionReplacementStatements`.
  *
- * KOK-028 (S-3) is explicitly OUT OF SCOPE: a transition to CLOSED here never touches
- * `production_runs.allocated_session_cost` or any `production_runs` row — see this module's header.
+ * KOK-028 (S-3, ADR-010c): whenever the POST-EDIT session is `type: "PRODUCTION"` and
+ * `status: "CLOSED"`, this also re-runs the shared-cost allocation across the session's linked
+ * production runs (`core/production`'s `planSessionCostAllocation`) and folds its statements into
+ * this SAME batch. Every time, not only on the OPEN->CLOSED transition — re-saving an
+ * already-CLOSED PRODUCTION session (e.g. after correcting a cost line, or linking another run) is
+ * the correction path, and the allocation call is idempotent: a run whose share hasn't actually
+ * moved emits no statement for it (see that function's header). The basis passed is Σ
+ * `session_costs.amount` across ALL of `newCostRows` — cash AND `is_estimate` lines alike (Doc 03
+ * §6 does not carve estimates out of the allocation basis, only out of cash creation; this mirrors
+ * `listSessions`'s own `costsTotal` display for the same reason).
  */
 export async function updateSession(
   db: Db,
@@ -471,6 +494,24 @@ export async function updateSession(
       newTransactionInputs,
     );
 
+  // KOK-028 (S-3): see this function's own doc comment. Computed from `newCostRows` (the post-edit
+  // set), not `costLines`, so it reads the same normalized shape (isEstimate as 0/1) every other
+  // total in this module reads.
+  const allocationStatements: Statement[] = [];
+  if (newRow.type === "PRODUCTION" && newRow.status === "CLOSED") {
+    let totalSharedCost = 0;
+    for (const row of newCostRows) totalSharedCost += row.amount;
+    const allocation = await planSessionCostAllocation(
+      db,
+      id,
+      totalSharedCost,
+      newRow.businessDate,
+      sessionTransactionOccurredAt(newRow),
+      actor,
+    );
+    allocationStatements.push(...allocation.statements);
+  }
+
   const statements: Statement[] = [
     db
       .update(sessions)
@@ -496,6 +537,10 @@ export async function updateSession(
       before: { ...existing, costLines: existingCostRows },
       after: { ...newRow, costLines: newCostRows },
     }),
+    // LAST: KOK-028's own statements already end with planCostingReplay's, which must be the very
+    // last thing in the whole batch (replay.ts's own ordering note) — nothing here depends on
+    // ordering relative to them, so the whole block is appended as-is.
+    ...allocationStatements,
   ];
 
   await db.batch(statements as [Statement, ...Statement[]]);
