@@ -1,13 +1,18 @@
-# Graph Report - .  (2026-07-24)
+# Graph Report - kokoro-managemnt-system  (2026-07-24)
 
 ## Corpus Check
-- 61 files · ~326,612 words
+- 403 files · ~334,757 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 2423 nodes · 5773 edges · 139 communities (113 shown, 26 thin omitted)
-- Extraction: 99% EXTRACTED · 1% INFERRED · 0% AMBIGUOUS · INFERRED: 70 edges (avg confidence: 0.78)
-- Token cost: 100,000 input · 10,266 output
+- 2485 nodes · 6579 edges · 154 communities (130 shown, 24 thin omitted)
+- Extraction: 99% EXTRACTED · 1% INFERRED · 0% AMBIGUOUS · INFERRED: 71 edges (avg confidence: 0.78)
+- Token cost: 0 input · 0 output
+
+## Graph Freshness
+- Built from commit: `e2742764`
+- Run `git rev-parse HEAD` and compare to check if the graph is stale.
+- Run `graphify update .` after code changes (no API cost).
 
 ## Community Hubs (Navigation)
 - Recipes API & Queries
@@ -141,18 +146,33 @@
 - Drizzle Migration Policy
 - GraphML Export
 - SVG Export
+- SessionDetailDrawer.tsx
+- theoretical-cost.ts
+- src/costing.ts
+- AppShell.tsx
+- api/purchasing.ts
+- api/sessions.ts
+- api/production-runs.ts
+- run-code Command
+- counts.test.ts
+- ReplayImpactDto
+- api/sales.ts
+- lucide-react
+- Client-Side and Browser Hunting
+- Memory Safety, Binary, and Kernel Hunting
+- @radix-ui/react-slot
 
 ## God Nodes (most connected - your core abstractions)
-1. `Db` - 69 edges
-2. `03 -- Domain Model` - 67 edges
-3. `nowIso()` - 63 edges
-4. `generateUuidV7()` - 48 edges
-5. `validationError()` - 43 edges
-6. `cn()` - 42 edges
-7. `buildAuditLogInsert()` - 42 edges
-8. `createItem()` - 41 edges
-9. `formatMoney()` - 41 edges
-10. `notFound()` - 40 edges
+1. `nowIso()` - 91 edges
+2. `Db` - 90 edges
+3. `03 -- Domain Model` - 67 edges
+4. `validationError()` - 61 edges
+5. `generateUuidV7()` - 60 edges
+6. `formatMoney()` - 56 edges
+7. `notFound()` - 54 edges
+8. `buildAuditLogInsert()` - 52 edges
+9. `cn()` - 50 edges
+10. `createDb()` - 48 edges
 
 ## Surprising Connections (you probably didn't know these)
 - `Verify UI Skill` --semantically_similar_to--> `Deployment Guide`  [INFERRED] [semantically similar]
@@ -187,59 +207,59 @@
 - **Backdated WAC replay + cost-adjustment ledger mechanism** — docs_system_design_knowledge_base_03_domain_model_c_1, docs_system_design_knowledge_base_03_domain_model_r_2, docs_system_design_knowledge_base_03_domain_model_r_4, docs_system_design_knowledge_base_03_domain_model_r_5, docs_system_design_knowledge_base_03_domain_model_inv_11, docs_system_design_knowledge_base_12_architecture_decision_records_adr_009, docs_system_design_knowledge_base_12_architecture_decision_records_adr_016, docs_system_design_knowledge_base_04_data_model_costing_adjustments_table [EXTRACTED 0.90]
 - **AI CAPTURE pipeline safety rules and confirmation gate** — docs_system_design_knowledge_base_05_ai_assistant_architecture_a_1, docs_system_design_knowledge_base_05_ai_assistant_architecture_a_4, docs_system_design_knowledge_base_05_ai_assistant_architecture_a_5, docs_system_design_knowledge_base_05_ai_assistant_architecture_a_6, docs_system_design_knowledge_base_03_domain_model_inv_4, docs_system_design_knowledge_base_05_ai_assistant_architecture_tool_registry, docs_system_design_knowledge_base_05_ai_assistant_architecture_capture_pipeline [EXTRACTED 0.90]
 
-## Communities (139 total, 26 thin omitted)
+## Communities (154 total, 24 thin omitted)
 
 ### Community 0 - "Recipes API & Queries"
 Cohesion: 0.05
-Nodes (66): filtersToQueryString(), recipeDetailKey(), RECIPES_ROOT_KEY, recipesListKey(), useInvalidateRecipes(), useRecipeQuery(), useRecordRecipe(), useSetRecipeActive() (+58 more)
+Nodes (60): filtersToQueryString(), recipeDetailKey(), RECIPES_ROOT_KEY, recipesListKey(), useRecipeQuery(), ACTOR, recipesRoute, buildCostDto() (+52 more)
 
 ### Community 1 - "Inventory Command Services"
-Cohesion: 0.05
-Nodes (52): createItem(), recordExit(), recordPurchase(), dailySnapshots, itemStock, productionConsumptions, purchases, saleLines (+44 more)
+Cohesion: 0.15
+Nodes (16): recordExit(), recordPurchase(), ACTOR, seedBackdatedEditScenario(), seedBackdatedExitScenario(), seedItem(), seedPurchasedItem(), seedReplayScenario() (+8 more)
 
 ### Community 2 - "Auth Routes & Audit Log"
-Cohesion: 0.09
-Nodes (46): authRoute, ADR-0007, isLoginRateLimited(), recordFailedLoginAttempt(), AuditEntry, buildAuditLogInsert(), addItemAlias(), removeItemAlias() (+38 more)
+Cohesion: 0.18
+Nodes (27): AuditEntry, buildAuditLogInsert(), addItemAlias(), removeItemAlias(), bulkCreateItems(), ItemRow, Statement, fetchAliasesForItem() (+19 more)
 
 ### Community 3 - "Onboarding & Catalog API"
-Cohesion: 0.05
-Nodes (50): ACCOUNTS_KEY, ITEMS_ROOT_KEY, ONBOARDING_ROOT_KEY, useCompleteOnboarding(), ACTOR, catalogRoute, errorHandler(), healthRoute (+42 more)
+Cohesion: 0.10
+Nodes (24): ACTOR, catalogRoute, AddItemAliasCommand, addItemAliasCommandSchema, aliasSchema, CreateItemCommand, createItemCommandSchema, ItemAliasDto (+16 more)
 
 ### Community 4 - "Backups & Dashboard API"
-Cohesion: 0.06
-Nodes (49): BackupRunDetail, backupsRoute, ADR-0015, dashboardRoute, WacDrift, ReplayRow, getStockConsistencyMismatches(), getStockValueTotal() (+41 more)
+Cohesion: 0.16
+Nodes (19): getSetting(), setSetting(), appSettings, jobRuns, BACKUP_TABLES, dumpTable(), runBackup(), serializeSqlValue() (+11 more)
 
 ### Community 5 - "WAC Costing Engine"
-Cohesion: 0.07
-Nodes (50): applyWacEntry(), assertFiniteNonNegative(), assertSafeIntegerInput(), computePurchaseLineUnitCost(), recomputeWacFromMovements(), ReplayMovement, replayWacFrom(), replayWacWithTrace() (+42 more)
+Cohesion: 0.13
+Nodes (18): compareKardexRows(), computeProjectedWac(), computeReplacementCost(), findLatestOtherPurchaseLineForItem(), hasLaterDatedPurchaseForItem(), isLaterCandidate(), ItemPurchaseState, ItemRow (+10 more)
 
 ### Community 6 - "Stock Drift Repair & Counts API"
 Cohesion: 0.12
-Nodes (47): detectWacDrift(), getCurrentWac(), ADR-0016, snapshotUnitCost(), notFound(), validationError(), commitCount(), fetchLines() (+39 more)
+Nodes (39): conflict(), commitCount(), fetchLines(), findCountRowOrThrow(), getCount(), InventoryCountLineRow, InventoryCountRow, listCounts() (+31 more)
 
 ### Community 7 - "Financial Accounts & Transactions"
-Cohesion: 0.10
-Nodes (42): assertSafeIntegerInput(), assertValidTransactionAmount(), BalanceMismatchDto, BalanceMismatchRow, buildAccountBalanceDelta(), buildReplaceTransactionsForSourceStatements(), buildTransactionInsert(), FinancialAccountRow (+34 more)
+Cohesion: 0.09
+Nodes (43): assertSafeIntegerInput(), assertValidTransactionAmount(), BalanceMismatchDto, BalanceMismatchRow, buildAccountBalanceDelta(), buildReplaceTransactionsForSourceStatements(), buildTransactionInsert(), FinancialAccountRow (+35 more)
 
 ### Community 8 - "Finance & Count Dialogs UI"
 Cohesion: 0.11
-Nodes (29): RecordTransactionDialog(), TransferDialog(), WithdrawDialog(), CountDetailViewProps, CountFormProps, exitFormInitialState, emptyCostLine(), isoToDatetimeLocal() (+21 more)
+Nodes (24): AccountCard(), LiabilityReceivableStrip(), RecordTransactionDialog(), RecordTransactionDialogProps, TransferDialog(), TransferDialogProps, WithdrawDialog(), WithdrawDialogProps (+16 more)
 
 ### Community 9 - "Production Runs API"
-Cohesion: 0.05
-Nodes (45): filtersToQueryString(), PRODUCTION_RUNS_ROOT_KEY, productionRunDetailKey(), productionRunsListKey(), useInvalidateProductionRuns(), usePreviewProductionRunImpact(), useProductionRun(), useProductionRuns() (+37 more)
+Cohesion: 0.08
+Nodes (33): ProductionRunFormProps, usePreviewStockExitImpact(), filtersToQueryString(), PRODUCTION_RUNS_ROOT_KEY, productionRunDetailKey(), productionRunsListKey(), usePreviewProductionRunImpact(), useProductionRun() (+25 more)
 
 ### Community 10 - "Domain Model Rules (Doc 03)"
 Cohesion: 0.05
 Nodes (46): 03 -- Domain Model, C-2 Purchase unit cost = line_total / qty, C-4 Production run cost (direct + indirect + allocated session cost), C-6 Exit valuation at current WAC, DailySnapshot (aggregate root), Domain events (past-tense, logs/hooks/toasts), Event-sourced-lite modeling stance, FinancialTransaction (aggregate root) (+38 more)
 
 ### Community 11 - "Assistant Enums & Schemas"
-Cohesion: 0.05
-Nodes (43): ASSISTANT_CHANNELS, ASSISTANT_OUTCOMES, ASSISTANT_PIPELINES, AssistantChannel, assistantChannelSchema, AssistantOutcome, assistantOutcomeSchema, AssistantPipeline (+35 more)
+Cohesion: 0.06
+Nodes (35): ASSISTANT_CHANNELS, ASSISTANT_OUTCOMES, ASSISTANT_PIPELINES, AssistantChannel, assistantChannelSchema, AssistantOutcome, assistantOutcomeSchema, AssistantPipeline (+27 more)
 
 ### Community 12 - "Finance Dashboard Components"
 Cohesion: 0.09
-Nodes (28): AccountCard(), LiabilityReceivableStrip(), TransactionsTable(), Stepper(), StepperProps, formatBasisPointsAsPercent(), MarginBadge(), MarginBadgeProps (+20 more)
+Nodes (33): CountForm(), CountFormProps, ExitDetailDrawer(), ExitDetailDrawerProps, errorMessage(), ExitForm(), exitFormInitialState, WasteSummaryCard() (+25 more)
 
 ### Community 13 - "Recharts API Reference"
 Cohesion: 0.10
@@ -247,35 +267,35 @@ Nodes (41): Recharts API Reference, AreaChart component, BarChart component, Bru
 
 ### Community 14 - "Transaction & Purchase Drawers UI"
 Cohesion: 0.10
-Nodes (32): RecordTransactionDialogProps, TransactionsTableProps, TransferDialogProps, WithdrawDialogProps, LineEditor(), LineEditorLabels, LineEditorLine, LineEditorProps (+24 more)
+Nodes (38): TransactionsTableProps, PurchaseDetailDrawer(), PurchaseDetailDrawerProps, emptyLine(), PurchaseForm(), PurchaseFormProps, PurchaseFormState, purchaseToFormState() (+30 more)
 
 ### Community 15 - "Sessions Domain Service"
-Cohesion: 0.09
-Nodes (28): assertClosableDuration(), assertCostLinesValid(), assertNoLiveLinkedEvents(), buildSessionCostTransactionInput(), buildSessionCostTransactionReplacementStatements(), checkOpenSessionWarning(), deleteSession(), getSession() (+20 more)
+Cohesion: 0.15
+Nodes (24): assertClosableDuration(), assertCostLinesValid(), assertNoLiveLinkedEvents(), buildSessionCostTransactionInput(), buildSessionCostTransactionReplacementStatements(), checkOpenSessionWarning(), deleteSession(), getSession() (+16 more)
 
 ### Community 16 - "Item Dialogs & Detail Drawer"
-Cohesion: 0.13
-Nodes (31): CreateItemDialog(), ItemDetailDrawer(), ItemDetailDrawerProps, emptyItemFormValues(), ItemForm(), itemFormValuesFromDto(), parseItemFormValues(), ItemPicker() (+23 more)
+Cohesion: 0.14
+Nodes (27): CreateItemDialog(), ItemDetailDrawer(), ItemDetailDrawerProps, emptyItemFormValues(), ItemForm(), itemFormValuesFromDto(), parseItemFormValues(), ItemPicker() (+19 more)
 
 ### Community 17 - "Item Form & Onboarding Steps"
-Cohesion: 0.11
-Nodes (31): CreateItemDialogProps, ItemFormParsed, ItemFormProps, ItemFormValues, UNIT_ABBREV, ItemPickerProps, StepBalances(), StepBalancesProps (+23 more)
+Cohesion: 0.12
+Nodes (29): CreateItemDialogProps, ItemFormParsed, ItemFormProps, ItemFormValues, UNIT_ABBREV, ItemPickerProps, StepBalances(), StepBalancesProps (+21 more)
 
 ### Community 18 - "Count & Exit Forms UI"
-Cohesion: 0.10
-Nodes (34): CountDetailView(), CountForm(), ExitDetailDrawer(), ExitDetailDrawerProps, errorMessage(), ExitForm(), StepCount(), StepCountProps (+26 more)
+Cohesion: 0.14
+Nodes (15): costingRoute, errorHandler(), applyReplacementCostRefresh(), DomainError, Env, Variables, Bindings, inferSourceChannel() (+7 more)
 
 ### Community 19 - "Worker Package Dependencies"
 Cohesion: 0.05
 Nodes (39): dependencies, drizzle-orm, hono, @kokoro/shared, zod, devDependencies, @cloudflare/vitest-pool-workers, @cloudflare/workers-types (+31 more)
 
 ### Community 20 - "Production Movements & Kardex"
-Cohesion: 0.11
-Nodes (36): ACTOR, productionRunsRoute, buildProductionMovementsFromConsumptions(), buildProductionRunCreateInputs(), buildProductionRunDeleteInputs(), buildProductionRunUpdateInputs(), commitProductionRunMutation(), compareKardexRows() (+28 more)
+Cohesion: 0.13
+Nodes (36): getCurrentWac(), snapshotUnitCost(), notFound(), buildRecordExitMovement(), buildProductionMovementsFromConsumptions(), buildProductionRunCreateInputs(), buildProductionRunDeleteInputs(), buildProductionRunUpdateInputs() (+28 more)
 
 ### Community 21 - "Costing Routes & Replacement Cost"
-Cohesion: 0.10
-Nodes (22): costingRoute, assertFiniteNonNegative(), assertSafeIntegerInput(), computeItemReplacementCost(), applyReplacementCostRefresh(), DefaultRecipeInfo, planReplacementCostRefresh(), ReplacementCostRefreshPlan (+14 more)
+Cohesion: 0.06
+Nodes (57): buildCostingAdjustmentInsert(), CostingAdjustmentEntry, CostingAdjustmentTrigger, Statement, ADR-0016, RecipeEdge, topoOrderAffectedItems(), ADR-0016 (+49 more)
 
 ### Community 22 - "Graphify Skill Docs & Agents"
 Cohesion: 0.09
@@ -286,20 +306,20 @@ Cohesion: 0.10
 Nodes (35): 05 -- AI Assistant Architecture, A-2 Model never writes SQL, only whitelisted Zod-validated tools, A-3 Every interaction logged to assistant_interactions, A-4 On low confidence, ask one compact clarifying question, A-5 Amount sanity bounds require double-check, Draft tool: draft_collect_receivable, Draft tool: draft_expense, Draft tool: draft_order_confirm (+27 more)
 
 ### Community 24 - "Costing Adjustments & Replay"
-Cohesion: 0.09
-Nodes (28): buildCostingAdjustmentInsert(), CostingAdjustmentEntry, CostingAdjustmentTrigger, Statement, ADR-0016, applyProductionCostCorrections(), buildNegativeSinceFixes(), comparePoints() (+20 more)
+Cohesion: 0.08
+Nodes (26): createItem(), recordRecipe(), productionRuns, seedItem(), ACTOR, seedItem(), TestDb, ACTOR (+18 more)
 
 ### Community 25 - "Production Run Table UI"
-Cohesion: 0.14
-Nodes (23): ProductionRunDetailDrawer(), ProductionRunDetailDrawerProps, formatBatches(), formatYieldPct(), ProductionRunsTable(), ProductionRunsTableProps, RecipesTable(), RecipesTableProps (+15 more)
+Cohesion: 0.13
+Nodes (26): LineEditor(), LineEditorLabels, LineEditorLine, LineEditorProps, ProductionRunDetailDrawer(), ProductionRunDetailDrawerProps, emptyLine(), ProductionLineValue (+18 more)
 
 ### Community 26 - "Session Detail & Form UI"
-Cohesion: 0.14
-Nodes (24): SessionChip(), SessionDetailDrawer(), datetimeLocalToIso(), parseDurationMinutes(), SessionForm(), formatDuration(), SessionsTable(), SessionsTableProps (+16 more)
+Cohesion: 0.26
+Nodes (11): SessionChip(), formatDuration(), SessionsTable(), useAccounts(), filtersToQueryString(), sessionsListKey(), useSessions(), TODO: migrate into packages/shared/i18n/es.ts once that module exists (KOK-006+) (+3 more)
 
 ### Community 27 - "Crypto Utils & CSRF"
-Cohesion: 0.15
-Nodes (23): fromBase64Url(), timingSafeEqual(), timingSafeEqualString(), toBase64Url(), csrfTokensMatch(), generateCsrfToken(), deriveBits(), hashPassword() (+15 more)
+Cohesion: 0.23
+Nodes (13): createSessionCookieValue(), importHmacKey(), SessionPayload, ADR-0007, verifySessionCookieValue(), unauthorized(), Bindings, CSRF_EXEMPT_PATHS (+5 more)
 
 ### Community 28 - "UX/UI Component Catalog (Doc 06)"
 Cohesion: 0.07
@@ -307,7 +327,7 @@ Nodes (31): O-3 Cancel after deposit: REFUND or FORFEIT, R-5 Impact preview + ex
 
 ### Community 29 - "Web App Router"
 Cohesion: 0.07
-Nodes (28): assistantRoute, authenticatedRoute, financeRoute, inventoryRoute, loginRoute, onboardingRoute, ordersRoute, panelRoute (+20 more)
+Nodes (29): ToastProvider(), queryClient, rootElement, assistantRoute, authenticatedRoute, financeRoute, inventoryRoute, loginRoute (+21 more)
 
 ### Community 30 - "System Architecture & Cron Jobs"
 Cohesion: 0.09
@@ -315,34 +335,34 @@ Nodes (28): 02 -- System Architecture, Cron job: alerts, Cron job: backup, Comma
 
 ### Community 31 - "Sessions API & Schemas"
 Cohesion: 0.08
-Nodes (26): ACTOR, sessionsRoute, businessDateSchema, costLineAmountSchema, DeleteSessionCommand, deleteSessionCommandSchema, DeleteSessionResult, durationMinSchema (+18 more)
+Nodes (31): sessionDetailKey(), SESSIONS_ROOT_KEY, ACTOR, sessionsRoute, listSessions(), sessionStatusSchema, sessionTypeSchema, businessDateSchema (+23 more)
 
 ### Community 32 - "Biome/TypeScript Package Config"
 Cohesion: 0.07
 Nodes (27): @biomejs/biome, description, devDependencies, @biomejs/biome, typescript, devEngines, packageManager, engines (+19 more)
 
 ### Community 33 - "CalcTrace & Stock Table UI"
-Cohesion: 0.12
-Nodes (19): CalcTrace(), CalcTraceInput, CalcTraceProps, formatUnitCost(), StockTable(), StockTableProps, emptyLine(), ProductionLineValue (+11 more)
+Cohesion: 0.11
+Nodes (28): CalcTrace(), CalcTraceInput, CalcTraceProps, formatBasisPointsAsPercent(), MarginBadge(), MarginBadgeProps, MarginTone, TONE_CLASSES (+20 more)
 
 ### Community 34 - "Event & Count Tables UI"
-Cohesion: 0.15
-Nodes (18): EventTable(), EventTableColumn, EventTableProps, CountsTable(), varianceCount(), ExitFormProps, ExitsTable(), ExitsTableProps (+10 more)
+Cohesion: 0.10
+Nodes (32): EventTable(), EventTableColumn, EventTableProps, TransactionsTable(), CountsTable(), varianceCount(), ExitsTable(), ExitsTableProps (+24 more)
 
 ### Community 35 - "Finance API & Schemas"
-Cohesion: 0.13
-Nodes (21): ACCOUNTS_KEY, filtersToQueryString(), TRANSACTIONS_ROOT_KEY, transactionsListKey(), useTransactions(), FinancialAccountType, financialTransactionCategorySchema, amountSchema (+13 more)
+Cohesion: 0.12
+Nodes (22): ACCOUNTS_KEY, filtersToQueryString(), TRANSACTIONS_ROOT_KEY, transactionsListKey(), useTransactions(), FinanceRoute(), FinancialAccountType, financialTransactionCategorySchema (+14 more)
 
 ### Community 36 - "Purchases API"
-Cohesion: 0.12
-Nodes (21): purchaseDetailKey(), PURCHASES_ROOT_KEY, readCsrfCookie(), uploadPurchasePhoto(), UploadPurchasePhotoResult, usePurchase(), businessDateSchema, DeletePurchaseCommand (+13 more)
+Cohesion: 0.14
+Nodes (13): businessDateSchema, lineTotalSchema, ListPurchasesFilters, ListPurchasesResult, occurredAtSchema, PurchaseImpactRequest, PurchaseLineCommand, purchaseLineCommandSchema (+5 more)
 
 ### Community 37 - "Shared Package Dependencies"
 Cohesion: 0.09
 Nodes (22): dependencies, zod, devDependencies, fast-check, @types/node, typescript, vitest, exports (+14 more)
 
 ### Community 38 - "Dashboard Stat Widgets"
-Cohesion: 0.15
+Cohesion: 0.14
 Nodes (16): LowStockStrip(), QuickAddShortcuts(), SHORTCUTS, StatCard(), StatCardDelta, StatCardProps, AppPath, useQuickAdd() (+8 more)
 
 ### Community 39 - "App Shell & Navigation"
@@ -350,8 +370,8 @@ Cohesion: 0.14
 Nodes (16): AppShell(), MobileBottomTabs(), mobileTabPaths, moreEntries, footerNav, mobileTabs, NavActionItem, NavDivider (+8 more)
 
 ### Community 40 - "Waste & Stock Exits Schemas"
-Cohesion: 0.11
-Nodes (20): listWasteSummary(), WasteViewRow, StockExitReason, stockExitReasonSchema, businessDateSchema, DeleteStockExitCommand, DeleteStockExitResult, ListStockExitsFilters (+12 more)
+Cohesion: 0.08
+Nodes (34): ExitFormProps, countsFiltersToQueryString(), exitsFiltersToQueryString(), INVENTORY_ROOT_KEY, KardexFilters, kardexFiltersToQueryString(), stockFiltersToQueryString(), UpdateCountLineInput (+26 more)
 
 ### Community 41 - "Base TSConfig"
 Cohesion: 0.09
@@ -366,40 +386,40 @@ Cohesion: 0.10
 Nodes (21): 01 -- Product Vision, G1 Effortless event capture, G3 Time profitability (Bs/hour), G4 Trustworthy stock, G5 Clean cash, G6 Low cost & maintenance, G7 AI reliability (>=95% draft acceptance), Principle: AI is observable (+13 more)
 
 ### Community 44 - "Playwright Debugging Reference"
-Cohesion: 0.15
-Nodes (20): Inspecting Element Attributes, --debug=cli / attach Mechanic, Running and Debugging Playwright Tests, Request Mocking, Running Custom Playwright Code, run-code Command, attach Command (Session Management), Browser Session Management (+12 more)
+Cohesion: 0.22
+Nodes (14): Inspecting Element Attributes, --debug=cli / attach Mechanic, Running and Debugging Playwright Tests, Request Mocking, attach Command (Session Management), Browser Session Management, Test Generation (Plan / Generate / Heal), Seed Test Pattern (+6 more)
 
 ### Community 45 - "Use Cases & Screen Catalog (Doc 07)"
 Cohesion: 0.12
 Nodes (20): G2 Anti-decapitalization (margin at replacement cost), C-5 Margins (margin_wac, margin_replacement, price-health alert), UC-02 Record production run, UC-14 Open/close session, UC-15 Manage catalog & recipes & prices, UC-20 Configure settings, 07 -- Screen Catalog, Onboarding flow (first-run wizard) (+12 more)
 
 ### Community 46 - "AI/LLM Attack Classes"
-Cohesion: 0.11
-Nodes (19): AI, LLM, and Agent Hunting Doc, Agent and tool-calling attack classes, Output-handling and disclosure attack classes, Prompt-injection attack classes, Attack Classes Doc, Access control attack class, Business logic attack class, Cryptography and secrets attack class (+11 more)
+Cohesion: 0.06
+Nodes (39): AI, LLM, and Agent Hunting Doc, Agent and tool-calling attack classes, Output-handling and disclosure attack classes, Prompt-injection attack classes, Attack Classes Doc, Access control attack class, Business logic attack class, Cryptography and secrets attack class (+31 more)
 
 ### Community 47 - "Web TSConfig"
 Cohesion: 0.11
 Nodes (18): compilerOptions, jsx, lib, outDir, paths, rootDir, types, extends (+10 more)
 
 ### Community 48 - "Purchasing Route Tests"
-Cohesion: 0.15
-Nodes (17): financialTransactions, inventoryCounts, ACTOR, ItemCategory, ItemKind, seedItem(), seedItemWithStock(), TestDb (+9 more)
+Cohesion: 0.33
+Nodes (9): authHeaders(), createItem(), createPurchase(), CreatePurchaseBody, getCookieValue(), login(), PurchaseDtoShape, PurchaseLineBody (+1 more)
 
 ### Community 49 - "Domain Aggregates (Item, Session, Recipe)"
 Cohesion: 0.11
 Nodes (19): Principle: Deposits are debt, not income, C-1 Weighted average cost (WAC) valuation, C-3b Recipe theoretical cost (KOK-025 amendment), CustomOrder (aggregate root), INV-7 Custom-order deposit is a liability until delivery, Item (aggregate root), Recipe (aggregate root), Session (aggregate root) (+11 more)
 
 ### Community 50 - "Security Attack Class Taxonomy"
-Cohesion: 0.12
-Nodes (18): Chained attacks and trust boundaries attack class, AI, LLM, and Agent Hunting, Excessive Agency / Confused-Deputy Authority, Insecure Output Rendering (Model Output XSS), Prompt-Injection Attack Classes, Access Control Attack Class, Business Logic Attack Class, Attack Classes (+10 more)
+Cohesion: 0.20
+Nodes (11): Chained attacks and trust boundaries attack class, AI, LLM, and Agent Hunting, Excessive Agency / Confused-Deputy Authority, Insecure Output Rendering (Model Output XSS), Prompt-Injection Attack Classes, Access Control Attack Class, Business Logic Attack Class, Attack Classes (+3 more)
 
 ### Community 51 - "shadcn Components Config"
 Cohesion: 0.11
 Nodes (17): aliases, components, hooks, lib, ui, utils, iconLibrary, rsc (+9 more)
 
 ### Community 52 - "Auth API & Smoke Tests"
-Cohesion: 0.14
-Nodes (13): Topbar(), fetchSession(), sessionQueryKey, SessionResult, useLogin(), useLogout(), authLabels, TODO: migrate into packages/shared/i18n/es.ts once that module exists (KOK-006+) (+5 more)
+Cohesion: 0.36
+Nodes (5): Topbar(), useLogout(), authLabels, TODO: migrate into packages/shared/i18n/es.ts once that module exists (KOK-006+), topbarLabels
 
 ### Community 53 - "Counts API & Schemas"
 Cohesion: 0.12
@@ -415,7 +435,7 @@ Nodes (17): dependencies, class-variance-authority, clsx, @kokoro/shared, @radix
 
 ### Community 56 - "Web Dev Dependencies"
 Cohesion: 0.12
-Nodes (17): devDependencies, @playwright/test, tailwindcss, @tailwindcss/vite, @types/react, @types/react-dom, vite, @vitejs/plugin-react (+9 more)
+Nodes (17): devDependencies, @playwright/test, tailwindcss, @tailwindcss/vite, @types/node, @types/react, @types/react-dom, vite (+9 more)
 
 ### Community 57 - "Backup Card UI"
 Cohesion: 0.21
@@ -434,20 +454,20 @@ Cohesion: 0.14
 Nodes (16): costing_adjustments row booking (R-4), INV-10 Deleting an event soft-deletes and reverses derived rows, INV-11 Backdated create/edit/delete triggers synchronous bounded WAC/cost replay, INV-5 item_stock/balances must equal derived sums (nightly check), INV-9 Derived rows carry source_event_type/id; no orphans, R-2 WAC replayed synchronously for backdated events (revised by ADR-016), costing_adjustments table (R-4), financial_transactions table (+8 more)
 
 ### Community 61 - "Money & Basis Point Utils"
-Cohesion: 0.24
-Nodes (11): UNITS, allocateLargestRemainder(), BasisPoints, Centavos, mulMoneyByBasisPoints(), mulMoneyByQty(), roundHalfUpToInt(), ADR-0011 (+3 more)
+Cohesion: 0.15
+Nodes (15): Stepper(), StepperProps, Dialog(), DialogProps, buildImpactRows(), IMPACT_ROW_LABELS, ImpactConfirmDialog(), ImpactRow (+7 more)
 
 ### Community 62 - "Security Audit Skill Phases"
-Cohesion: 0.17
-Nodes (15): Vulnerability Hunting (Phase 2) Doc, Phase 2: Hunt for vulnerabilities, Security Audit Reconnaissance (Phase 1) Doc, Phase 1: Understand the application (Reconnaissance), Security Audit Skill Overview, Defense-in-depth gaps are not vulnerabilities (core principle), Only report what you can exploit (core principle), Severity requires impact (likelihood x impact core principle) (+7 more)
+Cohesion: 0.21
+Nodes (10): productionConsumptions, recipeLines, ACTOR, BACKDATED_RAW_PURCHASE, seedCascadeScenario(), seedItem(), seedProductionRun(), seedRecipe() (+2 more)
 
 ### Community 63 - "Route Stubs & Nav Labels"
-Cohesion: 0.30
-Nodes (7): RouteStub(), navLabels, placeholderLabels, TODO: migrate into packages/shared/i18n/es.ts once that module exists (KOK-006+), AssistantRoute(), ReportsRoute(), SalesRoute()
+Cohesion: 0.27
+Nodes (8): RouteStub(), navLabels, placeholderLabels, TODO: migrate into packages/shared/i18n/es.ts once that module exists (KOK-006+), AssistantRoute(), PriceHealthRoute(), ReportsRoute(), SettingsAiRoute()
 
 ### Community 64 - "Inventory Route Schemas"
-Cohesion: 0.13
-Nodes (14): ACTOR, inventoryRoute, commitCountCommandSchema, listCountsFiltersSchema, startCountCommandSchema, updateCountLineCommandSchema, deleteStockExitCommandSchema, listStockExitsFiltersSchema (+6 more)
+Cohesion: 0.15
+Nodes (12): ACTOR, inventoryRoute, commitCountCommandSchema, listCountsFiltersSchema, startCountCommandSchema, updateCountLineCommandSchema, deleteStockExitCommandSchema, listStockExitsFiltersSchema (+4 more)
 
 ### Community 65 - "Security Audit Methodology"
 Cohesion: 0.17
@@ -458,12 +478,12 @@ Cohesion: 0.25
 Nodes (15): INV-8 Stock MAY go negative; flag, never block, 09 -- Technical Roadmap, Phase 0 -- Foundations, Phase 1 -- Money & Stock Ledger, Phase 2 -- Production & Costing, Phase 3 -- Sales & Custom Orders, Phase 4 -- Telegram + AI Capture, Phase 5 -- Insights & Analytical AI (+7 more)
 
 ### Community 67 - "Replay Confirmation Hook"
-Cohesion: 0.21
-Nodes (11): ImpactConfirmDialogProps, ConfirmableMutationOutcome, extractReplayConfirmation(), PendingReplayConfirmation, ReplayConfirmationRequiredDetails, runConfirmableMutation(), impact, ADR-0016 (+3 more)
+Cohesion: 0.12
+Nodes (16): dailySnapshots, items, recipes, stockMovements, ACTOR, seedItem(), seedMovement(), TestDb (+8 more)
 
 ### Community 68 - "Recipe Dependency Graph & Domain Errors"
-Cohesion: 0.20
-Nodes (8): RecipeEdge, topoOrderAffectedItems(), conflict(), DOMAIN_ERROR_CODES, DOMAIN_ERROR_HTTP_STATUS, DomainErrorCode, DomainHttpStatus, rateLimited()
+Cohesion: 0.23
+Nodes (8): authRoute, ADR-0007, isLoginRateLimited(), recordFailedLoginAttempt(), rateLimited(), LoginCommand, loginCommandSchema, ADR-0008
 
 ### Community 69 - "Gitignore Patterns"
 Cohesion: 0.14
@@ -482,20 +502,20 @@ Cohesion: 0.17
 Nodes (12): noForEach, linter, enabled, rules, complexity, preset, style, suspicious (+4 more)
 
 ### Community 73 - "Query Client & Toast Provider"
-Cohesion: 0.24
-Nodes (7): ToastProvider(), handleUnauthorized(), mutationCache, queryCache, queryClient, rootElement, router
+Cohesion: 0.19
+Nodes (9): fetchSession(), sessionQueryKey, SessionResult, useLogin(), api, handleUnauthorized(), mutationCache, queryCache (+1 more)
 
 ### Community 74 - "Graphify Watch & Merge Internals"
 Cohesion: 0.18
 Nodes (11): Debounce mechanism for --watch, graphify --watch (folder watcher), git post-commit hook (graphify hook install), Video/audio transcription step (Step 2.5), transcribe_all() (graphify.transcribe), Whisper initial prompt (domain hint), build_merge() (graphify.build), graphify --cluster-only (+3 more)
 
 ### Community 75 - "Purchasing API & Schemas"
-Cohesion: 0.20
-Nodes (8): ACTOR, CONTENT_TYPE_EXTENSIONS, purchasingRoute, deletePurchaseCommandSchema, listPurchasesFiltersSchema, purchaseImpactRequestSchema, recordPurchaseCommandSchema, updatePurchaseCommandSchema
+Cohesion: 0.14
+Nodes (24): detectWacDrift(), planReplacementCostRefresh(), getBalanceConsistencyMismatches(), listAccounts(), getStockConsistencyMismatches(), getStockValueTotal(), listStock(), buildDailySnapshotUpsert() (+16 more)
 
 ### Community 76 - "Production Run Service Tests"
-Cohesion: 0.27
-Nodes (7): recordProductionRun(), productionRuns, ACTOR, seedItem(), seedRecipe(), seedScenario(), TestDb
+Cohesion: 0.09
+Nodes (28): SalesTableProps, filtersToQueryString(), saleDetailKey(), SALES_ROOT_KEY, salesListKey(), useInvalidateSales(), useRecordSale(), useSale() (+20 more)
 
 ### Community 77 - "Production Run Route Tests"
 Cohesion: 0.38
@@ -510,8 +530,8 @@ Cohesion: 0.20
 Nodes (9): compilerOptions, outDir, rootDir, types, extends, include, node, src (+1 more)
 
 ### Community 80 - "Sessions Route Tests"
-Cohesion: 0.28
-Nodes (8): sessions, authHeaders(), createSession(), CreateSessionBody, getCookieValue(), login(), SessionCostLineBody, SessionDtoShape
+Cohesion: 0.11
+Nodes (18): assistantInteractions, auditLog, customers, customOrderLines, customOrders, idempotencyKeys, inventoryCountLines, pendingDrafts (+10 more)
 
 ### Community 81 - "Findings Validation Script"
 Cohesion: 0.36
@@ -526,8 +546,8 @@ Cohesion: 0.29
 Nodes (6): ACTOR, financeRoute, listTransactionsFiltersSchema, recordTransactionCommandSchema, transferCommandSchema, withdrawCommandSchema
 
 ### Community 84 - "UUID Utils"
-Cohesion: 0.29
-Nodes (4): RFC-9562, format(), HEX, RandomSource
+Cohesion: 0.13
+Nodes (12): createDb(), financialAccounts, itemStock, getCookieValue(), login(), ACTOR, purchase(), seedItem() (+4 more)
 
 ### Community 85 - "Graphify Query/Explain/MCP"
 Cohesion: 0.29
@@ -542,12 +562,12 @@ Cohesion: 0.33
 Nodes (6): scripts, build, dev, test, test:e2e, typecheck
 
 ### Community 88 - "Purchases & Accounts Queries"
-Cohesion: 0.33
-Nodes (6): useAccounts(), filtersToQueryString(), purchasesListKey(), usePurchases(), FinanceRoute(), PurchasesRoute()
+Cohesion: 0.14
+Nodes (14): BackupRunDetail, backupsRoute, ADR-0015, dashboardRoute, healthRoute, ACTOR, onboardingRoute, app (+6 more)
 
 ### Community 89 - "Client-Side Attack Classes"
-Cohesion: 0.40
-Nodes (5): Client-Side and Browser Hunting Doc, DOM-based injection attack classes, Prototype pollution attack classes, Client-side trust and messaging attack classes, UI-redress and navigation attack classes
+Cohesion: 0.15
+Nodes (17): ReplayRow, KardexViewRow, listKardex(), StockMismatchDto, StockMismatchRow, toKardexRowDto(), toStockRowDto(), ADR-0016 (+9 more)
 
 ### Community 90 - "Web Package Metadata"
 Cohesion: 0.40
@@ -601,6 +621,10 @@ Nodes (3): AGENTS.md D-10: no new dependencies without an ADR note, CLAUDE.md D-
 Cohesion: 0.67
 Nodes (3): AGENTS.md graphify section, CLAUDE.md graphify section, Native CLAUDE.md integration (graphify claude install)
 
+### Community 104 - "Dashboard Route Tests"
+Cohesion: 0.14
+Nodes (12): financialTransactions, purchases, sessions, authHeaders(), createSession(), CreateSessionBody, getCookieValue(), login() (+4 more)
+
 ### Community 106 - "Biome CSS Parser Options"
 Cohesion: 0.67
 Nodes (3): css, parser, tailwindDirectives
@@ -609,29 +633,93 @@ Nodes (3): css, parser, tailwindDirectives
 Cohesion: 0.67
 Nodes (3): Backup Restore Runbook (stub), ADR-015: Worker-proxied backup download (no presigned URLs), KOK-056: full backup restore tooling (not started)
 
+### Community 111 - "lucide-react Dependency"
+Cohesion: 0.27
+Nodes (9): ACCOUNTS_KEY, ITEMS_ROOT_KEY, ONBOARDING_ROOT_KEY, BulkCreateItemsCommand, BulkCreateItemsResult, OnboardingCompleteResult, OnboardingStatusResult, SetOpeningBalancesCommand (+1 more)
+
+### Community 113 - "@types/node Dependency"
+Cohesion: 0.20
+Nodes (16): buildPurchaseDeleteMutationInputs(), buildPurchaseInMovementsFromLines(), buildPurchaseTransactionInputs(), buildPurchaseUpdateMutationInputs(), commitPurchaseMutation(), deletePurchase(), getPurchase(), listPurchases() (+8 more)
+
+### Community 115 - "Session Form Types"
+Cohesion: 0.18
+Nodes (15): emptyCostLine(), isoToDatetimeLocal(), SessionCostLineValue, SessionForm(), SessionFormProps, SessionFormState, sessionToFormState(), SessionsTableProps (+7 more)
+
+### Community 139 - "SessionDetailDrawer.tsx"
+Cohesion: 0.33
+Nodes (8): SessionDetailDrawer(), datetimeLocalToIso(), parseDurationMinutes(), useDeleteSession(), useInvalidateSessions(), useRestoreSession(), useSession(), useUpdateSession()
+
+### Community 140 - "theoretical-cost.ts"
+Cohesion: 0.12
+Nodes (10): costingAdjustments, ACTOR, seedItem(), seedPurchase(), TestDb, ADR-0016, ACTOR, seedItem() (+2 more)
+
+### Community 141 - "src/costing.ts"
+Cohesion: 0.30
+Nodes (10): fromBase64Url(), timingSafeEqual(), timingSafeEqualString(), toBase64Url(), csrfTokensMatch(), generateCsrfToken(), deriveBits(), hashPassword() (+2 more)
+
+### Community 142 - "AppShell.tsx"
+Cohesion: 0.36
+Nodes (11): CountDetailView(), CountDetailViewProps, StepCount(), StepCountProps, useCommitCount(), useCount(), useUpdateCountLine(), useCompleteOnboarding() (+3 more)
+
+### Community 143 - "api/purchasing.ts"
+Cohesion: 0.20
+Nodes (8): ACTOR, CONTENT_TYPE_EXTENSIONS, purchasingRoute, deletePurchaseCommandSchema, listPurchasesFiltersSchema, purchaseImpactRequestSchema, recordPurchaseCommandSchema, updatePurchaseCommandSchema
+
+### Community 144 - "api/sessions.ts"
+Cohesion: 0.24
+Nodes (8): affectedIdsSchema, confirmFlagSchema, costDeltaSchema, REPLAY_CONFIRMATION_REQUIRED, ReplayConfirmationRequiredDetails, replayImpactSchema, emptyImpact, ADR-0016
+
+### Community 145 - "api/production-runs.ts"
+Cohesion: 0.25
+Nodes (7): ACTOR, productionRunsRoute, deleteProductionRunCommandSchema, listProductionRunsFiltersSchema, productionRunImpactRequestSchema, recordProductionRunCommandSchema, updateProductionRunCommandSchema
+
+### Community 146 - "run-code Command"
+Cohesion: 0.33
+Nodes (6): Running Custom Playwright Code, run-code Command, Storage Management, state-save / state-load, Video Recording, page.screencast Overlay API
+
+### Community 147 - "counts.test.ts"
+Cohesion: 0.29
+Nodes (7): inventoryCounts, ACTOR, ItemCategory, ItemKind, seedItem(), seedItemWithStock(), TestDb
+
+### Community 148 - "ReplayImpactDto"
+Cohesion: 0.40
+Nodes (5): ImpactConfirmDialogProps, PendingReplayConfirmation, ReplayConfirmationRequiredDetails, CostingReplayPlan, ReplayImpactDto
+
+### Community 149 - "api/sales.ts"
+Cohesion: 0.40
+Nodes (4): ACTOR, salesRoute, listSalesFiltersSchema, recordSaleCommandSchema
+
+### Community 151 - "Client-Side and Browser Hunting"
+Cohesion: 0.50
+Nodes (4): Client-Side and Browser Hunting, DOM-Based XSS, postMessage Origin Trust, Prototype Pollution and Gadget Chain
+
+### Community 152 - "Memory Safety, Binary, and Kernel Hunting"
+Cohesion: 0.67
+Nodes (3): Memory Safety, Binary, and Kernel Hunting, Spatial OOB Read/Write Bugs, Temporal Use-After-Free / Lifetime Bugs
+
 ## Ambiguous Edges - Review These
 - `Wiki export (--wiki)` → `Token reduction benchmark (graphify benchmark)`  [AMBIGUOUS]
   .opencode/skills/graphify/references/exports.md · relation: conceptually_related_to
 
 ## Knowledge Gaps
-- **775 isolated node(s):** `fs`, `path`, `schemaPath`, `hono-docs`, `$schema` (+770 more)
+- **745 isolated node(s):** `fs`, `path`, `schemaPath`, `hono-docs`, `$schema` (+740 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **26 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **24 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
 - **What is the exact relationship between `Wiki export (--wiki)` and `Token reduction benchmark (graphify benchmark)`?**
   _Edge tagged AMBIGUOUS (relation: conceptually_related_to) - confidence is low._
-- **Why does `cn()` connect `Finance Dashboard Components` to `Event & Count Tables UI`, `Dashboard Stat Widgets`, `App Shell & Navigation`, `Finance & Count Dialogs UI`, `Transaction & Purchase Drawers UI`, `Item Dialogs & Detail Drawer`, `Count & Exit Forms UI`, `Backup Card UI`, `Production Run Table UI`?**
-  _High betweenness centrality (0.017) - this node is a cross-community bridge._
-- **Why does `nowIso()` connect `Stock Drift Repair & Counts API` to `Recipes API & Queries`, `Inventory Command Services`, `Event & Count Tables UI`, `Onboarding & Catalog API`, `Auth Routes & Audit Log`, `WAC Costing Engine`, `Backups & Dashboard API`, `Financial Accounts & Transactions`, `Finance & Count Dialogs UI`, `Transaction & Purchase Drawers UI`, `Count & Exit Forms UI`, `Costing Adjustments & Replay`, `Session Detail & Form UI`?**
-  _High betweenness centrality (0.017) - this node is a cross-community bridge._
-- **Why does `createDb()` connect `Auth Routes & Audit Log` to `Recipes API & Queries`, `Inventory Command Services`, `Onboarding & Catalog API`, `Backups & Dashboard API`, `WAC Costing Engine`, `Financial Accounts & Transactions`, `Sessions Domain Service`, `Production Movements & Kardex`, `Costing Adjustments & Replay`, `Sessions API & Schemas`, `Purchasing Route Tests`, `Inventory Route Schemas`, `Exit/Purchase Route Tests`, `Purchasing API & Schemas`, `Production Run Service Tests`, `Production Run Route Tests`, `Sessions Route Tests`, `Finance API Route`, `Dashboard Route Tests`?**
+- **Why does `nowIso()` connect `Purchasing API & Schemas` to `Recipes API & Queries`, `Auth Routes & Audit Log`, `Backups & Dashboard API`, `WAC Costing Engine`, `Stock Drift Repair & Counts API`, `Financial Accounts & Transactions`, `Finance & Count Dialogs UI`, `Finance Dashboard Components`, `AppShell.tsx`, `Transaction & Purchase Drawers UI`, `Sessions Domain Service`, `@types/node Dependency`, `Session Form Types`, `Production Movements & Kardex`, `Costing Routes & Replacement Cost`, `Purchases & Accounts Queries`, `Production Run Table UI`, `Costing Adjustments & Replay`?**
+  _High betweenness centrality (0.026) - this node is a cross-community bridge._
+- **Why does `Db` connect `Auth Routes & Audit Log` to `Recipes API & Queries`, `Inventory Command Services`, `Recipe Dependency Graph & Domain Errors`, `WAC Costing Engine`, `Stock Drift Repair & Counts API`, `Financial Accounts & Transactions`, `Waste & Stock Exits Schemas`, `Backups & Dashboard API`, `Purchasing API & Schemas`, `Sessions Domain Service`, `@types/node Dependency`, `Count & Exit Forms UI`, `Production Movements & Kardex`, `Costing Routes & Replacement Cost`, `Costing Adjustments & Replay`, `Client-Side Attack Classes`?**
+  _High betweenness centrality (0.010) - this node is a cross-community bridge._
+- **Why does `validationError()` connect `Costing Routes & Replacement Cost` to `Recipes API & Queries`, `Auth Routes & Audit Log`, `WAC Costing Engine`, `Stock Drift Repair & Counts API`, `Financial Accounts & Transactions`, `Sessions Domain Service`, `@types/node Dependency`, `Production Movements & Kardex`, `Purchases & Accounts Queries`, `Client-Side Attack Classes`?**
   _High betweenness centrality (0.010) - this node is a cross-community bridge._
 - **What connects `fs`, `path`, `schemaPath` to the rest of the system?**
-  _775 weakly-connected nodes found - possible documentation gaps or missing edges._
+  _745 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `Recipes API & Queries` be split into smaller, more focused modules?**
-  _Cohesion score 0.052947052947052944 - nodes in this community are weakly interconnected._
-- **Should `Inventory Command Services` be split into smaller, more focused modules?**
-  _Cohesion score 0.046948356807511735 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.05368382080710848 - nodes in this community are weakly interconnected._
+- **Should `Onboarding & Catalog API` be split into smaller, more focused modules?**
+  _Cohesion score 0.10256410256410256 - nodes in this community are weakly interconnected._
