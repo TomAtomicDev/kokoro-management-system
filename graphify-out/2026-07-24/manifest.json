@@ -1245,9 +1245,9 @@
     "semantic_hash": "82265171b94ddb6181b187f0bfb23840"
   },
   "biome.json": {
-    "mtime": 1784217454.2335217,
-    "ast_hash": "6ca0b50f0bbe57ac33542f02cdd8b833",
-    "semantic_hash": "6ca0b50f0bbe57ac33542f02cdd8b833"
+    "mtime": 1784918063.3867426,
+    "ast_hash": "dff1a22e9f2817a48567b665f2e5e80e",
+    "semantic_hash": ""
   },
   "package.json": {
     "mtime": 1784217310.3748758,
