@@ -128,12 +128,15 @@ against the post-edit ones (by item/occurredAt/businessDate/type/qty/unitCost, e
 `created_at`), and skips `planCostingReplay` entirely when they're identical
 (`kardexUnchanged` in `apps/worker/src/core/purchasing/index.ts`).
 
-**`updateStockExit` has no equivalent guard.** Every exit edit — including one that only changes
-`reason`/`notes`/`sessionId` — unconditionally calls `buildReplaceMovementsForSourceStatements`
-(regenerating the kardex row with a fresh `created_at`) and `planCostingReplay`. In practice this
-is unlikely to trip R-5 for a same-item, same-date, same-qty edit, but it is not guarded the way
-purchasing is, and it does needlessly regenerate the kardex row's tiebreak timestamp on every
-edit. **Worth closing** — see §8.
+**`updateStockExit` has the same guard** (KOK-066): `planStockExitUpdateCostingImpact` in
+`apps/worker/src/core/inventory/exits.ts` runs the identical `movementKey`/`movementSetsEqual`
+comparison (duplicated locally, same convention `core/production/index.ts` already followed) and
+skips both `buildReplaceMovementsForSourceStatements` and `planCostingReplay` when a descriptive-only
+edit (reason/notes/sessionId) leaves the kardex byte-identical. `previewStockExitImpact`'s "update"
+branch calls the same helper, so the dry-run preview can never disagree with the real mutation on
+this either. Before this, every exit edit unconditionally replayed and could flag
+`confirmationRequired` from downstream frozen snapshots even when the recomputed cost was
+provably zero — training the owner to click through real R-5 warnings.
 
 ## 7. Other decisions worth knowing
 
@@ -177,9 +180,6 @@ edit. **Worth closing** — see §8.
   existed for any of them when this task ran; when one ships, apply this exact pattern (Phases
   A–D's core mechanism already generalizes — the dependency-graph cascade and `costing_adjustments`
   schema were built for this) rather than re-deriving it.
-- **The exits `kardexUnchanged` guard (§6).** `updateStockExit` should get the same
-  descriptive-only-edit short-circuit `updatePurchase` has, both to avoid needless kardex
-  regeneration and to avoid a same-instant-tiebreak reordering risk on every edit.
 - **Backdated CREATE through the web UI has no confirmation path.** `recordPurchase`/`recordExit`
   both enforce INV-11 on create (Phase D) and can throw the same 409
   `REPLAY_CONFIRMATION_REQUIRED` a backdated edit does. But `PurchaseForm`/`ExitForm`'s CREATE

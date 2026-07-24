@@ -58,7 +58,7 @@ import type { Db } from "../../db/index.js";
 import { stockExits } from "../../db/schema.js";
 import { buildAuditLogInsert } from "../audit.js";
 import { getCurrentWac } from "../costing/repair.js";
-import type { CostingReplayInput } from "../costing/replay.js";
+import type { CostingReplayInput, CostingReplayPlan } from "../costing/replay.js";
 import { planCostingReplay } from "../costing/replay.js";
 import { snapshotUnitCost } from "../costing/wac.js";
 import { conflict, notFound, validationError } from "../errors.js";
@@ -305,6 +305,118 @@ async function buildUpdateExitMovement(
   return { movement, unitCostSnapshot };
 }
 
+/** Canonical identity of one kardex row for the "did the kardex actually change?" comparison below —
+ * identical shape to `core/purchasing/index.ts`'s `movementKey` (private, duplicated per this
+ * codebase's established convention: see `core/production/index.ts`'s copy for another instance).
+ * Deliberately EXCLUDES `id` and `created_at`, which the regeneration reassigns and which carry no
+ * business meaning. */
+function movementKey(m: {
+  itemId: string;
+  occurredAt: string;
+  businessDate: string;
+  type: string;
+  qty: number;
+  unitCost: number;
+}): string {
+  return [m.itemId, m.occurredAt, m.businessDate, m.type, m.qty, m.unitCost].join("|");
+}
+
+/** True when `newMovements` describes exactly the kardex row that already exists for this exit —
+ * i.e. the edit changed only descriptive fields (reason/notes/sessionId). An exit only ever
+ * produces one movement, but compared as a multiset for the same shape as the other modules'
+ * copies (identical reasoning to `core/purchasing/index.ts`'s `movementSetsEqual`). */
+function movementSetsEqual(
+  existingRows: readonly {
+    itemId: string;
+    occurredAt: string;
+    businessDate: string;
+    type: string;
+    qty: number;
+    unitCost: number;
+  }[],
+  newMovements: readonly StockMovementInput[],
+): boolean {
+  if (existingRows.length !== newMovements.length) return false;
+  const a = existingRows.map(movementKey).sort();
+  const b = newMovements.map(movementKey).sort();
+  return a.every((key, i) => key === b[i]);
+}
+
+/** The plan a descriptive-only edit gets: no replay was run, so nothing is owned, nothing is
+ * corrected, and nothing needs confirming. Identical shape to `core/purchasing/index.ts`'s
+ * `NO_KARDEX_CHANGE_PLAN`, duplicated locally for the same reason. */
+const NO_KARDEX_CHANGE_PLAN: CostingReplayPlan = {
+  required: false,
+  impact: {
+    affectedSaleLineIds: [],
+    affectedStockExitIds: [],
+    affectedProductionRunIds: [],
+    affectedItemIds: [],
+    costDelta: 0,
+    requiresConfirmation: false,
+  },
+  replayedItemIds: [],
+  confirmationRequired: false,
+  statements: [],
+};
+
+/**
+ * Plans the costing replay ONE pending `updateStockExit` implies (R-2/R-5): whether the kardex
+ * changed AT ALL — load-bearing for R-5, not an optimisation (KOK-066, closing the gap
+ * `docs/development/kok-024-event-edit-delete.md` §6 flagged: `updatePurchase` already had this
+ * guard, `updateStockExit` didn't). Without it, fixing a typo in a three-month-old exit's
+ * reason/notes computes a replay over every movement since, finds any frozen sale/exit/production
+ * snapshot after the touched point, and flags `confirmationRequired` even though the recomputed
+ * cost is provably unchanged — a false zero-`costDelta` R-5 prompt that trains the owner to click
+ * through real warnings.
+ *
+ * It also makes the `kardexUnchanged` skip SAFE rather than merely cheap, exactly as in
+ * purchasing.ts: `buildReplaceMovementsForSourceStatements` regenerates the row with a fresh
+ * `created_at` — the kardex tiebreak between movements sharing an instant — so replacing an
+ * "equal" movement is not quite a no-op. Emitting nothing is the only way "nothing changed" is
+ * actually true.
+ *
+ * SHARED, verbatim, between `updateStockExit` and `previewStockExitImpact`'s "update" branch, so
+ * the preview can never compute a different confirmation than the mutation it previews (this
+ * module's header / replay.ts's).
+ */
+async function planStockExitUpdateCostingImpact(
+  db: Db,
+  exitId: string,
+  newRow: { businessDate: string; occurredAt: string },
+  newMovements: readonly StockMovementInput[],
+  actor: AuditActor,
+): Promise<{ kardexUnchanged: boolean; costingPlan: CostingReplayPlan }> {
+  const existingMovementRows = await db.query.stockMovements.findMany({
+    where: (t, { and: andOp, eq: eqOp }) =>
+      andOp(eqOp(t.sourceEventType, "stock_exit"), eqOp(t.sourceEventId, exitId)),
+  });
+
+  const kardexUnchanged = movementSetsEqual(existingMovementRows, newMovements);
+
+  // Planned BEFORE any statement is assembled so the R-5 refusal at the call site writes nothing.
+  const costingPlan = kardexUnchanged
+    ? NO_KARDEX_CHANGE_PLAN
+    : await planCostingReplay(db, {
+        trigger: {
+          eventType: "stock_exit",
+          eventId: exitId,
+          businessDate: newRow.businessDate,
+          occurredAt: newRow.occurredAt,
+        },
+        changes: [
+          {
+            sourceEventType: "stock_exit",
+            sourceEventId: exitId,
+            newMovements: [...newMovements],
+          },
+        ],
+        actor,
+      });
+
+  return { kardexUnchanged, costingPlan };
+}
+
 /**
  * R-1: edit one stock exit and regenerate everything derived from it, in ONE atomic batch (D-3):
  * the `stock_exits` UPDATE + the full replacement of its `stock_movements` (and the netted
@@ -347,16 +459,18 @@ export async function updateStockExit(
   // exit finds ITSELF among the frozen snapshots the replay contradicts, which can be what tips
   // `confirmationRequired`. That errs toward asking the owner about an edit to a past event, which
   // is precisely what R-5 asks for; the alternative (silently committing) would be the unsafe one.
-  const plan = await planCostingReplay(db, {
-    trigger: {
-      eventType: "stock_exit",
-      eventId: id,
-      businessDate: command.businessDate,
-      occurredAt: command.occurredAt,
-    },
-    changes: [{ sourceEventType: "stock_exit", sourceEventId: id, newMovements: [movement] }],
+  //
+  // UNLESS the kardex didn't actually move at all (KOK-066): `planStockExitUpdateCostingImpact`
+  // compares the post-edit movement against what's already stored and skips the replay entirely
+  // for a descriptive-only edit (reason/notes/sessionId), so a stale invoice typo can never trip
+  // this note's "finds itself" case above.
+  const { kardexUnchanged, costingPlan: plan } = await planStockExitUpdateCostingImpact(
+    db,
+    id,
+    command,
+    [movement],
     actor,
-  });
+  );
 
   // R-5 — thrown BEFORE db.batch, so a refused edit writes nothing and the stored event is intact.
   if (plan.confirmationRequired && command.confirm !== true) {
@@ -366,12 +480,9 @@ export async function updateStockExit(
     );
   }
 
-  const { statements: movementStatements } = await buildReplaceMovementsForSourceStatements(
-    db,
-    "stock_exit",
-    id,
-    [movement],
-  );
+  const movementStatements = kardexUnchanged
+    ? []
+    : (await buildReplaceMovementsForSourceStatements(db, "stock_exit", id, [movement])).statements;
 
   const updatedRow = {
     ...current,
@@ -547,19 +658,14 @@ export async function previewStockExitImpact(
     }
     const current = await loadLiveExit(db, request.id);
     const { movement } = await buildUpdateExitMovement(db, current, request.command);
-    const plan = await planCostingReplay(db, {
-      trigger: {
-        eventType: "stock_exit",
-        eventId: request.id,
-        businessDate: request.command.businessDate,
-        occurredAt: request.command.occurredAt,
-      },
-      changes: [
-        { sourceEventType: "stock_exit", sourceEventId: request.id, newMovements: [movement] },
-      ],
-      actor: "SYSTEM",
-    });
-    return plan.impact;
+    const { costingPlan } = await planStockExitUpdateCostingImpact(
+      db,
+      request.id,
+      request.command,
+      [movement],
+      "SYSTEM",
+    );
+    return costingPlan.impact;
   }
 
   // request.op === "delete"
