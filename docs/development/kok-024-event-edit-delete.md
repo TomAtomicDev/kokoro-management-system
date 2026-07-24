@@ -176,10 +176,13 @@ provably zero — training the owner to click through real R-5 warnings.
 
 ## 8. What's deferred / not done
 
-- **Sales, custom orders, and production runs have no edit/delete/restore.** No live create path
-  existed for any of them when this task ran; when one ships, apply this exact pattern (Phases
-  A–D's core mechanism already generalizes — the dependency-graph cascade and `costing_adjustments`
-  schema were built for this) rather than re-deriving it.
+- **Custom orders and production runs have no edit/delete/restore.** No live create path existed
+  for either when this task ran; when one ships, apply this exact pattern (Phases A–D's core
+  mechanism already generalizes — the dependency-graph cascade and `costing_adjustments` schema
+  were built for this) rather than re-deriving it. Sales got theirs in **KOK-064**
+  (`docs/development/kok-030-sales-end-to-end.md` §1/§2) — read that task's write-up for the one
+  deliberate divergence (a collected sale refuses edit/delete) before copying its shape onto orders
+  or production runs, since neither has an equivalent "already collected elsewhere" state today.
 - **Backdated CREATE through the web UI has no confirmation path.** `recordPurchase`/`recordExit`
   both enforce INV-11 on create (Phase D) and can throw the same 409
   `REPLAY_CONFIRMATION_REQUIRED` a backdated edit does. But `PurchaseForm`/`ExitForm`'s CREATE

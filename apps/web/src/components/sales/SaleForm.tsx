@@ -1,17 +1,28 @@
-// Dialog for UC-03 "recordSale" (Doc 07 SC-03). Mirrors PurchaseForm.tsx's structure (Dialog
-// wrapper, local form state, reset-on-open) but drops what purchases needed that sales don't: no
-// edit mode / replay-confirmation dance (KOK-030 ships CREATE + READ only — core/sales has no
-// update yet, that's KOK-031), no receipt photo. Adds what purchases doesn't need: a paymentStatus
-// toggle that conditionally requires method+account (mirrors `recordSaleCommandSchema`'s
-// discriminated union, D-4), and two per-line warnings (stock-negative amber, INV-8;
-// below-replacement-cost red, C-5).
+// Dialog for UC-03 "recordSale" (Doc 07 SC-03) + UC-18 edit (KOK-064). Mirrors PurchaseForm.tsx's
+// structure (Dialog wrapper, local form state, reset-on-open, edit-mode prefill, both branches
+// wrapped in useReplayConfirmableMutation so a genuinely backdated sale — new or edited — gets the
+// R-5 confirmation dance, KOK-065's pattern reused rather than re-derived). No receipt photo (sales
+// never had one). Adds what purchases doesn't need: a paymentStatus toggle that conditionally
+// requires method+account (mirrors `recordSaleCommandSchema`'s discriminated union, D-4), and
+// two per-line warnings (stock-negative amber, INV-8; below-replacement-cost red, C-5).
+//
+// `updateSaleCommandSchema` is a bare alias of `recordSaleCommandSchema` (packages/shared/src/
+// sales.ts) — like PurchaseForm, this parses both branches with the ONE schema import.
 //
 // No customer/session picker: customers CRUD (KOK-032) hasn't shipped, and no SessionPicker
-// component exists anywhere in this codebase yet (PurchaseForm/ProductionRunForm/ExitForm all
-// note the same "Sessions doesn't have a picker" gap and simply never set the schema's optional
-// `sessionId`) — so both optional fields are simply never set from this form, same precedent.
+// component exists anywhere in this codebase yet — both optional fields are simply never set from
+// this form (edit mode preserves whatever the sale already had via `saleToFormState`... except it
+// doesn't surface a picker to CHANGE them either, same gap every other form has).
 
-import type { FinancialAccountDto, ItemDto } from "@kokoro/shared";
+import type {
+  FinancialAccountDto,
+  ItemDto,
+  RecordSaleCommand,
+  RecordSaleResult,
+  SaleDto,
+  UpdateSaleCommand,
+  UpdateSaleResult,
+} from "@kokoro/shared";
 import {
   formatMoney,
   mulMoneyByQty,
@@ -27,11 +38,13 @@ import { useEffect, useMemo, useState } from "react";
 import { LineEditor, type LineEditorLine } from "@/components/line-editor/LineEditor";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
+import { ImpactConfirmDialog } from "@/components/ui/ImpactConfirmDialog";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { useItemsQuery } from "@/features/catalog/api";
 import { useStock } from "@/features/inventory/api";
-import { useRecordSale } from "@/features/sales/api";
+import { useRecordSale, useUpdateSale } from "@/features/sales/api";
+import { useReplayConfirmableMutation } from "@/hooks/useReplayConfirmableMutation";
 import { ApiError } from "@/lib/api";
 import { formatIntAsDecimalInput, parseDecimalToInt } from "@/lib/decimal";
 import { salesLabels } from "@/lib/i18n-sales";
@@ -40,6 +53,9 @@ export interface SaleFormProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   accounts: FinancialAccountDto[];
+  /** Present -> edit mode: prefill from this sale and submit via `useUpdateSale`. Absent -> create
+   * mode, submits via `useRecordSale`. Both branches wrapped in `useReplayConfirmableMutation`. */
+  sale?: SaleDto;
 }
 
 interface SaleLineValue extends LineEditorLine {
@@ -56,7 +72,42 @@ function emptyLine(): SaleLineValue {
   return { itemId: null, qty: "", amount: "" };
 }
 
-export function SaleForm({ open, onOpenChange, accounts }: SaleFormProps) {
+interface SaleFormState {
+  paymentStatus: PaymentStatus;
+  paymentMethod: PaymentMethod;
+  accountId: string;
+  businessDate: string;
+  notes: string;
+  lines: SaleLineValue[];
+}
+
+/**
+ * Maps a fetched `SaleDto` (KOK-064 edit mode) to the form's editable local state. Pure and
+ * framework-free on purpose — same rationale as `purchaseToFormState` (PurchaseForm.tsx): this
+ * workspace has neither jsdom nor @testing-library/react, so a plain exported function is what
+ * stays unit-testable without rendering the component.
+ */
+export function saleToFormState(sale: SaleDto, accounts: FinancialAccountDto[]): SaleFormState {
+  return {
+    paymentStatus: sale.paymentStatus,
+    paymentMethod: sale.paymentMethod ?? (PAYMENT_METHODS[0] as PaymentMethod),
+    accountId: sale.accountId ?? accounts[0]?.id ?? "",
+    businessDate: sale.businessDate,
+    notes: sale.notes ?? "",
+    lines:
+      sale.lines.length > 0
+        ? sale.lines.map((line) => ({
+            itemId: line.itemId,
+            qty: formatIntAsDecimalInput(line.qty, 3),
+            amount: formatIntAsDecimalInput(line.unitPrice, 2),
+          }))
+        : [emptyLine()],
+  };
+}
+
+export function SaleForm({ open, onOpenChange, accounts, sale }: SaleFormProps) {
+  const isEditMode = Boolean(sale);
+
   const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>("PAID");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(
     PAYMENT_METHODS[0] as PaymentMethod,
@@ -68,6 +119,17 @@ export function SaleForm({ open, onOpenChange, accounts }: SaleFormProps) {
   const [error, setError] = useState<string | null>(null);
 
   const createMutation = useRecordSale();
+  const createReplay = useReplayConfirmableMutation<RecordSaleCommand, RecordSaleResult>(
+    (command) => createMutation.mutateAsync(command),
+    { onSuccess: () => onOpenChange(false) },
+  );
+  // Called unconditionally (rules of hooks) even in create mode — `sale?.id` is only "" then, and
+  // the mutation is never actually invoked unless `isEditMode` is true (see handleSubmit).
+  const updateMutation = useUpdateSale(sale?.id ?? "");
+  const editReplay = useReplayConfirmableMutation<UpdateSaleCommand, UpdateSaleResult>(
+    (command) => updateMutation.mutateAsync(command),
+    { onSuccess: () => onOpenChange(false) },
+  );
 
   const itemsQuery = useItemsQuery({ isActive: true, kind: "FINISHED" });
   const itemsById = useMemo(() => {
@@ -86,21 +148,33 @@ export function SaleForm({ open, onOpenChange, accounts }: SaleFormProps) {
     return map;
   }, [stockQuery.data]);
 
-  // Reset on the open transition only, mirroring PurchaseForm/ProductionRunForm's precedent.
+  // Reset only on the open transition (or a switch to a different sale while open) — `sale?.id`
+  // stands in for `sale` itself so a background refetch of the SAME sale never clobbers
+  // in-progress edits, mirroring PurchaseForm's identical precedent.
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset-on-open precedent, see above.
   useEffect(() => {
     if (open) {
-      setPaymentStatus("PAID");
-      setPaymentMethod(PAYMENT_METHODS[0] as PaymentMethod);
-      setAccountId(accounts[0]?.id ?? "");
-      setBusinessDate(toBusinessDate(nowIso()));
-      setNotes("");
-      setLines([emptyLine()]);
+      if (sale) {
+        const initial = saleToFormState(sale, accounts);
+        setPaymentStatus(initial.paymentStatus);
+        setPaymentMethod(initial.paymentMethod);
+        setAccountId(initial.accountId);
+        setBusinessDate(initial.businessDate);
+        setNotes(initial.notes);
+        setLines(initial.lines);
+      } else {
+        setPaymentStatus("PAID");
+        setPaymentMethod(PAYMENT_METHODS[0] as PaymentMethod);
+        setAccountId(accounts[0]?.id ?? "");
+        setBusinessDate(toBusinessDate(nowIso()));
+        setNotes("");
+        setLines([emptyLine()]);
+      }
       setError(null);
     }
-  }, [open]);
+  }, [open, sale?.id]);
 
-  const disabled = createMutation.isPending;
+  const disabled = isEditMode ? editReplay.isPending : createReplay.isPending;
   const isPaid = paymentStatus === "PAID";
 
   /** Prefills a line's unit price from the item's catalog `salePrice` the moment the item changes
@@ -167,7 +241,10 @@ export function SaleForm({ open, onOpenChange, accounts }: SaleFormProps) {
 
     const commonFields = {
       notes: notes.trim() === "" ? undefined : notes.trim(),
-      occurredAt: nowIso(),
+      // Edit mode keeps the sale's original instant — there's no UI field to change it, and an
+      // edit re-stamping `occurredAt` to "now" would rewrite when the sale actually happened every
+      // time the owner fixes an unrelated typo (mirrors PurchaseForm's identical precedent).
+      occurredAt: sale ? sale.occurredAt : nowIso(),
       businessDate,
       lines: parsedLines,
     };
@@ -182,13 +259,26 @@ export function SaleForm({ open, onOpenChange, accounts }: SaleFormProps) {
       return;
     }
 
-    try {
-      await createMutation.mutateAsync(parsed.data);
-      onOpenChange(false);
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : salesLabels.errors.generic);
+    if (isEditMode) {
+      editReplay.execute(parsed.data);
+      return;
     }
+
+    createReplay.execute(parsed.data);
   }
+
+  /** Combines client-side validation errors (`error` state) with a genuine (non-confirmation)
+   * failure surfaced by `editReplay`/`createReplay` — the confirmation case is captured into
+   * their own `pendingConfirmation` instead and never reaches here (see
+   * useReplayConfirmableMutation.ts's header). */
+  const activeReplay = isEditMode ? editReplay : createReplay;
+  const displayError =
+    error ??
+    (activeReplay.error
+      ? activeReplay.error instanceof ApiError
+        ? activeReplay.error.message
+        : salesLabels.errors.generic
+      : null);
 
   function renderLineExtra(line: SaleLineValue) {
     const item = line.itemId ? itemsById.get(line.itemId) : undefined;
@@ -230,138 +320,170 @@ export function SaleForm({ open, onOpenChange, accounts }: SaleFormProps) {
     );
   }
 
+  const dialogTitle = isEditMode ? salesLabels.editTitle : salesLabels.recordTitle;
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange} aria-label={salesLabels.recordTitle}>
-      <div className="border-border border-b px-5 py-4">
-        <h2 className="font-medium text-foreground text-md">{salesLabels.recordTitle}</h2>
-      </div>
-      <div className="flex flex-1 flex-col gap-4 overflow-y-auto px-5 py-4 text-sm">
-        <div className="grid grid-cols-2 gap-3">
-          <div className="flex flex-col gap-1.5">
-            <label className="font-medium text-foreground" htmlFor="sf-status">
-              {salesLabels.fieldPaymentStatus}
-            </label>
-            <Select
-              id="sf-status"
-              value={paymentStatus}
-              onChange={(e) => setPaymentStatus(e.target.value as PaymentStatus)}
-              disabled={disabled}
-            >
-              <option value="PAID">{salesLabels.paymentStatusLabels.PAID}</option>
-              <option value="ON_CREDIT">{salesLabels.paymentStatusLabels.ON_CREDIT}</option>
-            </Select>
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange} aria-label={dialogTitle}>
+        <div className="border-border border-b px-5 py-4">
+          <h2 className="font-medium text-foreground text-md">{dialogTitle}</h2>
+        </div>
+        <div className="flex flex-1 flex-col gap-4 overflow-y-auto px-5 py-4 text-sm">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="flex flex-col gap-1.5">
+              <label className="font-medium text-foreground" htmlFor="sf-status">
+                {salesLabels.fieldPaymentStatus}
+              </label>
+              <Select
+                id="sf-status"
+                value={paymentStatus}
+                onChange={(e) => setPaymentStatus(e.target.value as PaymentStatus)}
+                disabled={disabled}
+              >
+                <option value="PAID">{salesLabels.paymentStatusLabels.PAID}</option>
+                <option value="ON_CREDIT">{salesLabels.paymentStatusLabels.ON_CREDIT}</option>
+              </Select>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label className="font-medium text-foreground" htmlFor="sf-date">
+                {salesLabels.fieldDate}
+              </label>
+              <Input
+                id="sf-date"
+                type="date"
+                value={businessDate}
+                onChange={(e) => setBusinessDate(e.target.value)}
+                disabled={disabled}
+              />
+            </div>
           </div>
+
+          {isPaid ? (
+            <div className="grid grid-cols-2 gap-3">
+              <div className="flex flex-col gap-1.5">
+                <label className="font-medium text-foreground" htmlFor="sf-method">
+                  {salesLabels.fieldPaymentMethod}
+                </label>
+                <Select
+                  id="sf-method"
+                  value={paymentMethod}
+                  onChange={(e) => setPaymentMethod(e.target.value as PaymentMethod)}
+                  disabled={disabled}
+                >
+                  {PAYMENT_METHODS.map((method) => (
+                    <option key={method} value={method}>
+                      {salesLabels.paymentMethodLabels[method]}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="font-medium text-foreground" htmlFor="sf-account">
+                  {salesLabels.fieldAccount}
+                </label>
+                <Select
+                  id="sf-account"
+                  value={accountId}
+                  onChange={(e) => setAccountId(e.target.value)}
+                  disabled={disabled}
+                >
+                  {accounts.map((account) => (
+                    <option key={account.id} value={account.id}>
+                      {account.name}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+            </div>
+          ) : null}
+
           <div className="flex flex-col gap-1.5">
-            <label className="font-medium text-foreground" htmlFor="sf-date">
-              {salesLabels.fieldDate}
+            <label className="font-medium text-foreground" htmlFor="sf-notes">
+              {salesLabels.fieldNotes}
             </label>
             <Input
-              id="sf-date"
-              type="date"
-              value={businessDate}
-              onChange={(e) => setBusinessDate(e.target.value)}
+              id="sf-notes"
+              placeholder={salesLabels.notesPlaceholder}
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
               disabled={disabled}
             />
           </div>
-        </div>
 
-        {isPaid ? (
-          <div className="grid grid-cols-2 gap-3">
-            <div className="flex flex-col gap-1.5">
-              <label className="font-medium text-foreground" htmlFor="sf-method">
-                {salesLabels.fieldPaymentMethod}
-              </label>
-              <Select
-                id="sf-method"
-                value={paymentMethod}
-                onChange={(e) => setPaymentMethod(e.target.value as PaymentMethod)}
-                disabled={disabled}
-              >
-                {PAYMENT_METHODS.map((method) => (
-                  <option key={method} value={method}>
-                    {salesLabels.paymentMethodLabels[method]}
-                  </option>
-                ))}
-              </Select>
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <label className="font-medium text-foreground" htmlFor="sf-account">
-                {salesLabels.fieldAccount}
-              </label>
-              <Select
-                id="sf-account"
-                value={accountId}
-                onChange={(e) => setAccountId(e.target.value)}
-                disabled={disabled}
-              >
-                {accounts.map((account) => (
-                  <option key={account.id} value={account.id}>
-                    {account.name}
-                  </option>
-                ))}
-              </Select>
-            </div>
+          <div className="flex flex-col gap-1.5">
+            <span className="font-medium text-foreground">{salesLabels.linesTitle}</span>
+            <LineEditor
+              lines={lines}
+              onChange={handleLinesChange}
+              createLine={emptyLine}
+              disabled={disabled}
+              itemKindFilter="FINISHED"
+              labels={{
+                item: salesLabels.lineItem,
+                qty: salesLabels.lineQty,
+                amount: salesLabels.lineUnitPrice,
+                addLine: salesLabels.addLine,
+                removeLine: salesLabels.removeLine,
+                amountPlaceholder: "0.00",
+                qtyPlaceholder: "0",
+              }}
+              renderExtraColumns={renderLineExtra}
+            />
           </div>
-        ) : null}
 
-        <div className="flex flex-col gap-1.5">
-          <label className="font-medium text-foreground" htmlFor="sf-notes">
-            {salesLabels.fieldNotes}
-          </label>
-          <Input
-            id="sf-notes"
-            placeholder={salesLabels.notesPlaceholder}
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
+          <div className="flex items-center justify-between rounded-md border border-border bg-muted px-4 py-3">
+            <span className="font-medium text-foreground text-sm">
+              {salesLabels.totalPreviewLabel}
+            </span>
+            <span className="numeric-cell font-semibold text-foreground text-lg">
+              {formatMoney(totalPreview)}
+            </span>
+          </div>
+
+          {displayError ? <p className="text-negative text-sm">{displayError}</p> : null}
+        </div>
+        <div className="flex justify-end gap-2 border-border border-t px-5 py-3">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => onOpenChange(false)}
             disabled={disabled}
-          />
+          >
+            {salesLabels.cancel}
+          </Button>
+          <Button
+            type="button"
+            onClick={handleSubmit}
+            disabled={disabled || (isPaid && !accountId)}
+          >
+            {isEditMode ? salesLabels.save : salesLabels.submit}
+          </Button>
         </div>
-
-        <div className="flex flex-col gap-1.5">
-          <span className="font-medium text-foreground">{salesLabels.linesTitle}</span>
-          <LineEditor
-            lines={lines}
-            onChange={handleLinesChange}
-            createLine={emptyLine}
-            disabled={disabled}
-            itemKindFilter="FINISHED"
-            labels={{
-              item: salesLabels.lineItem,
-              qty: salesLabels.lineQty,
-              amount: salesLabels.lineUnitPrice,
-              addLine: salesLabels.addLine,
-              removeLine: salesLabels.removeLine,
-              amountPlaceholder: "0.00",
-              qtyPlaceholder: "0",
-            }}
-            renderExtraColumns={renderLineExtra}
-          />
-        </div>
-
-        <div className="flex items-center justify-between rounded-md border border-border bg-muted px-4 py-3">
-          <span className="font-medium text-foreground text-sm">
-            {salesLabels.totalPreviewLabel}
-          </span>
-          <span className="numeric-cell font-semibold text-foreground text-lg">
-            {formatMoney(totalPreview)}
-          </span>
-        </div>
-
-        {error ? <p className="text-negative text-sm">{error}</p> : null}
-      </div>
-      <div className="flex justify-end gap-2 border-border border-t px-5 py-3">
-        <Button
-          type="button"
-          variant="outline"
-          onClick={() => onOpenChange(false)}
-          disabled={disabled}
-        >
-          {salesLabels.cancel}
-        </Button>
-        <Button type="button" onClick={handleSubmit} disabled={disabled || (isPaid && !accountId)}>
-          {salesLabels.submit}
-        </Button>
-      </div>
-    </Dialog>
+      </Dialog>
+      {isEditMode && editReplay.pendingConfirmation ? (
+        <ImpactConfirmDialog
+          open
+          impact={editReplay.pendingConfirmation.impact}
+          onConfirm={editReplay.confirm}
+          onCancel={editReplay.cancel}
+          confirmLoading={editReplay.isPending}
+          title={salesLabels.impactEditTitle}
+          description={salesLabels.impactEditDescription}
+          confirmLabel={salesLabels.save}
+        />
+      ) : null}
+      {!isEditMode && createReplay.pendingConfirmation ? (
+        <ImpactConfirmDialog
+          open
+          impact={createReplay.pendingConfirmation.impact}
+          onConfirm={createReplay.confirm}
+          onCancel={createReplay.cancel}
+          confirmLoading={createReplay.isPending}
+          title={salesLabels.impactCreateTitle}
+          description={salesLabels.impactCreateDescription}
+          confirmLabel={salesLabels.submit}
+        />
+      ) : null}
+    </>
   );
 }

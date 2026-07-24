@@ -24,10 +24,17 @@ import { validationError } from "../errors.js";
 type Statement = BatchItem<"sqlite">;
 
 /** The trigger event kinds that can move a downstream WAC, mirroring `costing_adjustments`'
- * `trigger_event_type` CHECK (Doc 04 §3.4, as amended by Phase A to admit `stock_exit` and by
- * KOK-028 to admit `session`: a PRODUCTION session close can recompute several production runs at
- * once, so the trigger is the session, not any single run — see schema.ts's identical comment). */
-export type CostingAdjustmentTrigger = "purchase" | "production_run" | "stock_exit" | "session";
+ * `trigger_event_type` CHECK (Doc 04 §3.4, as amended by Phase A to admit `stock_exit`, by
+ * KOK-028 to admit `session` — a PRODUCTION session close can recompute several production runs at
+ * once, so the trigger is the session, not any single run — and by KOK-064 to admit `sale`: a sale
+ * is stock-wise identical to a stock exit, so a backdated sale can move downstream WAC exactly as
+ * a backdated exit does; see schema.ts's identical comment). */
+export type CostingAdjustmentTrigger =
+  | "purchase"
+  | "production_run"
+  | "stock_exit"
+  | "session"
+  | "sale";
 
 /** One item's slice of a replay's cost correction. One replay produces one entry per item whose
  * `costDelta` is nonzero — see replay.ts. */

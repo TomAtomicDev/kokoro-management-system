@@ -7,38 +7,47 @@ touching this module. For the business rules themselves (UC-03, INV-8, C-5/C-6) 
 
 ## 1. Scope: CREATE + READ only
 
-`core/sales/index.ts` ships `recordSale`, `getSale`, `listSales` — no `updateSale`, `deleteSale`,
-`restoreSale`, or `collectPayment`. This mirrors how `core/purchasing` (KOK-016) originally shipped
-CREATE+READ before UPDATE/DELETE/RESTORE arrived later as their own task (KOK-024). The backlog
-description for KOK-030 never mentioned edit/delete (contrast KOK-026, whose description explicitly
-called for "Full create/update/delete/restore"), and `docs/development/kok-024-event-edit-delete.md`
-§1/§8 already flags sales as a type with "no live create path yet" that should "apply this exact
-pattern" once one ships — read that document before building sales edit/delete/restore. It generalizes
-cleanly; nothing here should need reinventing.
+`core/sales/index.ts` originally shipped only `recordSale`, `getSale`, `listSales` — no `updateSale`,
+`deleteSale`, `restoreSale`, or `collectPayment`. This mirrored how `core/purchasing` (KOK-016)
+originally shipped CREATE+READ before UPDATE/DELETE/RESTORE arrived later as their own task
+(KOK-024). `collectPayment`/`listReceivables` shipped in **KOK-031**; `updateSale`/`deleteSale`/
+`restoreSale` shipped in **KOK-064** (which also closed the §2 backdated-replay gap below),
+applying the exact KOK-024 pattern `docs/development/kok-024-event-edit-delete.md` §1/§8 called for
+— nothing in that pattern needed reinventing.
 
-Sales `updateSale`/`deleteSale`/`restoreSale` are now tracked as **KOK-064** (which also closes the
-§2 backdated-replay gap below); the `collectPayment` mark-paid flow stays **KOK-031**.
+**One deliberate divergence from `core/purchasing`'s edit/delete shape (KOK-064):** a sale that has
+already been collected via `collectPayment` (i.e. it carries a `financial_transactions` row with
+`category='DEBT_COLLECTION'` sourced to it) refuses `updateSale`/`deleteSale` with a `409 CONFLICT`
+— a business-rule call, not an oversight. `collectPayment` books its `DEBT_COLLECTION` transaction
+at the *collection* moment, separate from the sale's own `occurred_at`/`accountId`/`paymentMethod`;
+letting a full-replacement edit regenerate that transaction the same way `updatePurchase` regenerates
+its `SUPPLY_PURCHASE` row would silently overwrite the true collection date/category with a fresh
+`SALE`-category row dated at the sale's own `occurred_at` — a financial-history regression, not a
+correction. `restoreSale` needs no equivalent guard: `collectPayment` requires a non-deleted sale, so
+a soft-deleted sale can never have been collected while deleted. See `core/sales/index.ts`'s
+`assertSaleNotCollected`.
 
-The web UI (`SaleForm`/`SalesTable`/`SaleDetailDrawer`) mirrors this: no edit/delete buttons, no
-"mark paid" inline action, even though Doc 07's SC-02 entry describes both. Building UI against an
-endpoint that doesn't exist yet would be worse than leaving it out — wire edit/delete/restore into
-`SaleDetailDrawer`/`SalesTable` with **KOK-064**, and "mark paid" when `collectPayment` (**KOK-031**)
-ships.
+Sales' edit/delete/restore are also structurally closer to `core/inventory/exits.ts`'s shape than to
+`core/purchasing`'s: like an exit (and unlike a purchase), a sale never owns `items.wac`/
+`replacement_cost` (C-6), so `commitSaleMutation` carries no `items` UPDATE of its own — the only
+`items.wac` writes a sale mutation can produce come from `planCostingReplay`'s own statements, when
+the sale is backdated.
 
-## 2. Why `recordSale` never calls `planCostingReplay`
+## 2. `recordSale` now calls `planCostingReplay` (KOK-064)
 
-`costing_adjustments.trigger_event_type` (Doc 04 §3.4) only admits `purchase` / `production_run` /
-`stock_exit` / `session` — `sale` is not a member, and there's no `confirm` flag on
-`recordSaleCommandSchema` as a result (a flag that gates nothing is worse than no flag). A backdated
-sale that would re-weight a later item's WAC is therefore not synchronously reconciled — same open
-gap `recordPurchase`/`recordExit` already have on their own backdated-CREATE-through-web-UI path
-(kok-024 doc §8). The nightly WAC-drift detector (`core/costing/repair.ts`) is the backstop.
+Until KOK-064, `costing_adjustments.trigger_event_type` (Doc 04 §3.4) only admitted `purchase` /
+`production_run` / `stock_exit` / `session` — `sale` was not a member, so a backdated sale that
+re-weighted a later item's WAC was never synchronously reconciled (the same gap
+`recordPurchase`/`recordExit` had on their own backdated-CREATE-through-web-UI path before KOK-065,
+kok-024 doc §8), leaving the nightly WAC-drift detector (`core/costing/repair.ts`) as the only
+backstop.
 
-If this gap needs closing for sales specifically, it requires a schema change (adding `sale` to the
-trigger-type CHECK + a migration) and a Doc 03/04 amendment (D-6) — not a quiet code-only fix. This
-is now scoped into **KOK-064** (Option A): the CHECK change, its migration, and the Doc 03/04
-amendment ship together in that task, per D-6 — they are deliberately *not* pre-applied to the KB
-here, since Doc 04 must mirror the live DDL 1:1.
+KOK-064 closed this: `sale` was added to the `trigger_event_type` CHECK (migration
+`0004_allow_sale_costing_trigger.sql`) and `recordSaleCommandSchema` gained the same `confirm` flag
+every other replay-triggering command schema has (`confirmFlagSchema`, D-4). `recordSale` now runs
+the identical INV-11/R-2 ordering guard `recordPurchase`/`recordExit` do — see `core/sales/index.ts`
+— and `SaleForm`'s create path is wrapped in `useReplayConfirmableMutation` exactly like
+`PurchaseForm`/`ExitForm` (KOK-065's pattern, reused rather than re-derived).
 
 ## 3. Cost/cash shape, in one paragraph
 

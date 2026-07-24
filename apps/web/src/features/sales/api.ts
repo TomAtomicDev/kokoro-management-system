@@ -1,26 +1,36 @@
-// TanStack Query hooks over /api/sales (KOK-030/KOK-031 frontend). Mirrors features/purchases/
-// api.ts's shape: a root key + list/detail key helpers, a query hook per resource, and a mutation
-// whose onSuccess invalidates the root key.
+// TanStack Query hooks over /api/sales (KOK-030/KOK-031/KOK-064 frontend). Mirrors features/
+// purchases/api.ts's shape: a root key + list/detail key helpers, a query hook per resource, and a
+// mutation whose onSuccess invalidates the root key.
 //
-// Scope: KOK-030 shipped CREATE + READ only (recordSale/listSales/getSale). KOK-031 adds UC-04's
-// collectPayment + the receivables read (listReceivables/v_receivables) — still no generic
-// update/delete/restore for a sale itself (that's KOK-064), so this stays short of purchases/
-// inventory's full edit/delete/restore quartet.
+// Scope: KOK-030 shipped CREATE + READ (recordSale/listSales/getSale). KOK-031 added UC-04's
+// collectPayment + the receivables read (listReceivables/v_receivables). KOK-064 adds the full
+// edit/delete/restore/impact-preview quartet, mirroring features/purchases/api.ts's own
+// useUpdatePurchase/useDeletePurchase/useRestorePurchase/usePreviewPurchaseImpact exactly — the
+// retry-with-confirm dance for the R-5 replay-confirmation contract stays composed at the UI layer
+// via useReplayConfirmableMutation, never wired in here (same precedent as purchases').
 //
 // recordSale/collectPayment also move stock (item_stock) / an account balance
 // (financial_accounts) on the server — same precedent as recordPurchase's header comment: there's
 // no shared cross-feature invalidation surface yet, so collectPayment additionally invalidates
 // finance's ACCOUNTS_KEY directly (imported, not duplicated) alongside the sales keys below.
+// updateSale/deleteSale/restoreSale share that same gap (a moved/reversed account balance) but
+// follow purchases' own precedent of leaving it unaddressed until a shared surface exists.
 
 import type {
   CollectPaymentCommand,
   CollectPaymentResult,
+  DeleteSaleCommand,
+  DeleteSaleResult,
   ListReceivablesResult,
   ListSalesFilters,
   ListSalesResult,
   RecordSaleCommand,
   RecordSaleResult,
+  ReplayImpactDto,
   SaleDto,
+  SaleImpactRequest,
+  UpdateSaleCommand,
+  UpdateSaleResult,
 } from "@kokoro/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -74,6 +84,45 @@ export function useRecordSale() {
   return useMutation({
     mutationFn: (command: RecordSaleCommand) => api.post<RecordSaleResult>("/sales", command),
     onSuccess: invalidate,
+  });
+}
+
+// --- Edit / delete / restore / impact preview (KOK-064) -------------------------------------
+//
+// Plain, correctly-typed mutations only — see this module's header for why the R-5 confirm dance
+// is composed at the call site with useReplayConfirmableMutation instead.
+
+export function useUpdateSale(id: string) {
+  const invalidate = useInvalidateSales();
+  return useMutation({
+    mutationFn: (command: UpdateSaleCommand) =>
+      api.patch<UpdateSaleResult>(`/sales/${id}`, command),
+    onSuccess: invalidate,
+  });
+}
+
+export function useDeleteSale(id: string) {
+  const invalidate = useInvalidateSales();
+  return useMutation({
+    mutationFn: (command: DeleteSaleCommand) =>
+      api.delete<DeleteSaleResult>(`/sales/${id}`, command),
+    onSuccess: invalidate,
+  });
+}
+
+export function useRestoreSale(id: string) {
+  const invalidate = useInvalidateSales();
+  return useMutation({
+    mutationFn: (command: DeleteSaleCommand) =>
+      api.post<UpdateSaleResult>(`/sales/${id}/restore`, command),
+    onSuccess: invalidate,
+  });
+}
+
+/** Dry-run preview (no write, so no cache to invalidate) — mirrors usePreviewPurchaseImpact. */
+export function usePreviewSaleImpact() {
+  return useMutation({
+    mutationFn: (request: SaleImpactRequest) => api.post<ReplayImpactDto>("/sales/impact", request),
   });
 }
 
