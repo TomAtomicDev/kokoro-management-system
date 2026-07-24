@@ -17,6 +17,7 @@ import type {
 } from "@kokoro/shared";
 import {
   formatMoney,
+  formatQty,
   nowIso,
   recordProductionRunCommandSchema,
   roundHalfUpToInt,
@@ -24,7 +25,7 @@ import {
 } from "@kokoro/shared";
 import { useEffect, useMemo, useState } from "react";
 
-import { CalcTraceStub } from "@/components/inventory/CalcTraceStub";
+import { CalcTrace, type CalcTraceInput } from "@/components/common/CalcTrace";
 import { LineEditor, type LineEditorLine } from "@/components/line-editor/LineEditor";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
@@ -323,6 +324,30 @@ export function ProductionRunForm({ open, onOpenChange, productionRun }: Product
       ? roundHalfUpToInt((totalCostPreview * 1000) / actualOutputQtyPreview)
       : null;
 
+  // CalcTrace inputs for the cost panel below — one row per consumption line's contribution
+  // (qty × item.wac, same basis directCostPreview itself sums) for the direct-cost trace, and the
+  // two/three numbers each downstream figure folds together for the total/unit traces.
+  const directCostTraceInputs: CalcTraceInput[] = lines.flatMap((line) => {
+    const item = line.itemId ? itemsById.get(line.itemId) : undefined;
+    const qty = parseDecimalToInt(line.qty, 3);
+    if (!item || qty === null || qty <= 0) return [];
+    return [{ label: item.name, value: formatMoney(roundHalfUpToInt(qty * item.wac)) }];
+  });
+  const totalCostTraceInputs: CalcTraceInput[] = [
+    { label: productionLabels.costDirectLabel, value: formatMoney(directCostPreview) },
+    { label: productionLabels.costIndirectLabel, value: formatMoney(indirectCostPreview) },
+  ];
+  const unitCostTraceInputs: CalcTraceInput[] = [
+    { label: productionLabels.costTotalLabel, value: formatMoney(totalCostPreview) },
+    {
+      label: productionLabels.fieldActualOutputQty,
+      value:
+        actualOutputQtyPreview !== null && outputItem
+          ? formatQty(actualOutputQtyPreview, outputItem.unit)
+          : "—",
+    },
+  ];
+
   const dialogTitle = isEditMode ? productionLabels.editTitle : productionLabels.recordTitle;
 
   return (
@@ -455,7 +480,10 @@ export function ProductionRunForm({ open, onOpenChange, productionRun }: Product
             <div className="flex items-center justify-between">
               <span className="flex items-center gap-1.5 text-muted-foreground text-xs">
                 {productionLabels.costDirectLabel}
-                <CalcTraceStub formula={productionLabels.costDirectFormula} />
+                <CalcTrace
+                  formula={productionLabels.costDirectFormula}
+                  inputs={directCostTraceInputs}
+                />
               </span>
               <span className="numeric-cell text-foreground text-sm">
                 {formatMoney(directCostPreview)}
@@ -472,7 +500,10 @@ export function ProductionRunForm({ open, onOpenChange, productionRun }: Product
             <div className="flex items-center justify-between">
               <span className="flex items-center gap-1.5 font-medium text-foreground text-sm">
                 {productionLabels.costTotalLabel}
-                <CalcTraceStub formula={productionLabels.costTotalFormula} />
+                <CalcTrace
+                  formula={productionLabels.costTotalFormula}
+                  inputs={totalCostTraceInputs}
+                />
               </span>
               <span className="numeric-cell font-semibold text-foreground text-lg">
                 {formatMoney(totalCostPreview)}
@@ -481,7 +512,10 @@ export function ProductionRunForm({ open, onOpenChange, productionRun }: Product
             <div className="flex items-center justify-between">
               <span className="flex items-center gap-1.5 text-muted-foreground text-xs">
                 {productionLabels.costUnitLabel}
-                <CalcTraceStub formula={productionLabels.costUnitFormula} />
+                <CalcTrace
+                  formula={productionLabels.costUnitFormula}
+                  inputs={unitCostTraceInputs}
+                />
               </span>
               <span className="numeric-cell text-foreground text-sm">
                 {outputUnitCostPreview !== null ? formatMoney(outputUnitCostPreview) : "—"}

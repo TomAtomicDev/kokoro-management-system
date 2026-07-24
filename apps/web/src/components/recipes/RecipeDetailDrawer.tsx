@@ -5,11 +5,11 @@
 // same way items do").
 
 import type { ItemDto } from "@kokoro/shared";
-import { formatMoney, formatQty } from "@kokoro/shared";
+import { formatMoney, formatQty, roundHalfUpToInt } from "@kokoro/shared";
 import { useMemo, useState } from "react";
 
+import { CalcTrace, type CalcTraceInput } from "@/components/common/CalcTrace";
 import { DetailDrawer } from "@/components/data-table/DetailDrawer";
-import { CalcTraceStub } from "@/components/inventory/CalcTraceStub";
 import { MarginBadge } from "@/components/pricing/MarginBadge";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -42,6 +42,25 @@ export function RecipeDetailDrawer({ recipeId, open, onOpenChange }: RecipeDetai
   const recipe = recipeQuery.data?.recipe;
   const settings = recipeQuery.data?.settings;
   const outputItem = recipe ? itemById.get(recipe.outputItemId) : undefined;
+
+  /** CalcTrace inputs for the cost panel below — mirrors RecipeForm.tsx's identical helper: one
+   * row per ingredient line's contribution (qty × unit cost on `basis`) plus the expected yield. */
+  function buildCostTraceInputs(basis: "wac" | "replacementCost"): CalcTraceInput[] {
+    if (!recipe) return [];
+    return [
+      ...recipe.lines.map((line): CalcTraceInput => {
+        const item = itemById.get(line.itemId);
+        const contribution = roundHalfUpToInt(line.qty * (item?.[basis] ?? 0));
+        return { label: item?.name ?? line.itemId, value: formatMoney(contribution) };
+      }),
+      {
+        label: recipesLabels.columnYield,
+        value: outputItem
+          ? formatQty(recipe.expectedYieldQty, outputItem.unit)
+          : String(recipe.expectedYieldQty),
+      },
+    ];
+  }
 
   return (
     <>
@@ -114,7 +133,10 @@ export function RecipeDetailDrawer({ recipeId, open, onOpenChange }: RecipeDetai
               <div className="flex items-center justify-between">
                 <span className="flex items-center gap-1.5 text-muted-foreground text-xs">
                   {recipesLabels.costWacLabel}
-                  <CalcTraceStub formula={recipesLabels.costFormula} />
+                  <CalcTrace
+                    formula={recipesLabels.costFormula}
+                    inputs={buildCostTraceInputs("wac")}
+                  />
                 </span>
                 <span className="numeric-cell text-foreground text-sm">
                   {formatMoney(recipe.theoreticalCostWac.costPerOutputUnit)}
@@ -123,7 +145,10 @@ export function RecipeDetailDrawer({ recipeId, open, onOpenChange }: RecipeDetai
               <div className="flex items-center justify-between">
                 <span className="flex items-center gap-1.5 font-medium text-foreground text-sm">
                   {recipesLabels.costReplacementLabel}
-                  <CalcTraceStub formula={recipesLabels.costFormula} />
+                  <CalcTrace
+                    formula={recipesLabels.costFormula}
+                    inputs={buildCostTraceInputs("replacementCost")}
+                  />
                 </span>
                 <span className="numeric-cell font-semibold text-foreground text-lg">
                   {formatMoney(recipe.theoreticalCostReplacement.costPerOutputUnit)}

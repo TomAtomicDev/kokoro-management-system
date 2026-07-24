@@ -15,7 +15,7 @@ import { formatMoney, recordRecipeCommandSchema, roundHalfUpToInt } from "@kokor
 import { useEffect, useMemo, useState } from "react";
 
 import { ItemPicker } from "@/components/catalog/ItemPicker";
-import { CalcTraceStub } from "@/components/inventory/CalcTraceStub";
+import { CalcTrace, type CalcTraceInput } from "@/components/common/CalcTrace";
 import { LineEditor, type LineEditorLine } from "@/components/line-editor/LineEditor";
 import { MarginBadge } from "@/components/pricing/MarginBadge";
 import { Button } from "@/components/ui/button";
@@ -224,6 +224,25 @@ export function RecipeForm({ open, onOpenChange, recipe, settings }: RecipeFormP
     );
   }
 
+  /** CalcTrace inputs for the saved recipe's cost panel below: one row per ingredient line's
+   * contribution (qty × unit cost on `basis`) plus the expected yield the batch is divided by —
+   * the same two numbers `computeTheoreticalCostPerOutputUnit` (core/recipes/theoretical-cost.ts,
+   * C-3b) folds together server-side. Only meaningful once `recipe` exists (edit mode). */
+  function buildCostTraceInputs(basis: "wac" | "replacementCost"): CalcTraceInput[] {
+    if (!recipe) return [];
+    return [
+      ...recipe.lines.map((line): CalcTraceInput => {
+        const item = itemsById.get(line.itemId);
+        const contribution = roundHalfUpToInt(line.qty * (item?.[basis] ?? 0));
+        return { label: item?.name ?? line.itemId, value: formatMoney(contribution) };
+      }),
+      {
+        label: recipesLabels.fieldYield,
+        value: formatIntAsDecimalInput(recipe.expectedYieldQty, 3),
+      },
+    ];
+  }
+
   const dialogTitle = isEditMode ? recipesLabels.editTitle : recipesLabels.recordTitle;
 
   return (
@@ -347,7 +366,10 @@ export function RecipeForm({ open, onOpenChange, recipe, settings }: RecipeFormP
             <div className="flex items-center justify-between">
               <span className="flex items-center gap-1.5 text-muted-foreground text-xs">
                 {recipesLabels.costWacLabel}
-                <CalcTraceStub formula={recipesLabels.costFormula} />
+                <CalcTrace
+                  formula={recipesLabels.costFormula}
+                  inputs={buildCostTraceInputs("wac")}
+                />
               </span>
               <span className="numeric-cell text-foreground text-sm">
                 {formatMoney(recipe.theoreticalCostWac.costPerOutputUnit)}
@@ -356,7 +378,10 @@ export function RecipeForm({ open, onOpenChange, recipe, settings }: RecipeFormP
             <div className="flex items-center justify-between">
               <span className="flex items-center gap-1.5 font-medium text-foreground text-sm">
                 {recipesLabels.costReplacementLabel}
-                <CalcTraceStub formula={recipesLabels.costFormula} />
+                <CalcTrace
+                  formula={recipesLabels.costFormula}
+                  inputs={buildCostTraceInputs("replacementCost")}
+                />
               </span>
               <span className="numeric-cell font-semibold text-foreground text-lg">
                 {formatMoney(recipe.theoreticalCostReplacement.costPerOutputUnit)}

@@ -87,3 +87,19 @@ export interface ReplayConfirmationRequiredDetails {
   reason: typeof REPLAY_CONFIRMATION_REQUIRED;
   impact: ReplayImpactDto;
 }
+
+/**
+ * Response of the C-3 replacement-cost refresh (KOK-029, Doc 03 §4, Doc 02 §4.4): shared verbatim
+ * by the nightly `replacement-cost-refresh` Cron Trigger job's own bookkeeping and the on-demand
+ * `POST /api/costing/replacement-cost-refresh` endpoint, so a manual "Recalcular" click in the UI
+ * reports exactly what the job would have reported for the same catalog state.
+ */
+export interface ReplacementCostRefreshResultDto {
+  /** `items.id`s whose `replacement_cost` this run recomputed, in dependency order. */
+  refreshedItemIds: string[];
+  /** Active SEMI_FINISHED/FINISHED `items.id`s with no active default recipe — C-3 has no
+   * candidate to compute from, so these were left untouched. */
+  skippedItemIds: string[];
+  /** ISO-8601 instant this run stamped onto every refreshed item's `replacement_cost_updated_at`. */
+  refreshedAt: string;
+}

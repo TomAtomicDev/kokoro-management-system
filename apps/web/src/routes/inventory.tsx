@@ -19,8 +19,15 @@ import { WasteSummaryCard } from "@/components/inventory/WasteSummaryCard";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { useToast } from "@/components/ui/toast";
 import { useItemsQuery } from "@/features/catalog/api";
-import { useCounts, useStock, useStockExits } from "@/features/inventory/api";
+import {
+  useCounts,
+  useRefreshReplacementCosts,
+  useStock,
+  useStockExits,
+} from "@/features/inventory/api";
+import { ApiError } from "@/lib/api";
 import { inventoryLabels } from "@/lib/i18n-inventory";
 import { cn } from "@/lib/utils";
 
@@ -79,6 +86,23 @@ export function InventoryRoute() {
     negativeOnly: negativeOnly || undefined,
   });
 
+  const toast = useToast();
+  const refreshReplacementCostsMutation = useRefreshReplacementCosts();
+  function handleRefreshReplacementCosts() {
+    refreshReplacementCostsMutation.mutate(undefined, {
+      onSuccess: (result) => {
+        toast.show({
+          message: inventoryLabels.replacementCostRefreshSuccess(result.refreshedItemIds.length),
+        });
+      },
+      onError: (err) => {
+        toast.show({
+          message: err instanceof ApiError ? err.message : inventoryLabels.errors.generic,
+        });
+      },
+    });
+  }
+
   // No `isActive` filter: exits can reference an item that was later deactivated, and the
   // Salidas table must still resolve its name/unit correctly for historical rows.
   const itemsQuery = useItemsQuery({});
@@ -133,6 +157,16 @@ export function InventoryRoute() {
               />
               <span>{inventoryLabels.filterNegativeOnly}</span>
             </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="ml-auto"
+              onClick={handleRefreshReplacementCosts}
+              disabled={refreshReplacementCostsMutation.isPending}
+            >
+              {inventoryLabels.refreshReplacementCostsButton}
+            </Button>
           </div>
 
           <StockTable
