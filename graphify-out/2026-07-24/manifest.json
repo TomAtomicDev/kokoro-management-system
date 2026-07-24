@@ -620,9 +620,9 @@
     "semantic_hash": "79dbb42f74fc8d4e8efc9530c99d60d7"
   },
   "apps/web/src/routes/sales.tsx": {
-    "mtime": 1784064859.025117,
-    "ast_hash": "21c35b7313cc6e9ddd1cee64c9804505",
-    "semantic_hash": "21c35b7313cc6e9ddd1cee64c9804505"
+    "mtime": 1784917080.8591688,
+    "ast_hash": "d1797c4612fbd609cad96415ec7dfc06",
+    "semantic_hash": ""
   },
   "apps/web/src/routes/sessions.tsx": {
     "mtime": 1784753143.044275,
@@ -2007,6 +2007,31 @@
   "packages/shared/src/sales.ts": {
     "mtime": 1784909344.3234825,
     "ast_hash": "4a2efbcd80e3d944f2a71c9bc1df1cea",
+    "semantic_hash": ""
+  },
+  "apps/web/src/components/sales/SaleDetailDrawer.tsx": {
+    "mtime": 1784917068.55394,
+    "ast_hash": "b4d0e2b1d6ebce790a2f1c068be3648c",
+    "semantic_hash": ""
+  },
+  "apps/web/src/components/sales/SaleForm.tsx": {
+    "mtime": 1784917112.427633,
+    "ast_hash": "c3abc5157b1a333b51e180ed78c59095",
+    "semantic_hash": ""
+  },
+  "apps/web/src/components/sales/SalesTable.tsx": {
+    "mtime": 1784917112.4076319,
+    "ast_hash": "9b1864057c21a970322157008a9b716a",
+    "semantic_hash": ""
+  },
+  "apps/web/src/features/sales/api.ts": {
+    "mtime": 1784917112.4296367,
+    "ast_hash": "c0f090a79081c443d893f8cc30ba572b",
+    "semantic_hash": ""
+  },
+  "apps/web/src/lib/i18n-sales.ts": {
+    "mtime": 1784916949.29573,
+    "ast_hash": "6c7ffad5d41b313149b1cdf7094e5e8e",
     "semantic_hash": ""
   }
 }
