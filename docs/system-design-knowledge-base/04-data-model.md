@@ -305,10 +305,13 @@ CREATE TABLE costing_adjustments (       -- R-4: cumulative P&L correction from 
                                                             -- backdated event that triggered it
   item_id TEXT NOT NULL REFERENCES items(id),
   trigger_event_type TEXT NOT NULL CHECK (trigger_event_type IN
-    ('purchase','production_run','stock_exit')),   -- KOK-024: a backdated exit changes on-hand,
-                                          -- which changes C-1's max(on_hand,0) weight for every
-                                          -- later entry — so an exit CAN move downstream WAC and
-                                          -- that correction must be bookable
+    ('purchase','production_run','stock_exit','session')), -- KOK-024: a backdated exit changes
+                                          -- on-hand, which changes C-1's max(on_hand,0) weight for
+                                          -- every later entry — so an exit CAN move downstream WAC
+                                          -- and that correction must be bookable. KOK-028: closing
+                                          -- a PRODUCTION session (S-3) can recompute several
+                                          -- production runs' allocated_session_cost/output cost at
+                                          -- once, so the trigger is the session, not one run
 
   trigger_event_id TEXT NOT NULL,        -- the create/edit/delete that triggered the replay
   affected_sale_line_ids TEXT NOT NULL,  -- JSON array of sale_lines.id, for UI drill-down

@@ -74,6 +74,7 @@ import type {
   UpdateProductionRunResult,
 } from "@kokoro/shared";
 import {
+  allocateLargestRemainder,
   generateUuidV7,
   nowIso,
   REPLAY_CONFIRMATION_REQUIRED,
@@ -86,7 +87,7 @@ import type { Db } from "../../db/index.js";
 import { items, productionConsumptions, productionRuns, type recipes } from "../../db/schema.js";
 import { buildAuditLogInsert } from "../audit.js";
 import { getCurrentWac } from "../costing/repair.js";
-import type { CostingReplayPlan } from "../costing/replay.js";
+import type { CostingReplayPlan, PendingMovementChange } from "../costing/replay.js";
 import { planCostingReplay } from "../costing/replay.js";
 import type { ReplayMovement } from "../costing/wac.js";
 import { applyWacEntry, replayWacFrom, snapshotUnitCost } from "../costing/wac.js";
@@ -968,6 +969,247 @@ export async function restoreProductionRun(
   });
 
   return { productionRun: toProductionRunDto(newRow, existingConsumptions) };
+}
+
+// ============================================================================================
+// KOK-028 SHARED-COST ALLOCATION (S-3, ADR-010c) — triggered by core/sessions's `updateSession`
+// on a PRODUCTION session's close, never by anything in this module's own command surface (there
+// is no route/tool that calls this directly). Reuses this module's own C-4 building block
+// (`buildProductionMovementsFromConsumptions`) and the SAME `planCostingReplay` (KOK-024) every
+// other cost-changing mutation in this file routes through, so a session-driven correction can
+// never land on a different number than a hand edit of the same run's cost would for the same
+// `total_cost` (this module's header's "one shared computation" principle, extended across the
+// session boundary).
+//
+// BASIS: `total_shared_cost` is the caller's to compute — core/sessions passes Σ `session_costs.
+// amount` across ALL lines, cash AND `is_estimate` (Doc 03 §6 does not carve estimates out of the
+// allocation basis, only out of cash creation; core/sessions's `listSessions` makes the identical
+// judgment call for its own `costsTotal` display, for consistency). This function only splits
+// that number: `allocateLargestRemainder`, weighted by each LIVE run's `direct_cost` (S-3) —
+// `indirect_cost` is deliberately excluded from the weight, matching C-4's additive (not
+// multiplicative) treatment of the three cost terms. Runs are ordered deterministically
+// (`createdAt` then `id`, both monotonic under UUIDv7) so the largest-remainder tie-break is
+// reproducible call to call, matching money.ts's own "ties broken by lowest original index".
+//
+// IDEMPOTENT, NOT TRANSITION-GATED: `core/sessions` calls this every time the post-edit session is
+// `PRODUCTION`+`CLOSED`, not only on the OPEN->CLOSED transition — editing a cost line (or a
+// linked run) then re-saving the session as CLOSED is the correction path (mirrors R-1's "re-
+// recording is the correction path"). Only runs whose allocation ACTUALLY CHANGES are touched, so
+// re-closing with unchanged inputs emits zero statements.
+//
+// WAC CASCADE: changing a run's `allocated_session_cost` changes its `total_cost`, hence its
+// output unit cost, hence the PRODUCTION_IN movement that fed the output item's WAC (C-1) —
+// exactly the shape `updateProductionRun` handles for a run's own direct-cost edit. This function
+// builds the same kind of post-state movement set (unchanged consumption OUTs + a corrected
+// PRODUCTION_IN) for every changed run and feeds ALL of them to ONE `planCostingReplay` call, so
+// cross-run dependencies (one changed run's output feeding another changed run's input, within the
+// same session) replay together rather than one at a time. Output items the plan does not claim
+// (`plan.replayedItemIds` — the INV-11 fast path: nothing sits downstream of that PRODUCTION_IN
+// yet) still need their WAC corrected directly, mirroring `commitProductionRunMutation`'s own
+// `computeProjectedOutputWac` fallback — generalized here (`computeProjectedItemWacAcrossRuns`) to
+// cover MULTIPLE simultaneously-changed runs sharing one output item (two batches of the same
+// recipe in one session is not exotic).
+
+export interface SessionCostAllocationResult {
+  /** One entry per production run whose allocation actually changed; empty when nothing did. */
+  updatedRuns: ProductionRunDto[];
+  /** For the caller's own single `db.batch()` (D-3) — this function never executes on its own. */
+  statements: Statement[];
+}
+
+/**
+ * Generalizes `computeProjectedOutputWac` (which assumes exactly ONE run's rows are being
+ * replaced) to N simultaneously-changed runs that all output to `itemId` — see this section's
+ * header. `excludedRunIds` are every production_run id whose STORED kardex rows must be dropped
+ * before replaying; `newMovementsByRun` supplies each changed run's post-change movements, of
+ * which only the ones actually targeting `itemId` matter (a run's PRODUCTION_OUT lines target
+ * consumed items, never its own output, so in practice this is each run's single PRODUCTION_IN
+ * row — unless one changed run also happens to consume another's output, in which case that
+ * consumption row is correctly excluded here too, being sourced from a run in `excludedRunIds`).
+ */
+async function computeProjectedItemWacAcrossRuns(
+  db: Db,
+  itemId: string,
+  excludedRunIds: ReadonlySet<string>,
+  newMovementsByRun: ReadonlyMap<string, readonly StockMovementInput[]>,
+  pendingCreatedAt: string,
+): Promise<number> {
+  const existingRows = await db.query.stockMovements.findMany({
+    where: (t, { eq: eqOp }) => eqOp(t.itemId, itemId),
+  });
+
+  const projected: ProjectedKardexRow[] = existingRows
+    .filter(
+      (row) => !(row.sourceEventType === "production_run" && excludedRunIds.has(row.sourceEventId)),
+    )
+    .map((row) => ({
+      occurredAt: row.occurredAt,
+      createdAt: row.createdAt,
+      type: row.type,
+      qty: row.qty,
+      unitCost: row.unitCost,
+    }));
+
+  for (const movements of newMovementsByRun.values()) {
+    for (const movement of movements) {
+      if (movement.itemId !== itemId) continue;
+      projected.push({
+        occurredAt: movement.occurredAt,
+        createdAt: pendingCreatedAt,
+        type: movement.type,
+        qty: movement.qty,
+        unitCost: movement.unitCost,
+      });
+    }
+  }
+
+  projected.sort(compareKardexRows);
+  return replayWacFrom({ onHand: 0, wac: 0 }, projected).wac;
+}
+
+/**
+ * UC-14 S-3: recomputes and applies one PRODUCTION session's shared-cost allocation across its
+ * live (non-deleted) production runs, in statements meant for the CALLER's single `db.batch()`
+ * (D-3) — see this section's header for the full mechanics.
+ *
+ * `businessDate`/`occurredAt` are the SESSION's own (the caller's `sessionTransactionOccurredAt`-
+ * derived instant, mirroring how `core/sessions` dates its own cost-line transactions) — the
+ * semantically correct "trigger" moment, since the trigger IS the session close, not any one of
+ * its runs. `planCostingReplay` does not currently read either field for anything, but the type
+ * requires them and a future use (e.g. surfacing "what closed when" on a replay) should get the
+ * honest value, not an arbitrary run's.
+ */
+export async function planSessionCostAllocation(
+  db: Db,
+  sessionId: string,
+  totalSharedCost: number,
+  businessDate: string,
+  occurredAt: string,
+  actor: AuditActor,
+): Promise<SessionCostAllocationResult> {
+  const runs = await db.query.productionRuns.findMany({
+    where: (t, { and: andOp, eq: eqOp, isNull: isNullOp }) =>
+      andOp(eqOp(t.sessionId, sessionId), isNullOp(t.deletedAt)),
+    orderBy: (t, { asc }) => [asc(t.createdAt), asc(t.id)],
+  });
+
+  if (runs.length === 0) {
+    return { updatedRuns: [], statements: [] };
+  }
+
+  const weights = runs.map((r) => r.directCost);
+  const allocations = allocateLargestRemainder(totalSharedCost, weights);
+
+  const changed: { run: ProductionRunRow; newAllocation: number; newTotalCost: number }[] = [];
+  for (let i = 0; i < runs.length; i++) {
+    const run = runs[i];
+    if (!run) continue;
+    const newAllocation = allocations[i] ?? 0;
+    if (newAllocation === run.allocatedSessionCost) continue;
+    changed.push({
+      run,
+      newAllocation,
+      newTotalCost: run.directCost + run.indirectCost + newAllocation,
+    });
+  }
+
+  if (changed.length === 0) {
+    return { updatedRuns: [], statements: [] };
+  }
+
+  const changedRunIds = changed.map((c) => c.run.id);
+  const consumptionRows = await db.query.productionConsumptions.findMany({
+    where: (t, { inArray }) => inArray(t.productionRunId, changedRunIds),
+  });
+  const consumptionsByRun = new Map<string, ProductionConsumptionRow[]>();
+  for (const row of consumptionRows) {
+    const arr = consumptionsByRun.get(row.productionRunId) ?? [];
+    arr.push(row);
+    consumptionsByRun.set(row.productionRunId, arr);
+  }
+
+  const now = nowIso();
+  const changes: PendingMovementChange[] = [];
+  const newMovementsByRun = new Map<string, StockMovementInput[]>();
+  for (const { run, newTotalCost } of changed) {
+    const consumptions = consumptionsByRun.get(run.id) ?? [];
+    const outputUnitCostPerMilliUnit = newTotalCost / run.actualOutputQty;
+    const newMovements = buildProductionMovementsFromConsumptions(
+      run.id,
+      consumptions,
+      run.outputItemId,
+      run.actualOutputQty,
+      outputUnitCostPerMilliUnit,
+      run.occurredAt,
+      run.businessDate,
+    );
+    newMovementsByRun.set(run.id, newMovements);
+    changes.push({ sourceEventType: "production_run", sourceEventId: run.id, newMovements });
+  }
+
+  const plan = await planCostingReplay(db, {
+    trigger: {
+      eventType: "session",
+      eventId: sessionId,
+      businessDate,
+      occurredAt,
+    },
+    changes,
+    actor,
+  });
+
+  const replayOwnedItemIds = new Set(plan.replayedItemIds);
+  const touchedOutputItemIds = new Set(changed.map((c) => c.run.outputItemId));
+  const changedRunIdSet = new Set(changedRunIds);
+
+  const statements: Statement[] = [];
+  const updatedRunRows: ProductionRunRow[] = [];
+
+  for (const { run, newAllocation, newTotalCost } of changed) {
+    statements.push(
+      db
+        .update(productionRuns)
+        .set({ allocatedSessionCost: newAllocation, totalCost: newTotalCost, updatedAt: now })
+        .where(eq(productionRuns.id, run.id)),
+    );
+    updatedRunRows.push({
+      ...run,
+      allocatedSessionCost: newAllocation,
+      totalCost: newTotalCost,
+      updatedAt: now,
+    });
+
+    const newMovements = newMovementsByRun.get(run.id) ?? [];
+    const { statements: moveStatements } = await buildReplaceMovementsForSourceStatements(
+      db,
+      "production_run",
+      run.id,
+      newMovements,
+    );
+    statements.push(...moveStatements);
+  }
+
+  for (const itemId of touchedOutputItemIds) {
+    if (replayOwnedItemIds.has(itemId)) continue;
+    const wac = await computeProjectedItemWacAcrossRuns(
+      db,
+      itemId,
+      changedRunIdSet,
+      newMovementsByRun,
+      now,
+    );
+    statements.push(db.update(items).set({ wac, updatedAt: now }).where(eq(items.id, itemId)));
+  }
+
+  // LAST, after the movement-replacement statements — see replay.ts's own ordering note.
+  statements.push(...plan.statements);
+
+  return {
+    updatedRuns: updatedRunRows.map((row) =>
+      toProductionRunDto(row, consumptionsByRun.get(row.id) ?? []),
+    ),
+    statements,
+  };
 }
 
 export async function getProductionRun(db: Db, id: string): Promise<ProductionRunDto> {

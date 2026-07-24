@@ -575,6 +575,11 @@ export const financialTransactions = sqliteTable(
 // 'production_run'. A backdated exit changes on-hand, which changes C-1's `max(on_hand,0)` weight
 // for every later entry — so an exit CAN move downstream WAC, and that correction must be
 // bookable. Doc 04 §3.4 carries the same DDL.
+//
+// KOK-028 amendment: `trigger_event_type` further admits 'session'. Closing a PRODUCTION session
+// (S-3) can recompute several production runs' `allocated_session_cost`/output unit cost at once —
+// the replay this triggers is attributable to the SESSION close, not to any one of those runs, so
+// `trigger_event_id` needs a slot that names the session rather than picking one run arbitrarily.
 export const costingAdjustments = sqliteTable(
   "costing_adjustments",
   {
@@ -586,7 +591,7 @@ export const costingAdjustments = sqliteTable(
       .notNull()
       .references(() => items.id, { onDelete: "restrict" }),
     triggerEventType: text("trigger_event_type", {
-      enum: ["purchase", "production_run", "stock_exit"],
+      enum: ["purchase", "production_run", "stock_exit", "session"],
     }).notNull(),
     // The create/edit/delete that triggered the replay.
     triggerEventId: text("trigger_event_id").notNull(),
@@ -601,7 +606,7 @@ export const costingAdjustments = sqliteTable(
   (t) => ({
     triggerEventTypeCheck: check(
       "costing_adjustments_trigger_event_type_check",
-      sql`${t.triggerEventType} IN ('purchase','production_run','stock_exit')`,
+      sql`${t.triggerEventType} IN ('purchase','production_run','stock_exit','session')`,
     ),
     ixItemDate: index("ix_costing_adj_item_date").on(t.itemId, t.businessDate),
   }),
