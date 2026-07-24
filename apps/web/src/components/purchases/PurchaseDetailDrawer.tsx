@@ -100,6 +100,8 @@ export function PurchaseDetailDrawer({
         onOpenChange={onOpenChange}
         title={purchase?.supplierName ?? purchasesLabels.detailTitle}
         subtitle={purchase?.businessDate}
+        entityType="purchases"
+        entityId={purchaseId}
         footer={
           purchase ? (
             <span>

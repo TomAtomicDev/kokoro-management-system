@@ -105,6 +105,8 @@ export function ItemDetailDrawer({ itemId, open, onOpenChange }: ItemDetailDrawe
       onOpenChange={onOpenChange}
       title={item?.name ?? catalogLabels.editTitle}
       subtitle={item ? catalogLabels.kindLabels[item.kind] : undefined}
+      entityType="item"
+      entityId={item?.id}
       footer={
         item ? (
           <span>

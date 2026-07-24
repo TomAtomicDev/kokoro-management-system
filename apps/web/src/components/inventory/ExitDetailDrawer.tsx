@@ -110,6 +110,8 @@ export function ExitDetailDrawer({ exitId, open, onOpenChange }: ExitDetailDrawe
         onOpenChange={onOpenChange}
         title={item?.name ?? inventoryLabels.exitDetailTitle}
         subtitle={exit?.businessDate}
+        entityType="stock_exits"
+        entityId={exitId ?? undefined}
         footer={
           exit ? (
             <span>

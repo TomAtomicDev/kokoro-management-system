@@ -9,6 +9,8 @@ import type {
   FinancialAccountDto,
   ItemDto,
   PurchaseDto,
+  RecordPurchaseCommand,
+  RecordPurchaseResult,
   UpdatePurchaseCommand,
   UpdatePurchaseResult,
 } from "@kokoro/shared";
@@ -37,9 +39,10 @@ export interface PurchaseFormProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   accounts: FinancialAccountDto[];
-  /** Present -> edit mode: prefill from this purchase and submit via `useUpdatePurchase` (wrapped
-   * in `useReplayConfirmableMutation` for the R-5 confirmation dance). Absent -> create mode,
-   * unchanged from KOK-016 (submits via `useRecordPurchase`). */
+  /** Present -> edit mode: prefill from this purchase and submit via `useUpdatePurchase`. Absent ->
+   * create mode, submits via `useRecordPurchase`. Both branches are wrapped in
+   * `useReplayConfirmableMutation` (KOK-065 closed the create-path dead end left by KOK-024) so a
+   * genuinely backdated purchase — new or edited — gets the same R-5 confirmation dance. */
   purchase?: PurchaseDto;
 }
 
@@ -107,6 +110,10 @@ export function PurchaseForm({ open, onOpenChange, accounts, purchase }: Purchas
   const [error, setError] = useState<string | null>(null);
 
   const createMutation = useRecordPurchase();
+  const createReplay = useReplayConfirmableMutation<RecordPurchaseCommand, RecordPurchaseResult>(
+    (command) => createMutation.mutateAsync(command),
+    { onSuccess: () => onOpenChange(false) },
+  );
   // Called unconditionally (rules of hooks) even in create mode — `purchase?.id` is only "" then,
   // and the mutation is never actually invoked unless `isEditMode` is true (see handleSubmit).
   const updateMutation = useUpdatePurchase(purchase?.id ?? "");
@@ -152,7 +159,7 @@ export function PurchaseForm({ open, onOpenChange, accounts, purchase }: Purchas
     }
   }, [open, purchase?.id]);
 
-  const disabled = (isEditMode ? editReplay.isPending : createMutation.isPending) || photoUploading;
+  const disabled = (isEditMode ? editReplay.isPending : createReplay.isPending) || photoUploading;
 
   async function handlePhotoChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -214,23 +221,19 @@ export function PurchaseForm({ open, onOpenChange, accounts, purchase }: Purchas
       return;
     }
 
-    try {
-      await createMutation.mutateAsync(parsed.data);
-      onOpenChange(false);
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : purchasesLabels.errors.generic);
-    }
+    createReplay.execute(parsed.data);
   }
 
   /** Combines client-side validation errors (`error` state) with a genuine (non-confirmation)
-   * failure surfaced by `editReplay` — the confirmation case is captured into
-   * `editReplay.pendingConfirmation` instead and never reaches here (see
+   * failure surfaced by `editReplay`/`createReplay` — the confirmation case is captured into
+   * their own `pendingConfirmation` instead and never reaches here (see
    * useReplayConfirmableMutation.ts's header). */
+  const activeReplay = isEditMode ? editReplay : createReplay;
   const displayError =
     error ??
-    (isEditMode && editReplay.error
-      ? editReplay.error instanceof ApiError
-        ? editReplay.error.message
+    (activeReplay.error
+      ? activeReplay.error instanceof ApiError
+        ? activeReplay.error.message
         : purchasesLabels.errors.generic
       : null);
 
@@ -409,6 +412,18 @@ export function PurchaseForm({ open, onOpenChange, accounts, purchase }: Purchas
           title={purchasesLabels.impactEditTitle}
           description={purchasesLabels.impactEditDescription}
           confirmLabel={purchasesLabels.save}
+        />
+      ) : null}
+      {!isEditMode && createReplay.pendingConfirmation ? (
+        <ImpactConfirmDialog
+          open
+          impact={createReplay.pendingConfirmation.impact}
+          onConfirm={createReplay.confirm}
+          onCancel={createReplay.cancel}
+          confirmLoading={createReplay.isPending}
+          title={purchasesLabels.impactCreateTitle}
+          description={purchasesLabels.impactCreateDescription}
+          confirmLabel={purchasesLabels.submit}
         />
       ) : null}
     </>

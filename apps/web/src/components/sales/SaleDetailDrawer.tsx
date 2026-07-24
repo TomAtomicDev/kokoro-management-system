@@ -44,6 +44,8 @@ export function SaleDetailDrawer({ saleId, open, onOpenChange, accounts }: SaleD
       onOpenChange={onOpenChange}
       title={salesLabels.detailTitle}
       subtitle={sale?.businessDate}
+      entityType="sales"
+      entityId={sale?.id}
       footer={
         sale ? (
           <span>

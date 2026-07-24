@@ -92,4 +92,10 @@ export const purchasesLabels = {
   impactRestoreTitle: "¿Deshacer la eliminación?",
   impactRestoreDescription:
     "Esta compra tiene una fecha anterior a movimientos ya registrados de sus ítems. Deshacer la eliminación recalculará el costo de esos movimientos.",
+
+  /** KOK-065: shown when a genuinely backdated NEW purchase trips the same R-5 gate a backdated
+   * edit does (INV-11 on create) — closes the dead-end where this refusal had no confirm path. */
+  impactCreateTitle: "¿Registrar esta compra?",
+  impactCreateDescription:
+    "Esta compra tiene una fecha anterior a movimientos ya registrados de sus ítems. Registrarla recalculará el costo de esos movimientos.",
 } as const;
