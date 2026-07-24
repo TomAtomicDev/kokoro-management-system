@@ -16,10 +16,14 @@ called for "Full create/update/delete/restore"), and `docs/development/kok-024-e
 pattern" once one ships — read that document before building sales edit/delete/restore. It generalizes
 cleanly; nothing here should need reinventing.
 
+Sales `updateSale`/`deleteSale`/`restoreSale` are now tracked as **KOK-064** (which also closes the
+§2 backdated-replay gap below); the `collectPayment` mark-paid flow stays **KOK-031**.
+
 The web UI (`SaleForm`/`SalesTable`/`SaleDetailDrawer`) mirrors this: no edit/delete buttons, no
 "mark paid" inline action, even though Doc 07's SC-02 entry describes both. Building UI against an
-endpoint that doesn't exist yet would be worse than leaving it out — when `collectPayment` (KOK-031)
-ships, wire "mark paid" into `SalesTable` then.
+endpoint that doesn't exist yet would be worse than leaving it out — wire edit/delete/restore into
+`SaleDetailDrawer`/`SalesTable` with **KOK-064**, and "mark paid" when `collectPayment` (**KOK-031**)
+ships.
 
 ## 2. Why `recordSale` never calls `planCostingReplay`
 
@@ -31,7 +35,10 @@ gap `recordPurchase`/`recordExit` already have on their own backdated-CREATE-thr
 (kok-024 doc §8). The nightly WAC-drift detector (`core/costing/repair.ts`) is the backstop.
 
 If this gap needs closing for sales specifically, it requires a schema change (adding `sale` to the
-trigger-type CHECK + a migration) and a Doc 03/04 amendment (D-6) — not a quiet code-only fix.
+trigger-type CHECK + a migration) and a Doc 03/04 amendment (D-6) — not a quiet code-only fix. This
+is now scoped into **KOK-064** (Option A): the CHECK change, its migration, and the Doc 03/04
+amendment ship together in that task, per D-6 — they are deliberately *not* pre-applied to the KB
+here, since Doc 04 must mirror the live DDL 1:1.
 
 ## 3. Cost/cash shape, in one paragraph
 
