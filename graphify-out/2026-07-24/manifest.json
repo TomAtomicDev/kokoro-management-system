@@ -1790,9 +1790,9 @@
     "semantic_hash": "ee7d8b492697f8320c098c9a555bfda1"
   },
   "docs/system-design-knowledge-base/10-implementation-backlog.md": {
-    "mtime": 1784905354.059929,
-    "ast_hash": "03fd3ab706c131fecce11ad48d96c30c",
-    "semantic_hash": "03fd3ab706c131fecce11ad48d96c30c"
+    "mtime": 1784917901.3362339,
+    "ast_hash": "47e8f70eb69781bdca3529ac4a673181",
+    "semantic_hash": ""
   },
   "docs/system-design-knowledge-base/11-testing-strategy.md": {
     "mtime": 1784219295.396364,
@@ -2032,6 +2032,11 @@
   "apps/web/src/lib/i18n-sales.ts": {
     "mtime": 1784916949.29573,
     "ast_hash": "6c7ffad5d41b313149b1cdf7094e5e8e",
+    "semantic_hash": ""
+  },
+  "docs/development/kok-030-sales-end-to-end.md": {
+    "mtime": 1784917937.4562201,
+    "ast_hash": "bbb0eff37b6844ba5ad4d11b2530f362",
     "semantic_hash": ""
   }
 }

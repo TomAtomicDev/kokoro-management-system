@@ -1245,9 +1245,9 @@
     "semantic_hash": "82265171b94ddb6181b187f0bfb23840"
   },
   "biome.json": {
-    "mtime": 1784217454.2335217,
-    "ast_hash": "6ca0b50f0bbe57ac33542f02cdd8b833",
-    "semantic_hash": "6ca0b50f0bbe57ac33542f02cdd8b833"
+    "mtime": 1784918063.3867426,
+    "ast_hash": "dff1a22e9f2817a48567b665f2e5e80e",
+    "semantic_hash": ""
   },
   "package.json": {
     "mtime": 1784217310.3748758,
@@ -1790,9 +1790,9 @@
     "semantic_hash": "ee7d8b492697f8320c098c9a555bfda1"
   },
   "docs/system-design-knowledge-base/10-implementation-backlog.md": {
-    "mtime": 1784905354.059929,
-    "ast_hash": "03fd3ab706c131fecce11ad48d96c30c",
-    "semantic_hash": "03fd3ab706c131fecce11ad48d96c30c"
+    "mtime": 1784917901.3362339,
+    "ast_hash": "47e8f70eb69781bdca3529ac4a673181",
+    "semantic_hash": ""
   },
   "docs/system-design-knowledge-base/11-testing-strategy.md": {
     "mtime": 1784219295.396364,
@@ -2032,6 +2032,11 @@
   "apps/web/src/lib/i18n-sales.ts": {
     "mtime": 1784916949.29573,
     "ast_hash": "6c7ffad5d41b313149b1cdf7094e5e8e",
+    "semantic_hash": ""
+  },
+  "docs/development/kok-030-sales-end-to-end.md": {
+    "mtime": 1784917937.4562201,
+    "ast_hash": "bbb0eff37b6844ba5ad4d11b2530f362",
     "semantic_hash": ""
   }
 }
