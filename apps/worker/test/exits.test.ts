@@ -36,6 +36,7 @@ import { recordPurchase } from "../src/core/purchasing/index.js";
 import { createDb } from "../src/db/index.js";
 import {
   auditLog,
+  costingAdjustments,
   financialAccounts,
   financialTransactions,
   stockExits,
@@ -665,6 +666,68 @@ async function exitMovements(db: TestDb, exitId: string) {
 }
 
 describe("updateStockExit (R-1)", () => {
+  it("descriptive-only edit (reason/notes) leaves the kardex byte-identical, writes no costing_adjustments row, and needs no confirmation (KOK-066)", async () => {
+    const db = createDb(env.DB);
+    const item = await seedPurchasedItem(db, "Exit edit — solo descriptivo", 2000, 4000); // wac 2
+
+    const created = await recordExit(
+      db,
+      {
+        itemId: item.id,
+        qty: 500,
+        reason: "WASTE",
+        notes: "antes",
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+      },
+      ACTOR,
+    );
+
+    const movementsBefore = await exitMovements(db, created.exit.id);
+    expect(movementsBefore).toHaveLength(1);
+    const movementIdBefore = movementsBefore[0]?.id;
+
+    const updated = await updateStockExit(
+      db,
+      created.exit.id,
+      {
+        itemId: item.id,
+        qty: 500,
+        reason: "GIFT_SAMPLE",
+        notes: "después",
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+      },
+      ACTOR,
+    );
+    expect(updated.exit).toMatchObject({ reason: "GIFT_SAMPLE", notes: "después" });
+
+    // Kardex byte-identical (same qty/unitCost/dates) => NOT regenerated at all: same row, same id.
+    const movementsAfter = await exitMovements(db, created.exit.id);
+    expect(movementsAfter).toHaveLength(1);
+    expect(movementsAfter[0]?.id).toBe(movementIdBefore);
+
+    // No costing_adjustments row, and no "costing_replay" audit entry.
+    expect(
+      await db.select().from(costingAdjustments).where(eq(costingAdjustments.itemId, item.id)),
+    ).toHaveLength(0);
+    const replayAuditRow = await db.query.auditLog.findFirst({
+      where: (t, { and, eq: eqOp }) =>
+        and(eqOp(t.entityId, created.exit.id), eqOp(t.action, "costing_replay")),
+    });
+    expect(replayAuditRow).toBeUndefined();
+
+    // C-6 still holds: no financial transaction, no items.wac write.
+    const itemAfter = await db.query.items.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
+    });
+    expect(itemAfter?.wac).toBe(2);
+    const exitTxRows = await db.query.financialTransactions.findMany({
+      where: (t, { eq: eqOp }) => eqOp(t.sourceEventType, "stock_exit"),
+    });
+    expect(exitTxRows).toHaveLength(0);
+  });
+
   it("edit changing qty: kardex and item_stock are regenerated, and C-6 still holds (no financial transaction, no WAC write, snapshot preserved)", async () => {
     const db = createDb(env.DB);
     const item = await seedPurchasedItem(db, "Exit edit — qty", 2000, 4000); // wac 2
@@ -1052,6 +1115,45 @@ describe("updateStockExit / deleteStockExit — backdated: R-5 confirmation (ADR
     businessDate: "2026-07-11",
   };
 
+  it("a descriptive-only edit to exit A skips the replay entirely and needs NO confirmation, even though exit A sits behind history a qty edit WOULD disturb (KOK-066)", async () => {
+    const db = createDb(env.DB);
+    const { item, exitA } = await seedBackdatedEditScenario(
+      db,
+      "Edición descriptiva sobre historial posterior",
+    );
+
+    // Same item/qty/dates as recorded — only `notes` changes. Without the kardexUnchanged guard
+    // this would still find P2 recorded after the touched point and demand confirmation for a
+    // costDelta that is provably zero — exactly the false-positive KOK-066 closes.
+    const updated = await updateStockExit(
+      db,
+      exitA.exit.id,
+      {
+        itemId: item.id,
+        qty: 8_000,
+        reason: "WASTE",
+        occurredAt: exitA.exit.occurredAt,
+        businessDate: exitA.exit.businessDate,
+        notes: "corregido",
+      },
+      ACTOR,
+    );
+    expect(updated.exit).toMatchObject({ qty: 8_000, notes: "corregido" });
+
+    // The kardex row was never regenerated: same movement id, same WAC as before the "edit".
+    const movements = await exitMovements(db, exitA.exit.id);
+    expect(movements).toHaveLength(1);
+    const itemRow = await db.query.items.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
+    });
+    expect(itemRow?.wac).toBeCloseTo(44_000 / 12_000, 9);
+
+    // No costing_adjustments row: nothing was actually replayed.
+    expect(
+      await db.select().from(costingAdjustments).where(eq(costingAdjustments.itemId, item.id)),
+    ).toHaveLength(0);
+  });
+
   it("refuses a backdated EDIT without `confirm`, writing nothing", async () => {
     const db = createDb(env.DB);
     const { item, exitA } = await seedBackdatedEditScenario(db, "Edición retroactiva rechazada");
@@ -1330,6 +1432,31 @@ describe("previewStockExitImpact (dry run: identical planner to the mutations, n
       where: (t, { eq: eqOp }) => eqOp(t.id, exitA.exit.id),
     });
     expect(row?.qty).toBe(8_000);
+  });
+
+  it("op=update, descriptive-only: reports NO confirmation required even though exitA sits behind history a qty edit would disturb, matching updateStockExit (KOK-066)", async () => {
+    const db = createDb(env.DB);
+    const { item, exitA } = await seedReplayScenario(db, "Preview update — descriptivo");
+
+    const command = {
+      itemId: item.id,
+      qty: exitA.exit.qty,
+      reason: exitA.exit.reason,
+      notes: "revisado",
+      occurredAt: exitA.exit.occurredAt,
+      businessDate: exitA.exit.businessDate,
+    };
+
+    const previewImpact = await previewStockExitImpact(db, {
+      op: "update",
+      id: exitA.exit.id,
+      command,
+    });
+    expect(previewImpact).toMatchObject({ requiresConfirmation: false, costDelta: 0 });
+
+    // The real mutation agrees: it commits outright, with no confirm needed.
+    const updated = await updateStockExit(db, exitA.exit.id, command, ACTOR);
+    expect(updated.exit).toMatchObject({ notes: "revisado" });
   });
 
   it("op=delete: matches the impact deleteStockExit itself would refuse with, and writes nothing", async () => {
