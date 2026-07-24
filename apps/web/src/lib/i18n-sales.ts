@@ -3,9 +3,9 @@
 // TODO: migrate into packages/shared/i18n/es.ts once that module exists (KOK-006+), same as
 // i18n-purchases.ts / i18n-finance.ts.
 //
-// Scope note: KOK-030 shipped CREATE + READ only. KOK-031 adds the "cobrar" (collectPayment)
-// copy below. There is still no "editar"/"eliminar" copy for a sale itself (that's KOK-064),
-// unlike i18n-purchases.ts's KOK-024 Phase G additions.
+// Scope note: KOK-030 shipped CREATE + READ only. KOK-031 added the "cobrar" (collectPayment)
+// copy below. KOK-064 adds "editar"/"eliminar"/restore + impact-confirm copy, mirroring
+// i18n-purchases.ts's KOK-024 Phase G additions.
 
 import type { PaymentMethod, PaymentStatus } from "@kokoro/shared";
 
@@ -90,4 +90,30 @@ export const salesLabels = {
     invalidLine: "Cada línea necesita un ítem, una cantidad y un precio unitario válidos.",
     accountRequired: "Selecciona una cuenta.",
   },
+
+  // --- Edit / delete / restore (KOK-064) ------------------------------------------------------
+
+  editTitle: "Editar venta",
+  edit: "Editar",
+  delete: "Eliminar",
+  /** Doc 06 principle 6: an ordinary delete gets no confirm-dialog wall, only the toast below. */
+  deletedUndo: "Venta eliminada.",
+  undo: "Deshacer",
+  restoreFailed: "No se pudo deshacer la eliminación. Intenta de nuevo.",
+
+  /** ImpactConfirmDialog copy — only shown when the server refuses with
+   * REPLAY_CONFIRMATION_REQUIRED (a backdated create/edit/delete/restore that moves already-booked
+   * cost). Mirrors i18n-purchases.ts's identical set. */
+  impactCreateTitle: "¿Registrar esta venta?",
+  impactCreateDescription:
+    "Esta venta tiene una fecha anterior a movimientos ya registrados de sus ítems. Registrarla recalculará el costo de esos movimientos.",
+  impactEditTitle: "¿Guardar los cambios?",
+  impactEditDescription:
+    "Esta venta tiene una fecha anterior a movimientos ya registrados de sus ítems. Guardar los cambios recalculará el costo de esos movimientos.",
+  impactDeleteTitle: "¿Eliminar esta venta?",
+  impactDeleteDescription:
+    "Esta venta tiene una fecha anterior a movimientos ya registrados de sus ítems. Eliminarla recalculará el costo de esos movimientos.",
+  impactRestoreTitle: "¿Deshacer la eliminación?",
+  impactRestoreDescription:
+    "Esta venta tiene una fecha anterior a movimientos ya registrados de sus ítems. Deshacer la eliminación recalculará el costo de esos movimientos.",
 } as const;

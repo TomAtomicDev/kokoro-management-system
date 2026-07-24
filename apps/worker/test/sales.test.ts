@@ -25,17 +25,23 @@ import fc from "fast-check";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { createItem } from "../src/core/catalog/index.js";
+import { recordExit } from "../src/core/inventory/exits.js";
 import { recordPurchase } from "../src/core/purchasing/index.js";
 import {
   collectPayment,
+  deleteSale,
   getSale,
   listReceivables,
   listSales,
+  previewSaleImpact,
   recordSale,
+  restoreSale,
+  updateSale,
 } from "../src/core/sales/index.js";
 import { createDb } from "../src/db/index.js";
 import {
   auditLog,
+  costingAdjustments,
   customers,
   financialAccounts,
   financialTransactions,
@@ -734,6 +740,585 @@ describe("listReceivables (v_receivables, KOK-031)", () => {
 
     const { receivables } = await listReceivables(db);
     expect(receivables.some((r) => r.saleId === sale.sale.id)).toBe(false);
+  });
+});
+
+describe("recordSale — backdated capture: INV-11 replay guard (R-2/R-5, ADR-016, KOK-064)", () => {
+  /**
+   * Identical numbers to exits.test.ts's canonical backdated scenario — a sale is stock-wise the
+   * same OUT-movement mechanism as an exit, so the same math discriminates the replay from a naive
+   * no-op: P1 10 000 @ 2 (07-10) -> exit A 8 000 (07-11, freezes 2) -> P2 10 000 @ 4 (07-12),
+   * leaving wac 44 000/12 000 = 3.6667. A sale of 8 000 backdated to 07-10T12:00 (BEFORE exit A):
+   *   prefix [P1] -> onHand 10 000, wac 2
+   *   new sale    -> onHand  2 000, wac 2 (C-6: a sale never moves the WAC)
+   *   exit A      -> onHand −6 000, wac 2
+   *   P2          -> wac (max(−6 000,0)·2 + 10 000·4) / 10 000 = 4, NOT 3.6667
+   * Exit A's frozen snapshot (2) is unchanged by the replay (also 2), so costDelta is 0 — but exit A
+   * IS found downstream of the touched point, which is what makes R-5 demand confirmation anyway.
+   */
+  async function seedBackdatedSaleScenario(db: TestDb, itemName: string) {
+    const item = await seedFinishedItem(db, itemName);
+    await recordPurchase(
+      db,
+      {
+        accountId: "acc_bank",
+        occurredAt: "2026-07-10T10:00:00.000Z",
+        businessDate: "2026-07-10",
+        lines: [{ itemId: item.id, qty: 10_000, lineTotal: 20_000 }],
+      },
+      ACTOR,
+    );
+    const exitA = await recordExit(
+      db,
+      {
+        itemId: item.id,
+        qty: 8_000,
+        reason: "WASTE",
+        occurredAt: "2026-07-11T10:00:00.000Z",
+        businessDate: "2026-07-11",
+      },
+      ACTOR,
+    );
+    await recordPurchase(
+      db,
+      {
+        accountId: "acc_bank",
+        occurredAt: "2026-07-12T10:00:00.000Z",
+        businessDate: "2026-07-12",
+        lines: [{ itemId: item.id, qty: 10_000, lineTotal: 40_000 }],
+      },
+      ACTOR,
+    );
+    return { item, exitA };
+  }
+
+  const BACKDATED_SALE = {
+    paymentStatus: "ON_CREDIT" as const,
+    occurredAt: "2026-07-10T12:00:00.000Z",
+    businessDate: "2026-07-10",
+  };
+
+  it("refuses a backdated sale landing behind an existing exit without `confirm`, writing nothing", async () => {
+    const db = createDb(env.DB);
+    const { item, exitA } = await seedBackdatedSaleScenario(db, "Venta retroactiva rechazada");
+
+    await expect(
+      recordSale(
+        db,
+        { ...BACKDATED_SALE, lines: [{ itemId: item.id, qty: 8_000, unitPrice: 1000 }] },
+        ACTOR,
+      ),
+    ).rejects.toMatchObject({
+      code: "CONFLICT",
+      details: {
+        reason: "REPLAY_CONFIRMATION_REQUIRED",
+        impact: { requiresConfirmation: true, affectedStockExitIds: [exitA.exit.id] },
+      },
+    });
+
+    // Thrown BEFORE db.batch: no sale row at all (beforeEach clears `sales` before this test runs),
+    // no SALE_OUT movement, stored WAC untouched.
+    expect(await db.query.sales.findMany()).toHaveLength(0);
+    const movementRows = await db.query.stockMovements.findMany({
+      where: (t, { eq: eqOp }) => eqOp(t.itemId, item.id),
+    });
+    expect(movementRows).toHaveLength(3); // P1 + exitA + P2 only
+    const itemRow = await db.query.items.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
+    });
+    expect(itemRow?.wac).toBeCloseTo(44_000 / 12_000, 9);
+  });
+
+  it("commits the same sale with `confirm: true`, replaying the later purchase's WAC without booking a WAC of its own (C-6)", async () => {
+    const db = createDb(env.DB);
+    const { item } = await seedBackdatedSaleScenario(db, "Venta retroactiva confirmada");
+
+    const result = await recordSale(
+      db,
+      {
+        ...BACKDATED_SALE,
+        confirm: true,
+        lines: [{ itemId: item.id, qty: 8_000, unitPrice: 1000 }],
+      },
+      ACTOR,
+    );
+
+    // C-6: valued at the item's CURRENT wac at capture time (3.6667, before this replay lands).
+    expect(result.sale.lines[0]?.unitCostSnapshot).toBeCloseTo(44_000 / 12_000, 9);
+    // ON_CREDIT: no cash side.
+    expect(result.account).toBeNull();
+
+    // The replay moved P2's re-averaging exactly like a backdated exit would (this sale itself
+    // books no WAC — it only changes the on-hand weight P2 later folds against).
+    const kardex = await db.query.stockMovements.findMany({
+      where: (t, { eq: eqOp }) => eqOp(t.itemId, item.id),
+      orderBy: (t, { asc }) => [asc(t.occurredAt), asc(t.createdAt)],
+    });
+    expect(kardex).toHaveLength(4);
+    const itemRow = await db.query.items.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
+    });
+    expect(itemRow?.wac).toBeCloseTo(4, 9);
+  });
+});
+
+describe("updateSale (R-1, KOK-064)", () => {
+  it("descriptive-only edit (customerId/notes) leaves the kardex byte-identical and needs no confirmation", async () => {
+    const db = createDb(env.DB);
+    const item = await seedStockedFinishedItem(db, "Venta — edición descriptiva", 1000, 4000); // wac 4
+    const customerId = generateUuidV7();
+    await db
+      .insert(customers)
+      .values({ id: customerId, name: "Cliente edición", createdAt: NOW, updatedAt: NOW });
+
+    const created = await recordSale(
+      db,
+      {
+        paymentStatus: "ON_CREDIT",
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        lines: [{ itemId: item.id, qty: 300, unitPrice: 2000 }],
+      },
+      ACTOR,
+    );
+
+    const movementBefore = await db.query.stockMovements.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.sourceEventId, created.sale.id),
+    });
+
+    const result = await updateSale(
+      db,
+      created.sale.id,
+      {
+        paymentStatus: "ON_CREDIT",
+        customerId,
+        notes: "Nota agregada",
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        lines: [{ itemId: item.id, qty: 300, unitPrice: 2000 }],
+      },
+      ACTOR,
+    );
+
+    expect(result.sale.customerId).toBe(customerId);
+    expect(result.sale.notes).toBe("Nota agregada");
+
+    // kardexUnchanged skip: the movement row is byte-identical (same id/created_at), never replaced.
+    const movementAfter = await db.query.stockMovements.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.sourceEventId, created.sale.id),
+    });
+    expect(movementAfter).toMatchObject({
+      id: movementBefore?.id,
+      createdAt: movementBefore?.createdAt,
+    });
+
+    expect(
+      await db.select().from(costingAdjustments).where(eq(costingAdjustments.itemId, item.id)),
+    ).toHaveLength(0);
+  });
+
+  it("edit changing qty/price recomputes total and re-snapshots at the item's CURRENT wac", async () => {
+    const db = createDb(env.DB);
+    const item = await seedStockedFinishedItem(db, "Venta — edición de cantidad", 1000, 4000); // wac 4
+
+    const created = await recordSale(
+      db,
+      {
+        paymentStatus: "PAID",
+        paymentMethod: "CASH",
+        accountId: "acc_cash",
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        lines: [{ itemId: item.id, qty: 300, unitPrice: 2000 }], // total 600
+      },
+      ACTOR,
+    );
+
+    const result = await updateSale(
+      db,
+      created.sale.id,
+      {
+        paymentStatus: "PAID",
+        paymentMethod: "CASH",
+        accountId: "acc_cash",
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        lines: [{ itemId: item.id, qty: 500, unitPrice: 2000 }], // total 1000
+      },
+      ACTOR,
+    );
+
+    expect(result.sale.total).toBe(1000);
+    expect(result.sale.lines[0]).toMatchObject({ qty: 500, unitCostSnapshot: 4 });
+    expect(result.account).toMatchObject({ id: "acc_cash", balance: 1000 });
+
+    const stockRow = await db.query.itemStock.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.itemId, item.id),
+    });
+    expect(stockRow?.qtyOnHand).toBe(500); // 1000 - 500, not 1000 - 300 - 500
+  });
+
+  it("edit moving a PAID sale to a different account nets exactly two account balance deltas", async () => {
+    const db = createDb(env.DB);
+    // seedStockedFinishedItem debits acc_bank via its own seed purchase — capture the baseline
+    // AFTER seeding so this test's assertions are about the EDIT's own net effect, not that seed.
+    const item = await seedStockedFinishedItem(db, "Venta — cambio de cuenta", 1000, 4000);
+    const bankBaseline = await accountBalance(db, "acc_bank");
+
+    const created = await recordSale(
+      db,
+      {
+        paymentStatus: "PAID",
+        paymentMethod: "CASH",
+        accountId: "acc_cash",
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        lines: [{ itemId: item.id, qty: 100, unitPrice: 2000 }], // total 200
+      },
+      ACTOR,
+    );
+    expect(await accountBalance(db, "acc_cash")).toBe(200);
+
+    const result = await updateSale(
+      db,
+      created.sale.id,
+      {
+        paymentStatus: "PAID",
+        paymentMethod: "BANK_QR",
+        accountId: "acc_bank",
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        lines: [{ itemId: item.id, qty: 100, unitPrice: 2000 }],
+      },
+      ACTOR,
+    );
+
+    expect(result.account).toMatchObject({ id: "acc_bank", balance: bankBaseline + 200 });
+    expect(await accountBalance(db, "acc_cash")).toBe(0); // reversed
+    expect(await accountBalance(db, "acc_bank")).toBe(bankBaseline + 200); // new effect
+  });
+
+  it("refuses (409 CONFLICT) editing a sale that has already been collected via collectPayment", async () => {
+    const db = createDb(env.DB);
+    const item = await seedStockedFinishedItem(db, "Venta — edición tras cobro", 1000, 4000);
+
+    const created = await recordSale(
+      db,
+      {
+        paymentStatus: "ON_CREDIT",
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        lines: [{ itemId: item.id, qty: 100, unitPrice: 2000 }],
+      },
+      ACTOR,
+    );
+    await collectPayment(
+      db,
+      created.sale.id,
+      {
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        paymentMethod: "CASH",
+        accountId: "acc_cash",
+      },
+      ACTOR,
+    );
+
+    await expect(
+      updateSale(
+        db,
+        created.sale.id,
+        {
+          paymentStatus: "ON_CREDIT",
+          occurredAt: NOW,
+          businessDate: BUSINESS_DATE,
+          notes: "intento de edición",
+          lines: [{ itemId: item.id, qty: 100, unitPrice: 2000 }],
+        },
+        ACTOR,
+      ),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+
+    // Untouched: still PAID via the original DEBT_COLLECTION transaction.
+    const saleRow = await db.query.sales.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.id, created.sale.id),
+    });
+    expect(saleRow?.notes).toBeNull();
+    const txRows = await db.query.financialTransactions.findMany({
+      where: (t, { eq: eqOp }) => eqOp(t.sourceEventId, created.sale.id),
+    });
+    expect(txRows).toHaveLength(1);
+    expect(txRows[0]).toMatchObject({ category: "DEBT_COLLECTION" });
+  });
+
+  it("rejects an unknown or already-deleted sale with NOT_FOUND", async () => {
+    const db = createDb(env.DB);
+    await expect(
+      updateSale(
+        db,
+        "sale_does_not_exist",
+        {
+          paymentStatus: "ON_CREDIT",
+          occurredAt: NOW,
+          businessDate: BUSINESS_DATE,
+          lines: [{ itemId: "irrelevant", qty: 1, unitPrice: 1 }],
+        },
+        ACTOR,
+      ),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+});
+
+describe("deleteSale (R-3, D-8, KOK-064)", () => {
+  it("soft-deletes a PAID sale: kardex reversed, item_stock netted back, cash reversed, deleted_at set", async () => {
+    const db = createDb(env.DB);
+    const item = await seedStockedFinishedItem(db, "Venta — eliminación", 1000, 4000);
+
+    const created = await recordSale(
+      db,
+      {
+        paymentStatus: "PAID",
+        paymentMethod: "CASH",
+        accountId: "acc_cash",
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        lines: [{ itemId: item.id, qty: 300, unitPrice: 2000 }], // total 600
+      },
+      ACTOR,
+    );
+    expect(await accountBalance(db, "acc_cash")).toBe(600);
+
+    const result = await deleteSale(db, created.sale.id, {}, ACTOR);
+
+    expect(result.sale.total).toBe(600);
+    expect(result.account).toMatchObject({ id: "acc_cash", balance: 0 });
+
+    const movementRows = await db.query.stockMovements.findMany({
+      where: (t, { eq: eqOp }) => eqOp(t.sourceEventId, created.sale.id),
+    });
+    expect(movementRows).toHaveLength(0);
+    const stockRow = await db.query.itemStock.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.itemId, item.id),
+    });
+    expect(stockRow?.qtyOnHand).toBe(1000); // fully reversed
+
+    const saleRow = await db.query.sales.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.id, created.sale.id),
+    });
+    expect(saleRow?.deletedAt).toEqual(expect.any(String));
+
+    await expect(getSale(db, created.sale.id)).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  it("refuses (409 CONFLICT) deleting a sale that has already been collected via collectPayment", async () => {
+    const db = createDb(env.DB);
+    const item = await seedStockedFinishedItem(db, "Venta — eliminación tras cobro", 1000, 4000);
+
+    const created = await recordSale(
+      db,
+      {
+        paymentStatus: "ON_CREDIT",
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        lines: [{ itemId: item.id, qty: 100, unitPrice: 2000 }],
+      },
+      ACTOR,
+    );
+    await collectPayment(
+      db,
+      created.sale.id,
+      {
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        paymentMethod: "CASH",
+        accountId: "acc_cash",
+      },
+      ACTOR,
+    );
+
+    await expect(deleteSale(db, created.sale.id, {}, ACTOR)).rejects.toMatchObject({
+      code: "CONFLICT",
+    });
+
+    const saleRow = await db.query.sales.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.id, created.sale.id),
+    });
+    expect(saleRow?.deletedAt).toBeNull();
+  });
+
+  it("rejects an unknown or already-deleted sale with NOT_FOUND", async () => {
+    const db = createDb(env.DB);
+    await expect(deleteSale(db, "sale_does_not_exist", {}, ACTOR)).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+  });
+});
+
+describe("restoreSale (Doc 06 principle 6 — 'Deshacer', KOK-064)", () => {
+  it("restores a sale that touched nothing downstream: kardex/cash come back, and the STORED unit_cost_snapshot is reused verbatim even after the item's wac has since moved", async () => {
+    const db = createDb(env.DB);
+    const item = await seedStockedFinishedItem(db, "Venta — restaurar", 1000, 4000); // wac 4
+
+    const created = await recordSale(
+      db,
+      {
+        paymentStatus: "PAID",
+        paymentMethod: "CASH",
+        accountId: "acc_cash",
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        lines: [{ itemId: item.id, qty: 300, unitPrice: 2000 }],
+      },
+      ACTOR,
+    );
+    expect(created.sale.lines[0]?.unitCostSnapshot).toBe(4);
+
+    await deleteSale(db, created.sale.id, {}, ACTOR);
+    expect(await accountBalance(db, "acc_cash")).toBe(0);
+
+    // The item's wac moves AFTER the delete, while the sale is gone — a restore must not re-price
+    // against this new value (C-6/R-4's spirit: undo brings back exactly what was deleted). This
+    // ALSO means re-inserting the sale's historical (07-16) movement now lands BEFORE this new
+    // (07-20) purchase in the kardex, so the restore itself requires R-5 confirmation (mirrors
+    // restoreStockExit's identical "superseded by intervening history" case).
+    await recordPurchase(
+      db,
+      {
+        accountId: "acc_bank",
+        occurredAt: "2026-07-20T10:00:00.000Z",
+        businessDate: "2026-07-20",
+        lines: [{ itemId: item.id, qty: 1000, lineTotal: 10_000 }], // unit cost 10
+      },
+      ACTOR,
+    );
+    const itemAfterPurchase = await db.query.items.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
+    });
+    expect(itemAfterPurchase?.wac).not.toBe(4);
+
+    await expect(restoreSale(db, created.sale.id, {}, ACTOR)).rejects.toMatchObject({
+      code: "CONFLICT",
+      details: { reason: "REPLAY_CONFIRMATION_REQUIRED" },
+    });
+
+    const restored = await restoreSale(db, created.sale.id, { confirm: true }, ACTOR);
+
+    expect(restored.sale.lines[0]?.unitCostSnapshot).toBe(4); // NOT the new current wac
+    expect(restored.account).toMatchObject({ id: "acc_cash", balance: 600 });
+
+    const movementRows = await db.query.stockMovements.findMany({
+      where: (t, { eq: eqOp }) => eqOp(t.sourceEventId, created.sale.id),
+    });
+    expect(movementRows).toHaveLength(1);
+    expect(movementRows[0]).toMatchObject({ type: "SALE_OUT", qty: -300, unitCost: 4 });
+
+    const auditRow = await db.query.auditLog.findFirst({
+      where: (t, { and, eq: eqOp }) =>
+        and(eqOp(t.entityId, created.sale.id), eqOp(t.action, "restore")),
+    });
+    expect(auditRow).toMatchObject({ actor: ACTOR, entityType: "sales" });
+  });
+
+  it("rejects an id that does not exist or is not currently deleted with NOT_FOUND", async () => {
+    const db = createDb(env.DB);
+    const item = await seedStockedFinishedItem(db, "Venta — restaurar id inválido", 1000, 4000);
+    const created = await recordSale(
+      db,
+      {
+        paymentStatus: "ON_CREDIT",
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        lines: [{ itemId: item.id, qty: 100, unitPrice: 2000 }],
+      },
+      ACTOR,
+    );
+
+    // Not deleted yet.
+    await expect(restoreSale(db, created.sale.id, {}, ACTOR)).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+    await expect(restoreSale(db, "sale_does_not_exist", {}, ACTOR)).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+  });
+});
+
+describe("previewSaleImpact (dry run: identical planner to the mutations, no write, KOK-064)", () => {
+  it("op=create: matches the impact recordSale itself would refuse with, and writes nothing", async () => {
+    const db = createDb(env.DB);
+    const item = await seedFinishedItem(db, "Preview — create");
+    await recordPurchase(
+      db,
+      {
+        accountId: "acc_bank",
+        occurredAt: "2026-07-10T10:00:00.000Z",
+        businessDate: "2026-07-10",
+        lines: [{ itemId: item.id, qty: 10_000, lineTotal: 20_000 }],
+      },
+      ACTOR,
+    );
+    const exitA = await recordExit(
+      db,
+      {
+        itemId: item.id,
+        qty: 8_000,
+        reason: "WASTE",
+        occurredAt: "2026-07-11T10:00:00.000Z",
+        businessDate: "2026-07-11",
+      },
+      ACTOR,
+    );
+
+    const command = {
+      paymentStatus: "ON_CREDIT" as const,
+      occurredAt: "2026-07-10T12:00:00.000Z",
+      businessDate: "2026-07-10",
+      lines: [{ itemId: item.id, qty: 5_000, unitPrice: 1000 }],
+    };
+
+    const impact = await previewSaleImpact(db, { op: "create", command });
+    expect(impact).toMatchObject({
+      requiresConfirmation: true,
+      affectedStockExitIds: [exitA.exit.id],
+    });
+
+    await expect(recordSale(db, command, ACTOR)).rejects.toMatchObject({
+      code: "CONFLICT",
+      details: { impact },
+    });
+    // Preview never writes, and the real mutation it previewed also refused before writing.
+    expect(await db.query.sales.findMany()).toHaveLength(0);
+  });
+
+  it("op=update: matches the impact updateSale itself would refuse with", async () => {
+    const db = createDb(env.DB);
+    const item = await seedStockedFinishedItem(db, "Preview — update", 1000, 4000);
+    const created = await recordSale(
+      db,
+      {
+        paymentStatus: "ON_CREDIT",
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        lines: [{ itemId: item.id, qty: 100, unitPrice: 2000 }],
+      },
+      ACTOR,
+    );
+
+    const command = {
+      paymentStatus: "ON_CREDIT" as const,
+      occurredAt: NOW,
+      businessDate: BUSINESS_DATE,
+      lines: [{ itemId: item.id, qty: 200, unitPrice: 2000 }],
+    };
+
+    const impact = await previewSaleImpact(db, { op: "update", id: created.sale.id, command });
+    expect(impact).toMatchObject({ requiresConfirmation: false, costDelta: 0 });
+
+    // Preview never writes.
+    const saleRow = await db.query.sales.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.id, created.sale.id),
+    });
+    expect(saleRow?.total).toBe(200); // unchanged from creation
   });
 });
 

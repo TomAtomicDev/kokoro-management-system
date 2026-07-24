@@ -3,25 +3,23 @@
 // schemas — never redeclare field validation elsewhere. Mirrors packages/shared/src/purchasing.ts's
 // shape (field schemas -> command schema -> hand-written DTOs).
 //
-// Scope: CREATE + READ only (KOK-030) — `recordSale` + list/get — exactly as core/purchasing shipped
-// in KOK-016 before UPDATE/DELETE/RESTORE were added later (KOK-024). Edit/delete/restore + the
-// dry-run impact request are a separate follow-up task (see docs/development/kok-024-event-edit-
-// delete.md §1/§8), so there is deliberately NO update/delete schema and NO impact-request schema here.
+// Scope: CREATE + READ (KOK-030), UPDATE + DELETE + RESTORE + the dry-run impact request (KOK-064,
+// applying the KOK-024 pattern — see docs/development/kok-030-sales-end-to-end.md §1/§2). Mirrors
+// how core/purchasing shipped CREATE+READ (KOK-016) before UPDATE/DELETE/RESTORE (KOK-024).
 //
-// NO `confirm` flag (deliberate, unlike purchasing/exits). The `confirm` flag exists solely to gate
-// the R-5 backdated-replay confirmation (ADR-016). A sale is NOT a modelled replay trigger:
-// `costing_adjustments.trigger_event_type` admits only purchase/production_run/stock_exit/session
-// (Doc 04 §3.4, `CostingAdjustmentTrigger`), never `sale`. So `recordSale` never runs a costing
-// replay and a `confirm` flag would gate nothing — it is omitted rather than cargo-culted. A
-// backdated sale re-weighting a later WAC is the same documented open gap that a backdated
-// CREATE purchase through the web UI has; the nightly WAC-drift detector (R-2) is the backstop.
+// `confirm` flag (KOK-064; previously deliberately absent — see the KOK-030 doc §2 history). The
+// flag gates the R-5 backdated-replay confirmation (ADR-016): `sale` is now a modelled
+// `costing_adjustments.trigger_event_type` (Doc 04 §3.4, `CostingAdjustmentTrigger`), a sale being
+// stock-wise identical to a stock exit (SALE_OUT), so `recordSale`/`updateSale`/`deleteSale`/
+// `restoreSale` all run the same INV-11/R-2 ordering guard `recordPurchase`/`recordExit` do.
 //
-// There is no client-supplied `total` field on the command — Doc 04 §5's integrity rule requires
-// `sales.total = Σ(qty × unit_price)`, recomputed server-side and never trusted from the caller
-// (core/sales/index.ts is the only place a sale's total is produced).
+// There is no client-supplied `total` field on any command schema here — Doc 04 §5's integrity rule
+// requires `sales.total = Σ(qty × unit_price)`, recomputed server-side and never trusted from the
+// caller (core/sales/index.ts is the only place a sale's total is produced).
 
 import { z } from "zod";
 
+import { confirmFlagSchema } from "./costing.js";
 import {
   type PaymentMethod,
   type PaymentStatus,
@@ -70,6 +68,12 @@ const saleCommandCommonFields = {
   occurredAt: occurredAtSchema,
   businessDate: businessDateSchema,
   lines: z.array(saleLineCommandSchema).min(1, "Se requiere al menos una línea de venta."),
+  // R-5 / ADR-016 (KOK-064): a sale whose `business_date` lands BEFORE the latest already-processed
+  // movement of an item it touches re-weights C-1 for every later kardex entry, which can change
+  // cost already booked against a recorded sale/exit. When it does, the service refuses with a
+  // CONFLICT carrying a ReplayImpactDto until the caller re-sends with `confirm: true`. Shared flag
+  // (D-4) — the same one every other replay-triggering command uses.
+  confirm: confirmFlagSchema,
 } as const;
 
 /**
@@ -94,7 +98,66 @@ export const recordSaleCommandSchema = z.discriminatedUnion("paymentStatus", [
     ...saleCommandCommonFields,
   }),
 ]);
-export type RecordSaleCommand = z.infer<typeof recordSaleCommandSchema>;
+/**
+ * NOTE the deliberate `z.input` (not `z.infer`): `confirm` is the only field with a Zod `.default()`,
+ * and the OUTPUT type would make it REQUIRED on every command literal — including the many
+ * unrelated call sites (web mutation hooks, tests) that legitimately omit it and mean "false". The
+ * input type keeps it optional; the service reads it as `=== true`, so an omitted flag is the safe
+ * value with or without a `.parse()` in front. Mirrors `RecordPurchaseCommand`'s identical note.
+ */
+export type RecordSaleCommand = z.input<typeof recordSaleCommandSchema>;
+
+/**
+ * UC-18 edit (KOK-064, Doc 03 §7 R-1). Deliberately an ALIAS of the create schema, exactly like
+ * `updatePurchaseCommandSchema` aliases `recordPurchaseCommandSchema`: an update is a FULL
+ * REPLACEMENT of the sale's post-state (the caller sends the complete edited sale, not a patch), so
+ * its field set is by definition identical to the create's — same lines, same payment-status
+ * discrimination, same `confirm` flag, and the same absence of a client-supplied `total`.
+ *
+ * Payment fields (`paymentStatus`/`paymentMethod`/`accountId`) ARE editable through this schema —
+ * `updateSale` itself refuses (409 CONFLICT) before ever validating the command's shape once the
+ * sale has already been collected via `collectPayment` (see core/sales/index.ts's
+ * `assertSaleNotCollected` and docs/development/kok-030-sales-end-to-end.md §1), so this alias never
+ * needs to special-case those fields at the schema level.
+ */
+export const updateSaleCommandSchema = recordSaleCommandSchema;
+/** `z.input` for the same reason `RecordSaleCommand` is. */
+export type UpdateSaleCommand = z.input<typeof updateSaleCommandSchema>;
+
+/**
+ * UC-18 delete (KOK-064, R-3 soft delete + R-5 confirmation). Carries ONLY the confirm flag —
+ * mirrors `deletePurchaseCommandSchema`: the server already knows everything else about the sale
+ * being deleted.
+ */
+export const deleteSaleCommandSchema = z.object({
+  confirm: confirmFlagSchema,
+});
+/** `z.input` — same `confirm` default reasoning as `RecordSaleCommand`. */
+export type DeleteSaleCommand = z.input<typeof deleteSaleCommandSchema>;
+
+/**
+ * Body of the DRY-RUN impact endpoint (R-5 / ADR-016), mirroring
+ * `purchaseImpactRequestSchema` exactly: one request shape covers create/update/delete because
+ * `planCostingReplay` already does. Discriminated on `op` so `id` is required exactly where it is
+ * meaningful.
+ */
+export const saleImpactRequestSchema = z.discriminatedUnion("op", [
+  z.object({
+    op: z.literal("create"),
+    command: recordSaleCommandSchema,
+  }),
+  z.object({
+    op: z.literal("update"),
+    id: z.string().min(1),
+    command: updateSaleCommandSchema,
+  }),
+  z.object({
+    op: z.literal("delete"),
+    id: z.string().min(1),
+  }),
+]);
+/** `z.input` — the nested command schemas carry `confirm`'s default. */
+export type SaleImpactRequest = z.input<typeof saleImpactRequestSchema>;
 
 /** GET /sales query filters — mirrors listPurchasesFiltersSchema's shape (purchasing.ts). */
 export const listSalesFiltersSchema = z.object({
@@ -148,6 +211,21 @@ export interface RecordSaleResult {
   sale: SaleDto;
   /** The credited account carrying its post-sale balance for a PAID sale; `null` for ON_CREDIT,
    * which moves no cash at sale time (the receivable is collected later, KOK-031). */
+  account: FinancialAccountDto | null;
+}
+
+/** Mirrors `RecordSaleResult`: the sale in its NEW (post-edit) state, plus the account carrying its
+ * post-edit balance — `null` when the edited sale is ON_CREDIT (no cash side to report). */
+export interface UpdateSaleResult {
+  sale: SaleDto;
+  account: FinancialAccountDto | null;
+}
+
+/** Mirrors `RecordSaleResult`. `sale` is the soft-deleted row as it now stands (R-3: the event
+ * survives with `deleted_at` set, reversible for 90 days via audit data), and `account` carries the
+ * balance with the sale's cash effect reversed — `null` when the deleted sale was ON_CREDIT. */
+export interface DeleteSaleResult {
+  sale: SaleDto;
   account: FinancialAccountDto | null;
 }
 
