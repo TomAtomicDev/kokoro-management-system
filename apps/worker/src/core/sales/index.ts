@@ -24,26 +24,33 @@
 // same open gap a backdated CREATE purchase through the web UI has; the nightly WAC-drift detector
 // (R-2, core/costing/repair.ts) is the backstop. This is why recordSale has no `confirm` flag.
 //
-// Scope: CREATE + READ only (KOK-030). No update/delete/restore — a separate follow-up (the KOK-024
-// pattern), exactly as core/purchasing shipped CREATE+READ first.
+// Scope: CREATE + READ (KOK-030) + collectPayment/listReceivables (KOK-031, UC-04). Still no
+// generic update/delete/restore for a sale itself — that's KOK-064, a separate follow-up (the
+// KOK-024 pattern), exactly as core/purchasing shipped CREATE+READ first. collectPayment is a
+// narrow, single-purpose transition (ON_CREDIT -> PAID only), not the general edit path.
 
 import type {
   AuditActor,
+  CollectPaymentCommand,
+  CollectPaymentResult,
+  ListReceivablesResult,
   ListSalesFilters,
   ListSalesResult,
+  ReceivableDto,
   RecordSaleCommand,
   RecordSaleResult,
   SaleDto,
   SaleLineDto,
 } from "@kokoro/shared";
 import { addMoney, generateUuidV7, mulMoneyByQty, nowIso } from "@kokoro/shared";
+import { eq, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 
 import type { Db } from "../../db/index.js";
 import { financialTransactions, saleLines, sales } from "../../db/schema.js";
 import { buildAuditLogInsert } from "../audit.js";
 import { snapshotUnitCost } from "../costing/wac.js";
-import { notFound, validationError } from "../errors.js";
+import { conflict, notFound, validationError } from "../errors.js";
 import { buildAccountBalanceDelta, findActiveAccountRowOrThrow } from "../finance/accounts.js";
 import { toAccountDto } from "../finance/dto.js";
 import { buildStockMovementStatements } from "../inventory/movements.js";
@@ -311,4 +318,140 @@ export async function listSales(db: Db, filters: ListSalesFilters = {}): Promise
   return {
     sales: rows.map((row) => toSaleDto(row, linesBySale.get(row.id) ?? [])),
   };
+}
+
+/**
+ * UC-04 (KOK-031): collect a receivable. One atomic batch (D-3):
+ *   - updates the sale row: `payment_status='PAID'`, `paid_at`/`payment_method`/`account_id` set.
+ *   - (total > 0 only) credits the chosen account + books an INCOME/DEBT_COLLECTION
+ *     `financial_transactions` row sourced to this sale — the exact cash-side shape recordSale's
+ *     PAID branch books at sale time, just deferred to whenever the money actually arrives.
+ *   - the `audit_log` row.
+ *
+ * No stock/kardex/WAC touch of any kind — the SALE_OUT movement and its unit_cost_snapshot were
+ * already frozen at `recordSale` time and never move again (C-6 spirit).
+ */
+export async function collectPayment(
+  db: Db,
+  id: string,
+  command: CollectPaymentCommand,
+  actor: AuditActor,
+): Promise<CollectPaymentResult> {
+  const saleRow = await db.query.sales.findFirst({
+    where: (t, { and, eq: eqOp, isNull }) => and(eqOp(t.id, id), isNull(t.deletedAt)),
+  });
+  if (!saleRow) {
+    throw notFound("No se encontró la venta.", { id });
+  }
+  if (saleRow.paymentStatus !== "ON_CREDIT") {
+    throw conflict("Esta venta ya está pagada; no se puede cobrar de nuevo.", { id });
+  }
+
+  const account = await findActiveAccountRowOrThrow(db, command.accountId);
+
+  const now = nowIso();
+  const updatedFields = {
+    paymentStatus: "PAID" as const,
+    paidAt: command.occurredAt,
+    paymentMethod: command.paymentMethod,
+    accountId: command.accountId,
+    updatedAt: now,
+  };
+
+  // financial_transactions.amount is always > 0 (Doc 04 §3.4's CHECK): a receivable of 0 (an
+  // all-giveaway ON_CREDIT sale) is marked collected but moves no cash, mirroring recordSale's own
+  // total===0 skip.
+  const financialStatements: Statement[] = [];
+  if (saleRow.total > 0) {
+    financialStatements.push(
+      buildAccountBalanceDelta(db, command.accountId, saleRow.total),
+      db.insert(financialTransactions).values({
+        id: generateUuidV7(),
+        occurredAt: command.occurredAt,
+        businessDate: command.businessDate,
+        accountId: command.accountId,
+        type: "INCOME" as const,
+        category: "DEBT_COLLECTION" as const,
+        amount: saleRow.total,
+        counterpartTxId: null,
+        sourceEventType: "sale",
+        sourceEventId: id,
+        description: null,
+        deletedAt: null,
+        createdAt: now,
+        updatedAt: now,
+      }),
+    );
+  }
+
+  const statements: Statement[] = [
+    db.update(sales).set(updatedFields).where(eq(sales.id, id)),
+    ...financialStatements,
+    buildAuditLogInsert(db, {
+      actor,
+      action: "collect_payment",
+      entityType: "sales",
+      entityId: id,
+      before: {
+        paymentStatus: saleRow.paymentStatus,
+        paidAt: saleRow.paidAt,
+        paymentMethod: saleRow.paymentMethod,
+        accountId: saleRow.accountId,
+      },
+      after: updatedFields,
+    }),
+  ];
+
+  await db.batch(statements as [Statement, ...Statement[]]);
+
+  const lineRows = await db.query.saleLines.findMany({
+    where: (t, { eq: eqOp }) => eqOp(t.saleId, id),
+  });
+
+  return {
+    sale: toSaleDto({ ...saleRow, ...updatedFields }, lineRows),
+    account: toAccountDto({ ...account, balance: addMoney(account.balance, saleRow.total) }),
+  };
+}
+
+/** Raw `v_receivables` row shape (snake_case, exactly the view's SELECT list — Doc 04 §4). The
+ * view is defined only in apps/worker/migrations/0001_init.sql (Drizzle's SQLite dialect has no
+ * binding for it, same precedent as core/inventory/queries.ts's v_stock/v_kardex reads), so this
+ * queries it via `db.all(sql\`...\`)` and hand-maps the row into `ReceivableDto`. */
+interface ReceivableRow {
+  sale_id: string;
+  occurred_at: string;
+  business_date: string;
+  customer_id: string | null;
+  customer_name: string | null;
+  total: number;
+  channel: SaleDto["channel"];
+  custom_order_id: string | null;
+  days_outstanding: number;
+}
+
+/**
+ * SC-02's "Por cobrar" preset (KOK-031): every ON_CREDIT, non-deleted sale with its age in days,
+ * oldest first. This is also the read the future alerts job (KOK-046, Doc 10 — still 📋 To Do at
+ * the time this was written) will consume for its "receivables aging >7 days" line; wiring it into
+ * that cron job is KOK-046's own scope, not this one's.
+ */
+export async function listReceivables(db: Db): Promise<ListReceivablesResult> {
+  const rows = await db.all<ReceivableRow>(sql`
+    SELECT * FROM v_receivables ORDER BY days_outstanding DESC
+  `);
+
+  const receivables: ReceivableDto[] = rows.map((row) => ({
+    saleId: row.sale_id,
+    occurredAt: row.occurred_at,
+    businessDate: row.business_date,
+    customerId: row.customer_id,
+    customerName: row.customer_name,
+    total: row.total,
+    channel: row.channel,
+    customOrderId: row.custom_order_id,
+    daysOutstanding: row.days_outstanding,
+  }));
+
+  return { receivables };
 }

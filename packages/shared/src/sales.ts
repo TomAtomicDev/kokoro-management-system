@@ -154,3 +154,47 @@ export interface RecordSaleResult {
 export interface ListSalesResult {
   sales: SaleDto[];
 }
+
+/**
+ * UC-04 (KOK-031): collect a receivable. Unlike `recordSaleCommandSchema`, this is never
+ * discriminated — `collectPayment` only ever runs against a sale already sitting in
+ * `v_receivables` (`payment_status = 'ON_CREDIT'`), so `paymentMethod`/`accountId` are always
+ * required here (mirrors `recordSaleCommandSchema`'s PAID branch). `occurredAt`/`businessDate` are
+ * the moment the money was actually collected — independent of the sale's own `occurred_at`, which
+ * stays frozen at when the goods left (Doc 04 §3.3).
+ */
+export const collectPaymentCommandSchema = z.object({
+  occurredAt: occurredAtSchema,
+  businessDate: businessDateSchema,
+  paymentMethod: paymentMethodSchema,
+  accountId: z.string().min(1),
+});
+export type CollectPaymentCommand = z.infer<typeof collectPaymentCommandSchema>;
+
+export interface CollectPaymentResult {
+  sale: SaleDto;
+  /** The credited account carrying its post-collection balance. */
+  account: FinancialAccountDto;
+}
+
+/**
+ * One row of `v_receivables` (Doc 04 §4): an ON_CREDIT, non-deleted sale with its age in days.
+ * `daysOutstanding` is computed by the view itself (`julianday('now') - julianday(occurred_at)`),
+ * not recomputed client-side, so every consumer (this screen, and later KOK-046's alerts job)
+ * agrees on the same number.
+ */
+export interface ReceivableDto {
+  saleId: string;
+  occurredAt: string;
+  businessDate: string;
+  customerId: string | null;
+  customerName: string | null;
+  total: number;
+  channel: SaleChannel;
+  customOrderId: string | null;
+  daysOutstanding: number;
+}
+
+export interface ListReceivablesResult {
+  receivables: ReceivableDto[];
+}

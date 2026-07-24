@@ -1,12 +1,15 @@
-// Integration tests for core/sales/index.ts (KOK-030, Doc 03 UC-03, Doc 04 §3.3 `sales`/`sale_lines`
-// + §5). Follows the Doc 11 §3 template: seed via createItem/recordPurchase (the same seams
-// purchasing.test.ts / exits.test.ts use) -> execute recordSale -> assert the sales row + sale_lines
-// + SALE_OUT kardex + item_stock + financial side + audit_log, run against real D1 via
-// @cloudflare/vitest-pool-workers.
+// Integration tests for core/sales/index.ts (KOK-030/KOK-031, Doc 03 UC-03/UC-04, Doc 04 §3.3
+// `sales`/`sale_lines` + §5). Follows the Doc 11 §3 template: seed via createItem/recordPurchase
+// (the same seams purchasing.test.ts / exits.test.ts use) -> execute recordSale -> assert the
+// sales row + sale_lines + SALE_OUT kardex + item_stock + financial side + audit_log, run against
+// real D1 via @cloudflare/vitest-pool-workers.
 //
 // The most discriminating assertions in this file:
 //   - PAID books an INCOME/SALE financial_transactions row and CREDITS the account; ON_CREDIT books
-//     NEITHER (Doc 03 / Doc 04 §3.3) — the receivable is collected later (KOK-031).
+//     NEITHER (Doc 03 / Doc 04 §3.3) — the receivable is collected later via collectPayment.
+//   - collectPayment (UC-04, KOK-031) flips ON_CREDIT -> PAID, books an INCOME/DEBT_COLLECTION row
+//     (not SALE — that category is reserved for cash collected at sale time), and only a sale
+//     already ON_CREDIT may be collected (re-collecting a PAID sale is a CONFLICT, not a no-op).
 //   - a sale FREEZES its unit_cost_snapshot at the item's current WAC but NEVER moves that WAC
 //     (C-6 spirit / R-4). A "helpful" items.wac write on the sale path is exactly the bug guarded here.
 //   - negative stock is ALLOWED (INV-8): overselling flags item_stock, it does not throw.
@@ -23,7 +26,13 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { createItem } from "../src/core/catalog/index.js";
 import { recordPurchase } from "../src/core/purchasing/index.js";
-import { getSale, listSales, recordSale } from "../src/core/sales/index.js";
+import {
+  collectPayment,
+  getSale,
+  listReceivables,
+  listSales,
+  recordSale,
+} from "../src/core/sales/index.js";
 import { createDb } from "../src/db/index.js";
 import {
   auditLog,
@@ -473,6 +482,304 @@ describe("reads: getSale / listSales", () => {
 
     const { sales: byDate } = await listSales(db, { fromDate: "2026-07-16", toDate: "2026-07-16" });
     expect(byDate.every((s) => s.businessDate === "2026-07-16")).toBe(true);
+  });
+});
+
+describe("collectPayment (UC-04, KOK-031)", () => {
+  it("collects a receivable: sale becomes PAID, paid_at/method/account set, DEBT_COLLECTION income booked, account credited, audit_log row", async () => {
+    const db = createDb(env.DB);
+    const item = await seedStockedFinishedItem(db, "Collect — happy path", 1000, 4000); // wac 4
+    const sale = await recordSale(
+      db,
+      {
+        paymentStatus: "ON_CREDIT",
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        lines: [{ itemId: item.id, qty: 300, unitPrice: 2000 }], // total 600
+      },
+      ACTOR,
+    );
+
+    const collectedAt = "2026-07-20T09:00:00.000Z";
+    const result = await collectPayment(
+      db,
+      sale.sale.id,
+      {
+        occurredAt: collectedAt,
+        businessDate: "2026-07-20",
+        paymentMethod: "CASH",
+        accountId: "acc_cash",
+      },
+      ACTOR,
+    );
+
+    expect(result.sale).toMatchObject({
+      paymentStatus: "PAID",
+      paidAt: collectedAt,
+      paymentMethod: "CASH",
+      accountId: "acc_cash",
+      total: 600,
+    });
+    expect(result.account).toMatchObject({ id: "acc_cash", balance: 600 });
+
+    const saleRow = await db.query.sales.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.id, sale.sale.id),
+    });
+    expect(saleRow).toMatchObject({
+      paymentStatus: "PAID",
+      paidAt: collectedAt,
+      paymentMethod: "CASH",
+      accountId: "acc_cash",
+    });
+
+    const txRows = await db.query.financialTransactions.findMany({
+      where: (t, { eq: eqOp }) => eqOp(t.sourceEventId, sale.sale.id),
+    });
+    expect(txRows).toHaveLength(1);
+    expect(txRows[0]).toMatchObject({
+      type: "INCOME",
+      category: "DEBT_COLLECTION",
+      amount: 600,
+      accountId: "acc_cash",
+      sourceEventType: "sale",
+    });
+    expect(await accountBalance(db, "acc_cash")).toBe(600);
+
+    const auditRow = await db.query.auditLog.findFirst({
+      where: (t, { and, eq: eqOp }) =>
+        and(eqOp(t.entityId, sale.sale.id), eqOp(t.action, "collect_payment")),
+    });
+    expect(auditRow).toMatchObject({ actor: ACTOR, entityType: "sales" });
+  });
+
+  it("rejects collecting an already-PAID sale with CONFLICT", async () => {
+    const db = createDb(env.DB);
+    const item = await seedStockedFinishedItem(db, "Collect — already paid", 1000, 3000);
+    const sale = await recordSale(
+      db,
+      {
+        paymentStatus: "PAID",
+        paymentMethod: "CASH",
+        accountId: "acc_cash",
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        lines: [{ itemId: item.id, qty: 100, unitPrice: 500 }],
+      },
+      ACTOR,
+    );
+
+    await expect(
+      collectPayment(
+        db,
+        sale.sale.id,
+        {
+          occurredAt: NOW,
+          businessDate: BUSINESS_DATE,
+          paymentMethod: "CASH",
+          accountId: "acc_cash",
+        },
+        ACTOR,
+      ),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+  });
+
+  it("rejects an unknown sale with NOT_FOUND", async () => {
+    const db = createDb(env.DB);
+    await expect(
+      collectPayment(
+        db,
+        "sale_does_not_exist",
+        {
+          occurredAt: NOW,
+          businessDate: BUSINESS_DATE,
+          paymentMethod: "CASH",
+          accountId: "acc_cash",
+        },
+        ACTOR,
+      ),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  it("rejects an inactive/unknown account before any write, leaving the sale untouched", async () => {
+    const db = createDb(env.DB);
+    const item = await seedStockedFinishedItem(db, "Collect — bad account", 1000, 3000);
+    const sale = await recordSale(
+      db,
+      {
+        paymentStatus: "ON_CREDIT",
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        lines: [{ itemId: item.id, qty: 100, unitPrice: 500 }],
+      },
+      ACTOR,
+    );
+
+    await expect(
+      collectPayment(
+        db,
+        sale.sale.id,
+        {
+          occurredAt: NOW,
+          businessDate: BUSINESS_DATE,
+          paymentMethod: "CASH",
+          accountId: "acc_does_not_exist",
+        },
+        ACTOR,
+      ),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+
+    const saleRow = await db.query.sales.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.id, sale.sale.id),
+    });
+    expect(saleRow?.paymentStatus).toBe("ON_CREDIT");
+  });
+
+  it("a zero-total ON_CREDIT sale (all-giveaway lines) is marked PAID but books no financial transaction", async () => {
+    const db = createDb(env.DB);
+    const item = await seedFinishedItem(db, "Collect — zero total");
+    const sale = await recordSale(
+      db,
+      {
+        paymentStatus: "ON_CREDIT",
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        lines: [{ itemId: item.id, qty: 100, unitPrice: 0 }],
+      },
+      ACTOR,
+    );
+    expect(sale.sale.total).toBe(0);
+
+    const before = await accountBalance(db, "acc_cash");
+    const result = await collectPayment(
+      db,
+      sale.sale.id,
+      {
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        paymentMethod: "CASH",
+        accountId: "acc_cash",
+      },
+      ACTOR,
+    );
+
+    expect(result.sale.paymentStatus).toBe("PAID");
+    expect(result.account.balance).toBe(before);
+
+    const txRows = await db.query.financialTransactions.findMany({
+      where: (t, { eq: eqOp }) => eqOp(t.sourceEventId, sale.sale.id),
+    });
+    expect(txRows).toHaveLength(0);
+  });
+});
+
+describe("listReceivables (v_receivables, KOK-031)", () => {
+  it("returns only non-deleted ON_CREDIT sales with days_outstanding, excludes PAID sales", async () => {
+    const db = createDb(env.DB);
+    const item = await seedStockedFinishedItem(db, "Receivables — list", 1000, 2000);
+
+    const credit = await recordSale(
+      db,
+      {
+        paymentStatus: "ON_CREDIT",
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        lines: [{ itemId: item.id, qty: 100, unitPrice: 500 }],
+      },
+      ACTOR,
+    );
+    await recordSale(
+      db,
+      {
+        paymentStatus: "PAID",
+        paymentMethod: "CASH",
+        accountId: "acc_cash",
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        lines: [{ itemId: item.id, qty: 100, unitPrice: 500 }],
+      },
+      ACTOR,
+    );
+
+    const { receivables } = await listReceivables(db);
+    const row = receivables.find((r) => r.saleId === credit.sale.id);
+    expect(row).toMatchObject({ total: 50, channel: "CATALOG" });
+    expect(typeof row?.daysOutstanding).toBe("number");
+  });
+
+  it("a collected receivable disappears from listReceivables", async () => {
+    const db = createDb(env.DB);
+    const item = await seedStockedFinishedItem(db, "Receivables — collected", 1000, 2000);
+    const sale = await recordSale(
+      db,
+      {
+        paymentStatus: "ON_CREDIT",
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        lines: [{ itemId: item.id, qty: 100, unitPrice: 500 }],
+      },
+      ACTOR,
+    );
+
+    await collectPayment(
+      db,
+      sale.sale.id,
+      {
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        paymentMethod: "CASH",
+        accountId: "acc_cash",
+      },
+      ACTOR,
+    );
+
+    const { receivables } = await listReceivables(db);
+    expect(receivables.some((r) => r.saleId === sale.sale.id)).toBe(false);
+  });
+});
+
+describe("property: collectPayment credits the account by exactly the sale's total, no lost centavos", () => {
+  it("∀ ON_CREDIT sales collected against a fixed account: balance increases by exactly total", async () => {
+    const db = createDb(env.DB);
+
+    const lineArb = fc.record({
+      qty: fc.integer({ min: 1, max: 5000 }),
+      unitPrice: fc.integer({ min: 0, max: 50_000 }),
+    });
+
+    await fc.assert(
+      fc.asyncProperty(fc.array(lineArb, { minLength: 1, maxLength: 8 }), async (lines) => {
+        const runId = generateUuidV7();
+        const item = await seedFinishedItem(db, `Property collect item ${runId}`);
+
+        const sale = await recordSale(
+          db,
+          {
+            paymentStatus: "ON_CREDIT",
+            occurredAt: NOW,
+            businessDate: BUSINESS_DATE,
+            lines: lines.map((l) => ({ itemId: item.id, qty: l.qty, unitPrice: l.unitPrice })),
+          },
+          ACTOR,
+        );
+
+        const before = await accountBalance(db, "acc_cash");
+        const result = await collectPayment(
+          db,
+          sale.sale.id,
+          {
+            occurredAt: NOW,
+            businessDate: BUSINESS_DATE,
+            paymentMethod: "CASH",
+            accountId: "acc_cash",
+          },
+          ACTOR,
+        );
+
+        expect(result.account.balance).toBe(addMoney(before, sale.sale.total));
+        expect(await accountBalance(db, "acc_cash")).toBe(addMoney(before, sale.sale.total));
+      }),
+      { numRuns: 15 },
+    );
   });
 });
 
