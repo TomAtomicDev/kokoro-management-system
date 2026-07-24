@@ -30,5 +30,5 @@ Ground rules (see `CLAUDE.md` — the KB):
   routes/handlers/tests.
 
 Work fast, match the surrounding code's style, run `pnpm check` when relevant,
-and keep the change to exactly what was asked. Reach for `codegraph_explore`
-before grepping when you need to locate code.
+and keep the change to exactly what was asked. Reach for `graphify query
+"<question>"` before grepping when you need to locate code.

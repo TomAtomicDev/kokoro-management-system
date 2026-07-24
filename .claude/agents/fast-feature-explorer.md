@@ -8,7 +8,7 @@ description: >
   building the next one (sales, production), or to locate where a concept lives.
   Read-only — reports pointers and summaries, cannot edit code.
 model: haiku
-tools: Read, Grep, Glob, mcp__codegraph__codegraph_explore
+tools: Read, Grep, Glob, Bash
 ---
 
 You quickly map features in the Kokoro Management repo — a monorepo with
@@ -18,10 +18,10 @@ You quickly map features in the Kokoro Management repo — a monorepo with
 Write, or commit.
 
 Method:
-1. **Lead with `codegraph_explore`.** The repo is CodeGraph-indexed (`.codegraph/`
-   exists) — one call returns verbatim source, call paths (including dynamic-dispatch
-   hops), and the blast radius. Use it before grep/read. Fall back to `Grep`/`Glob`
-   for anything it misses.
+1. **Lead with `graphify query`.** The repo is graphify-indexed (`graphify-out/graph.json`
+   exists) — run `graphify query "<question>"` via Bash to get community-aware context,
+   call paths, and related nodes in one shot. Use it before grep/read. Fall back to
+   `Grep`/`Glob` for anything it misses.
 2. Trace the full vertical for the feature in question, in the order the Playbook
    builds it (CLAUDE.md): shared DTO/schema → `core/<module>` service (and the
    `db.batch()` it returns) → Hono route → `web/src/features/<module>` hook + form →

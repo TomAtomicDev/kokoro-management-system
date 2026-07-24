@@ -1,22 +1,11 @@
 {
   "permissions": {
     "allow": [
-      "mcp__codegraph__*",
       "Skill(playwright-cli)",
       "Skill(run)"
     ]
   },
-  "hooks": {
-    "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "C:\\Users\\tommy\\AppData\\Local\\codegraph\\current\\bin\\codegraph.cmd prompt-hook",
-            "shell": "powershell"
-          }
-        ]
-      }
-    ]
+  "enabledPlugins": {
+    "context-mode@context-mode": true
   }
 }
