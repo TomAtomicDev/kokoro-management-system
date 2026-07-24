@@ -78,6 +78,14 @@ export const inventoryLabels = {
   calculated: "calculado",
   stockValueFormula: "cantidad en stock × costo promedio ponderado",
 
+  // --- Replacement-cost refresh (KOK-029, Doc 03 §4 C-3) -----------------------------------
+  refreshReplacementCostsButton: "Recalcular costos de reposición",
+  /** `count` is `ReplacementCostRefreshResultDto.refreshedItemIds.length`. */
+  replacementCostRefreshSuccess: (count: number) =>
+    count === 1
+      ? "Se actualizó el costo de reposición de 1 ítem."
+      : `Se actualizaron los costos de reposición de ${count} ítems.`,
+
   // Kardex drawer.
   kardexTitlePrefix: "Kardex",
   kardexColumnDate: "Fecha",

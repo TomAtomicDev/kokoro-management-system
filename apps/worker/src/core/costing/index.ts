@@ -4,6 +4,13 @@ export type { RecipeEdge } from "./dependency-graph.js";
 export { topoOrderAffectedItems } from "./dependency-graph.js";
 export type { WacDrift } from "./repair.js";
 export { detectWacDrift, getCurrentWac } from "./repair.js";
+export type { ReplacementCostLine } from "./replacement-cost.js";
+export { computeItemReplacementCost } from "./replacement-cost.js";
+export type { ReplacementCostRefreshPlan } from "./replacement-cost-refresh.js";
+export {
+  applyReplacementCostRefresh,
+  planReplacementCostRefresh,
+} from "./replacement-cost-refresh.js";
 export type { CostingReplayInput, CostingReplayPlan, PendingMovementChange } from "./replay.js";
 export { planCostingReplay } from "./replay.js";
 export type { ReplayMovement, WacState, WacTraceStep } from "./wac.js";

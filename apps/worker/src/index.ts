@@ -6,6 +6,7 @@ import { Hono } from "hono";
 import { authRoute } from "./api/auth.js";
 import { backupsRoute } from "./api/backups.js";
 import { catalogRoute } from "./api/catalog.js";
+import { costingRoute } from "./api/costing.js";
 import { dashboardRoute } from "./api/dashboard.js";
 import { errorHandler } from "./api/error-handler.js";
 import { financeRoute } from "./api/finance.js";
@@ -45,6 +46,7 @@ app.route("/api", inventoryRoute); // KOK-017 — v_stock/v_kardex reads (Doc 07
 app.route("/api", onboardingRoute); // KOK-020 — onboarding wizard (Doc 07 steps 1-5).
 app.route("/api", dashboardRoute); // KOK-023 — dashboard summary (Doc 07 SC-01 reduced).
 app.route("/api", backupsRoute); // KOK-022 — backup status + download (Doc 07 SC-16).
+app.route("/api", costingRoute); // KOK-029 — on-demand replacement-cost refresh (Doc 03 §4 C-3).
 
 // Extension point for a later backlog task — kept as a comment so the file reads as an obvious
 // map of where things go:

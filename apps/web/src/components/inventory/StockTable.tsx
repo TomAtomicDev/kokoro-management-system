@@ -14,8 +14,8 @@
 
 import type { StockRowDto } from "@kokoro/shared";
 import { formatMoney, formatQty } from "@kokoro/shared";
+import { CalcTrace } from "@/components/common/CalcTrace";
 import { EventTable, type EventTableColumn } from "@/components/data-table/EventTable";
-import { CalcTraceStub } from "@/components/inventory/CalcTraceStub";
 import { Badge } from "@/components/ui/badge";
 import { inventoryLabels } from "@/lib/i18n-inventory";
 import { cn } from "@/lib/utils";
@@ -97,7 +97,13 @@ export function StockTable({ rows, loading, onRowClick }: StockTableProps) {
       cell: (row) => (
         <div className="flex flex-col items-end gap-0.5">
           <span className="font-medium">{formatMoney(row.stockValue)}</span>
-          <CalcTraceStub formula={inventoryLabels.stockValueFormula} />
+          <CalcTrace
+            formula={inventoryLabels.stockValueFormula}
+            inputs={[
+              { label: inventoryLabels.columnOnHand, value: formatQty(row.qtyOnHand, row.unit) },
+              { label: inventoryLabels.columnWac, value: formatUnitCost(row.wac, row.unit) },
+            ]}
+          />
         </div>
       ),
     },

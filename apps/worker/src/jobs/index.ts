@@ -3,12 +3,12 @@
 // and invokes the matching handler, so wiring in a new job is a one-line registry change with no
 // ripple into `index.ts`.
 //
-// `daily-snapshot` (KOK-021) and `backup` (KOK-022) have real implementations. The other three
-// cron names — `replacement-cost-refresh` (KOK-029), `alerts` (KOK-046), `weekly-digest` — don't
+// `daily-snapshot` (KOK-021), `replacement-cost-refresh` (KOK-029), and `backup` (KOK-022) have
+// real implementations. The other two cron names — `alerts` (KOK-046), `weekly-digest` — don't
 // have a service to call yet, so each maps to `runNotImplementedJob`, a shared stub that still
 // writes a `job_runs` row (`ok=1`, `detail: 'not yet implemented'`) via `core/jobs.ts`'s
 // `buildJobRunInsert` (D-2: no raw `db.insert()` from `jobs/` itself). This keeps `job_runs` a
-// complete nightly log from day one instead of having three of five crons produce silence until
+// complete nightly log from day one instead of having two of five crons produce silence until
 // their own backlog tasks land.
 //
 // `JobHandler` takes `(db, bucket)` — only `runBackup` (KOK-022) needs the R2 binding, but a
@@ -23,6 +23,7 @@ import { buildJobRunInsert } from "../core/jobs.js";
 import type { Db } from "../db/index.js";
 import { runBackup } from "./backup.js";
 import { runDailySnapshot } from "./daily-snapshot.js";
+import { runReplacementCostRefresh } from "./replacement-cost-refresh.js";
 
 type JobHandler = (db: Db, bucket: R2Bucket) => Promise<void>;
 
@@ -41,7 +42,7 @@ async function runNotImplementedJob(db: Db, job: string): Promise<void> {
 
 const JOB_REGISTRY: Record<string, JobHandler> = {
   "daily-snapshot": runDailySnapshot,
-  "replacement-cost-refresh": (db) => runNotImplementedJob(db, "replacement-cost-refresh"),
+  "replacement-cost-refresh": runReplacementCostRefresh,
   alerts: (db) => runNotImplementedJob(db, "alerts"),
   backup: runBackup,
   "weekly-digest": (db) => runNotImplementedJob(db, "weekly-digest"),

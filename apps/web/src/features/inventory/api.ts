@@ -22,6 +22,7 @@ import type {
   ListWasteSummaryResult,
   RecordStockExitCommand,
   RecordStockExitResult,
+  ReplacementCostRefreshResultDto,
   ReplayImpactDto,
   StartCountCommand,
   StartCountResult,
@@ -125,6 +126,20 @@ export function useWasteSummary(filters: ListWasteSummaryFilters = {}) {
       api.get<ListWasteSummaryResult>(
         `/inventory/waste-summary${wasteSummaryFiltersToQueryString(filters)}`,
       ),
+  });
+}
+
+// --- On-demand replacement-cost refresh (KOK-029, Doc 03 §4 C-3) -----------------------------
+
+/** On-demand twin of the nightly `replacement-cost-refresh` Cron Trigger job (same server-side
+ * planner, api/costing.ts's header) — invalidates the inventory root key since a refresh changes
+ * `replacement_cost`, which `v_stock`'s `stock_value`/`replacementCost` columns read from. */
+export function useRefreshReplacementCosts() {
+  const invalidate = useInvalidateInventory();
+  return useMutation({
+    mutationFn: () =>
+      api.post<ReplacementCostRefreshResultDto>("/costing/replacement-cost-refresh"),
+    onSuccess: invalidate,
   });
 }
 
