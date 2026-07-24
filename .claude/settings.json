@@ -7,5 +7,27 @@
   },
   "enabledPlugins": {
     "context-mode@context-mode": true
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Grep",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "C:/Users/tommy/AppData/Local/Programs/Python/Python313/Scripts/graphify.EXE hook-guard search"
+          }
+        ]
+      },
+      {
+        "matcher": "Read|Glob",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "C:/Users/tommy/AppData/Local/Programs/Python/Python313/Scripts/graphify.EXE hook-guard read"
+          }
+        ]
+      }
+    ]
   }
 }
