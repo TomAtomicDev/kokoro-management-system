@@ -1,17 +1,21 @@
-// TanStack Query hooks over /api/sales (KOK-030 frontend). Mirrors features/purchases/api.ts's
-// shape: a root key + list/detail key helpers, a query hook per resource, and a mutation whose
-// onSuccess invalidates the root key.
+// TanStack Query hooks over /api/sales (KOK-030/KOK-031 frontend). Mirrors features/purchases/
+// api.ts's shape: a root key + list/detail key helpers, a query hook per resource, and a mutation
+// whose onSuccess invalidates the root key.
 //
-// Scope (KOK-030): CREATE + READ only — core/sales ships `recordSale`/`listSales`/`getSale`
-// exactly, with deliberately no update/delete/restore/collectPayment (KOK-031). So unlike
-// purchases/inventory's api.ts files, there is no edit/delete/restore quartet here — adding one
-// would be UI for an endpoint that doesn't exist yet.
+// Scope: KOK-030 shipped CREATE + READ only (recordSale/listSales/getSale). KOK-031 adds UC-04's
+// collectPayment + the receivables read (listReceivables/v_receivables) — still no generic
+// update/delete/restore for a sale itself (that's KOK-064), so this stays short of purchases/
+// inventory's full edit/delete/restore quartet.
 //
-// recordSale also moves stock (item_stock) and, for a PAID sale, an account balance
+// recordSale/collectPayment also move stock (item_stock) / an account balance
 // (financial_accounts) on the server — same precedent as recordPurchase's header comment: there's
-// no shared cross-feature invalidation surface yet, so this only invalidates the sales keys below.
+// no shared cross-feature invalidation surface yet, so collectPayment additionally invalidates
+// finance's ACCOUNTS_KEY directly (imported, not duplicated) alongside the sales keys below.
 
 import type {
+  CollectPaymentCommand,
+  CollectPaymentResult,
+  ListReceivablesResult,
   ListSalesFilters,
   ListSalesResult,
   RecordSaleCommand,
@@ -20,9 +24,11 @@ import type {
 } from "@kokoro/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import { ACCOUNTS_KEY } from "@/features/finance/api";
 import { api } from "@/lib/api";
 
 const SALES_ROOT_KEY = ["sales"] as const;
+const RECEIVABLES_KEY = [...SALES_ROOT_KEY, "receivables"] as const;
 
 function salesListKey(filters: ListSalesFilters) {
   return [...SALES_ROOT_KEY, "list", filters] as const;
@@ -68,5 +74,31 @@ export function useRecordSale() {
   return useMutation({
     mutationFn: (command: RecordSaleCommand) => api.post<RecordSaleResult>("/sales", command),
     onSuccess: invalidate,
+  });
+}
+
+/** SC-02's "Por cobrar" preset aging (KOK-031) — `v_receivables` via GET /sales/receivables. Only
+ * fetched while the preset is active (`enabled`), same precedent as useSale's `enabled: Boolean(id)`. */
+export function useReceivables(enabled = true) {
+  return useQuery({
+    queryKey: RECEIVABLES_KEY,
+    queryFn: () => api.get<ListReceivablesResult>("/sales/receivables"),
+    enabled,
+  });
+}
+
+/** UC-04 (KOK-031): collects a receivable. Also invalidates finance's ACCOUNTS_KEY — the credited
+ * account's balance moves server-side, exactly like recordSale's PAID branch already implies for
+ * the Finance screen, just deferred to whenever this runs instead of at sale time. */
+export function useCollectPayment() {
+  const invalidateSales = useInvalidateSales();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ saleId, ...command }: CollectPaymentCommand & { saleId: string }) =>
+      api.post<CollectPaymentResult>(`/sales/${saleId}/collect-payment`, command),
+    onSuccess: () => {
+      invalidateSales();
+      queryClient.invalidateQueries({ queryKey: ACCOUNTS_KEY });
+    },
   });
 }

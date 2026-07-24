@@ -1,6 +1,8 @@
 // Detail drawer for a single sale (Doc 06 §4 DetailDrawer contract). Pure display — no
-// edit/delete here (core/sales has no update/delete yet, KOK-031), so this is simpler than
-// PurchaseDetailDrawer.tsx: no edit button, no delete/undo dance, no ImpactConfirmDialog.
+// edit/delete here (core/sales has no generic update/delete yet, that's KOK-064), so this is
+// simpler than PurchaseDetailDrawer.tsx: no edit button, no delete/undo dance, no
+// ImpactConfirmDialog. The one KOK-031 mutation (collectPayment) lives in SalesTable's inline
+// "Cobrar" action instead, not here.
 
 import type { FinancialAccountDto, ItemDto } from "@kokoro/shared";
 import { formatMoney, formatQty, mulMoneyByQty } from "@kokoro/shared";

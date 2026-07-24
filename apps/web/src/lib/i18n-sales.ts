@@ -1,11 +1,11 @@
-// Spanish (es-BO) copy for the Sales screen (SC-02, UC-03), SaleForm, SalesTable, and
-// SaleDetailDrawer.
+// Spanish (es-BO) copy for the Sales screen (SC-02, UC-03/UC-04), SaleForm, SalesTable,
+// CollectPaymentDialog, and SaleDetailDrawer.
 // TODO: migrate into packages/shared/i18n/es.ts once that module exists (KOK-006+), same as
 // i18n-purchases.ts / i18n-finance.ts.
 //
-// Scope note (KOK-030): this task ships CREATE + READ only (core/sales has no update/delete/
-// collectPayment yet — that's KOK-031). There is deliberately no "editar"/"eliminar"/"marcar
-// pagado" copy here, unlike i18n-purchases.ts's KOK-024 Phase G additions.
+// Scope note: KOK-030 shipped CREATE + READ only. KOK-031 adds the "cobrar" (collectPayment)
+// copy below. There is still no "editar"/"eliminar" copy for a sale itself (that's KOK-064),
+// unlike i18n-purchases.ts's KOK-024 Phase G additions.
 
 import type { PaymentMethod, PaymentStatus } from "@kokoro/shared";
 
@@ -78,6 +78,12 @@ export const salesLabels = {
   detailTitle: "Venta",
   detailLines: "Líneas",
   noNotes: "Sin notas.",
+
+  columnDaysOutstanding: "Días",
+  daysOutstandingValue: (days: number) => `${days} d`,
+  actionCollect: "Cobrar",
+  collectTitle: "Cobrar venta",
+  collectSubmit: "Confirmar cobro",
 
   errors: {
     generic: "Ocurrió un error inesperado. Intenta de nuevo.",
