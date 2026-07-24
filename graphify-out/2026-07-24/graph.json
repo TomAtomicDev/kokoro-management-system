@@ -254,598 +254,15 @@
   },
   "nodes": [
     {
-      "label": "biome.json",
-      "file_type": "code",
-      "source_file": "biome.json",
-      "source_location": "L1",
-      "_origin": "ast",
-      "id": "biome",
-      "community": 78,
-      "community_name": "Biome Config",
-      "norm_label": "biome.json"
-    },
-    {
-      "label": "$schema",
-      "file_type": "code",
-      "source_file": "biome.json",
-      "source_location": "L2",
-      "_origin": "ast",
-      "id": "biome_schema",
-      "community": 78,
-      "community_name": "Biome Config",
-      "norm_label": "$schema"
-    },
-    {
-      "label": "vcs",
-      "file_type": "code",
-      "source_file": "biome.json",
-      "source_location": "L3",
-      "_origin": "ast",
-      "id": "biome_vcs",
-      "community": 99,
-      "community_name": "Biome VCS Settings",
-      "norm_label": "vcs"
-    },
-    {
-      "label": "enabled",
-      "file_type": "code",
-      "source_file": "biome.json",
-      "source_location": "L4",
-      "_origin": "ast",
-      "id": "biome_vcs_enabled",
-      "community": 99,
-      "community_name": "Biome VCS Settings",
-      "norm_label": "enabled"
-    },
-    {
-      "label": "clientKind",
-      "file_type": "code",
-      "source_file": "biome.json",
-      "source_location": "L5",
-      "_origin": "ast",
-      "id": "biome_vcs_clientkind",
-      "community": 99,
-      "community_name": "Biome VCS Settings",
-      "norm_label": "clientkind"
-    },
-    {
-      "label": "useIgnoreFile",
-      "file_type": "code",
-      "source_file": "biome.json",
-      "source_location": "L6",
-      "_origin": "ast",
-      "id": "biome_vcs_useignorefile",
-      "community": 99,
-      "community_name": "Biome VCS Settings",
-      "norm_label": "useignorefile"
-    },
-    {
-      "label": "files",
-      "file_type": "code",
-      "source_file": "biome.json",
-      "source_location": "L8",
-      "_origin": "ast",
-      "id": "biome_files",
-      "community": 78,
-      "community_name": "Biome Config",
-      "norm_label": "files"
-    },
-    {
-      "label": "ignoreUnknown",
-      "file_type": "code",
-      "source_file": "biome.json",
-      "source_location": "L9",
-      "_origin": "ast",
-      "id": "biome_files_ignoreunknown",
-      "community": 78,
-      "community_name": "Biome Config",
-      "norm_label": "ignoreunknown"
-    },
-    {
-      "label": "includes",
-      "file_type": "code",
-      "source_file": "biome.json",
-      "source_location": "L10",
-      "_origin": "ast",
-      "id": "biome_files_includes",
-      "community": 69,
-      "community_name": "Gitignore Patterns",
-      "norm_label": "includes"
-    },
-    {
-      "label": "**",
-      "file_type": "concept",
-      "source_file": "biome.json",
-      "source_location": "L10",
-      "_origin": "ast",
-      "id": "ref",
-      "community": 69,
-      "community_name": "Gitignore Patterns",
-      "norm_label": "**"
-    },
-    {
-      "label": "!**/dist",
-      "file_type": "concept",
-      "source_file": "biome.json",
-      "source_location": "L10",
-      "_origin": "ast",
-      "id": "ref_dist",
-      "community": 69,
-      "community_name": "Gitignore Patterns",
-      "norm_label": "!**/dist"
-    },
-    {
-      "label": "!**/.wrangler",
-      "file_type": "concept",
-      "source_file": "biome.json",
-      "source_location": "L10",
-      "_origin": "ast",
-      "id": "ref_wrangler",
-      "community": 69,
-      "community_name": "Gitignore Patterns",
-      "norm_label": "!**/.wrangler"
-    },
-    {
-      "label": "!**/node_modules",
-      "file_type": "concept",
-      "source_file": "biome.json",
-      "source_location": "L10",
-      "_origin": "ast",
-      "id": "ref_node_modules",
-      "community": 69,
-      "community_name": "Gitignore Patterns",
-      "norm_label": "!**/node_modules"
-    },
-    {
-      "label": "!**/*.d.ts",
-      "file_type": "concept",
-      "source_file": "biome.json",
-      "source_location": "L10",
-      "_origin": "ast",
-      "id": "ref_d_ts",
-      "community": 69,
-      "community_name": "Gitignore Patterns",
-      "norm_label": "!**/*.d.ts"
-    },
-    {
-      "label": "!**/worker-configuration.d.ts",
-      "file_type": "concept",
-      "source_file": "biome.json",
-      "source_location": "L10",
-      "_origin": "ast",
-      "id": "ref_worker_configuration_d_ts",
-      "community": 69,
-      "community_name": "Gitignore Patterns",
-      "norm_label": "!**/worker-configuration.d.ts"
-    },
-    {
-      "label": "!**/.agents",
-      "file_type": "concept",
-      "source_file": "biome.json",
-      "source_location": "L10",
-      "_origin": "ast",
-      "id": "ref_agents",
-      "community": 69,
-      "community_name": "Gitignore Patterns",
-      "norm_label": "!**/.agents"
-    },
-    {
-      "label": "!**/.claude",
-      "file_type": "concept",
-      "source_file": "biome.json",
-      "source_location": "L10",
-      "_origin": "ast",
-      "id": "ref_claude",
-      "community": 69,
-      "community_name": "Gitignore Patterns",
-      "norm_label": "!**/.claude"
-    },
-    {
-      "label": "!**/.design",
-      "file_type": "concept",
-      "source_file": "biome.json",
-      "source_location": "L10",
-      "_origin": "ast",
-      "id": "ref_design",
-      "community": 69,
-      "community_name": "Gitignore Patterns",
-      "norm_label": "!**/.design"
-    },
-    {
-      "label": "!**/.github",
-      "file_type": "concept",
-      "source_file": "biome.json",
-      "source_location": "L10",
-      "_origin": "ast",
-      "id": "ref_github",
-      "community": 69,
-      "community_name": "Gitignore Patterns",
-      "norm_label": "!**/.github"
-    },
-    {
-      "label": "!**/.mcp.json",
-      "file_type": "concept",
-      "source_file": "biome.json",
-      "source_location": "L10",
-      "_origin": "ast",
-      "id": "ref_mcp_json",
-      "community": 69,
-      "community_name": "Gitignore Patterns",
-      "norm_label": "!**/.mcp.json"
-    },
-    {
-      "label": "!**/pnpm-lock.yaml",
-      "file_type": "concept",
-      "source_file": "biome.json",
-      "source_location": "L10",
-      "_origin": "ast",
-      "id": "ref_pnpm_lock_yaml",
-      "community": 69,
-      "community_name": "Gitignore Patterns",
-      "norm_label": "!**/pnpm-lock.yaml"
-    },
-    {
-      "label": "!**/apps/worker/migrations",
-      "file_type": "concept",
-      "source_file": "biome.json",
-      "source_location": "L10",
-      "_origin": "ast",
-      "id": "ref_apps_worker_migrations",
-      "community": 69,
-      "community_name": "Gitignore Patterns",
-      "norm_label": "!**/apps/worker/migrations"
-    },
-    {
-      "label": "!**/graphify-out",
-      "file_type": "concept",
-      "source_file": "biome.json",
-      "source_location": "L10",
-      "_origin": "ast",
-      "id": "ref_graphify_out",
-      "community": 69,
-      "community_name": "Gitignore Patterns",
-      "norm_label": "!**/graphify-out"
-    },
-    {
-      "label": "formatter",
-      "file_type": "code",
-      "source_file": "biome.json",
-      "source_location": "L27",
-      "_origin": "ast",
-      "id": "biome_formatter",
-      "community": 78,
-      "community_name": "Biome Config",
-      "norm_label": "formatter"
-    },
-    {
-      "label": "enabled",
-      "file_type": "code",
-      "source_file": "biome.json",
-      "source_location": "L28",
-      "_origin": "ast",
-      "id": "biome_formatter_enabled",
-      "community": 78,
-      "community_name": "Biome Config",
-      "norm_label": "enabled"
-    },
-    {
-      "label": "indentStyle",
-      "file_type": "code",
-      "source_file": "biome.json",
-      "source_location": "L29",
-      "_origin": "ast",
-      "id": "biome_formatter_indentstyle",
-      "community": 78,
-      "community_name": "Biome Config",
-      "norm_label": "indentstyle"
-    },
-    {
-      "label": "indentWidth",
-      "file_type": "code",
-      "source_file": "biome.json",
-      "source_location": "L30",
-      "_origin": "ast",
-      "id": "biome_formatter_indentwidth",
-      "community": 78,
-      "community_name": "Biome Config",
-      "norm_label": "indentwidth"
-    },
-    {
-      "label": "lineWidth",
-      "file_type": "code",
-      "source_file": "biome.json",
-      "source_location": "L31",
-      "_origin": "ast",
-      "id": "biome_formatter_linewidth",
-      "community": 78,
-      "community_name": "Biome Config",
-      "norm_label": "linewidth"
-    },
-    {
-      "label": "assist",
-      "file_type": "code",
-      "source_file": "biome.json",
-      "source_location": "L33",
-      "_origin": "ast",
-      "id": "biome_assist",
-      "community": 98,
-      "community_name": "Biome Assist Actions",
-      "norm_label": "assist"
-    },
-    {
-      "label": "actions",
-      "file_type": "code",
-      "source_file": "biome.json",
-      "source_location": "L33",
-      "_origin": "ast",
-      "id": "biome_assist_actions",
-      "community": 98,
-      "community_name": "Biome Assist Actions",
-      "norm_label": "actions"
-    },
-    {
-      "label": "source",
-      "file_type": "code",
-      "source_file": "biome.json",
-      "source_location": "L33",
-      "_origin": "ast",
-      "id": "biome_actions_source",
-      "community": 98,
-      "community_name": "Biome Assist Actions",
-      "norm_label": "source"
-    },
-    {
-      "label": "organizeImports",
-      "file_type": "code",
-      "source_file": "biome.json",
-      "source_location": "L33",
-      "_origin": "ast",
-      "id": "biome_source_organizeimports",
-      "community": 98,
-      "community_name": "Biome Assist Actions",
-      "norm_label": "organizeimports"
-    },
-    {
-      "label": "linter",
-      "file_type": "code",
-      "source_file": "biome.json",
-      "source_location": "L34",
-      "_origin": "ast",
-      "id": "biome_linter",
-      "community": 72,
-      "community_name": "Biome Linter Rules",
-      "norm_label": "linter"
-    },
-    {
-      "label": "enabled",
-      "file_type": "code",
-      "source_file": "biome.json",
-      "source_location": "L35",
-      "_origin": "ast",
-      "id": "biome_linter_enabled",
-      "community": 72,
-      "community_name": "Biome Linter Rules",
-      "norm_label": "enabled"
-    },
-    {
-      "label": "rules",
-      "file_type": "code",
-      "source_file": "biome.json",
-      "source_location": "L36",
-      "_origin": "ast",
-      "id": "biome_linter_rules",
-      "community": 72,
-      "community_name": "Biome Linter Rules",
-      "norm_label": "rules"
-    },
-    {
-      "label": "preset",
-      "file_type": "code",
-      "source_file": "biome.json",
-      "source_location": "L37",
-      "_origin": "ast",
-      "id": "biome_rules_preset",
-      "community": 72,
-      "community_name": "Biome Linter Rules",
-      "norm_label": "preset"
-    },
-    {
-      "label": "suspicious",
-      "file_type": "code",
-      "source_file": "biome.json",
-      "source_location": "L38",
-      "_origin": "ast",
-      "id": "biome_rules_suspicious",
-      "community": 72,
-      "community_name": "Biome Linter Rules",
-      "norm_label": "suspicious"
-    },
-    {
-      "label": "noExplicitAny",
-      "file_type": "code",
-      "source_file": "biome.json",
-      "source_location": "L39",
-      "_origin": "ast",
-      "id": "biome_suspicious_noexplicitany",
-      "community": 72,
-      "community_name": "Biome Linter Rules",
-      "norm_label": "noexplicitany"
-    },
-    {
-      "label": "noConsole",
-      "file_type": "code",
-      "source_file": "biome.json",
-      "source_location": "L40",
-      "_origin": "ast",
-      "id": "biome_suspicious_noconsole",
-      "community": 72,
-      "community_name": "Biome Linter Rules",
-      "norm_label": "noconsole"
-    },
-    {
-      "label": "style",
-      "file_type": "code",
-      "source_file": "biome.json",
-      "source_location": "L42",
-      "_origin": "ast",
-      "id": "biome_rules_style",
-      "community": 72,
-      "community_name": "Biome Linter Rules",
-      "norm_label": "style"
-    },
-    {
-      "label": "useImportType",
-      "file_type": "code",
-      "source_file": "biome.json",
-      "source_location": "L43",
-      "_origin": "ast",
-      "id": "biome_style_useimporttype",
-      "community": 72,
-      "community_name": "Biome Linter Rules",
-      "norm_label": "useimporttype"
-    },
-    {
-      "label": "noNonNullAssertion",
-      "file_type": "code",
-      "source_file": "biome.json",
-      "source_location": "L44",
-      "_origin": "ast",
-      "id": "biome_style_nononnullassertion",
-      "community": 72,
-      "community_name": "Biome Linter Rules",
-      "norm_label": "nononnullassertion"
-    },
-    {
-      "label": "complexity",
-      "file_type": "code",
-      "source_file": "biome.json",
-      "source_location": "L46",
-      "_origin": "ast",
-      "id": "biome_rules_complexity",
-      "community": 72,
-      "community_name": "Biome Linter Rules",
-      "norm_label": "complexity"
-    },
-    {
-      "label": "noForEach",
-      "file_type": "code",
-      "source_file": "biome.json",
-      "source_location": "L47",
-      "_origin": "ast",
-      "id": "biome_complexity_noforeach",
-      "community": 72,
-      "community_name": "Biome Linter Rules",
-      "norm_label": "noforeach"
-    },
-    {
-      "label": "javascript",
-      "file_type": "code",
-      "source_file": "biome.json",
-      "source_location": "L51",
-      "_origin": "ast",
-      "id": "biome_javascript",
-      "community": 92,
-      "community_name": "Biome JS Formatter Options",
-      "norm_label": "javascript"
-    },
-    {
-      "label": "formatter",
-      "file_type": "code",
-      "source_file": "biome.json",
-      "source_location": "L52",
-      "_origin": "ast",
-      "id": "biome_javascript_formatter",
-      "community": 92,
-      "community_name": "Biome JS Formatter Options",
-      "norm_label": "formatter"
-    },
-    {
-      "label": "quoteStyle",
-      "file_type": "code",
-      "source_file": "biome.json",
-      "source_location": "L53",
-      "_origin": "ast",
-      "id": "biome_formatter_quotestyle",
-      "community": 92,
-      "community_name": "Biome JS Formatter Options",
-      "norm_label": "quotestyle"
-    },
-    {
-      "label": "semicolons",
-      "file_type": "code",
-      "source_file": "biome.json",
-      "source_location": "L54",
-      "_origin": "ast",
-      "id": "biome_formatter_semicolons",
-      "community": 92,
-      "community_name": "Biome JS Formatter Options",
-      "norm_label": "semicolons"
-    },
-    {
-      "label": "trailingCommas",
-      "file_type": "code",
-      "source_file": "biome.json",
-      "source_location": "L55",
-      "_origin": "ast",
-      "id": "biome_formatter_trailingcommas",
-      "community": 92,
-      "community_name": "Biome JS Formatter Options",
-      "norm_label": "trailingcommas"
-    },
-    {
-      "label": "formatter",
-      "file_type": "code",
-      "source_file": "biome.json",
-      "source_location": "L59",
-      "_origin": "ast",
-      "id": "biome_json_formatter",
-      "community": 78,
-      "community_name": "Biome Config",
-      "norm_label": "formatter"
-    },
-    {
-      "label": "css",
-      "file_type": "code",
-      "source_file": "biome.json",
-      "source_location": "L63",
-      "_origin": "ast",
-      "id": "biome_css",
-      "community": 106,
-      "community_name": "Biome CSS Parser Options",
-      "norm_label": "css"
-    },
-    {
-      "label": "parser",
-      "file_type": "code",
-      "source_file": "biome.json",
-      "source_location": "L64",
-      "_origin": "ast",
-      "id": "biome_css_parser",
-      "community": 106,
-      "community_name": "Biome CSS Parser Options",
-      "norm_label": "parser"
-    },
-    {
-      "label": "tailwindDirectives",
-      "file_type": "code",
-      "source_file": "biome.json",
-      "source_location": "L65",
-      "_origin": "ast",
-      "id": "biome_parser_tailwinddirectives",
-      "community": 106,
-      "community_name": "Biome CSS Parser Options",
-      "norm_label": "tailwinddirectives"
-    },
-    {
       "label": "kok-030-sales-end-to-end.md",
       "file_type": "document",
       "source_file": "docs/development/kok-030-sales-end-to-end.md",
       "source_location": "L1",
       "_origin": "ast",
+      "id": "docs_development_kok_030_sales_end_to_end",
       "community": 104,
       "community_name": "Dashboard Route Tests",
-      "norm_label": "kok-030-sales-end-to-end.md",
-      "id": "docs_development_kok_030_sales_end_to_end"
+      "norm_label": "kok-030-sales-end-to-end.md"
     },
     {
       "label": "KOK-030 \u2014 Sales End-to-End",
@@ -853,10 +270,10 @@
       "source_file": "docs/development/kok-030-sales-end-to-end.md",
       "source_location": "L1",
       "_origin": "ast",
+      "id": "docs_development_kok_030_sales_end_to_end_kok_030_sales_end_to_end",
       "community": 104,
       "community_name": "Dashboard Route Tests",
-      "norm_label": "kok-030 \u2014 sales end-to-end",
-      "id": "docs_development_kok_030_sales_end_to_end_kok_030_sales_end_to_end"
+      "norm_label": "kok-030 \u2014 sales end-to-end"
     },
     {
       "label": "1. Scope: CREATE + READ only",
@@ -864,54 +281,637 @@
       "source_file": "docs/development/kok-030-sales-end-to-end.md",
       "source_location": "L8",
       "_origin": "ast",
+      "id": "docs_development_kok_030_sales_end_to_end_1_scope_create_read_only",
       "community": 104,
       "community_name": "Dashboard Route Tests",
-      "norm_label": "1. scope: create + read only",
-      "id": "docs_development_kok_030_sales_end_to_end_1_scope_create_read_only"
+      "norm_label": "1. scope: create + read only"
     },
     {
       "label": "2. Why `recordSale` never calls `planCostingReplay`",
       "file_type": "document",
       "source_file": "docs/development/kok-030-sales-end-to-end.md",
-      "source_location": "L24",
+      "source_location": "L28",
       "_origin": "ast",
+      "id": "docs_development_kok_030_sales_end_to_end_2_why_recordsale_never_calls_plancostingreplay",
       "community": 104,
       "community_name": "Dashboard Route Tests",
-      "norm_label": "2. why `recordsale` never calls `plancostingreplay`",
-      "id": "docs_development_kok_030_sales_end_to_end_2_why_recordsale_never_calls_plancostingreplay"
+      "norm_label": "2. why `recordsale` never calls `plancostingreplay`"
     },
     {
       "label": "3. Cost/cash shape, in one paragraph",
       "file_type": "document",
       "source_file": "docs/development/kok-030-sales-end-to-end.md",
-      "source_location": "L36",
+      "source_location": "L43",
       "_origin": "ast",
+      "id": "docs_development_kok_030_sales_end_to_end_3_cost_cash_shape_in_one_paragraph",
       "community": 104,
       "community_name": "Dashboard Route Tests",
-      "norm_label": "3. cost/cash shape, in one paragraph",
-      "id": "docs_development_kok_030_sales_end_to_end_3_cost_cash_shape_in_one_paragraph"
+      "norm_label": "3. cost/cash shape, in one paragraph"
     },
     {
       "label": "4. Fields intentionally left unwired",
       "file_type": "document",
       "source_file": "docs/development/kok-030-sales-end-to-end.md",
-      "source_location": "L45",
+      "source_location": "L52",
       "_origin": "ast",
+      "id": "docs_development_kok_030_sales_end_to_end_4_fields_intentionally_left_unwired",
       "community": 104,
       "community_name": "Dashboard Route Tests",
-      "norm_label": "4. fields intentionally left unwired",
-      "id": "docs_development_kok_030_sales_end_to_end_4_fields_intentionally_left_unwired"
+      "norm_label": "4. fields intentionally left unwired"
     },
     {
       "label": "5. Where things live",
       "file_type": "document",
       "source_file": "docs/development/kok-030-sales-end-to-end.md",
-      "source_location": "L58",
+      "source_location": "L65",
       "_origin": "ast",
+      "id": "docs_development_kok_030_sales_end_to_end_5_where_things_live",
       "community": 104,
       "community_name": "Dashboard Route Tests",
-      "norm_label": "5. where things live",
-      "id": "docs_development_kok_030_sales_end_to_end_5_where_things_live"
+      "norm_label": "5. where things live"
+    },
+    {
+      "label": "biome.json",
+      "file_type": "code",
+      "source_file": "biome.json",
+      "source_location": "L1",
+      "_origin": "ast",
+      "community": 78,
+      "community_name": "Biome Config",
+      "norm_label": "biome.json",
+      "id": "biome"
+    },
+    {
+      "label": "$schema",
+      "file_type": "code",
+      "source_file": "biome.json",
+      "source_location": "L2",
+      "_origin": "ast",
+      "community": 78,
+      "community_name": "Biome Config",
+      "norm_label": "$schema",
+      "id": "biome_schema"
+    },
+    {
+      "label": "vcs",
+      "file_type": "code",
+      "source_file": "biome.json",
+      "source_location": "L3",
+      "_origin": "ast",
+      "community": 99,
+      "community_name": "Biome VCS Settings",
+      "norm_label": "vcs",
+      "id": "biome_vcs"
+    },
+    {
+      "label": "enabled",
+      "file_type": "code",
+      "source_file": "biome.json",
+      "source_location": "L4",
+      "_origin": "ast",
+      "community": 99,
+      "community_name": "Biome VCS Settings",
+      "norm_label": "enabled",
+      "id": "biome_vcs_enabled"
+    },
+    {
+      "label": "clientKind",
+      "file_type": "code",
+      "source_file": "biome.json",
+      "source_location": "L5",
+      "_origin": "ast",
+      "community": 99,
+      "community_name": "Biome VCS Settings",
+      "norm_label": "clientkind",
+      "id": "biome_vcs_clientkind"
+    },
+    {
+      "label": "useIgnoreFile",
+      "file_type": "code",
+      "source_file": "biome.json",
+      "source_location": "L6",
+      "_origin": "ast",
+      "community": 99,
+      "community_name": "Biome VCS Settings",
+      "norm_label": "useignorefile",
+      "id": "biome_vcs_useignorefile"
+    },
+    {
+      "label": "files",
+      "file_type": "code",
+      "source_file": "biome.json",
+      "source_location": "L8",
+      "_origin": "ast",
+      "community": 78,
+      "community_name": "Biome Config",
+      "norm_label": "files",
+      "id": "biome_files"
+    },
+    {
+      "label": "ignoreUnknown",
+      "file_type": "code",
+      "source_file": "biome.json",
+      "source_location": "L9",
+      "_origin": "ast",
+      "community": 78,
+      "community_name": "Biome Config",
+      "norm_label": "ignoreunknown",
+      "id": "biome_files_ignoreunknown"
+    },
+    {
+      "label": "includes",
+      "file_type": "code",
+      "source_file": "biome.json",
+      "source_location": "L10",
+      "_origin": "ast",
+      "community": 69,
+      "community_name": "Gitignore Patterns",
+      "norm_label": "includes",
+      "id": "biome_files_includes"
+    },
+    {
+      "label": "**",
+      "file_type": "concept",
+      "source_file": "biome.json",
+      "source_location": "L10",
+      "_origin": "ast",
+      "community": 69,
+      "community_name": "Gitignore Patterns",
+      "norm_label": "**",
+      "id": "ref"
+    },
+    {
+      "label": "!**/dist",
+      "file_type": "concept",
+      "source_file": "biome.json",
+      "source_location": "L10",
+      "_origin": "ast",
+      "community": 69,
+      "community_name": "Gitignore Patterns",
+      "norm_label": "!**/dist",
+      "id": "ref_dist"
+    },
+    {
+      "label": "!**/.wrangler",
+      "file_type": "concept",
+      "source_file": "biome.json",
+      "source_location": "L10",
+      "_origin": "ast",
+      "community": 69,
+      "community_name": "Gitignore Patterns",
+      "norm_label": "!**/.wrangler",
+      "id": "ref_wrangler"
+    },
+    {
+      "label": "!**/node_modules",
+      "file_type": "concept",
+      "source_file": "biome.json",
+      "source_location": "L10",
+      "_origin": "ast",
+      "community": 69,
+      "community_name": "Gitignore Patterns",
+      "norm_label": "!**/node_modules",
+      "id": "ref_node_modules"
+    },
+    {
+      "label": "!**/*.d.ts",
+      "file_type": "concept",
+      "source_file": "biome.json",
+      "source_location": "L10",
+      "_origin": "ast",
+      "community": 69,
+      "community_name": "Gitignore Patterns",
+      "norm_label": "!**/*.d.ts",
+      "id": "ref_d_ts"
+    },
+    {
+      "label": "!**/worker-configuration.d.ts",
+      "file_type": "concept",
+      "source_file": "biome.json",
+      "source_location": "L10",
+      "_origin": "ast",
+      "community": 69,
+      "community_name": "Gitignore Patterns",
+      "norm_label": "!**/worker-configuration.d.ts",
+      "id": "ref_worker_configuration_d_ts"
+    },
+    {
+      "label": "!**/.agents",
+      "file_type": "concept",
+      "source_file": "biome.json",
+      "source_location": "L10",
+      "_origin": "ast",
+      "community": 69,
+      "community_name": "Gitignore Patterns",
+      "norm_label": "!**/.agents",
+      "id": "ref_agents"
+    },
+    {
+      "label": "!**/.claude",
+      "file_type": "concept",
+      "source_file": "biome.json",
+      "source_location": "L10",
+      "_origin": "ast",
+      "community": 69,
+      "community_name": "Gitignore Patterns",
+      "norm_label": "!**/.claude",
+      "id": "ref_claude"
+    },
+    {
+      "label": "!**/.design",
+      "file_type": "concept",
+      "source_file": "biome.json",
+      "source_location": "L10",
+      "_origin": "ast",
+      "community": 69,
+      "community_name": "Gitignore Patterns",
+      "norm_label": "!**/.design",
+      "id": "ref_design"
+    },
+    {
+      "label": "!**/.github",
+      "file_type": "concept",
+      "source_file": "biome.json",
+      "source_location": "L10",
+      "_origin": "ast",
+      "community": 69,
+      "community_name": "Gitignore Patterns",
+      "norm_label": "!**/.github",
+      "id": "ref_github"
+    },
+    {
+      "label": "!**/.mcp.json",
+      "file_type": "concept",
+      "source_file": "biome.json",
+      "source_location": "L10",
+      "_origin": "ast",
+      "community": 69,
+      "community_name": "Gitignore Patterns",
+      "norm_label": "!**/.mcp.json",
+      "id": "ref_mcp_json"
+    },
+    {
+      "label": "!**/pnpm-lock.yaml",
+      "file_type": "concept",
+      "source_file": "biome.json",
+      "source_location": "L10",
+      "_origin": "ast",
+      "community": 69,
+      "community_name": "Gitignore Patterns",
+      "norm_label": "!**/pnpm-lock.yaml",
+      "id": "ref_pnpm_lock_yaml"
+    },
+    {
+      "label": "!**/apps/worker/migrations",
+      "file_type": "concept",
+      "source_file": "biome.json",
+      "source_location": "L10",
+      "_origin": "ast",
+      "community": 69,
+      "community_name": "Gitignore Patterns",
+      "norm_label": "!**/apps/worker/migrations",
+      "id": "ref_apps_worker_migrations"
+    },
+    {
+      "label": "!**/graphify-out",
+      "file_type": "concept",
+      "source_file": "biome.json",
+      "source_location": "L10",
+      "_origin": "ast",
+      "community": 69,
+      "community_name": "Gitignore Patterns",
+      "norm_label": "!**/graphify-out",
+      "id": "ref_graphify_out"
+    },
+    {
+      "label": "formatter",
+      "file_type": "code",
+      "source_file": "biome.json",
+      "source_location": "L27",
+      "_origin": "ast",
+      "community": 78,
+      "community_name": "Biome Config",
+      "norm_label": "formatter",
+      "id": "biome_formatter"
+    },
+    {
+      "label": "enabled",
+      "file_type": "code",
+      "source_file": "biome.json",
+      "source_location": "L28",
+      "_origin": "ast",
+      "community": 78,
+      "community_name": "Biome Config",
+      "norm_label": "enabled",
+      "id": "biome_formatter_enabled"
+    },
+    {
+      "label": "indentStyle",
+      "file_type": "code",
+      "source_file": "biome.json",
+      "source_location": "L29",
+      "_origin": "ast",
+      "community": 78,
+      "community_name": "Biome Config",
+      "norm_label": "indentstyle",
+      "id": "biome_formatter_indentstyle"
+    },
+    {
+      "label": "indentWidth",
+      "file_type": "code",
+      "source_file": "biome.json",
+      "source_location": "L30",
+      "_origin": "ast",
+      "community": 78,
+      "community_name": "Biome Config",
+      "norm_label": "indentwidth",
+      "id": "biome_formatter_indentwidth"
+    },
+    {
+      "label": "lineWidth",
+      "file_type": "code",
+      "source_file": "biome.json",
+      "source_location": "L31",
+      "_origin": "ast",
+      "community": 78,
+      "community_name": "Biome Config",
+      "norm_label": "linewidth",
+      "id": "biome_formatter_linewidth"
+    },
+    {
+      "label": "assist",
+      "file_type": "code",
+      "source_file": "biome.json",
+      "source_location": "L33",
+      "_origin": "ast",
+      "community": 98,
+      "community_name": "Biome Assist Actions",
+      "norm_label": "assist",
+      "id": "biome_assist"
+    },
+    {
+      "label": "actions",
+      "file_type": "code",
+      "source_file": "biome.json",
+      "source_location": "L33",
+      "_origin": "ast",
+      "community": 98,
+      "community_name": "Biome Assist Actions",
+      "norm_label": "actions",
+      "id": "biome_assist_actions"
+    },
+    {
+      "label": "source",
+      "file_type": "code",
+      "source_file": "biome.json",
+      "source_location": "L33",
+      "_origin": "ast",
+      "community": 98,
+      "community_name": "Biome Assist Actions",
+      "norm_label": "source",
+      "id": "biome_actions_source"
+    },
+    {
+      "label": "organizeImports",
+      "file_type": "code",
+      "source_file": "biome.json",
+      "source_location": "L33",
+      "_origin": "ast",
+      "community": 98,
+      "community_name": "Biome Assist Actions",
+      "norm_label": "organizeimports",
+      "id": "biome_source_organizeimports"
+    },
+    {
+      "label": "linter",
+      "file_type": "code",
+      "source_file": "biome.json",
+      "source_location": "L34",
+      "_origin": "ast",
+      "community": 72,
+      "community_name": "Biome Linter Rules",
+      "norm_label": "linter",
+      "id": "biome_linter"
+    },
+    {
+      "label": "enabled",
+      "file_type": "code",
+      "source_file": "biome.json",
+      "source_location": "L35",
+      "_origin": "ast",
+      "community": 72,
+      "community_name": "Biome Linter Rules",
+      "norm_label": "enabled",
+      "id": "biome_linter_enabled"
+    },
+    {
+      "label": "rules",
+      "file_type": "code",
+      "source_file": "biome.json",
+      "source_location": "L36",
+      "_origin": "ast",
+      "community": 72,
+      "community_name": "Biome Linter Rules",
+      "norm_label": "rules",
+      "id": "biome_linter_rules"
+    },
+    {
+      "label": "preset",
+      "file_type": "code",
+      "source_file": "biome.json",
+      "source_location": "L37",
+      "_origin": "ast",
+      "community": 72,
+      "community_name": "Biome Linter Rules",
+      "norm_label": "preset",
+      "id": "biome_rules_preset"
+    },
+    {
+      "label": "suspicious",
+      "file_type": "code",
+      "source_file": "biome.json",
+      "source_location": "L38",
+      "_origin": "ast",
+      "community": 72,
+      "community_name": "Biome Linter Rules",
+      "norm_label": "suspicious",
+      "id": "biome_rules_suspicious"
+    },
+    {
+      "label": "noExplicitAny",
+      "file_type": "code",
+      "source_file": "biome.json",
+      "source_location": "L39",
+      "_origin": "ast",
+      "community": 72,
+      "community_name": "Biome Linter Rules",
+      "norm_label": "noexplicitany",
+      "id": "biome_suspicious_noexplicitany"
+    },
+    {
+      "label": "noConsole",
+      "file_type": "code",
+      "source_file": "biome.json",
+      "source_location": "L40",
+      "_origin": "ast",
+      "community": 72,
+      "community_name": "Biome Linter Rules",
+      "norm_label": "noconsole",
+      "id": "biome_suspicious_noconsole"
+    },
+    {
+      "label": "style",
+      "file_type": "code",
+      "source_file": "biome.json",
+      "source_location": "L42",
+      "_origin": "ast",
+      "community": 72,
+      "community_name": "Biome Linter Rules",
+      "norm_label": "style",
+      "id": "biome_rules_style"
+    },
+    {
+      "label": "useImportType",
+      "file_type": "code",
+      "source_file": "biome.json",
+      "source_location": "L43",
+      "_origin": "ast",
+      "community": 72,
+      "community_name": "Biome Linter Rules",
+      "norm_label": "useimporttype",
+      "id": "biome_style_useimporttype"
+    },
+    {
+      "label": "noNonNullAssertion",
+      "file_type": "code",
+      "source_file": "biome.json",
+      "source_location": "L44",
+      "_origin": "ast",
+      "community": 72,
+      "community_name": "Biome Linter Rules",
+      "norm_label": "nononnullassertion",
+      "id": "biome_style_nononnullassertion"
+    },
+    {
+      "label": "complexity",
+      "file_type": "code",
+      "source_file": "biome.json",
+      "source_location": "L46",
+      "_origin": "ast",
+      "community": 72,
+      "community_name": "Biome Linter Rules",
+      "norm_label": "complexity",
+      "id": "biome_rules_complexity"
+    },
+    {
+      "label": "noForEach",
+      "file_type": "code",
+      "source_file": "biome.json",
+      "source_location": "L47",
+      "_origin": "ast",
+      "community": 72,
+      "community_name": "Biome Linter Rules",
+      "norm_label": "noforeach",
+      "id": "biome_complexity_noforeach"
+    },
+    {
+      "label": "javascript",
+      "file_type": "code",
+      "source_file": "biome.json",
+      "source_location": "L51",
+      "_origin": "ast",
+      "community": 92,
+      "community_name": "Biome JS Formatter Options",
+      "norm_label": "javascript",
+      "id": "biome_javascript"
+    },
+    {
+      "label": "formatter",
+      "file_type": "code",
+      "source_file": "biome.json",
+      "source_location": "L52",
+      "_origin": "ast",
+      "community": 92,
+      "community_name": "Biome JS Formatter Options",
+      "norm_label": "formatter",
+      "id": "biome_javascript_formatter"
+    },
+    {
+      "label": "quoteStyle",
+      "file_type": "code",
+      "source_file": "biome.json",
+      "source_location": "L53",
+      "_origin": "ast",
+      "community": 92,
+      "community_name": "Biome JS Formatter Options",
+      "norm_label": "quotestyle",
+      "id": "biome_formatter_quotestyle"
+    },
+    {
+      "label": "semicolons",
+      "file_type": "code",
+      "source_file": "biome.json",
+      "source_location": "L54",
+      "_origin": "ast",
+      "community": 92,
+      "community_name": "Biome JS Formatter Options",
+      "norm_label": "semicolons",
+      "id": "biome_formatter_semicolons"
+    },
+    {
+      "label": "trailingCommas",
+      "file_type": "code",
+      "source_file": "biome.json",
+      "source_location": "L55",
+      "_origin": "ast",
+      "community": 92,
+      "community_name": "Biome JS Formatter Options",
+      "norm_label": "trailingcommas",
+      "id": "biome_formatter_trailingcommas"
+    },
+    {
+      "label": "formatter",
+      "file_type": "code",
+      "source_file": "biome.json",
+      "source_location": "L59",
+      "_origin": "ast",
+      "community": 78,
+      "community_name": "Biome Config",
+      "norm_label": "formatter",
+      "id": "biome_json_formatter"
+    },
+    {
+      "label": "css",
+      "file_type": "code",
+      "source_file": "biome.json",
+      "source_location": "L63",
+      "_origin": "ast",
+      "community": 106,
+      "community_name": "Biome CSS Parser Options",
+      "norm_label": "css",
+      "id": "biome_css"
+    },
+    {
+      "label": "parser",
+      "file_type": "code",
+      "source_file": "biome.json",
+      "source_location": "L64",
+      "_origin": "ast",
+      "community": 106,
+      "community_name": "Biome CSS Parser Options",
+      "norm_label": "parser",
+      "id": "biome_css_parser"
+    },
+    {
+      "label": "tailwindDirectives",
+      "file_type": "code",
+      "source_file": "biome.json",
+      "source_location": "L65",
+      "_origin": "ast",
+      "community": 106,
+      "community_name": "Biome CSS Parser Options",
+      "norm_label": "tailwinddirectives",
+      "id": "biome_parser_tailwinddirectives"
     },
     {
       "label": "SaleDetailDrawer.tsx",
@@ -29289,13 +29289,79 @@
     {
       "relation": "contains",
       "confidence": "EXTRACTED",
+      "source_file": "docs/development/kok-030-sales-end-to-end.md",
+      "source_location": "L1",
+      "weight": 1.0,
+      "_origin": "ast",
+      "source": "docs_development_kok_030_sales_end_to_end",
+      "target": "docs_development_kok_030_sales_end_to_end_kok_030_sales_end_to_end",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/development/kok-030-sales-end-to-end.md",
+      "source_location": "L8",
+      "weight": 1.0,
+      "_origin": "ast",
+      "source": "docs_development_kok_030_sales_end_to_end_kok_030_sales_end_to_end",
+      "target": "docs_development_kok_030_sales_end_to_end_1_scope_create_read_only",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/development/kok-030-sales-end-to-end.md",
+      "source_location": "L28",
+      "weight": 1.0,
+      "_origin": "ast",
+      "source": "docs_development_kok_030_sales_end_to_end_kok_030_sales_end_to_end",
+      "target": "docs_development_kok_030_sales_end_to_end_2_why_recordsale_never_calls_plancostingreplay",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/development/kok-030-sales-end-to-end.md",
+      "source_location": "L43",
+      "weight": 1.0,
+      "_origin": "ast",
+      "source": "docs_development_kok_030_sales_end_to_end_kok_030_sales_end_to_end",
+      "target": "docs_development_kok_030_sales_end_to_end_3_cost_cash_shape_in_one_paragraph",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/development/kok-030-sales-end-to-end.md",
+      "source_location": "L52",
+      "weight": 1.0,
+      "_origin": "ast",
+      "source": "docs_development_kok_030_sales_end_to_end_kok_030_sales_end_to_end",
+      "target": "docs_development_kok_030_sales_end_to_end_4_fields_intentionally_left_unwired",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/development/kok-030-sales-end-to-end.md",
+      "source_location": "L65",
+      "weight": 1.0,
+      "_origin": "ast",
+      "source": "docs_development_kok_030_sales_end_to_end_kok_030_sales_end_to_end",
+      "target": "docs_development_kok_030_sales_end_to_end_5_where_things_live",
+      "confidence_score": 1.0
+    },
+    {
+      "relation": "contains",
+      "confidence": "EXTRACTED",
       "source_file": "biome.json",
       "source_location": "L33",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "biome",
-      "target": "biome_assist",
-      "confidence_score": 1.0
+      "target": "biome_assist"
     },
     {
       "relation": "contains",
@@ -29304,9 +29370,9 @@
       "source_location": "L63",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "biome",
-      "target": "biome_css",
-      "confidence_score": 1.0
+      "target": "biome_css"
     },
     {
       "relation": "contains",
@@ -29315,9 +29381,9 @@
       "source_location": "L8",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "biome",
-      "target": "biome_files",
-      "confidence_score": 1.0
+      "target": "biome_files"
     },
     {
       "relation": "contains",
@@ -29326,9 +29392,9 @@
       "source_location": "L27",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "biome",
-      "target": "biome_formatter",
-      "confidence_score": 1.0
+      "target": "biome_formatter"
     },
     {
       "relation": "contains",
@@ -29337,9 +29403,9 @@
       "source_location": "L51",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "biome",
-      "target": "biome_javascript",
-      "confidence_score": 1.0
+      "target": "biome_javascript"
     },
     {
       "relation": "contains",
@@ -29348,9 +29414,9 @@
       "source_location": "L59",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "biome",
-      "target": "biome_json_formatter",
-      "confidence_score": 1.0
+      "target": "biome_json_formatter"
     },
     {
       "relation": "contains",
@@ -29359,9 +29425,9 @@
       "source_location": "L34",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "biome",
-      "target": "biome_linter",
-      "confidence_score": 1.0
+      "target": "biome_linter"
     },
     {
       "relation": "contains",
@@ -29370,9 +29436,9 @@
       "source_location": "L2",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "biome",
-      "target": "biome_schema",
-      "confidence_score": 1.0
+      "target": "biome_schema"
     },
     {
       "relation": "contains",
@@ -29381,9 +29447,9 @@
       "source_location": "L3",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "biome",
-      "target": "biome_vcs",
-      "confidence_score": 1.0
+      "target": "biome_vcs"
     },
     {
       "relation": "contains",
@@ -29392,9 +29458,9 @@
       "source_location": "L5",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "biome_vcs",
-      "target": "biome_vcs_clientkind",
-      "confidence_score": 1.0
+      "target": "biome_vcs_clientkind"
     },
     {
       "relation": "contains",
@@ -29403,9 +29469,9 @@
       "source_location": "L4",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "biome_vcs",
-      "target": "biome_vcs_enabled",
-      "confidence_score": 1.0
+      "target": "biome_vcs_enabled"
     },
     {
       "relation": "contains",
@@ -29414,9 +29480,9 @@
       "source_location": "L6",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "biome_vcs",
-      "target": "biome_vcs_useignorefile",
-      "confidence_score": 1.0
+      "target": "biome_vcs_useignorefile"
     },
     {
       "relation": "contains",
@@ -29425,9 +29491,9 @@
       "source_location": "L9",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "biome_files",
-      "target": "biome_files_ignoreunknown",
-      "confidence_score": 1.0
+      "target": "biome_files_ignoreunknown"
     },
     {
       "relation": "contains",
@@ -29436,9 +29502,9 @@
       "source_location": "L10",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "biome_files",
-      "target": "biome_files_includes",
-      "confidence_score": 1.0
+      "target": "biome_files_includes"
     },
     {
       "relation": "extends",
@@ -29448,9 +29514,9 @@
       "weight": 1.0,
       "context": "import",
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "biome_files_includes",
-      "target": "ref",
-      "confidence_score": 1.0
+      "target": "ref"
     },
     {
       "relation": "extends",
@@ -29460,9 +29526,9 @@
       "weight": 1.0,
       "context": "import",
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "biome_files_includes",
-      "target": "ref_agents",
-      "confidence_score": 1.0
+      "target": "ref_agents"
     },
     {
       "relation": "extends",
@@ -29472,9 +29538,9 @@
       "weight": 1.0,
       "context": "import",
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "biome_files_includes",
-      "target": "ref_apps_worker_migrations",
-      "confidence_score": 1.0
+      "target": "ref_apps_worker_migrations"
     },
     {
       "relation": "extends",
@@ -29484,9 +29550,9 @@
       "weight": 1.0,
       "context": "import",
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "biome_files_includes",
-      "target": "ref_claude",
-      "confidence_score": 1.0
+      "target": "ref_claude"
     },
     {
       "relation": "extends",
@@ -29496,9 +29562,9 @@
       "weight": 1.0,
       "context": "import",
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "biome_files_includes",
-      "target": "ref_d_ts",
-      "confidence_score": 1.0
+      "target": "ref_d_ts"
     },
     {
       "relation": "extends",
@@ -29508,9 +29574,9 @@
       "weight": 1.0,
       "context": "import",
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "biome_files_includes",
-      "target": "ref_design",
-      "confidence_score": 1.0
+      "target": "ref_design"
     },
     {
       "relation": "extends",
@@ -29520,9 +29586,9 @@
       "weight": 1.0,
       "context": "import",
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "biome_files_includes",
-      "target": "ref_dist",
-      "confidence_score": 1.0
+      "target": "ref_dist"
     },
     {
       "relation": "extends",
@@ -29532,9 +29598,9 @@
       "weight": 1.0,
       "context": "import",
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "biome_files_includes",
-      "target": "ref_github",
-      "confidence_score": 1.0
+      "target": "ref_github"
     },
     {
       "relation": "extends",
@@ -29544,9 +29610,9 @@
       "weight": 1.0,
       "context": "import",
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "biome_files_includes",
-      "target": "ref_graphify_out",
-      "confidence_score": 1.0
+      "target": "ref_graphify_out"
     },
     {
       "relation": "extends",
@@ -29556,9 +29622,9 @@
       "weight": 1.0,
       "context": "import",
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "biome_files_includes",
-      "target": "ref_mcp_json",
-      "confidence_score": 1.0
+      "target": "ref_mcp_json"
     },
     {
       "relation": "extends",
@@ -29568,9 +29634,9 @@
       "weight": 1.0,
       "context": "import",
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "biome_files_includes",
-      "target": "ref_node_modules",
-      "confidence_score": 1.0
+      "target": "ref_node_modules"
     },
     {
       "relation": "extends",
@@ -29580,9 +29646,9 @@
       "weight": 1.0,
       "context": "import",
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "biome_files_includes",
-      "target": "ref_pnpm_lock_yaml",
-      "confidence_score": 1.0
+      "target": "ref_pnpm_lock_yaml"
     },
     {
       "relation": "extends",
@@ -29592,9 +29658,9 @@
       "weight": 1.0,
       "context": "import",
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "biome_files_includes",
-      "target": "ref_worker_configuration_d_ts",
-      "confidence_score": 1.0
+      "target": "ref_worker_configuration_d_ts"
     },
     {
       "relation": "extends",
@@ -29604,9 +29670,9 @@
       "weight": 1.0,
       "context": "import",
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "biome_files_includes",
-      "target": "ref_wrangler",
-      "confidence_score": 1.0
+      "target": "ref_wrangler"
     },
     {
       "relation": "contains",
@@ -29615,9 +29681,9 @@
       "source_location": "L28",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "biome_formatter",
-      "target": "biome_formatter_enabled",
-      "confidence_score": 1.0
+      "target": "biome_formatter_enabled"
     },
     {
       "relation": "contains",
@@ -29626,9 +29692,9 @@
       "source_location": "L29",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "biome_formatter",
-      "target": "biome_formatter_indentstyle",
-      "confidence_score": 1.0
+      "target": "biome_formatter_indentstyle"
     },
     {
       "relation": "contains",
@@ -29637,9 +29703,9 @@
       "source_location": "L30",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "biome_formatter",
-      "target": "biome_formatter_indentwidth",
-      "confidence_score": 1.0
+      "target": "biome_formatter_indentwidth"
     },
     {
       "relation": "contains",
@@ -29648,9 +29714,9 @@
       "source_location": "L31",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "biome_formatter",
-      "target": "biome_formatter_linewidth",
-      "confidence_score": 1.0
+      "target": "biome_formatter_linewidth"
     },
     {
       "relation": "contains",
@@ -29659,9 +29725,9 @@
       "source_location": "L60",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "biome_json_formatter",
-      "target": "biome_formatter_enabled",
-      "confidence_score": 1.0
+      "target": "biome_formatter_enabled"
     },
     {
       "relation": "contains",
@@ -29670,9 +29736,9 @@
       "source_location": "L33",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "biome_assist",
-      "target": "biome_assist_actions",
-      "confidence_score": 1.0
+      "target": "biome_assist_actions"
     },
     {
       "relation": "contains",
@@ -29681,9 +29747,9 @@
       "source_location": "L33",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "biome_assist_actions",
-      "target": "biome_actions_source",
-      "confidence_score": 1.0
+      "target": "biome_actions_source"
     },
     {
       "relation": "contains",
@@ -29692,9 +29758,9 @@
       "source_location": "L33",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "biome_actions_source",
-      "target": "biome_source_organizeimports",
-      "confidence_score": 1.0
+      "target": "biome_source_organizeimports"
     },
     {
       "relation": "contains",
@@ -29703,9 +29769,9 @@
       "source_location": "L35",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "biome_linter",
-      "target": "biome_linter_enabled",
-      "confidence_score": 1.0
+      "target": "biome_linter_enabled"
     },
     {
       "relation": "contains",
@@ -29714,9 +29780,9 @@
       "source_location": "L36",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "biome_linter",
-      "target": "biome_linter_rules",
-      "confidence_score": 1.0
+      "target": "biome_linter_rules"
     },
     {
       "relation": "contains",
@@ -29725,9 +29791,9 @@
       "source_location": "L46",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "biome_linter_rules",
-      "target": "biome_rules_complexity",
-      "confidence_score": 1.0
+      "target": "biome_rules_complexity"
     },
     {
       "relation": "contains",
@@ -29736,9 +29802,9 @@
       "source_location": "L37",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "biome_linter_rules",
-      "target": "biome_rules_preset",
-      "confidence_score": 1.0
+      "target": "biome_rules_preset"
     },
     {
       "relation": "contains",
@@ -29747,9 +29813,9 @@
       "source_location": "L42",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "biome_linter_rules",
-      "target": "biome_rules_style",
-      "confidence_score": 1.0
+      "target": "biome_rules_style"
     },
     {
       "relation": "contains",
@@ -29758,9 +29824,9 @@
       "source_location": "L38",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "biome_linter_rules",
-      "target": "biome_rules_suspicious",
-      "confidence_score": 1.0
+      "target": "biome_rules_suspicious"
     },
     {
       "relation": "contains",
@@ -29769,9 +29835,9 @@
       "source_location": "L40",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "biome_rules_suspicious",
-      "target": "biome_suspicious_noconsole",
-      "confidence_score": 1.0
+      "target": "biome_suspicious_noconsole"
     },
     {
       "relation": "contains",
@@ -29780,9 +29846,9 @@
       "source_location": "L39",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "biome_rules_suspicious",
-      "target": "biome_suspicious_noexplicitany",
-      "confidence_score": 1.0
+      "target": "biome_suspicious_noexplicitany"
     },
     {
       "relation": "contains",
@@ -29791,9 +29857,9 @@
       "source_location": "L44",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "biome_rules_style",
-      "target": "biome_style_nononnullassertion",
-      "confidence_score": 1.0
+      "target": "biome_style_nononnullassertion"
     },
     {
       "relation": "contains",
@@ -29802,9 +29868,9 @@
       "source_location": "L43",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "biome_rules_style",
-      "target": "biome_style_useimporttype",
-      "confidence_score": 1.0
+      "target": "biome_style_useimporttype"
     },
     {
       "relation": "contains",
@@ -29813,9 +29879,9 @@
       "source_location": "L47",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "biome_rules_complexity",
-      "target": "biome_complexity_noforeach",
-      "confidence_score": 1.0
+      "target": "biome_complexity_noforeach"
     },
     {
       "relation": "contains",
@@ -29824,9 +29890,9 @@
       "source_location": "L52",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "biome_javascript",
-      "target": "biome_javascript_formatter",
-      "confidence_score": 1.0
+      "target": "biome_javascript_formatter"
     },
     {
       "relation": "contains",
@@ -29835,9 +29901,9 @@
       "source_location": "L53",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "biome_javascript_formatter",
-      "target": "biome_formatter_quotestyle",
-      "confidence_score": 1.0
+      "target": "biome_formatter_quotestyle"
     },
     {
       "relation": "contains",
@@ -29846,9 +29912,9 @@
       "source_location": "L54",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "biome_javascript_formatter",
-      "target": "biome_formatter_semicolons",
-      "confidence_score": 1.0
+      "target": "biome_formatter_semicolons"
     },
     {
       "relation": "contains",
@@ -29857,9 +29923,9 @@
       "source_location": "L55",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "biome_javascript_formatter",
-      "target": "biome_formatter_trailingcommas",
-      "confidence_score": 1.0
+      "target": "biome_formatter_trailingcommas"
     },
     {
       "relation": "contains",
@@ -29868,9 +29934,9 @@
       "source_location": "L64",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "biome_css",
-      "target": "biome_css_parser",
-      "confidence_score": 1.0
+      "target": "biome_css_parser"
     },
     {
       "relation": "contains",
@@ -29879,75 +29945,9 @@
       "source_location": "L65",
       "weight": 1.0,
       "_origin": "ast",
+      "confidence_score": 1.0,
       "source": "biome_css_parser",
-      "target": "biome_parser_tailwinddirectives",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "docs/development/kok-030-sales-end-to-end.md",
-      "source_location": "L1",
-      "weight": 1.0,
-      "_origin": "ast",
-      "confidence_score": 1.0,
-      "source": "docs_development_kok_030_sales_end_to_end",
-      "target": "docs_development_kok_030_sales_end_to_end_kok_030_sales_end_to_end"
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "docs/development/kok-030-sales-end-to-end.md",
-      "source_location": "L8",
-      "weight": 1.0,
-      "_origin": "ast",
-      "confidence_score": 1.0,
-      "source": "docs_development_kok_030_sales_end_to_end_kok_030_sales_end_to_end",
-      "target": "docs_development_kok_030_sales_end_to_end_1_scope_create_read_only"
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "docs/development/kok-030-sales-end-to-end.md",
-      "source_location": "L24",
-      "weight": 1.0,
-      "_origin": "ast",
-      "confidence_score": 1.0,
-      "source": "docs_development_kok_030_sales_end_to_end_kok_030_sales_end_to_end",
-      "target": "docs_development_kok_030_sales_end_to_end_2_why_recordsale_never_calls_plancostingreplay"
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "docs/development/kok-030-sales-end-to-end.md",
-      "source_location": "L36",
-      "weight": 1.0,
-      "_origin": "ast",
-      "confidence_score": 1.0,
-      "source": "docs_development_kok_030_sales_end_to_end_kok_030_sales_end_to_end",
-      "target": "docs_development_kok_030_sales_end_to_end_3_cost_cash_shape_in_one_paragraph"
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "docs/development/kok-030-sales-end-to-end.md",
-      "source_location": "L45",
-      "weight": 1.0,
-      "_origin": "ast",
-      "confidence_score": 1.0,
-      "source": "docs_development_kok_030_sales_end_to_end_kok_030_sales_end_to_end",
-      "target": "docs_development_kok_030_sales_end_to_end_4_fields_intentionally_left_unwired"
-    },
-    {
-      "relation": "contains",
-      "confidence": "EXTRACTED",
-      "source_file": "docs/development/kok-030-sales-end-to-end.md",
-      "source_location": "L58",
-      "weight": 1.0,
-      "_origin": "ast",
-      "confidence_score": 1.0,
-      "source": "docs_development_kok_030_sales_end_to_end_kok_030_sales_end_to_end",
-      "target": "docs_development_kok_030_sales_end_to_end_5_where_things_live"
+      "target": "biome_parser_tailwinddirectives"
     },
     {
       "relation": "contains",
@@ -104398,5 +104398,5 @@
       "source_file": "docs/system-design-knowledge-base/05-ai-assistant-architecture.md"
     }
   ],
-  "built_at_commit": "3c8337ebc65f55770d5d745e1d29b1e1fc9c1eb4"
+  "built_at_commit": "743c67cad63dd7837dcc1a8cd37f25b5ec0ec542"
 }

@@ -3,6 +3,7 @@
 // helpers, and the DDL enums (Doc 04). Internal helpers (numeric.ts) are
 // intentionally NOT re-exported.
 
+export * from "./audit";
 export * from "./auth";
 export * from "./backups";
 export * from "./catalog";

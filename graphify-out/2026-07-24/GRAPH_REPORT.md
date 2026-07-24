@@ -1,7 +1,7 @@
 # Graph Report - kokoro-managemnt-system  (2026-07-24)
 
 ## Corpus Check
-- 404 files · ~335,367 words
+- 404 files · ~335,857 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
@@ -10,7 +10,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `3c8337eb`
+- Built from commit: `743c67ca`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -697,7 +697,7 @@ Nodes (3): Memory Safety, Binary, and Kernel Hunting, Spatial OOB Read/Write Bug
   .opencode/skills/graphify/references/exports.md · relation: conceptually_related_to
 
 ## Knowledge Gaps
-- **756 isolated node(s):** `$schema`, `enabled`, `clientKind`, `useIgnoreFile`, `ignoreUnknown` (+751 more)
+- **756 isolated node(s):** `1. Scope: CREATE + READ only`, `2. Why `recordSale` never calls `planCostingReplay``, `3. Cost/cash shape, in one paragraph`, `4. Fields intentionally left unwired`, `5. Where things live` (+751 more)
   These have ≤1 connection - possible missing edges or undocumented components.
 - **24 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
@@ -712,7 +712,7 @@ _Questions this graph is uniquely positioned to answer:_
   _High betweenness centrality (0.009) - this node is a cross-community bridge._
 - **Why does `createDb()` connect `Sessions Route Tests` to `Inventory Command Services`, `Auth Routes & Audit Log`, `Backups & Dashboard API`, `Stock Drift Repair & Counts API`, `Financial Accounts & Transactions`, `sales/index.ts`, `theoretical-cost.ts`, `Sessions Domain Service`, `api/onboarding.ts`, `Count & Exit Forms UI`, `Production Movements & Kardex`, `Costing Adjustments & Replay`, `Purchases API`, `Purchasing Route Tests`, `Security Audit Skill Phases`, `Inventory Route Schemas`, `Exit/Purchase Route Tests`, `Production Run Route Tests`, `Session Form Types`?**
   _High betweenness centrality (0.008) - this node is a cross-community bridge._
-- **What connects `$schema`, `enabled`, `clientKind` to the rest of the system?**
+- **What connects `1. Scope: CREATE + READ only`, `2. Why `recordSale` never calls `planCostingReplay``, `3. Cost/cash shape, in one paragraph` to the rest of the system?**
   _756 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `Inventory Command Services` be split into smaller, more focused modules?**
   _Cohesion score 0.044753086419753084 - nodes in this community are weakly interconnected._

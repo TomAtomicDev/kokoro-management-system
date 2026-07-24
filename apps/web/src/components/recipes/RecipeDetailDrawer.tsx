@@ -69,6 +69,8 @@ export function RecipeDetailDrawer({ recipeId, open, onOpenChange }: RecipeDetai
         onOpenChange={onOpenChange}
         title={recipe?.name ?? recipesLabels.detailTitle}
         subtitle={outputItem?.name}
+        entityType="recipe"
+        entityId={recipe?.id}
         footer={
           recipe ? (
             <span>

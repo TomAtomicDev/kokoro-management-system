@@ -205,4 +205,10 @@ export const inventoryLabels = {
   impactRestoreExitTitle: "¿Deshacer esta eliminación?",
   impactRestoreExitDescription:
     "Esta salida tiene una fecha anterior a movimientos ya registrados de este ítem. Deshacer la eliminación recalculará el costo de esos movimientos.",
+
+  /** KOK-065: shown when a genuinely backdated NEW exit trips the same R-5 gate a backdated edit
+   * does (INV-11 on create) — closes the dead-end where this refusal had no confirm path. */
+  impactCreateExitTitle: "¿Registrar esta salida?",
+  impactCreateExitDescription:
+    "Esta salida tiene una fecha anterior a movimientos ya registrados de este ítem. Registrarla recalculará el costo de esos movimientos.",
 } as const;

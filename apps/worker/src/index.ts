@@ -3,6 +3,7 @@
 // this file wires together, and §4.4 for the cron table.
 
 import { Hono } from "hono";
+import { auditRoute } from "./api/audit.js";
 import { authRoute } from "./api/auth.js";
 import { backupsRoute } from "./api/backups.js";
 import { catalogRoute } from "./api/catalog.js";
@@ -49,6 +50,7 @@ app.route("/api", onboardingRoute); // KOK-020 — onboarding wizard (Doc 07 ste
 app.route("/api", dashboardRoute); // KOK-023 — dashboard summary (Doc 07 SC-01 reduced).
 app.route("/api", backupsRoute); // KOK-022 — backup status + download (Doc 07 SC-16).
 app.route("/api", costingRoute); // KOK-029 — on-demand replacement-cost refresh (Doc 03 §4 C-3).
+app.route("/api", auditRoute); // KOK-067 — audit_log read, reusable by every DetailDrawer footer.
 
 // Extension point for a later backlog task — kept as a comment so the file reads as an obvious
 // map of where things go:

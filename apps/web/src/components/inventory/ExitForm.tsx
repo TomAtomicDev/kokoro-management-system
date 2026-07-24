@@ -10,11 +10,11 @@
 // form submits via `updateStockExitCommandSchema` (PATCH, full-replacement semantics per that
 // schema's own header comment) through `useUpdateStockExit` wrapped in
 // `useReplayConfirmableMutation` (the shared R-5 "backdated replay" confirmation dance — see that
-// hook's file header). Create mode (`exit` absent) is untouched: still a plain `useRecordStockExit`
-// with no confirmation handling — create's own R-5 guard (INV-11, Phase D) is a real gap this task
-// deliberately leaves alone, exactly as scoped.
+// hook's file header). KOK-065 wraps create mode (`exit` absent) the same way: a genuinely
+// backdated new exit trips the same INV-11 gate `recordStockExit` already enforces, and needs the
+// identical confirm-and-retry path rather than a dead-end error string.
 
-import type { StockExitDto } from "@kokoro/shared";
+import type { RecordStockExitCommand, RecordStockExitResult, StockExitDto } from "@kokoro/shared";
 import {
   nowIso,
   recordStockExitCommandSchema,
@@ -98,6 +98,10 @@ export function ExitForm({ open, onOpenChange, exit }: ExitFormProps) {
   const [error, setError] = useState<string | null>(null);
 
   const createMutation = useRecordStockExit();
+  const createReplay = useReplayConfirmableMutation<RecordStockExitCommand, RecordStockExitResult>(
+    createMutation.mutateAsync,
+    { onSuccess: () => onOpenChange(false) },
+  );
   // `exit?.id ?? ""` keeps the hook call unconditional (rules of hooks) — the bogus "" id is never
   // actually used unless `isEditMode`, since `handleSubmit` only calls `updateReplay.execute` then.
   const updateMutation = useUpdateStockExit(exit?.id ?? "");
@@ -123,9 +127,9 @@ export function ExitForm({ open, onOpenChange, exit }: ExitFormProps) {
     }
   }, [open, exit]);
 
-  const disabled = isEditMode ? updateReplay.isPending : createMutation.isPending;
-  const displayedError =
-    error ?? (isEditMode && updateReplay.error ? errorMessage(updateReplay.error) : null);
+  const disabled = isEditMode ? updateReplay.isPending : createReplay.isPending;
+  const activeReplay = isEditMode ? updateReplay : createReplay;
+  const displayedError = error ?? (activeReplay.error ? errorMessage(activeReplay.error) : null);
 
   async function handleSubmit() {
     setError(null);
@@ -171,12 +175,7 @@ export function ExitForm({ open, onOpenChange, exit }: ExitFormProps) {
       return;
     }
 
-    try {
-      await createMutation.mutateAsync(parsed.data);
-      onOpenChange(false);
-    } catch (err) {
-      setError(errorMessage(err));
-    }
+    createReplay.execute(parsed.data);
   }
 
   const title = isEditMode ? inventoryLabels.editExitTitle : inventoryLabels.recordExitTitle;
@@ -284,6 +283,18 @@ export function ExitForm({ open, onOpenChange, exit }: ExitFormProps) {
           confirmLoading={updateReplay.isPending}
           title={inventoryLabels.impactEditExitTitle}
           description={inventoryLabels.impactEditExitDescription}
+        />
+      ) : null}
+      {!isEditMode && createReplay.pendingConfirmation ? (
+        <ImpactConfirmDialog
+          open
+          impact={createReplay.pendingConfirmation.impact}
+          onConfirm={createReplay.confirm}
+          onCancel={createReplay.cancel}
+          confirmLoading={createReplay.isPending}
+          title={inventoryLabels.impactCreateExitTitle}
+          description={inventoryLabels.impactCreateExitDescription}
+          confirmLabel={inventoryLabels.submitExit}
         />
       ) : null}
     </>

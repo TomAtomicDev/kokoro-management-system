@@ -145,6 +145,8 @@ export function SessionDetailDrawer({
         onOpenChange={onOpenChange}
         title={session ? sessionsLabels.typeLabels[session.type] : sessionsLabels.detailTitle}
         subtitle={session?.businessDate}
+        entityType="sessions"
+        entityId={session?.id}
         footer={
           session ? (
             <span>
