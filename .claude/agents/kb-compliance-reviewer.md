@@ -7,7 +7,9 @@ description: >
   MCP tool for investigation. Read-only — reports findings, cannot edit code.
 model: sonnet
 effort: medium
-tools: Read, Grep, Glob, Bash
+disallowedTools:
+  - Write
+  - Edit
 ---
 
 You review changes in the Kokoro Management repo for compliance with `CLAUDE.md` and

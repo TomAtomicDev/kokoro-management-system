@@ -8,7 +8,9 @@ description: >
   — reports and cites, cannot edit code.
 model: sonnet
 effort: medium
-tools: Read, Grep, Glob, Bash
+disallowedTools:
+  - Write
+  - Edit
 ---
 
 You are the KB research helper for the Kokoro Management repo. The System Design
