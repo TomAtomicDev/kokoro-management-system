@@ -17,6 +17,7 @@ import { CollectPaymentDialog } from "@/components/sales/CollectPaymentDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useItemsQuery } from "@/features/catalog/api";
+import { useCustomersQuery } from "@/features/customers/api";
 import { salesLabels } from "@/lib/i18n-sales";
 
 export interface SalesTableProps {
@@ -74,6 +75,14 @@ export function SalesTable({
     return map;
   }, [itemsQuery.data]);
 
+  const customersQuery = useCustomersQuery();
+  const customerNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const customer of customersQuery.data?.customers ?? [])
+      map.set(customer.id, customer.name);
+    return map;
+  }, [customersQuery.data]);
+
   const [collectingSale, setCollectingSale] = useState<SaleDto | null>(null);
 
   const columns: EventTableColumn<SaleDto>[] = [
@@ -90,7 +99,10 @@ export function SalesTable({
     {
       id: "customer",
       header: salesLabels.columnCustomer,
-      cell: (row) => row.customerId ?? salesLabels.noCustomer,
+      cell: (row) =>
+        row.customerId
+          ? (customerNameById.get(row.customerId) ?? row.customerId)
+          : salesLabels.noCustomer,
     },
     {
       id: "items",

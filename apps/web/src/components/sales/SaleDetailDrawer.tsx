@@ -20,6 +20,7 @@ import { Button } from "@/components/ui/button";
 import { ImpactConfirmDialog } from "@/components/ui/ImpactConfirmDialog";
 import { useToast } from "@/components/ui/toast";
 import { useItemsQuery } from "@/features/catalog/api";
+import { useCustomersQuery } from "@/features/customers/api";
 import { useDeleteSale, useRestoreSale, useSale } from "@/features/sales/api";
 import { useReplayConfirmableMutation } from "@/hooks/useReplayConfirmableMutation";
 import { ApiError } from "@/lib/api";
@@ -98,6 +99,14 @@ export function SaleDetailDrawer({ saleId, open, onOpenChange, accounts }: SaleD
     return map;
   }, [accounts]);
 
+  const customersQuery = useCustomersQuery();
+  const customerNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const customer of customersQuery.data?.customers ?? [])
+      map.set(customer.id, customer.name);
+    return map;
+  }, [customersQuery.data]);
+
   if (!saleId) return null;
   const sale = saleQuery.data;
 
@@ -153,6 +162,14 @@ export function SaleDetailDrawer({ saleId, open, onOpenChange, accounts }: SaleD
                   {salesLabels.paymentStatusLabels[sale.paymentStatus]}
                 </Badge>
               </div>
+              {sale.customerId ? (
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">{salesLabels.fieldCustomer}</span>
+                  <span className="font-medium text-foreground">
+                    {customerNameById.get(sale.customerId) ?? sale.customerId}
+                  </span>
+                </div>
+              ) : null}
               {sale.paymentMethod ? (
                 <div className="flex items-center justify-between">
                   <span className="text-muted-foreground">{salesLabels.columnMethod}</span>

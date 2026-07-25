@@ -9,6 +9,7 @@ export * from "./backups";
 export * from "./catalog";
 export * from "./costing";
 export * from "./counts";
+export * from "./customers";
 export * from "./dashboard";
 export * from "./dates";
 export * from "./enums";

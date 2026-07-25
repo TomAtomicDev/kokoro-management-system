@@ -8,6 +8,7 @@ import { authRoute } from "./api/auth.js";
 import { backupsRoute } from "./api/backups.js";
 import { catalogRoute } from "./api/catalog.js";
 import { costingRoute } from "./api/costing.js";
+import { customersRoute } from "./api/customers.js";
 import { dashboardRoute } from "./api/dashboard.js";
 import { errorHandler } from "./api/error-handler.js";
 import { financeRoute } from "./api/finance.js";
@@ -39,6 +40,7 @@ app.use("/api/*", requireCsrf());
 app.route("/api", healthRoute);
 app.route("/api", authRoute);
 app.route("/api", catalogRoute); // KOK-011 — items & aliases (Doc 07 SC-15).
+app.route("/api", customersRoute); // KOK-032 — customers (Doc 04 §3.3, CustomerPicker inline-create).
 app.route("/api", recipesRoute); // KOK-025 — recipes (Doc 07 SC-06).
 app.route("/api", financeRoute); // KOK-014 — standalone transactions, transfers, withdrawals (Doc 03 UC-11/12/13).
 app.route("/api", purchasingRoute); // KOK-016 — purchases (Doc 03 UC-01), the template event vertical.
