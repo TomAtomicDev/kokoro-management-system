@@ -36,6 +36,13 @@
       "when": 1785340000000,
       "tag": "0005_receivables_net_of_deposit",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1785350000000,
+      "tag": "0006_fix_price_health_view",
+      "breakpoints": true
     }
   ]
 }

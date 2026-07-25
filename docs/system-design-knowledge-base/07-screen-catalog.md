@@ -10,7 +10,9 @@ entity filters, search, CSV export, row → `DetailDrawer` with edit and audit t
 **Content:** `StatCard` row — Caja total (bank+cash, with split), Ventas del mes (Δ vs prev),
 Ganancia del mes (revenue − COGS − opex), Bs/hora del mes (G3), Valor de inventario;
 AlertsPanel summary strip; "Pedidos próximos" (next 5 by delivery date); "Margen en riesgo"
-top-5 from v_price_health; sales-last-30-days chart; quick-add shortcuts.
+top-5 from `listPriceHealth` (`core/costing/price-health.ts`, KOK-035 — margins are computed in
+application code, not in `v_price_health`, per Doc 04 §4/KOK-069); sales-last-30-days chart;
+quick-add shortcuts.
 **Data:** daily_snapshots + live aggregates. Every number links to its source screen (UX-5).
 
 ## SC-02 · Sales list — `/sales` (UC-03, UC-04, UC-18)

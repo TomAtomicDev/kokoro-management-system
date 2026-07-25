@@ -398,7 +398,7 @@ CREATE TABLE pending_drafts (                    -- one active AI draft per Tele
 |------|----------------------|
 | `v_stock` | items ⨝ item_stock + `stock_value = qty_on_hand × wac`, low-stock flag |
 | `v_kardex` | stock_movements ⨝ items, ordered, with running balance via window function |
-| `v_price_health` | FINISHED items: price, wac, replacement_cost, margin_wac, margin_repl, margin_repl_pct, alert flag (C-5) |
+| `v_price_health` | FINISHED items: id, name, sale_price, wac, replacement_cost, replacement_cost_updated_at. Raw columns only — margins are computed in `core/costing/price-health.ts` (KOK-035), not in this view; a prior version had `margin_wac_bp`/`margin_repl_bp`/`margin_repl_pct` columns with a sale_price (per-whole-unit) vs wac/replacement_cost (per-milli-unit) scaling bug (~1000x), removed with zero consumers in migration 0006 (KOK-069) rather than fixed in SQL, since the correct C-5 math already lives in application code |
 | `v_receivables` | sales WHERE payment_status='ON_CREDIT' AND deleted_at IS NULL, aged; `total` = **uncollected remainder**, i.e. `sales.total − custom_orders.deposit_paid` for a CUSTOM_ORDER sale (KOK-033, migration 0005) and plain `sales.total` otherwise |
 | `v_liability` | current customer_deposits (see §3.4) |
 | `v_cashflow_daily` | financial_transactions grouped by business_date × category |

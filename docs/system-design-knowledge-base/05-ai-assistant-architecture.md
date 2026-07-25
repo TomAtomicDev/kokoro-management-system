@@ -72,7 +72,7 @@ commit; commits happen through the confirmation flow only (A-1).
 | `get_cash_position` | — | balances, receivables, deposit liability, net position |
 | `get_sales_summary` | date range, group_by (day/item/channel) | totals, qty, margin |
 | `get_purchases_summary` | date range, group_by | totals by item/supplier |
-| `get_price_health` | — | v_price_health (C-5) |
+| `get_price_health` | — | `listPriceHealth` rows (C-5 margins computed in `core/costing/price-health.ts`, not `v_price_health` — Doc 04 §4/KOK-069) |
 | `get_pending_orders` | status filter | orders with deposits/balances/dates |
 | `get_receivables` | — | v_receivables |
 | `get_waste_report` | date range | v_waste |

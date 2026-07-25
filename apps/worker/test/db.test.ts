@@ -145,4 +145,28 @@ describe("migration 0001", () => {
       { qty: -1000, running_balance: 2000 },
     ]);
   });
+
+  it("v_price_health exposes only raw columns, with no unit-mismatched margin math (KOK-069)", async () => {
+    const now = "2026-07-14T10:00:00.000Z";
+    await env.DB.prepare(
+      `INSERT INTO items
+         (id, name, kind, category, unit, is_active, sale_price, wac, replacement_cost, created_at, updated_at)
+       VALUES ('item_price_health_test', 'Price health test cake', 'FINISHED', 'BAKERY', 'UNIT', 1, 5000, 1500, 1600, ?, ?)`,
+    )
+      .bind(now, now)
+      .run();
+
+    const row = await env.DB.prepare(
+      "SELECT * FROM v_price_health WHERE item_id = 'item_price_health_test'",
+    ).first<Record<string, unknown>>();
+
+    expect(row).toEqual({
+      item_id: "item_price_health_test",
+      name: "Price health test cake",
+      sale_price: 5000,
+      wac: 1500,
+      replacement_cost: 1600,
+      replacement_cost_updated_at: null,
+    });
+  });
 });

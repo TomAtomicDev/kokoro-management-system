@@ -1,16 +1,15 @@
 // core/costing — C-5 margin math + price-suggestion (KOK-035, Doc 03 §4 C-5, Doc 07 SC-12) and the
 // read query that assembles SC-12's table (`listPriceHealth`).
 //
-// `v_price_health` (migrations/0001_init.sql) is NOT used here: its `margin_wac_bp`/
-// `margin_repl_bp`/`margin_repl_pct` columns compute `sale_price − wac` directly in SQL, but
+// `v_price_health` (migrations/0001_init.sql) is NOT used here: it originally had `margin_wac_bp`/
+// `margin_repl_bp`/`margin_repl_pct` columns computing `sale_price − wac` directly in SQL, but
 // `sale_price` is centavos per WHOLE unit while `items.wac`/`items.replacement_cost` are centavos
 // per MILLI-unit (core/costing/wac.ts's header; confirmed by SaleForm.tsx's `unitPrice / 1000 <
 // item.replacementCost` below-replacement-cost check) — a ~1000x unit mismatch that would make
-// every FINISHED item look like it has a ~100% margin. Nothing in `core/` reads those view columns
-// today, so this task computes margins in application code instead of fixing the view; the view's
-// bug is flagged here rather than silently relied upon (CLAUDE.md: "put the doubt in the PR
-// description"). `v_price_health` still supplies nothing this function needs beyond `items` itself,
-// so this queries `items` directly.
+// every FINISHED item look like it has a ~100% margin. Those three columns were removed (KOK-069,
+// migration 0006, Doc 04 §4) rather than fixed in SQL, since this file already computes margins
+// correctly in application code and nothing else consumed them. `v_price_health` still supplies
+// nothing this function needs beyond `items` itself, so this queries `items` directly.
 //
 // Same "plain, synchronous, DB-free" convention as wac.ts/replacement-cost.ts for the pure math —
 // `computePriceMargin`/`computePriceSuggested` take no `Db` and are directly usable by fast-check
