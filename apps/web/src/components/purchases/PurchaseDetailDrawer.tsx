@@ -11,7 +11,7 @@ import type {
   UpdatePurchaseResult,
 } from "@kokoro/shared";
 import { formatMoney, formatQty } from "@kokoro/shared";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { DetailDrawer } from "@/components/data-table/DetailDrawer";
 import { Button } from "@/components/ui/button";
@@ -20,6 +20,7 @@ import { useToast } from "@/components/ui/toast";
 import { useItemsQuery } from "@/features/catalog/api";
 import { useDeletePurchase, usePurchase, useRestorePurchase } from "@/features/purchases/api";
 import { useReplayConfirmableMutation } from "@/hooks/useReplayConfirmableMutation";
+import { ApiError } from "@/lib/api";
 import { purchasesLabels } from "@/lib/i18n-purchases";
 
 import { PurchaseForm } from "./PurchaseForm";
@@ -39,7 +40,7 @@ export function PurchaseDetailDrawer({
 }: PurchaseDetailDrawerProps) {
   const purchaseQuery = usePurchase(purchaseId ?? undefined);
   const itemsQuery = useItemsQuery({ isActive: true });
-  const { showUndo } = useToast();
+  const { show, showUndo } = useToast();
 
   const [editOpen, setEditOpen] = useState(false);
   // Frozen at the moment delete succeeds — see deleteReplay's onSuccess below. The restore mutation
@@ -77,6 +78,19 @@ export function PurchaseDetailDrawer({
       },
     },
   );
+
+  // A restore failure that ISN'T the R-5 confirmation case (that one is handled by
+  // `restoreReplay.pendingConfirmation` below) has nowhere else to surface — the undo toast that
+  // triggered it is long gone by the time this rejects. Mirrors ExitDetailDrawer.tsx's identical
+  // precedent (KOK-068). Deliberately depends only on the error itself, not `show` (stable per
+  // ToastProvider's own useMemo) — re-running on every render would repeat the same toast for as
+  // long as the error object reference is unchanged.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: intentional, see comment above.
+  useEffect(() => {
+    if (restoreReplay.error) {
+      show({ message: purchasesLabels.restoreFailed });
+    }
+  }, [restoreReplay.error]);
 
   const itemById = useMemo(() => {
     const map = new Map<string, ItemDto>();
@@ -129,6 +143,14 @@ export function PurchaseDetailDrawer({
                 {purchasesLabels.delete}
               </Button>
             </div>
+
+            {deleteReplay.error ? (
+              <p className="text-negative text-sm">
+                {deleteReplay.error instanceof ApiError
+                  ? deleteReplay.error.message
+                  : purchasesLabels.errors.generic}
+              </p>
+            ) : null}
 
             <div className="flex flex-col gap-1 rounded-md border border-border bg-muted px-3 py-2.5">
               <div className="flex items-center justify-between">
