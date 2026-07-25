@@ -136,6 +136,9 @@ export type ProductionRunImpactRequest = z.input<typeof productionRunImpactReque
 export const listProductionRunsFiltersSchema = z.object({
   recipeId: z.string().min(1).optional(),
   outputItemId: z.string().min(1).optional(),
+  /** O-4: production for an order is a normal ProductionRun linked via `custom_order_id`, enabling
+   * the KOK-034 order-profitability panel (agreed total − order-linked run costs) without an N+1. */
+  customOrderId: z.string().min(1).optional(),
   fromDate: businessDateSchema.optional(),
   toDate: businessDateSchema.optional(),
   limit: z.coerce.number().int().positive().max(500).optional(),

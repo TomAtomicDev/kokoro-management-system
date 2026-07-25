@@ -66,6 +66,8 @@ import type {
   QuoteOrderCommand,
   QuoteOrderResult,
   ReplayImpactDto,
+  ResolveOrderLineCommand,
+  ResolveOrderLineResult,
   SaleDto,
 } from "@kokoro/shared";
 import {
@@ -995,6 +997,69 @@ export async function cancelOrder(
         ? toAccountDto({ ...account, balance: subMoney(account.balance, row.depositPaid) })
         : null,
   };
+}
+
+// ---- Line resolution (KOK-034, Doc 04 §5 amendment) --------------------------------------------
+
+/** Same non-terminal set `cancelOrder` accepts (Doc 03 §5): a line can be resolved any time before
+ * the order reaches a terminal status. Once `DELIVERED`/`CANCELLED` the lines are historical fact. */
+const RESOLVABLE_STATUSES: readonly CustomOrderStatus[] = ALLOWED_FROM.cancel;
+
+/**
+ * Attaches a catalog item to ONE order line (KOK-034). Doc 04 §5 forbids a generic "update order"
+ * command, but `custom_order_lines.item_id` starts NULL for a free-text one-off (a quoting
+ * convenience, see `orderLineCommandSchema`'s header), and `deliverOrder` refuses (409) until every
+ * line has one (`sale_lines.item_id` is NOT NULL + FINISHED-only). This is the narrow, single-
+ * purpose action that resolves that gap without reopening the door the "no generic update" rule
+ * closed: it touches exactly one line's `item_id`, nothing else about the order.
+ *
+ * `description` is left untouched — it stays as the owner's original note even once an item is
+ * linked, same precedent as `qty`/`lineTotal` staying whatever they were quoted at.
+ */
+export async function resolveOrderLine(
+  db: Db,
+  orderId: string,
+  lineId: string,
+  command: ResolveOrderLineCommand,
+  actor: AuditActor,
+): Promise<ResolveOrderLineResult> {
+  const row = await loadOrderRowOrThrow(db, orderId);
+  if (!RESOLVABLE_STATUSES.includes(row.status)) {
+    throw conflict(`No se puede vincular un ítem a un pedido ${STATUS_LABEL_ES[row.status]}.`, {
+      id: orderId,
+      status: row.status,
+    });
+  }
+
+  const lineRow = await db.query.customOrderLines.findFirst({
+    where: (t, { and, eq: eqOp }) => and(eqOp(t.id, lineId), eqOp(t.customOrderId, orderId)),
+  });
+  if (!lineRow) {
+    throw notFound("No se encontró la línea del pedido.", { id: lineId, orderId });
+  }
+
+  // Same FINISHED-item guard every order line is checked against at quote/delivery time.
+  await resolveItemSnapshots(db, [command.itemId]);
+
+  const now = nowIso();
+
+  await db.batch([
+    db
+      .update(customOrderLines)
+      .set({ itemId: command.itemId })
+      .where(eq(customOrderLines.id, lineId)),
+    db.update(customOrders).set({ updatedAt: now }).where(eq(customOrders.id, orderId)),
+    buildAuditLogInsert(db, {
+      actor,
+      action: "resolve_line",
+      entityType: "custom_orders",
+      entityId: orderId,
+      before: { lineId, itemId: lineRow.itemId },
+      after: { lineId, itemId: command.itemId },
+    }),
+  ]);
+
+  return { order: await readOrderDto(db, orderId) };
 }
 
 // ---- Reads ------------------------------------------------------------------------------------

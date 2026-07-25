@@ -113,7 +113,8 @@ Rules:
   paid (ORDER_BALANCE) or as accounts receivable if the customer owes.
   - The sale's lines are derived from the order's lines, so **every order line must be linked to
     a catalog FINISHED item before an order can be delivered** (Doc 04 §5) — free-text lines are a
-    quoting convenience and must be resolved first; delivery refuses (409) otherwise. `agreed_total`
+    quoting convenience and must be resolved first (`resolveOrderLine`, KOK-034 — the one narrow
+    exception to "no generic update order", see Doc 04 §5); delivery refuses (409) otherwise. `agreed_total`
     is split across those lines by largest remainder so `Σ(qty × unit_price)` reproduces it exactly.
   - Only the **balance** is new money: the deposit was already banked at confirm time, so
     `ORDER_BALANCE` is booked for `agreed_total − deposit_paid` (nothing when that is zero), and an

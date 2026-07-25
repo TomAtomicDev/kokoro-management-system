@@ -112,7 +112,6 @@
   "110": "AGENTS.md/CLAUDE.md D-8 Duplication",
   "111": "src/audit.ts",
   "112": "tailwind-merge Dependency",
-  "113": "api/onboarding.ts",
   "114": "typescript Dependency",
   "115": "api/sessions.ts",
   "116": "Module README Pair",
@@ -144,15 +143,11 @@
   "142": "AppShell.tsx",
   "143": "Security Audit Skill Overview",
   "144": "production-runs.test.ts",
-  "145": "api/onboarding.ts",
-  "146": "request",
   "147": "counts.test.ts",
   "148": "customers-routes.test.ts",
   "149": "run-code Command",
   "150": "KOK-033 — Custom-order state machine",
-  "151": "api/production-runs.ts",
   "152": "Client-Side and Browser Hunting",
   "153": "Memory Safety, Binary, and Kernel Hunting",
-  "154": "ReplayImpactDto",
   "156": "updateSaleCommandSchema"
 }

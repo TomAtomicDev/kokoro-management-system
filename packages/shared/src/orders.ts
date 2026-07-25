@@ -214,6 +214,21 @@ export const cancelOrderCommandSchema = z.object({
 export type CancelOrderCommand = z.infer<typeof cancelOrderCommandSchema>;
 
 /**
+ * Resolves a free-text order line to a catalog item (KOK-034, Doc 04 §5 amendment). Doc 04 §5 rules
+ * out a generic "update order" command, but that leaves no way to satisfy O-2's delivery gate: a
+ * line quoted with only `description` (no `itemId`) cannot become a `sale_lines` row (NOT NULL +
+ * FINISHED-only), and `deliverOrder` refuses (409) while any line lacks one. This is deliberately
+ * NOT a generic line editor — it does exactly one thing (attach a catalog item to one line) and
+ * nothing else about the order is editable through it, so it doesn't reopen the door the "no
+ * generic update" rule closed. Legal on any non-terminal order (same set `cancelOrder` accepts);
+ * once `DELIVERED`/`CANCELLED` the lines are historical fact, not something to keep resolving.
+ */
+export const resolveOrderLineCommandSchema = z.object({
+  itemId: z.string().min(1, "Selecciona un ítem del catálogo."),
+});
+export type ResolveOrderLineCommand = z.infer<typeof resolveOrderLineCommandSchema>;
+
+/**
  * Body of the DRY-RUN impact endpoint (R-5 / ADR-016). Only ONE transition writes kardex movements —
  * `deliver` — so unlike `saleImpactRequestSchema`'s create/update/delete union this carries a single
  * `op`. Kept as an object with a literal `op` (rather than dropping the field) so a future
@@ -311,6 +326,11 @@ export interface CancelOrderResult {
   /** The DEBITED account for a REFUND; `null` for FORFEIT (no cash moves — the money is already in
    * the account and merely stops being a liability) and for a deposit-free cancellation. */
   account: FinancialAccountDto | null;
+}
+
+/** Result of `resolveOrderLine` — no money or kardex moves, just the order with its updated line. */
+export interface ResolveOrderLineResult {
+  order: OrderDto;
 }
 
 export interface ListOrdersResult {

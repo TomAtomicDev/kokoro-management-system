@@ -7,6 +7,10 @@
 // free-edits columns, and no DELETE — `POST /orders/:id/cancel` is how an order stops existing.
 // `/orders/impact` is the R-5 dry run for delivery, the only transition that writes kardex rows;
 // it is registered before `/orders/:id` so the static segment reads unambiguously.
+//
+// `/orders/:id/lines/:lineId/resolve` (KOK-034) is the one exception, and a narrow one: it attaches
+// a catalog item to a single free-text line so `deliverOrder`'s item-linked-lines gate (Doc 04 §5)
+// can be satisfied without a generic line editor — see resolveOrderLine's own header.
 
 import {
   cancelOrderCommandSchema,
@@ -15,6 +19,7 @@ import {
   listOrdersFiltersSchema,
   orderImpactRequestSchema,
   quoteOrderCommandSchema,
+  resolveOrderLineCommandSchema,
 } from "@kokoro/shared";
 import { Hono } from "hono";
 
@@ -27,6 +32,7 @@ import {
   markOrderReady,
   previewOrderImpact,
   quoteOrder,
+  resolveOrderLine,
   startOrderProduction,
 } from "../core/orders/index.js";
 import { createDb } from "../db/index.js";
@@ -80,4 +86,11 @@ export const ordersRoute = new Hono<{ Bindings: Env; Variables: Variables }>()
     const db = createDb(c.env.DB);
     const body = cancelOrderCommandSchema.parse(await c.req.json());
     return c.json(await cancelOrder(db, c.req.param("id"), body, ACTOR));
+  })
+  .post("/orders/:id/lines/:lineId/resolve", async (c) => {
+    const db = createDb(c.env.DB);
+    const body = resolveOrderLineCommandSchema.parse(await c.req.json());
+    return c.json(
+      await resolveOrderLine(db, c.req.param("id"), c.req.param("lineId"), body, ACTOR),
+    );
   });

@@ -30,6 +30,7 @@ import {
   listOrders,
   markOrderReady,
   quoteOrder,
+  resolveOrderLine,
   startOrderProduction,
 } from "../src/core/orders/index.js";
 import { recordPurchase } from "../src/core/purchasing/index.js";
@@ -983,6 +984,150 @@ describe("cancelOrder (UC-08, O-3)", () => {
     );
     expect(await accountBalance(db, "acc_bank")).toBe(bankBefore - 15_000);
     expect(await customerDeposits(db)).toBe(0);
+  });
+});
+
+// ============================================================================================
+// resolveOrderLine (KOK-034) — attaching a catalog item to a free-text line
+// ============================================================================================
+
+/** Quotes an order with ONE free-text line (no `itemId`) at the given non-terminal status. */
+async function seedOrderWithFreeTextLine(db: TestDb, status: CustomOrderStatus) {
+  const customer = await seedCustomer(db);
+  const { order } = await quoteOrder(
+    db,
+    {
+      customerId: customer.id,
+      description: "Torta personalizada",
+      agreedTotal: 30_000,
+      deliveryDate: BUSINESS_DATE,
+      lines: [{ description: "Torta de chocolate, sin especificar aún" }],
+    },
+    ACTOR,
+  );
+  const lineId = (await getOrder(db, order.id)).lines[0]?.id;
+  if (!lineId) throw new Error("seed line missing");
+
+  if (status === "QUOTING") return { orderId: order.id, lineId };
+
+  await confirmOrder(
+    db,
+    order.id,
+    {
+      occurredAt: NOW,
+      businessDate: BUSINESS_DATE,
+      depositAmount: 15_000,
+      paymentMethod: "CASH",
+      accountId: "acc_cash",
+    },
+    ACTOR,
+  );
+  if (status === "CONFIRMED") return { orderId: order.id, lineId };
+
+  await startOrderProduction(db, order.id, ACTOR);
+  if (status === "IN_PRODUCTION") return { orderId: order.id, lineId };
+
+  await markOrderReady(db, order.id, ACTOR);
+  return { orderId: order.id, lineId };
+}
+
+describe("resolveOrderLine (KOK-034)", () => {
+  it("attaches a catalog item to a free-text line while QUOTING", async () => {
+    const db = createDb(env.DB);
+    const { orderId, lineId } = await seedOrderWithFreeTextLine(db, "QUOTING");
+    const item = await seedStockedItem(db);
+
+    const { order } = await resolveOrderLine(db, orderId, lineId, { itemId: item.id }, ACTOR);
+    expect(order.lines[0]?.itemId).toBe(item.id);
+    // The description stays — it's the owner's original note, not overwritten by the link.
+    expect(order.lines[0]?.description).toBe("Torta de chocolate, sin especificar aún");
+  });
+
+  it("writes an audit_log row", async () => {
+    const db = createDb(env.DB);
+    const { orderId, lineId } = await seedOrderWithFreeTextLine(db, "QUOTING");
+    const item = await seedStockedItem(db);
+
+    await resolveOrderLine(db, orderId, lineId, { itemId: item.id }, ACTOR);
+
+    const rows = await db.query.auditLog.findMany({
+      where: (t, { and, eq: eqOp }) =>
+        and(eqOp(t.entityType, "custom_orders"), eqOp(t.action, "resolve_line")),
+    });
+    expect(rows).toHaveLength(1);
+  });
+
+  it.each(["CONFIRMED", "IN_PRODUCTION", "READY"] as const)(
+    "also works while %s",
+    async (status) => {
+      const db = createDb(env.DB);
+      const { orderId, lineId } = await seedOrderWithFreeTextLine(db, status);
+      const item = await seedStockedItem(db);
+
+      const { order } = await resolveOrderLine(db, orderId, lineId, { itemId: item.id }, ACTOR);
+      expect(order.lines[0]?.itemId).toBe(item.id);
+    },
+  );
+
+  it.each(["DELIVERED", "CANCELLED"] as const)("rejects once the order is %s", async (status) => {
+    const db = createDb(env.DB);
+    // DELIVERED requires every line linked already, so seed via the normal item-linked flow and
+    // just assert the terminal-status guard rejects a (hypothetical) further resolve call on it.
+    const { orderId } = await seedOrderInStatus(db, status);
+    const lineRows = await db.query.customOrderLines.findMany({
+      where: (t, { eq: eqOp }) => eqOp(t.customOrderId, orderId),
+    });
+    const lineId = lineRows[0]?.id;
+    if (!lineId) throw new Error("seed line missing");
+    const item = await seedStockedItem(db);
+
+    await expect(
+      resolveOrderLine(db, orderId, lineId, { itemId: item.id }, ACTOR),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+  });
+
+  it("rejects an unknown line id", async () => {
+    const db = createDb(env.DB);
+    const { orderId } = await seedOrderWithFreeTextLine(db, "QUOTING");
+    const item = await seedStockedItem(db);
+
+    await expect(
+      resolveOrderLine(db, orderId, "nope", { itemId: item.id }, ACTOR),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  it("rejects a line id belonging to a different order", async () => {
+    const db = createDb(env.DB);
+    const { orderId } = await seedOrderWithFreeTextLine(db, "QUOTING");
+    const other = await seedOrderWithFreeTextLine(db, "QUOTING");
+    const item = await seedStockedItem(db);
+
+    await expect(
+      resolveOrderLine(db, orderId, other.lineId, { itemId: item.id }, ACTOR),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  it("rejects an unknown item id", async () => {
+    const db = createDb(env.DB);
+    const { orderId, lineId } = await seedOrderWithFreeTextLine(db, "QUOTING");
+
+    await expect(
+      resolveOrderLine(db, orderId, lineId, { itemId: "nope" }, ACTOR),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  it("rejects a non-FINISHED item", async () => {
+    const db = createDb(env.DB);
+    const { orderId, lineId } = await seedOrderWithFreeTextLine(db, "QUOTING");
+    const rawMaterial = await createItem(
+      db,
+      { name: uniqueName("Insumo"), kind: "RAW_MATERIAL", category: "OTHER", unit: "UNIT" },
+      ACTOR,
+    );
+
+    await expect(
+      resolveOrderLine(db, orderId, lineId, { itemId: rawMaterial.id }, ACTOR),
+    ).rejects.toMatchObject({ code: "VALIDATION" });
   });
 });
 

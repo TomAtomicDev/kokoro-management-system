@@ -43,6 +43,7 @@ function filtersToQueryString(filters: ListProductionRunsFilters): string {
   const params = new URLSearchParams();
   if (filters.recipeId) params.set("recipeId", filters.recipeId);
   if (filters.outputItemId) params.set("outputItemId", filters.outputItemId);
+  if (filters.customOrderId) params.set("customOrderId", filters.customOrderId);
   if (filters.fromDate) params.set("fromDate", filters.fromDate);
   if (filters.toDate) params.set("toDate", filters.toDate);
   if (filters.limit !== undefined) params.set("limit", String(filters.limit));

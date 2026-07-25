@@ -420,7 +420,11 @@ CREATE TABLE pending_drafts (                    -- one active AI draft per Tele
   unlinked line could not produce a sale equal to `agreed_total` without either inventing revenue
   no line backs or skipping the `SALE_OUT` for goods that really shipped (drifting `item_stock`
   upward forever, INV-5, since O-4's ProductionRun already booked the matching PRODUCTION_IN).
-  `deliverOrder` therefore refuses with a 409 until every line is linked.
+  `deliverOrder` therefore refuses with a 409 until every line is linked. **Amendment (KOK-034):**
+  the ONE narrow exception to "no generic update order" is `resolveOrderLine`, which attaches a
+  catalog item to a single line's `item_id` (leaving `description`/`qty`/`line_total` untouched) —
+  legal on any non-terminal order (same set `cancelOrder` accepts), so the Orders board can resolve
+  a free-text line before delivery without a general-purpose line editor.
 - `agreed_total` is split across the delivered sale's lines by the largest-remainder method
   (`allocateAgreedTotalToOrderLines`): lines carrying an explicit `line_total` are pinned, the rest
   share what is left weighted by `qty`, and `Σ(qty × unit_price)` must reproduce `agreed_total` to
