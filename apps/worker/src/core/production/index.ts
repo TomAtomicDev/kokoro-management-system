@@ -1235,6 +1235,7 @@ export async function listProductionRuns(
       const conditions = [isNull(t.deletedAt)];
       if (filters.recipeId) conditions.push(eqOp(t.recipeId, filters.recipeId));
       if (filters.outputItemId) conditions.push(eqOp(t.outputItemId, filters.outputItemId));
+      if (filters.customOrderId) conditions.push(eqOp(t.customOrderId, filters.customOrderId));
       if (filters.fromDate) conditions.push(gte(t.businessDate, filters.fromDate));
       if (filters.toDate) conditions.push(lte(t.businessDate, filters.toDate));
       return and(...conditions);

@@ -950,9 +950,9 @@
     "semantic_hash": "8e220cb6241ba87732a3d8528d047cc3"
   },
   "apps/worker/src/core/production/index.ts": {
-    "mtime": 1784900804.191371,
-    "ast_hash": "04c93fa74643121d5abdcbf9b78c85be",
-    "semantic_hash": "04c93fa74643121d5abdcbf9b78c85be"
+    "mtime": 1784994907.6974857,
+    "ast_hash": "3220a51431efa3f87cbb3e8901c326c8",
+    "semantic_hash": ""
   },
   "apps/worker/src/core/purchasing/index.ts": {
     "mtime": 1784514569.9690588,
@@ -1360,9 +1360,9 @@
     "semantic_hash": "4cf406f518585aee943cee59f025233e"
   },
   "packages/shared/src/production-runs.ts": {
-    "mtime": 1784744380.907276,
-    "ast_hash": "26f073731610a1aa22eda418545fa80f",
-    "semantic_hash": "26f073731610a1aa22eda418545fa80f"
+    "mtime": 1784994902.314171,
+    "ast_hash": "be29f5a094ae22cf15afdac41e5a0e5a",
+    "semantic_hash": ""
   },
   "packages/shared/src/purchasing.ts": {
     "mtime": 1784514570.022021,
@@ -2165,8 +2165,8 @@
     "semantic_hash": ""
   },
   "packages/shared/src/orders.ts": {
-    "mtime": 1784970074.9336083,
-    "ast_hash": "621b81ea333ed78fbcfba52b7aa08070",
+    "mtime": 1784994896.110574,
+    "ast_hash": "8f15350560dee500a466da7c7fd6a15d",
     "semantic_hash": ""
   },
   "docs/development/kok-033-custom-orders.md": {

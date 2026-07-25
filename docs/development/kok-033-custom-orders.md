@@ -96,4 +96,5 @@ transaction into a plain `SALE` one. Corrections go through the order.
 | Routes | `apps/worker/src/api/orders.ts` |
 | Migration | `apps/worker/migrations/0005_receivables_net_of_deposit.sql` |
 | Tests | `apps/worker/test/orders.test.ts` |
-| UI | KOK-034 (not built) |
+| UI | KOK-034: `apps/web/src/routes/orders.tsx`, `apps/web/src/components/orders/`, `apps/web/src/features/orders/api.ts` |
+| Line resolution (`resolveOrderLine`) | KOK-034 amendment — see `docs/development/kok-034-orders-board.md` |
