@@ -399,7 +399,7 @@ CREATE TABLE pending_drafts (                    -- one active AI draft per Tele
 | `v_stock` | items ⨝ item_stock + `stock_value = qty_on_hand × wac`, low-stock flag |
 | `v_kardex` | stock_movements ⨝ items, ordered, with running balance via window function |
 | `v_price_health` | FINISHED items: price, wac, replacement_cost, margin_wac, margin_repl, margin_repl_pct, alert flag (C-5) |
-| `v_receivables` | sales WHERE payment_status='ON_CREDIT' AND deleted_at IS NULL, aged |
+| `v_receivables` | sales WHERE payment_status='ON_CREDIT' AND deleted_at IS NULL, aged; `total` = **uncollected remainder**, i.e. `sales.total − custom_orders.deposit_paid` for a CUSTOM_ORDER sale (KOK-033, migration 0005) and plain `sales.total` otherwise |
 | `v_liability` | current customer_deposits (see §3.4) |
 | `v_cashflow_daily` | financial_transactions grouped by business_date × category |
 | `v_session_hours` | sessions with derived hours + linked event counts |
@@ -411,10 +411,27 @@ CREATE TABLE pending_drafts (                    -- one active AI draft per Tele
   production consumption items must not be FINISHED **unless** flagged rework (v1: forbidden).
 - `purchases.total = Σ purchase_lines.line_total`; `sales.total = Σ qty×unit_price` (recomputed
   server-side, client values ignored).
-- `custom_orders` transitions only along the state machine (O-1…O-3).
+- `custom_orders` transitions only along the state machine (O-1…O-3). There is no generic
+  "update order" command and no soft-delete/restore pair: `CANCELLED` is the terminal
+  "this didn't happen" state.
+- **Every `custom_order_lines` row must carry an `item_id` before the order may be DELIVERED**
+  (KOK-033). Item-less free-text lines are legal while QUOTING, but `sale_lines.item_id` is NOT
+  NULL and FINISHED-only and `sales.total` is recomputed from those lines, so a delivery with an
+  unlinked line could not produce a sale equal to `agreed_total` without either inventing revenue
+  no line backs or skipping the `SALE_OUT` for goods that really shipped (drifting `item_stock`
+  upward forever, INV-5, since O-4's ProductionRun already booked the matching PRODUCTION_IN).
+  `deliverOrder` therefore refuses with a 409 until every line is linked.
+- `agreed_total` is split across the delivered sale's lines by the largest-remainder method
+  (`allocateAgreedTotalToOrderLines`): lines carrying an explicit `line_total` are pinned, the rest
+  share what is left weighted by `qty`, and `Σ(qty × unit_price)` must reproduce `agreed_total` to
+  the centavo (D-5) — otherwise the delivery is refused rather than rounded.
+- The sale created by a delivery is owned by its order: `core/sales`' update/delete refuse
+  (409 CONFLICT) for any `channel='CUSTOM_ORDER'` sale, since editing it would desynchronize
+  `custom_orders.sale_id`/`agreed_total` and rewrite the order's `ORDER_BALANCE` transaction.
 - One OPEN session per type at a time (soft rule: warn, allow override).
 - `financial_transactions` with `source_event_id` are system-owned: not editable directly (edit
-  the source event instead).
+  the source event instead) — the owning SERVICE may still rewrite them as part of its own
+  transitions, which is how O-3's FORFEIT recategorizes a deposit row in place.
 
 ## 6. Indexes
 

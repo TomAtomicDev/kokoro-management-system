@@ -29,6 +29,13 @@
       "when": 1784929836056,
       "tag": "0004_allow_sale_costing_trigger",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1785340000000,
+      "tag": "0005_receivables_net_of_deposit",
+      "breakpoints": true
     }
   ]
 }

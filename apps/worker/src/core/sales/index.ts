@@ -84,6 +84,7 @@ import {
   mulMoneyByQty,
   nowIso,
   REPLAY_CONFIRMATION_REQUIRED,
+  subMoney,
 } from "@kokoro/shared";
 import { eq, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
@@ -423,6 +424,18 @@ async function loadSaleForMutation(
   });
   if (!row) {
     throw notFound("No se encontró la venta.", { id });
+  }
+  // KOK-033: a CUSTOM_ORDER sale is DERIVED — `deliverOrder` (O-2) created it from the order's
+  // agreed total and lines, and `custom_orders.sale_id` points back at it. Editing or deleting it
+  // here would desynchronize the two (a changed total would no longer match `agreed_total`; a
+  // delete would strand `sale_id` and silently un-release the deposit liability, INV-7) and would
+  // rewrite the order's own ORDER_BALANCE row into a plain SALE one. Doc 04 §5's "transitions only
+  // along the state machine" applies to everything the order owns, this sale included.
+  if (row.channel === "CUSTOM_ORDER") {
+    throw conflict(
+      "Esta venta pertenece a un pedido; corrígela desde el pedido, no desde ventas.",
+      { id, customOrderId: row.customOrderId },
+    );
   }
   await assertSaleNotCollected(db, id);
   const lines = await db.query.saleLines.findMany({
@@ -1079,6 +1092,13 @@ export async function collectPayment(
 
   const account = await findActiveAccountRowOrThrow(db, command.accountId);
 
+  // KOK-033: what is actually OUTSTANDING, which is not always the sale's total. A CUSTOM_ORDER
+  // sale created by `deliverOrder` (O-2) carries the FULL agreed total, but its deposit was already
+  // banked as ORDER_DEPOSIT at confirm time — collecting `total` here would credit that money a
+  // SECOND time. This is the same netting `v_receivables` performs (migration 0005), applied to the
+  // cash side so the view and the collection can never disagree.
+  const outstanding = await outstandingForSale(db, saleRow);
+
   const now = nowIso();
   const updatedFields = {
     paymentStatus: "PAID" as const,
@@ -1089,12 +1109,12 @@ export async function collectPayment(
   };
 
   // financial_transactions.amount is always > 0 (Doc 04 §3.4's CHECK): a receivable of 0 (an
-  // all-giveaway ON_CREDIT sale) is marked collected but moves no cash, mirroring recordSale's own
-  // total===0 skip.
+  // all-giveaway ON_CREDIT sale, or a delivered order whose deposit covered everything) is marked
+  // collected but moves no cash, mirroring recordSale's own total===0 skip.
   const financialStatements: Statement[] = [];
-  if (saleRow.total > 0) {
+  if (outstanding > 0) {
     financialStatements.push(
-      buildAccountBalanceDelta(db, command.accountId, saleRow.total),
+      buildAccountBalanceDelta(db, command.accountId, outstanding),
       db.insert(financialTransactions).values({
         id: generateUuidV7(),
         occurredAt: command.occurredAt,
@@ -1102,7 +1122,7 @@ export async function collectPayment(
         accountId: command.accountId,
         type: "INCOME" as const,
         category: "DEBT_COLLECTION" as const,
-        amount: saleRow.total,
+        amount: outstanding,
         counterpartTxId: null,
         sourceEventType: "sale",
         sourceEventId: id,
@@ -1140,8 +1160,28 @@ export async function collectPayment(
 
   return {
     sale: toSaleDto({ ...saleRow, ...updatedFields }, lineRows),
-    account: toAccountDto({ ...account, balance: addMoney(account.balance, saleRow.total) }),
+    account: toAccountDto({ ...account, balance: addMoney(account.balance, outstanding) }),
   };
+}
+
+/**
+ * What a sale still owes, netting off any deposit already banked against it (KOK-033).
+ *
+ * For an ordinary CATALOG sale this is just `total`. For a `CUSTOM_ORDER` sale it is
+ * `total − custom_orders.deposit_paid`: O-2 makes the delivery sale carry the FULL agreed total,
+ * but the deposit portion arrived at confirm time as its own ORDER_DEPOSIT transaction, so only the
+ * balance was ever uncollected. `v_receivables` reports the identical figure (migration 0005) —
+ * this is that formula on the cash side, kept in one place so the two cannot drift apart.
+ */
+async function outstandingForSale(db: Db, saleRow: SaleRow): Promise<number> {
+  const customOrderId = saleRow.customOrderId;
+  if (customOrderId === null) return saleRow.total;
+  const orderRow = await db.query.customOrders.findFirst({
+    where: (t, { and: andOp, eq: eqOp, isNull }) =>
+      andOp(eqOp(t.id, customOrderId), isNull(t.deletedAt)),
+  });
+  if (!orderRow) return saleRow.total;
+  return Math.max(subMoney(saleRow.total, orderRow.depositPaid), 0);
 }
 
 /** Raw `v_receivables` row shape (snake_case, exactly the view's SELECT list — Doc 04 §4). The

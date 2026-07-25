@@ -111,8 +111,27 @@ Rules:
 - **O-2** On `deliver`: the system creates the linked **Sale** (channel CUSTOM_ORDER) for the
   full agreed total; the deposit liability is released against it; the balance is recorded as
   paid (ORDER_BALANCE) or as accounts receivable if the customer owes.
+  - The sale's lines are derived from the order's lines, so **every order line must be linked to
+    a catalog FINISHED item before an order can be delivered** (Doc 04 §5) — free-text lines are a
+    quoting convenience and must be resolved first; delivery refuses (409) otherwise. `agreed_total`
+    is split across those lines by largest remainder so `Σ(qty × unit_price)` reproduces it exactly.
+  - Only the **balance** is new money: the deposit was already banked at confirm time, so
+    `ORDER_BALANCE` is booked for `agreed_total − deposit_paid` (nothing when that is zero), and an
+    ON_CREDIT balance shows in `v_receivables` net of the deposit — never the full agreed total.
+  - The deposit liability is released by the status reaching `DELIVERED`; `v_liability` subtracts
+    delivered orders' `deposit_paid`. Revenue is recognized here, at delivery, and never earlier
+    (INV-7).
 - **O-3** On `cancel` after deposit: owner chooses REFUND (expense DEPOSIT_REFUND, liability
   released) or FORFEIT (liability converts to OTHER_INCOME).
+  - FORFEIT writes **no new transaction and moves no cash**: the money is already in the account
+    (ADR-012), so the original INCOME/`ORDER_DEPOSIT` row is **recategorized in place** to
+    `OTHER_INCOME`, keeping its account, amount and original `business_date`. That single category
+    change both recognizes the income and drops the row out of `v_liability`'s
+    `category IN ('ORDER_DEPOSIT','DEPOSIT_REFUND')` filter, clearing the liability. Booking a
+    second income row instead would double-count the same cash. Consequence, accepted by design:
+    the forfeited amount appears in the cash-flow category mix of the month the DEPOSIT was
+    received, not the month of the cancellation.
+  - Cancelling an order that never took a deposit needs no resolution and has no financial effect.
 - **O-4** Orders never reserve stock (single operator; reservation adds friction without value).
   Production for an order is a normal ProductionRun linked via `custom_order_id`, enabling
   per-order cost and profit reporting.

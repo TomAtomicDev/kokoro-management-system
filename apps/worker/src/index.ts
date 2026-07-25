@@ -15,6 +15,7 @@ import { financeRoute } from "./api/finance.js";
 import { healthRoute } from "./api/health.js";
 import { inventoryRoute } from "./api/inventory.js";
 import { onboardingRoute } from "./api/onboarding.js";
+import { ordersRoute } from "./api/orders.js";
 import { productionRunsRoute } from "./api/production-runs.js";
 import { purchasingRoute } from "./api/purchasing.js";
 import { recipesRoute } from "./api/recipes.js";
@@ -46,6 +47,7 @@ app.route("/api", financeRoute); // KOK-014 — standalone transactions, transfe
 app.route("/api", purchasingRoute); // KOK-016 — purchases (Doc 03 UC-01), the template event vertical.
 app.route("/api", productionRunsRoute); // KOK-026 — production runs (Doc 03 UC-02), the second full event vertical.
 app.route("/api", salesRoute); // KOK-030 — catalog sales (Doc 03 UC-03, Doc 07 SC-02/03).
+app.route("/api", ordersRoute); // KOK-033 — custom-order lifecycle (Doc 03 UC-05…08 §5, Doc 07 SC-04).
 app.route("/api", sessionsRoute); // KOK-027 — sessions (Doc 03 §6 UC-14, Doc 07 SC-09).
 app.route("/api", inventoryRoute); // KOK-017 — v_stock/v_kardex reads (Doc 07 SC-08).
 app.route("/api", onboardingRoute); // KOK-020 — onboarding wizard (Doc 07 steps 1-5).
