@@ -2,6 +2,7 @@ export type { CostingAdjustmentEntry, CostingAdjustmentTrigger } from "./adjustm
 export { buildCostingAdjustmentInsert } from "./adjustments.js";
 export type { RecipeEdge } from "./dependency-graph.js";
 export { topoOrderAffectedItems } from "./dependency-graph.js";
+export { computePriceMargin, computePriceSuggested, listPriceHealth } from "./price-health.js";
 export type { WacDrift } from "./repair.js";
 export { detectWacDrift, getCurrentWac } from "./repair.js";
 export type { ReplacementCostLine } from "./replacement-cost.js";

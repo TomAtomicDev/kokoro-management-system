@@ -10,14 +10,29 @@ import type {
   SetItemActiveCommand,
   UpdateItemCommand,
 } from "@kokoro/shared";
-import { generateUuidV7, nowIso } from "@kokoro/shared";
+import { generateUuidV7, nowIso, toBusinessDate } from "@kokoro/shared";
 import { eq } from "drizzle-orm";
+import type { BatchItem } from "drizzle-orm/batch";
 
 import type { Db } from "../../db/index.js";
-import { items } from "../../db/schema.js";
+import { items, priceHistory } from "../../db/schema.js";
 import { buildAuditLogInsert } from "../audit.js";
 import { conflict, notFound } from "../errors.js";
 import { fetchAliasesForItem, fetchAliasesForItems, toItemDto } from "./dto.js";
+
+type Statement = BatchItem<"sqlite">;
+
+/** KOK-035, Doc 07 SC-12: "Actualizar precio" (and a price set at creation) writes `price_history`
+ * in the same batch as the `items.sale_price` write (D-3) — never as a separate follow-up call. */
+function buildPriceHistoryInsert(db: Db, itemId: string, price: number, now: string) {
+  return db.insert(priceHistory).values({
+    id: generateUuidV7(),
+    itemId,
+    price,
+    effectiveFrom: toBusinessDate(now),
+    note: null,
+  });
+}
 
 // Exported for core/catalog/bulk-import.ts's per-item duplicate check (KOK-020) — same query,
 // reused rather than re-declared, so the two duplicate-name checks never drift apart.
@@ -56,7 +71,7 @@ export async function createItem(
     updatedAt: now,
   };
 
-  await db.batch([
+  const statements: Statement[] = [
     db.insert(items).values(row),
     buildAuditLogInsert(db, {
       actor,
@@ -66,7 +81,11 @@ export async function createItem(
       before: null,
       after: row,
     }),
-  ]);
+  ];
+  if (row.salePrice !== null) {
+    statements.push(buildPriceHistoryInsert(db, row.id, row.salePrice, now));
+  }
+  await db.batch(statements as [Statement, ...Statement[]]);
 
   return toItemDto(row, []);
 }
@@ -103,7 +122,7 @@ export async function updateItem(
   };
   const updatedRow = { ...existingRow, ...patch };
 
-  await db.batch([
+  const statements: Statement[] = [
     db.update(items).set(patch).where(eq(items.id, command.id)),
     buildAuditLogInsert(db, {
       actor,
@@ -113,7 +132,18 @@ export async function updateItem(
       before: existingRow,
       after: updatedRow,
     }),
-  ]);
+  ];
+  // Doc 07 SC-12: only a genuine price CHANGE gets a price_history row — not a no-op resubmit of
+  // the same value, and not a price being cleared to null (price_history.price is NOT NULL; there
+  // is no normative KB rule for logging a price removal, so this simply doesn't log one, D-1).
+  if (
+    command.salePrice !== undefined &&
+    command.salePrice !== null &&
+    command.salePrice !== existingRow.salePrice
+  ) {
+    statements.push(buildPriceHistoryInsert(db, command.id, command.salePrice, now));
+  }
+  await db.batch(statements as [Statement, ...Statement[]]);
 
   const aliases = await fetchAliasesForItem(db, command.id);
   return toItemDto(updatedRow, aliases);
