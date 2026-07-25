@@ -10,7 +10,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `73c1bdc4`
+- Built from commit: `8f0a7874`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -224,8 +224,8 @@ Cohesion: 0.13
 Nodes (32): ACTOR, catalogRoute, AuditEntry, addItemAlias(), removeItemAlias(), bulkCreateItems(), ItemRow, Statement (+24 more)
 
 ### Community 3 - "Onboarding & Catalog API"
-Cohesion: 0.08
-Nodes (33): LineEditor(), LineEditorLabels, LineEditorLine, LineEditorProps, StepBalances(), StepBalancesProps, StepPassword(), StepPasswordProps (+25 more)
+Cohesion: 0.07
+Nodes (49): DetailDrawer(), DetailDrawerProps, editCountLabel(), ExitDetailDrawer(), ExitDetailDrawerProps, ProductionRunDetailDrawer(), ProductionRunDetailDrawerProps, emptyLine() (+41 more)
 
 ### Community 4 - "Backups & Dashboard API"
 Cohesion: 0.15
@@ -236,8 +236,8 @@ Cohesion: 0.10
 Nodes (38): computePurchaseLineUnitCost(), notFound(), buildPurchaseCreateMovements(), buildPurchaseDeleteMutationInputs(), buildPurchaseInMovementsFromLines(), buildPurchaseTransactionInputs(), buildPurchaseUpdateMutationInputs(), commitPurchaseMutation() (+30 more)
 
 ### Community 6 - "Stock Drift Repair & Counts API"
-Cohesion: 0.12
-Nodes (31): RecordTransactionDialogProps, TransferDialogProps, WithdrawDialogProps, PurchaseDetailDrawerProps, CollectPaymentDialog(), CollectPaymentDialogProps, SaleDetailDrawerProps, emptyLine() (+23 more)
+Cohesion: 0.10
+Nodes (36): RecordTransactionDialogProps, TransferDialogProps, WithdrawDialogProps, LineEditorLine, ProductionLineValue, PurchaseDetailDrawerProps, PurchaseLineValue, RecipeLineValue (+28 more)
 
 ### Community 7 - "Financial Accounts & Transactions"
 Cohesion: 0.07
@@ -260,8 +260,8 @@ Cohesion: 0.07
 Nodes (33): ASSISTANT_CHANNELS, ASSISTANT_OUTCOMES, ASSISTANT_PIPELINES, AssistantChannel, assistantChannelSchema, AssistantOutcome, assistantOutcomeSchema, AssistantPipeline (+25 more)
 
 ### Community 12 - "Finance Dashboard Components"
-Cohesion: 0.09
-Nodes (51): CreateItemDialog(), CreateItemDialogProps, ItemDetailDrawer(), ItemDetailDrawerProps, emptyItemFormValues(), ItemForm(), ItemFormParsed, ItemFormProps (+43 more)
+Cohesion: 0.08
+Nodes (54): CreateItemDialog(), CreateItemDialogProps, ItemDetailDrawer(), ItemDetailDrawerProps, emptyItemFormValues(), ItemForm(), ItemFormParsed, ItemFormProps (+46 more)
 
 ### Community 13 - "Recharts API Reference"
 Cohesion: 0.10
@@ -344,8 +344,8 @@ Cohesion: 0.07
 Nodes (27): @biomejs/biome, description, devDependencies, @biomejs/biome, typescript, devEngines, packageManager, engines (+19 more)
 
 ### Community 33 - "CalcTrace & Stock Table UI"
-Cohesion: 0.09
-Nodes (40): DetailDrawer(), DetailDrawerProps, editCountLabel(), ExitDetailDrawer(), ExitDetailDrawerProps, ProductionRunDetailDrawer(), ProductionRunDetailDrawerProps, PurchaseDetailDrawer() (+32 more)
+Cohesion: 0.14
+Nodes (16): StepBalances(), StepBalancesProps, StepPassword(), StepPasswordProps, Stepper(), StepperProps, StepRecipes(), StepRecipesProps (+8 more)
 
 ### Community 34 - "Event & Count Tables UI"
 Cohesion: 0.10
@@ -468,8 +468,8 @@ Cohesion: 0.27
 Nodes (8): RouteStub(), navLabels, placeholderLabels, TODO: migrate into packages/shared/i18n/es.ts once that module exists (KOK-006+), AssistantRoute(), OrdersRoute(), ReportsRoute(), SettingsAiRoute()
 
 ### Community 64 - "Inventory Route Schemas"
-Cohesion: 0.29
-Nodes (7): dailySnapshots, itemStock, ACTOR, seedDriftedItem(), seedItem(), TestDb, ADR-0016
+Cohesion: 0.18
+Nodes (15): commitCount(), fetchLines(), findCountRowOrThrow(), getCount(), listCounts(), toCountDto(), toLineDto(), updateCountLine() (+7 more)
 
 ### Community 65 - "Security Audit Methodology"
 Cohesion: 0.17
@@ -512,8 +512,8 @@ Cohesion: 0.18
 Nodes (11): Debounce mechanism for --watch, graphify --watch (folder watcher), git post-commit hook (graphify hook install), Video/audio transcription step (Step 2.5), transcribe_all() (graphify.transcribe), Whisper initial prompt (domain hint), build_merge() (graphify.build), graphify --cluster-only (+3 more)
 
 ### Community 75 - "Purchasing API & Schemas"
-Cohesion: 0.17
-Nodes (11): ACTOR, inventoryRoute, commitCountCommandSchema, listCountsFiltersSchema, updateCountLineCommandSchema, deleteStockExitCommandSchema, listStockExitsFiltersSchema, listWasteSummaryFiltersSchema (+3 more)
+Cohesion: 0.19
+Nodes (12): getProductionRun(), listProductionRuns(), loadProductionRunForRestore(), recordProductionRun(), restoreProductionRun(), toProductionRunDto(), productionRuns, ACTOR (+4 more)
 
 ### Community 76 - "Production Run Service Tests"
 Cohesion: 0.12
@@ -564,8 +564,8 @@ Cohesion: 0.33
 Nodes (6): scripts, build, dev, test, test:e2e, typecheck
 
 ### Community 88 - "sales/api.ts"
-Cohesion: 0.18
-Nodes (15): commitCount(), fetchLines(), findCountRowOrThrow(), getCount(), listCounts(), toCountDto(), toLineDto(), updateCountLine() (+7 more)
+Cohesion: 0.17
+Nodes (11): ACTOR, inventoryRoute, commitCountCommandSchema, listCountsFiltersSchema, updateCountLineCommandSchema, deleteStockExitCommandSchema, listStockExitsFiltersSchema, listWasteSummaryFiltersSchema (+3 more)
 
 ### Community 89 - "Client-Side Attack Classes"
 Cohesion: 0.13
@@ -664,12 +664,12 @@ Cohesion: 0.17
 Nodes (15): Vulnerability Hunting (Phase 2) Doc, Phase 2: Hunt for vulnerabilities, Security Audit Reconnaissance (Phase 1) Doc, Phase 1: Understand the application (Reconnaissance), Security Audit Skill Overview, Defense-in-depth gaps are not vulnerabilities (core principle), Only report what you can exploit (core principle), Severity requires impact (likelihood x impact core principle) (+7 more)
 
 ### Community 144 - "production-runs.test.ts"
-Cohesion: 0.19
-Nodes (12): getProductionRun(), listProductionRuns(), loadProductionRunForRestore(), recordProductionRun(), restoreProductionRun(), toProductionRunDto(), productionRuns, ACTOR (+4 more)
-
-### Community 145 - "api/onboarding.ts"
 Cohesion: 0.27
 Nodes (7): ACTOR, onboardingRoute, getSetting(), setSetting(), appSettings, ACTOR, TestDb
+
+### Community 145 - "api/onboarding.ts"
+Cohesion: 0.25
+Nodes (7): ACTOR, productionRunsRoute, deleteProductionRunCommandSchema, listProductionRunsFiltersSchema, productionRunImpactRequestSchema, recordProductionRunCommandSchema, updateProductionRunCommandSchema
 
 ### Community 146 - "request"
 Cohesion: 0.33
@@ -684,8 +684,8 @@ Cohesion: 0.22
 Nodes (8): 1. Scope, 2. The free-text-line problem, and why delivery is stricter than quoting, 3. FORFEIT recategorizes; it does not book, 4. `v_receivables` now reports the remainder (migration 0005), 5. The order owns its sale, 6. What KOK-034 must build, 7. Where things live, KOK-033 — Custom-order state machine
 
 ### Community 151 - "api/production-runs.ts"
-Cohesion: 0.25
-Nodes (7): ACTOR, productionRunsRoute, deleteProductionRunCommandSchema, listProductionRunsFiltersSchema, productionRunImpactRequestSchema, recordProductionRunCommandSchema, updateProductionRunCommandSchema
+Cohesion: 0.29
+Nodes (7): dailySnapshots, itemStock, ACTOR, seedDriftedItem(), seedItem(), TestDb, ADR-0016
 
 ### Community 152 - "Client-Side and Browser Hunting"
 Cohesion: 0.29
@@ -717,9 +717,9 @@ _Questions this graph is uniquely positioned to answer:_
 
 - **What is the exact relationship between `Wiki export (--wiki)` and `Token reduction benchmark (graphify benchmark)`?**
   _Edge tagged AMBIGUOUS (relation: conceptually_related_to) - confidence is low._
-- **Why does `nowIso()` connect `Inventory Command Services` to `Auth Routes & Audit Log`, `Onboarding & Catalog API`, `Backups & Dashboard API`, `WAC Costing Engine`, `Stock Drift Repair & Counts API`, `Financial Accounts & Transactions`, `Production Runs API`, `Finance Dashboard Components`, `Transaction & Purchase Drawers UI`, `production-runs.test.ts`, `api/onboarding.ts`, `Item Form & Onboarding Steps`, `Count & Exit Forms UI`, `Production Movements & Kardex`, `Costing Adjustments & Replay`, `Production Run Table UI`, `Session Detail & Form UI`, `Crypto Utils & CSRF`, `Sessions API & Schemas`, `Event & Count Tables UI`, `Finance API & Schemas`, `Purchases API`, `Counts API & Schemas`, `Security Audit Skill Phases`, `movements.ts`, `Finance API Route`, `sales/api.ts`?**
+- **Why does `nowIso()` connect `Inventory Command Services` to `Auth Routes & Audit Log`, `Onboarding & Catalog API`, `Backups & Dashboard API`, `WAC Costing Engine`, `Stock Drift Repair & Counts API`, `Financial Accounts & Transactions`, `Production Runs API`, `Finance Dashboard Components`, `Transaction & Purchase Drawers UI`, `production-runs.test.ts`, `Item Form & Onboarding Steps`, `Count & Exit Forms UI`, `Production Movements & Kardex`, `Costing Adjustments & Replay`, `Production Run Table UI`, `Session Detail & Form UI`, `Crypto Utils & CSRF`, `Sessions API & Schemas`, `Event & Count Tables UI`, `Finance API & Schemas`, `Purchases API`, `Counts API & Schemas`, `Security Audit Skill Phases`, `Inventory Route Schemas`, `Purchasing API & Schemas`, `movements.ts`, `Finance API Route`?**
   _High betweenness centrality (0.033) - this node is a cross-community bridge._
-- **Why does `Db` connect `Inventory Command Services` to `Auth Routes & Audit Log`, `Backups & Dashboard API`, `WAC Costing Engine`, `Financial Accounts & Transactions`, `Finance & Count Dialogs UI`, `Production Runs API`, `Transaction & Purchase Drawers UI`, `production-runs.test.ts`, `Item Form & Onboarding Steps`, `api/onboarding.ts`, `Production Movements & Kardex`, `Costing Adjustments & Replay`, `Session Detail & Form UI`, `Crypto Utils & CSRF`, `Sessions API & Schemas`, `Counts API & Schemas`, `Security Audit Skill Phases`, `Recipe Dependency Graph & Domain Errors`, `Query Client & Toast Provider`, `movements.ts`, `Finance API Route`, `sales/api.ts`?**
+- **Why does `Db` connect `Inventory Command Services` to `Auth Routes & Audit Log`, `Backups & Dashboard API`, `WAC Costing Engine`, `Financial Accounts & Transactions`, `Finance & Count Dialogs UI`, `Production Runs API`, `Transaction & Purchase Drawers UI`, `production-runs.test.ts`, `Item Form & Onboarding Steps`, `Production Movements & Kardex`, `Costing Adjustments & Replay`, `Session Detail & Form UI`, `Crypto Utils & CSRF`, `Sessions API & Schemas`, `Counts API & Schemas`, `Security Audit Skill Phases`, `Inventory Route Schemas`, `Recipe Dependency Graph & Domain Errors`, `Query Client & Toast Provider`, `Purchasing API & Schemas`, `movements.ts`, `Finance API Route`?**
   _High betweenness centrality (0.014) - this node is a cross-community bridge._
 - **Why does `createDb()` connect `Query Client & Toast Provider` to `Auth Routes & Audit Log`, `Backups & Dashboard API`, `WAC Costing Engine`, `Financial Accounts & Transactions`, `Production Runs API`, `production-runs-routes.test.ts`, `Sessions Domain Service`, `production-runs.test.ts`, `Item Form & Onboarding Steps`, `Count & Exit Forms UI`, `api/onboarding.ts`, `run-code Command`, `Costing Routes & Replacement Cost`, `api/production-runs.ts`, `Costing Adjustments & Replay`, `Session Detail & Form UI`, `Purchasing Route Tests`, `Security Audit Skill Phases`, `Inventory Route Schemas`, `Recipe Dependency Graph & Domain Errors`, `Exit/Purchase Route Tests`, `Purchasing API & Schemas`, `Sessions Route Tests`, `Finance API Route`, `sales/api.ts`, `Client-Side Attack Classes`?**
   _High betweenness centrality (0.012) - this node is a cross-community bridge._

@@ -1806,8 +1806,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_web_src_components_data_table_detaildrawer",
-      "community": 33,
-      "community_name": "CalcTrace & Stock Table UI",
+      "community": 3,
+      "community_name": "Onboarding & Catalog API",
       "norm_label": "detaildrawer.tsx"
     },
     {
@@ -1817,8 +1817,8 @@
       "source_location": "L20",
       "_origin": "ast",
       "id": "apps_web_src_components_data_table_detaildrawer_detaildrawerprops",
-      "community": 33,
-      "community_name": "CalcTrace & Stock Table UI",
+      "community": 3,
+      "community_name": "Onboarding & Catalog API",
       "norm_label": "detaildrawerprops"
     },
     {
@@ -1828,8 +1828,8 @@
       "source_location": "L37",
       "_origin": "ast",
       "id": "apps_web_src_components_data_table_detaildrawer_editcountlabel",
-      "community": 33,
-      "community_name": "CalcTrace & Stock Table UI",
+      "community": 3,
+      "community_name": "Onboarding & Catalog API",
       "norm_label": "editcountlabel()"
     },
     {
@@ -1839,8 +1839,8 @@
       "source_location": "L41",
       "_origin": "ast",
       "id": "apps_web_src_components_data_table_detaildrawer_detaildrawer",
-      "community": 33,
-      "community_name": "CalcTrace & Stock Table UI",
+      "community": 3,
+      "community_name": "Onboarding & Catalog API",
       "norm_label": "detaildrawer()"
     },
     {
@@ -2191,8 +2191,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_web_src_components_inventory_exitdetaildrawer",
-      "community": 33,
-      "community_name": "CalcTrace & Stock Table UI",
+      "community": 3,
+      "community_name": "Onboarding & Catalog API",
       "norm_label": "exitdetaildrawer.tsx"
     },
     {
@@ -2202,8 +2202,8 @@
       "source_location": "L47",
       "_origin": "ast",
       "id": "apps_web_src_components_inventory_exitdetaildrawer_exitdetaildrawerprops",
-      "community": 33,
-      "community_name": "CalcTrace & Stock Table UI",
+      "community": 3,
+      "community_name": "Onboarding & Catalog API",
       "norm_label": "exitdetaildrawerprops"
     },
     {
@@ -2213,8 +2213,8 @@
       "source_location": "L53",
       "_origin": "ast",
       "id": "apps_web_src_components_inventory_exitdetaildrawer_exitdetaildrawer",
-      "community": 33,
-      "community_name": "CalcTrace & Stock Table UI",
+      "community": 3,
+      "community_name": "Onboarding & Catalog API",
       "norm_label": "exitdetaildrawer()"
     },
     {
@@ -2730,8 +2730,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_web_src_components_line_editor_lineeditor",
-      "community": 3,
-      "community_name": "Onboarding & Catalog API",
+      "community": 12,
+      "community_name": "Finance Dashboard Components",
       "norm_label": "lineeditor.tsx"
     },
     {
@@ -2741,8 +2741,8 @@
       "source_location": "L23",
       "_origin": "ast",
       "id": "apps_web_src_components_line_editor_lineeditor_lineeditorline",
-      "community": 3,
-      "community_name": "Onboarding & Catalog API",
+      "community": 6,
+      "community_name": "Stock Drift Repair & Counts API",
       "norm_label": "lineeditorline"
     },
     {
@@ -2752,8 +2752,8 @@
       "source_location": "L32",
       "_origin": "ast",
       "id": "apps_web_src_components_line_editor_lineeditor_lineeditorlabels",
-      "community": 3,
-      "community_name": "Onboarding & Catalog API",
+      "community": 12,
+      "community_name": "Finance Dashboard Components",
       "norm_label": "lineeditorlabels"
     },
     {
@@ -2763,8 +2763,8 @@
       "source_location": "L43",
       "_origin": "ast",
       "id": "apps_web_src_components_line_editor_lineeditor_lineeditorprops",
-      "community": 3,
-      "community_name": "Onboarding & Catalog API",
+      "community": 12,
+      "community_name": "Finance Dashboard Components",
       "norm_label": "lineeditorprops"
     },
     {
@@ -2774,8 +2774,8 @@
       "source_location": "L63",
       "_origin": "ast",
       "id": "apps_web_src_components_line_editor_lineeditor_lineeditor",
-      "community": 3,
-      "community_name": "Onboarding & Catalog API",
+      "community": 12,
+      "community_name": "Finance Dashboard Components",
       "norm_label": "lineeditor()"
     },
     {
@@ -2785,8 +2785,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_web_src_components_onboarding_stepbalances",
-      "community": 3,
-      "community_name": "Onboarding & Catalog API",
+      "community": 33,
+      "community_name": "CalcTrace & Stock Table UI",
       "norm_label": "stepbalances.tsx"
     },
     {
@@ -2796,8 +2796,8 @@
       "source_location": "L17",
       "_origin": "ast",
       "id": "apps_web_src_components_onboarding_stepbalances_stepbalancesprops",
-      "community": 3,
-      "community_name": "Onboarding & Catalog API",
+      "community": 33,
+      "community_name": "CalcTrace & Stock Table UI",
       "norm_label": "stepbalancesprops"
     },
     {
@@ -2807,8 +2807,8 @@
       "source_location": "L22",
       "_origin": "ast",
       "id": "apps_web_src_components_onboarding_stepbalances_stepbalances",
-      "community": 3,
-      "community_name": "Onboarding & Catalog API",
+      "community": 33,
+      "community_name": "CalcTrace & Stock Table UI",
       "norm_label": "stepbalances()"
     },
     {
@@ -2928,8 +2928,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_web_src_components_onboarding_steppassword",
-      "community": 3,
-      "community_name": "Onboarding & Catalog API",
+      "community": 33,
+      "community_name": "CalcTrace & Stock Table UI",
       "norm_label": "steppassword.tsx"
     },
     {
@@ -2939,8 +2939,8 @@
       "source_location": "L9",
       "_origin": "ast",
       "id": "apps_web_src_components_onboarding_steppassword_steppasswordprops",
-      "community": 3,
-      "community_name": "Onboarding & Catalog API",
+      "community": 33,
+      "community_name": "CalcTrace & Stock Table UI",
       "norm_label": "steppasswordprops"
     },
     {
@@ -2950,8 +2950,8 @@
       "source_location": "L13",
       "_origin": "ast",
       "id": "apps_web_src_components_onboarding_steppassword_steppassword",
-      "community": 3,
-      "community_name": "Onboarding & Catalog API",
+      "community": 33,
+      "community_name": "CalcTrace & Stock Table UI",
       "norm_label": "steppassword()"
     },
     {
@@ -2961,8 +2961,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_web_src_components_onboarding_steprecipes",
-      "community": 3,
-      "community_name": "Onboarding & Catalog API",
+      "community": 33,
+      "community_name": "CalcTrace & Stock Table UI",
       "norm_label": "steprecipes.tsx"
     },
     {
@@ -2972,8 +2972,8 @@
       "source_location": "L7",
       "_origin": "ast",
       "id": "apps_web_src_components_onboarding_steprecipes_steprecipesprops",
-      "community": 3,
-      "community_name": "Onboarding & Catalog API",
+      "community": 33,
+      "community_name": "CalcTrace & Stock Table UI",
       "norm_label": "steprecipesprops"
     },
     {
@@ -2983,8 +2983,8 @@
       "source_location": "L11",
       "_origin": "ast",
       "id": "apps_web_src_components_onboarding_steprecipes_steprecipes",
-      "community": 3,
-      "community_name": "Onboarding & Catalog API",
+      "community": 33,
+      "community_name": "CalcTrace & Stock Table UI",
       "norm_label": "steprecipes()"
     },
     {
@@ -2994,8 +2994,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_web_src_components_onboarding_stepper",
-      "community": 3,
-      "community_name": "Onboarding & Catalog API",
+      "community": 33,
+      "community_name": "CalcTrace & Stock Table UI",
       "norm_label": "stepper.tsx"
     },
     {
@@ -3005,8 +3005,8 @@
       "source_location": "L11",
       "_origin": "ast",
       "id": "apps_web_src_components_onboarding_stepper_stepperprops",
-      "community": 3,
-      "community_name": "Onboarding & Catalog API",
+      "community": 33,
+      "community_name": "CalcTrace & Stock Table UI",
       "norm_label": "stepperprops"
     },
     {
@@ -3016,8 +3016,8 @@
       "source_location": "L20",
       "_origin": "ast",
       "id": "apps_web_src_components_onboarding_stepper_stepper",
-      "community": 3,
-      "community_name": "Onboarding & Catalog API",
+      "community": 33,
+      "community_name": "CalcTrace & Stock Table UI",
       "norm_label": "stepper()"
     },
     {
@@ -3093,8 +3093,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_web_src_components_production_productionrundetaildrawer",
-      "community": 33,
-      "community_name": "CalcTrace & Stock Table UI",
+      "community": 3,
+      "community_name": "Onboarding & Catalog API",
       "norm_label": "productionrundetaildrawer.tsx"
     },
     {
@@ -3104,8 +3104,8 @@
       "source_location": "L32",
       "_origin": "ast",
       "id": "apps_web_src_components_production_productionrundetaildrawer_productionrundetaildrawerprops",
-      "community": 33,
-      "community_name": "CalcTrace & Stock Table UI",
+      "community": 3,
+      "community_name": "Onboarding & Catalog API",
       "norm_label": "productionrundetaildrawerprops"
     },
     {
@@ -3115,8 +3115,8 @@
       "source_location": "L38",
       "_origin": "ast",
       "id": "apps_web_src_components_production_productionrundetaildrawer_productionrundetaildrawer",
-      "community": 33,
-      "community_name": "CalcTrace & Stock Table UI",
+      "community": 3,
+      "community_name": "Onboarding & Catalog API",
       "norm_label": "productionrundetaildrawer()"
     },
     {
@@ -3148,8 +3148,8 @@
       "source_location": "L52",
       "_origin": "ast",
       "id": "apps_web_src_components_production_productionrunform_productionlinevalue",
-      "community": 3,
-      "community_name": "Onboarding & Catalog API",
+      "community": 6,
+      "community_name": "Stock Drift Repair & Counts API",
       "norm_label": "productionlinevalue"
     },
     {
@@ -3269,8 +3269,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_web_src_components_purchases_purchasedetaildrawer",
-      "community": 33,
-      "community_name": "CalcTrace & Stock Table UI",
+      "community": 3,
+      "community_name": "Onboarding & Catalog API",
       "norm_label": "purchasedetaildrawer.tsx"
     },
     {
@@ -3291,8 +3291,8 @@
       "source_location": "L35",
       "_origin": "ast",
       "id": "apps_web_src_components_purchases_purchasedetaildrawer_purchasedetaildrawer",
-      "community": 33,
-      "community_name": "CalcTrace & Stock Table UI",
+      "community": 3,
+      "community_name": "Onboarding & Catalog API",
       "norm_label": "purchasedetaildrawer()"
     },
     {
@@ -3346,8 +3346,8 @@
       "source_location": "L49",
       "_origin": "ast",
       "id": "apps_web_src_components_purchases_purchaseform_purchaselinevalue",
-      "community": 3,
-      "community_name": "Onboarding & Catalog API",
+      "community": 6,
+      "community_name": "Stock Drift Repair & Counts API",
       "norm_label": "purchaselinevalue"
     },
     {
@@ -3500,8 +3500,8 @@
       "source_location": "L42",
       "_origin": "ast",
       "id": "apps_web_src_components_recipes_recipeform_recipelinevalue",
-      "community": 3,
-      "community_name": "Onboarding & Catalog API",
+      "community": 6,
+      "community_name": "Stock Drift Repair & Counts API",
       "norm_label": "recipelinevalue"
     },
     {
@@ -3577,8 +3577,8 @@
       "source_location": "L20",
       "_origin": "ast",
       "id": "apps_web_src_components_recipes_recipestable_recipestable",
-      "community": 33,
-      "community_name": "CalcTrace & Stock Table UI",
+      "community": 3,
+      "community_name": "Onboarding & Catalog API",
       "norm_label": "recipestable()"
     },
     {
@@ -3621,8 +3621,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_web_src_components_sales_saledetaildrawer",
-      "community": 33,
-      "community_name": "CalcTrace & Stock Table UI",
+      "community": 3,
+      "community_name": "Onboarding & Catalog API",
       "norm_label": "saledetaildrawer.tsx"
     },
     {
@@ -3643,8 +3643,8 @@
       "source_location": "L38",
       "_origin": "ast",
       "id": "apps_web_src_components_sales_saledetaildrawer_saledetaildrawer",
-      "community": 33,
-      "community_name": "CalcTrace & Stock Table UI",
+      "community": 3,
+      "community_name": "Onboarding & Catalog API",
       "norm_label": "saledetaildrawer()"
     },
     {
@@ -3676,8 +3676,8 @@
       "source_location": "L61",
       "_origin": "ast",
       "id": "apps_web_src_components_sales_saleform_salelinevalue",
-      "community": 3,
-      "community_name": "Onboarding & Catalog API",
+      "community": 6,
+      "community_name": "Stock Drift Repair & Counts API",
       "norm_label": "salelinevalue"
     },
     {
@@ -4039,8 +4039,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_web_src_components_ui_impactconfirmdialog",
-      "community": 33,
-      "community_name": "CalcTrace & Stock Table UI",
+      "community": 3,
+      "community_name": "Onboarding & Catalog API",
       "norm_label": "impactconfirmdialog.tsx"
     },
     {
@@ -4061,8 +4061,8 @@
       "source_location": "L33",
       "_origin": "ast",
       "id": "apps_web_src_components_ui_impactconfirmdialog_impactrow",
-      "community": 33,
-      "community_name": "CalcTrace & Stock Table UI",
+      "community": 3,
+      "community_name": "Onboarding & Catalog API",
       "norm_label": "impactrow"
     },
     {
@@ -4072,8 +4072,8 @@
       "source_location": "L42",
       "_origin": "ast",
       "id": "apps_web_src_components_ui_impactconfirmdialog_impact_row_labels",
-      "community": 33,
-      "community_name": "CalcTrace & Stock Table UI",
+      "community": 3,
+      "community_name": "Onboarding & Catalog API",
       "norm_label": "impact_row_labels"
     },
     {
@@ -4083,8 +4083,8 @@
       "source_location": "L49",
       "_origin": "ast",
       "id": "apps_web_src_components_ui_impactconfirmdialog_buildimpactrows",
-      "community": 33,
-      "community_name": "CalcTrace & Stock Table UI",
+      "community": 3,
+      "community_name": "Onboarding & Catalog API",
       "norm_label": "buildimpactrows()"
     },
     {
@@ -4094,8 +4094,8 @@
       "source_location": "L62",
       "_origin": "ast",
       "id": "apps_web_src_components_ui_impactconfirmdialog_impactconfirmdialog",
-      "community": 33,
-      "community_name": "CalcTrace & Stock Table UI",
+      "community": 3,
+      "community_name": "Onboarding & Catalog API",
       "norm_label": "impactconfirmdialog()"
     },
     {
@@ -4149,8 +4149,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_web_src_components_ui_button",
-      "community": 3,
-      "community_name": "Onboarding & Catalog API",
+      "community": 33,
+      "community_name": "CalcTrace & Stock Table UI",
       "norm_label": "button.tsx"
     },
     {
@@ -4160,8 +4160,8 @@
       "source_location": "L9",
       "_origin": "ast",
       "id": "apps_web_src_components_ui_button_buttonvariants",
-      "community": 3,
-      "community_name": "Onboarding & Catalog API",
+      "community": 33,
+      "community_name": "CalcTrace & Stock Table UI",
       "norm_label": "buttonvariants"
     },
     {
@@ -4171,8 +4171,8 @@
       "source_location": "L40",
       "_origin": "ast",
       "id": "apps_web_src_components_ui_button_buttonprops",
-      "community": 3,
-      "community_name": "Onboarding & Catalog API",
+      "community": 33,
+      "community_name": "CalcTrace & Stock Table UI",
       "norm_label": "buttonprops"
     },
     {
@@ -4182,8 +4182,8 @@
       "source_location": "L46",
       "_origin": "ast",
       "id": "apps_web_src_components_ui_button_button",
-      "community": 3,
-      "community_name": "Onboarding & Catalog API",
+      "community": 33,
+      "community_name": "CalcTrace & Stock Table UI",
       "norm_label": "button()"
     },
     {
@@ -4325,8 +4325,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_web_src_components_ui_toast",
-      "community": 33,
-      "community_name": "CalcTrace & Stock Table UI",
+      "community": 3,
+      "community_name": "Onboarding & Catalog API",
       "norm_label": "toast.tsx"
     },
     {
@@ -4336,8 +4336,8 @@
       "source_location": "L31",
       "_origin": "ast",
       "id": "apps_web_src_components_ui_toast_showtoastoptions",
-      "community": 33,
-      "community_name": "CalcTrace & Stock Table UI",
+      "community": 3,
+      "community_name": "Onboarding & Catalog API",
       "norm_label": "showtoastoptions"
     },
     {
@@ -4347,8 +4347,8 @@
       "source_location": "L39",
       "_origin": "ast",
       "id": "apps_web_src_components_ui_toast_toastitem",
-      "community": 33,
-      "community_name": "CalcTrace & Stock Table UI",
+      "community": 3,
+      "community_name": "Onboarding & Catalog API",
       "norm_label": "toastitem"
     },
     {
@@ -4358,8 +4358,8 @@
       "source_location": "L44",
       "_origin": "ast",
       "id": "apps_web_src_components_ui_toast_toastcontextvalue",
-      "community": 33,
-      "community_name": "CalcTrace & Stock Table UI",
+      "community": 3,
+      "community_name": "Onboarding & Catalog API",
       "norm_label": "toastcontextvalue"
     },
     {
@@ -4369,8 +4369,8 @@
       "source_location": "L52",
       "_origin": "ast",
       "id": "apps_web_src_components_ui_toast_toastcontext",
-      "community": 33,
-      "community_name": "CalcTrace & Stock Table UI",
+      "community": 3,
+      "community_name": "Onboarding & Catalog API",
       "norm_label": "toastcontext"
     },
     {
@@ -4380,8 +4380,8 @@
       "source_location": "L61",
       "_origin": "ast",
       "id": "apps_web_src_components_ui_toast_usetoast",
-      "community": 33,
-      "community_name": "CalcTrace & Stock Table UI",
+      "community": 3,
+      "community_name": "Onboarding & Catalog API",
       "norm_label": "usetoast()"
     },
     {
@@ -4402,8 +4402,8 @@
       "source_location": "L108",
       "_origin": "ast",
       "id": "apps_web_src_components_ui_toast_toastviewport",
-      "community": 33,
-      "community_name": "CalcTrace & Stock Table UI",
+      "community": 3,
+      "community_name": "Onboarding & Catalog API",
       "norm_label": "toastviewport()"
     },
     {
@@ -4413,8 +4413,8 @@
       "source_location": "L129",
       "_origin": "ast",
       "id": "apps_web_src_components_ui_toast_toastcard",
-      "community": 33,
-      "community_name": "CalcTrace & Stock Table UI",
+      "community": 3,
+      "community_name": "Onboarding & Catalog API",
       "norm_label": "toastcard()"
     },
     {
@@ -4424,8 +4424,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_web_src_features_audit_api",
-      "community": 33,
-      "community_name": "CalcTrace & Stock Table UI",
+      "community": 3,
+      "community_name": "Onboarding & Catalog API",
       "norm_label": "audit/api.ts"
     },
     {
@@ -4435,8 +4435,8 @@
       "source_location": "L12",
       "_origin": "ast",
       "id": "apps_web_src_features_audit_api_useauditlog",
-      "community": 33,
-      "community_name": "CalcTrace & Stock Table UI",
+      "community": 3,
+      "community_name": "Onboarding & Catalog API",
       "norm_label": "useauditlog()"
     },
     {
@@ -4611,8 +4611,8 @@
       "source_location": "L40",
       "_origin": "ast",
       "id": "apps_web_src_features_catalog_api_useitemsquery",
-      "community": 33,
-      "community_name": "CalcTrace & Stock Table UI",
+      "community": 3,
+      "community_name": "Onboarding & Catalog API",
       "norm_label": "useitemsquery()"
     },
     {
@@ -5117,8 +5117,8 @@
       "source_location": "L106",
       "_origin": "ast",
       "id": "apps_web_src_features_inventory_api_usestockexit",
-      "community": 33,
-      "community_name": "CalcTrace & Stock Table UI",
+      "community": 3,
+      "community_name": "Onboarding & Catalog API",
       "norm_label": "usestockexit()"
     },
     {
@@ -5194,8 +5194,8 @@
       "source_location": "L176",
       "_origin": "ast",
       "id": "apps_web_src_features_inventory_api_usedeletestockexit",
-      "community": 33,
-      "community_name": "CalcTrace & Stock Table UI",
+      "community": 3,
+      "community_name": "Onboarding & Catalog API",
       "norm_label": "usedeletestockexit()"
     },
     {
@@ -5205,8 +5205,8 @@
       "source_location": "L185",
       "_origin": "ast",
       "id": "apps_web_src_features_inventory_api_userestorestockexit",
-      "community": 33,
-      "community_name": "CalcTrace & Stock Table UI",
+      "community": 3,
+      "community_name": "Onboarding & Catalog API",
       "norm_label": "userestorestockexit()"
     },
     {
@@ -5359,8 +5359,8 @@
       "source_location": "L36",
       "_origin": "ast",
       "id": "apps_web_src_features_onboarding_api_usesetopeningbalances",
-      "community": 3,
-      "community_name": "Onboarding & Catalog API",
+      "community": 33,
+      "community_name": "CalcTrace & Stock Table UI",
       "norm_label": "usesetopeningbalances()"
     },
     {
@@ -5502,8 +5502,8 @@
       "source_location": "L94",
       "_origin": "ast",
       "id": "apps_web_src_features_production_runs_api_usedeleteproductionrun",
-      "community": 33,
-      "community_name": "CalcTrace & Stock Table UI",
+      "community": 3,
+      "community_name": "Onboarding & Catalog API",
       "norm_label": "usedeleteproductionrun()"
     },
     {
@@ -5513,8 +5513,8 @@
       "source_location": "L103",
       "_origin": "ast",
       "id": "apps_web_src_features_production_runs_api_userestoreproductionrun",
-      "community": 33,
-      "community_name": "CalcTrace & Stock Table UI",
+      "community": 3,
+      "community_name": "Onboarding & Catalog API",
       "norm_label": "userestoreproductionrun()"
     },
     {
@@ -5645,8 +5645,8 @@
       "source_location": "L95",
       "_origin": "ast",
       "id": "apps_web_src_features_purchases_api_usedeletepurchase",
-      "community": 33,
-      "community_name": "CalcTrace & Stock Table UI",
+      "community": 3,
+      "community_name": "Onboarding & Catalog API",
       "norm_label": "usedeletepurchase()"
     },
     {
@@ -5656,8 +5656,8 @@
       "source_location": "L104",
       "_origin": "ast",
       "id": "apps_web_src_features_purchases_api_userestorepurchase",
-      "community": 33,
-      "community_name": "CalcTrace & Stock Table UI",
+      "community": 3,
+      "community_name": "Onboarding & Catalog API",
       "norm_label": "userestorepurchase()"
     },
     {
@@ -5953,8 +5953,8 @@
       "source_location": "L104",
       "_origin": "ast",
       "id": "apps_web_src_features_sales_api_usedeletesale",
-      "community": 33,
-      "community_name": "CalcTrace & Stock Table UI",
+      "community": 3,
+      "community_name": "Onboarding & Catalog API",
       "norm_label": "usedeletesale()"
     },
     {
@@ -5964,8 +5964,8 @@
       "source_location": "L113",
       "_origin": "ast",
       "id": "apps_web_src_features_sales_api_userestoresale",
-      "community": 33,
-      "community_name": "CalcTrace & Stock Table UI",
+      "community": 3,
+      "community_name": "Onboarding & Catalog API",
       "norm_label": "userestoresale()"
     },
     {
@@ -6140,8 +6140,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_web_src_hooks_usereplayconfirmablemutation_test",
-      "community": 33,
-      "community_name": "CalcTrace & Stock Table UI",
+      "community": 3,
+      "community_name": "Onboarding & Catalog API",
       "norm_label": "usereplayconfirmablemutation.test.ts"
     },
     {
@@ -6151,8 +6151,8 @@
       "source_location": "L14",
       "_origin": "ast",
       "id": "apps_web_src_hooks_usereplayconfirmablemutation_test_impact",
-      "community": 33,
-      "community_name": "CalcTrace & Stock Table UI",
+      "community": 3,
+      "community_name": "Onboarding & Catalog API",
       "norm_label": "impact"
     },
     {
@@ -6162,8 +6162,8 @@
       "source_location": "L23",
       "_origin": "ast",
       "id": "apps_web_src_hooks_usereplayconfirmablemutation_test_replayconflicterror",
-      "community": 33,
-      "community_name": "CalcTrace & Stock Table UI",
+      "community": 3,
+      "community_name": "Onboarding & Catalog API",
       "norm_label": "replayconflicterror()"
     },
     {
@@ -6173,8 +6173,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_web_src_hooks_usereplayconfirmablemutation",
-      "community": 33,
-      "community_name": "CalcTrace & Stock Table UI",
+      "community": 3,
+      "community_name": "Onboarding & Catalog API",
       "norm_label": "usereplayconfirmablemutation.ts"
     },
     {
@@ -6195,8 +6195,8 @@
       "source_location": "L37",
       "_origin": "ast",
       "id": "apps_web_src_hooks_usereplayconfirmablemutation_extractreplayconfirmation",
-      "community": 33,
-      "community_name": "CalcTrace & Stock Table UI",
+      "community": 3,
+      "community_name": "Onboarding & Catalog API",
       "norm_label": "extractreplayconfirmation()"
     },
     {
@@ -6206,8 +6206,8 @@
       "source_location": "L44",
       "_origin": "ast",
       "id": "apps_web_src_hooks_usereplayconfirmablemutation_confirmablemutationoutcome",
-      "community": 33,
-      "community_name": "CalcTrace & Stock Table UI",
+      "community": 3,
+      "community_name": "Onboarding & Catalog API",
       "norm_label": "confirmablemutationoutcome"
     },
     {
@@ -6217,8 +6217,8 @@
       "source_location": "L55",
       "_origin": "ast",
       "id": "apps_web_src_hooks_usereplayconfirmablemutation_runconfirmablemutation",
-      "community": 33,
-      "community_name": "CalcTrace & Stock Table UI",
+      "community": 3,
+      "community_name": "Onboarding & Catalog API",
       "norm_label": "runconfirmablemutation()"
     },
     {
@@ -6239,8 +6239,8 @@
       "source_location": "L74",
       "_origin": "ast",
       "id": "apps_web_src_hooks_usereplayconfirmablemutation_usereplayconfirmablemutationoptions",
-      "community": 33,
-      "community_name": "CalcTrace & Stock Table UI",
+      "community": 3,
+      "community_name": "Onboarding & Catalog API",
       "norm_label": "usereplayconfirmablemutationoptions"
     },
     {
@@ -6250,8 +6250,8 @@
       "source_location": "L83",
       "_origin": "ast",
       "id": "apps_web_src_hooks_usereplayconfirmablemutation_usereplayconfirmablemutation",
-      "community": 33,
-      "community_name": "CalcTrace & Stock Table UI",
+      "community": 3,
+      "community_name": "Onboarding & Catalog API",
       "norm_label": "usereplayconfirmablemutation()"
     },
     {
@@ -6261,8 +6261,8 @@
       "source_location": "L2",
       "_origin": "ast",
       "id": "apps_web_src_hooks_usereplayconfirmablemutation_ts_docref_adr_0016",
-      "community": 33,
-      "community_name": "CalcTrace & Stock Table UI",
+      "community": 3,
+      "community_name": "Onboarding & Catalog API",
       "norm_label": "adr-0016"
     },
     {
@@ -6756,8 +6756,8 @@
       "source_location": "L7",
       "_origin": "ast",
       "id": "apps_web_src_lib_i18n_onboarding_onboardinglabels",
-      "community": 3,
-      "community_name": "Onboarding & Catalog API",
+      "community": 33,
+      "community_name": "CalcTrace & Stock Table UI",
       "norm_label": "onboardinglabels"
     },
     {
@@ -7449,8 +7449,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_web_src_routes_login",
-      "community": 3,
-      "community_name": "Onboarding & Catalog API",
+      "community": 33,
+      "community_name": "CalcTrace & Stock Table UI",
       "norm_label": "login.tsx"
     },
     {
@@ -7460,8 +7460,8 @@
       "source_location": "L14",
       "_origin": "ast",
       "id": "apps_web_src_routes_login_routeapi",
-      "community": 3,
-      "community_name": "Onboarding & Catalog API",
+      "community": 33,
+      "community_name": "CalcTrace & Stock Table UI",
       "norm_label": "routeapi"
     },
     {
@@ -7471,8 +7471,8 @@
       "source_location": "L19",
       "_origin": "ast",
       "id": "apps_web_src_routes_login_saferedirecttarget",
-      "community": 3,
-      "community_name": "Onboarding & Catalog API",
+      "community": 33,
+      "community_name": "CalcTrace & Stock Table UI",
       "norm_label": "saferedirecttarget()"
     },
     {
@@ -7493,8 +7493,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_web_src_routes_onboarding",
-      "community": 3,
-      "community_name": "Onboarding & Catalog API",
+      "community": 33,
+      "community_name": "CalcTrace & Stock Table UI",
       "norm_label": "onboarding.tsx"
     },
     {
@@ -7504,8 +7504,8 @@
       "source_location": "L21",
       "_origin": "ast",
       "id": "apps_web_src_routes_onboarding_onboardingroute",
-      "community": 3,
-      "community_name": "Onboarding & Catalog API",
+      "community": 33,
+      "community_name": "CalcTrace & Stock Table UI",
       "norm_label": "onboardingroute()"
     },
     {
@@ -7592,8 +7592,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_web_src_routes_production",
-      "community": 3,
-      "community_name": "Onboarding & Catalog API",
+      "community": 33,
+      "community_name": "CalcTrace & Stock Table UI",
       "norm_label": "production.tsx"
     },
     {
@@ -7603,8 +7603,8 @@
       "source_location": "L21",
       "_origin": "ast",
       "id": "apps_web_src_routes_production_productionroute",
-      "community": 3,
-      "community_name": "Onboarding & Catalog API",
+      "community": 33,
+      "community_name": "CalcTrace & Stock Table UI",
       "norm_label": "productionroute()"
     },
     {
@@ -7801,8 +7801,8 @@
       "source_location": "L30",
       "_origin": "ast",
       "id": "apps_web_src_routes_settings_catalog_settingscatalogroute",
-      "community": 33,
-      "community_name": "CalcTrace & Stock Table UI",
+      "community": 3,
+      "community_name": "Onboarding & Catalog API",
       "norm_label": "settingscatalogroute()"
     },
     {
@@ -8857,8 +8857,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_worker_src_api_inventory",
-      "community": 75,
-      "community_name": "Purchasing API & Schemas",
+      "community": 88,
+      "community_name": "sales/api.ts",
       "norm_label": "inventory.ts"
     },
     {
@@ -8868,8 +8868,8 @@
       "source_location": "L46",
       "_origin": "ast",
       "id": "apps_worker_src_api_inventory_actor",
-      "community": 75,
-      "community_name": "Purchasing API & Schemas",
+      "community": 88,
+      "community_name": "sales/api.ts",
       "norm_label": "actor"
     },
     {
@@ -8879,8 +8879,8 @@
       "source_location": "L48",
       "_origin": "ast",
       "id": "apps_worker_src_api_inventory_inventoryroute",
-      "community": 75,
-      "community_name": "Purchasing API & Schemas",
+      "community": 88,
+      "community_name": "sales/api.ts",
       "norm_label": "inventoryroute"
     },
     {
@@ -8890,8 +8890,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_worker_src_api_onboarding",
-      "community": 145,
-      "community_name": "api/onboarding.ts",
+      "community": 144,
+      "community_name": "production-runs.test.ts",
       "norm_label": "api/onboarding.ts"
     },
     {
@@ -8901,8 +8901,8 @@
       "source_location": "L23",
       "_origin": "ast",
       "id": "apps_worker_src_api_onboarding_actor",
-      "community": 145,
-      "community_name": "api/onboarding.ts",
+      "community": 144,
+      "community_name": "production-runs.test.ts",
       "norm_label": "actor"
     },
     {
@@ -8912,8 +8912,8 @@
       "source_location": "L27",
       "_origin": "ast",
       "id": "apps_worker_src_api_onboarding_onboardingroute",
-      "community": 145,
-      "community_name": "api/onboarding.ts",
+      "community": 144,
+      "community_name": "production-runs.test.ts",
       "norm_label": "onboardingroute"
     },
     {
@@ -8956,8 +8956,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_worker_src_api_production_runs",
-      "community": 151,
-      "community_name": "api/production-runs.ts",
+      "community": 145,
+      "community_name": "api/onboarding.ts",
       "norm_label": "api/production-runs.ts"
     },
     {
@@ -8967,8 +8967,8 @@
       "source_location": "L31",
       "_origin": "ast",
       "id": "apps_worker_src_api_production_runs_actor",
-      "community": 151,
-      "community_name": "api/production-runs.ts",
+      "community": 145,
+      "community_name": "api/onboarding.ts",
       "norm_label": "actor"
     },
     {
@@ -8978,8 +8978,8 @@
       "source_location": "L33",
       "_origin": "ast",
       "id": "apps_worker_src_api_production_runs_productionrunsroute",
-      "community": 151,
-      "community_name": "api/production-runs.ts",
+      "community": 145,
+      "community_name": "api/onboarding.ts",
       "norm_label": "productionrunsroute"
     },
     {
@@ -11068,8 +11068,8 @@
       "source_location": "L56",
       "_origin": "ast",
       "id": "apps_worker_src_core_inventory_counts_tolinedto",
-      "community": 88,
-      "community_name": "sales/api.ts",
+      "community": 64,
+      "community_name": "Inventory Route Schemas",
       "norm_label": "tolinedto()"
     },
     {
@@ -11079,8 +11079,8 @@
       "source_location": "L65",
       "_origin": "ast",
       "id": "apps_worker_src_core_inventory_counts_tocountdto",
-      "community": 88,
-      "community_name": "sales/api.ts",
+      "community": 64,
+      "community_name": "Inventory Route Schemas",
       "norm_label": "tocountdto()"
     },
     {
@@ -11090,8 +11090,8 @@
       "source_location": "L81",
       "_origin": "ast",
       "id": "apps_worker_src_core_inventory_counts_fetchlines",
-      "community": 88,
-      "community_name": "sales/api.ts",
+      "community": 64,
+      "community_name": "Inventory Route Schemas",
       "norm_label": "fetchlines()"
     },
     {
@@ -11101,8 +11101,8 @@
       "source_location": "L87",
       "_origin": "ast",
       "id": "apps_worker_src_core_inventory_counts_findcountroworthrow",
-      "community": 88,
-      "community_name": "sales/api.ts",
+      "community": 64,
+      "community_name": "Inventory Route Schemas",
       "norm_label": "findcountroworthrow()"
     },
     {
@@ -11123,8 +11123,8 @@
       "source_location": "L189",
       "_origin": "ast",
       "id": "apps_worker_src_core_inventory_counts_updatecountline",
-      "community": 88,
-      "community_name": "sales/api.ts",
+      "community": 64,
+      "community_name": "Inventory Route Schemas",
       "norm_label": "updatecountline()"
     },
     {
@@ -11134,8 +11134,8 @@
       "source_location": "L243",
       "_origin": "ast",
       "id": "apps_worker_src_core_inventory_counts_commitcount",
-      "community": 88,
-      "community_name": "sales/api.ts",
+      "community": 64,
+      "community_name": "Inventory Route Schemas",
       "norm_label": "commitcount()"
     },
     {
@@ -11145,8 +11145,8 @@
       "source_location": "L312",
       "_origin": "ast",
       "id": "apps_worker_src_core_inventory_counts_getcount",
-      "community": 88,
-      "community_name": "sales/api.ts",
+      "community": 64,
+      "community_name": "Inventory Route Schemas",
       "norm_label": "getcount()"
     },
     {
@@ -11156,8 +11156,8 @@
       "source_location": "L319",
       "_origin": "ast",
       "id": "apps_worker_src_core_inventory_counts_listcounts",
-      "community": 88,
-      "community_name": "sales/api.ts",
+      "community": 64,
+      "community_name": "Inventory Route Schemas",
       "norm_label": "listcounts()"
     },
     {
@@ -12223,8 +12223,8 @@
       "source_location": "L106",
       "_origin": "ast",
       "id": "apps_worker_src_core_production_index_toproductionrundto",
-      "community": 144,
-      "community_name": "production-runs.test.ts",
+      "community": 75,
+      "community_name": "Purchasing API & Schemas",
       "norm_label": "toproductionrundto()"
     },
     {
@@ -12289,8 +12289,8 @@
       "source_location": "L355",
       "_origin": "ast",
       "id": "apps_worker_src_core_production_index_recordproductionrun",
-      "community": 144,
-      "community_name": "production-runs.test.ts",
+      "community": 75,
+      "community_name": "Purchasing API & Schemas",
       "norm_label": "recordproductionrun()"
     },
     {
@@ -12454,8 +12454,8 @@
       "source_location": "L906",
       "_origin": "ast",
       "id": "apps_worker_src_core_production_index_loadproductionrunforrestore",
-      "community": 144,
-      "community_name": "production-runs.test.ts",
+      "community": 75,
+      "community_name": "Purchasing API & Schemas",
       "norm_label": "loadproductionrunforrestore()"
     },
     {
@@ -12465,8 +12465,8 @@
       "source_location": "L936",
       "_origin": "ast",
       "id": "apps_worker_src_core_production_index_restoreproductionrun",
-      "community": 144,
-      "community_name": "production-runs.test.ts",
+      "community": 75,
+      "community_name": "Purchasing API & Schemas",
       "norm_label": "restoreproductionrun()"
     },
     {
@@ -12509,8 +12509,8 @@
       "source_location": "L1215",
       "_origin": "ast",
       "id": "apps_worker_src_core_production_index_getproductionrun",
-      "community": 144,
-      "community_name": "production-runs.test.ts",
+      "community": 75,
+      "community_name": "Purchasing API & Schemas",
       "norm_label": "getproductionrun()"
     },
     {
@@ -12520,8 +12520,8 @@
       "source_location": "L1229",
       "_origin": "ast",
       "id": "apps_worker_src_core_production_index_listproductionruns",
-      "community": 144,
-      "community_name": "production-runs.test.ts",
+      "community": 75,
+      "community_name": "Purchasing API & Schemas",
       "norm_label": "listproductionruns()"
     },
     {
@@ -13895,8 +13895,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_worker_src_core_settings_index",
-      "community": 145,
-      "community_name": "api/onboarding.ts",
+      "community": 144,
+      "community_name": "production-runs.test.ts",
       "norm_label": "settings/index.ts"
     },
     {
@@ -13906,8 +13906,8 @@
       "source_location": "L11",
       "_origin": "ast",
       "id": "apps_worker_src_core_settings_index_getsetting",
-      "community": 145,
-      "community_name": "api/onboarding.ts",
+      "community": 144,
+      "community_name": "production-runs.test.ts",
       "norm_label": "getsetting()"
     },
     {
@@ -13917,8 +13917,8 @@
       "source_location": "L21",
       "_origin": "ast",
       "id": "apps_worker_src_core_settings_index_setsetting",
-      "community": 145,
-      "community_name": "api/onboarding.ts",
+      "community": 144,
+      "community_name": "production-runs.test.ts",
       "norm_label": "setsetting()"
     },
     {
@@ -14071,8 +14071,8 @@
       "source_location": "L218",
       "_origin": "ast",
       "id": "apps_worker_src_db_schema_productionruns",
-      "community": 144,
-      "community_name": "production-runs.test.ts",
+      "community": 75,
+      "community_name": "Purchasing API & Schemas",
       "norm_label": "productionruns"
     },
     {
@@ -14159,8 +14159,8 @@
       "source_location": "L423",
       "_origin": "ast",
       "id": "apps_worker_src_db_schema_inventorycounts",
-      "community": 88,
-      "community_name": "sales/api.ts",
+      "community": 64,
+      "community_name": "Inventory Route Schemas",
       "norm_label": "inventorycounts"
     },
     {
@@ -14192,8 +14192,8 @@
       "source_location": "L493",
       "_origin": "ast",
       "id": "apps_worker_src_db_schema_itemstock",
-      "community": 64,
-      "community_name": "Inventory Route Schemas",
+      "community": 151,
+      "community_name": "api/production-runs.ts",
       "norm_label": "itemstock"
     },
     {
@@ -14236,8 +14236,8 @@
       "source_location": "L626",
       "_origin": "ast",
       "id": "apps_worker_src_db_schema_appsettings",
-      "community": 145,
-      "community_name": "api/onboarding.ts",
+      "community": 144,
+      "community_name": "production-runs.test.ts",
       "norm_label": "appsettings"
     },
     {
@@ -14247,8 +14247,8 @@
       "source_location": "L631",
       "_origin": "ast",
       "id": "apps_worker_src_db_schema_dailysnapshots",
-      "community": 64,
-      "community_name": "Inventory Route Schemas",
+      "community": 151,
+      "community_name": "api/production-runs.ts",
       "norm_label": "dailysnapshots"
     },
     {
@@ -15314,8 +15314,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_worker_test_counts_test",
-      "community": 88,
-      "community_name": "sales/api.ts",
+      "community": 64,
+      "community_name": "Inventory Route Schemas",
       "norm_label": "counts.test.ts"
     },
     {
@@ -15325,8 +15325,8 @@
       "source_location": "L47",
       "_origin": "ast",
       "id": "apps_worker_test_counts_test_actor",
-      "community": 88,
-      "community_name": "sales/api.ts",
+      "community": 64,
+      "community_name": "Inventory Route Schemas",
       "norm_label": "actor"
     },
     {
@@ -15336,8 +15336,8 @@
       "source_location": "L51",
       "_origin": "ast",
       "id": "apps_worker_test_counts_test_testdb",
-      "community": 88,
-      "community_name": "sales/api.ts",
+      "community": 64,
+      "community_name": "Inventory Route Schemas",
       "norm_label": "testdb"
     },
     {
@@ -15347,8 +15347,8 @@
       "source_location": "L52",
       "_origin": "ast",
       "id": "apps_worker_test_counts_test_itemkind",
-      "community": 88,
-      "community_name": "sales/api.ts",
+      "community": 64,
+      "community_name": "Inventory Route Schemas",
       "norm_label": "itemkind"
     },
     {
@@ -15358,8 +15358,8 @@
       "source_location": "L53",
       "_origin": "ast",
       "id": "apps_worker_test_counts_test_itemcategory",
-      "community": 88,
-      "community_name": "sales/api.ts",
+      "community": 64,
+      "community_name": "Inventory Route Schemas",
       "norm_label": "itemcategory"
     },
     {
@@ -15369,8 +15369,8 @@
       "source_location": "L55",
       "_origin": "ast",
       "id": "apps_worker_test_counts_test_seeditem",
-      "community": 88,
-      "community_name": "sales/api.ts",
+      "community": 64,
+      "community_name": "Inventory Route Schemas",
       "norm_label": "seeditem()"
     },
     {
@@ -15380,8 +15380,8 @@
       "source_location": "L64",
       "_origin": "ast",
       "id": "apps_worker_test_counts_test_seeditemwithstock",
-      "community": 88,
-      "community_name": "sales/api.ts",
+      "community": 64,
+      "community_name": "Inventory Route Schemas",
       "norm_label": "seeditemwithstock()"
     },
     {
@@ -15446,8 +15446,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_worker_test_daily_snapshot_test",
-      "community": 64,
-      "community_name": "Inventory Route Schemas",
+      "community": 151,
+      "community_name": "api/production-runs.ts",
       "norm_label": "daily-snapshot.test.ts"
     },
     {
@@ -15457,8 +15457,8 @@
       "source_location": "L40",
       "_origin": "ast",
       "id": "apps_worker_test_daily_snapshot_test_actor",
-      "community": 64,
-      "community_name": "Inventory Route Schemas",
+      "community": 151,
+      "community_name": "api/production-runs.ts",
       "norm_label": "actor"
     },
     {
@@ -15468,8 +15468,8 @@
       "source_location": "L42",
       "_origin": "ast",
       "id": "apps_worker_test_daily_snapshot_test_testdb",
-      "community": 64,
-      "community_name": "Inventory Route Schemas",
+      "community": 151,
+      "community_name": "api/production-runs.ts",
       "norm_label": "testdb"
     },
     {
@@ -15479,8 +15479,8 @@
       "source_location": "L44",
       "_origin": "ast",
       "id": "apps_worker_test_daily_snapshot_test_seeditem",
-      "community": 64,
-      "community_name": "Inventory Route Schemas",
+      "community": 151,
+      "community_name": "api/production-runs.ts",
       "norm_label": "seeditem()"
     },
     {
@@ -15490,8 +15490,8 @@
       "source_location": "L51",
       "_origin": "ast",
       "id": "apps_worker_test_daily_snapshot_test_seeddrifteditem",
-      "community": 64,
-      "community_name": "Inventory Route Schemas",
+      "community": 151,
+      "community_name": "api/production-runs.ts",
       "norm_label": "seeddrifteditem()"
     },
     {
@@ -15501,8 +15501,8 @@
       "source_location": "L8",
       "_origin": "ast",
       "id": "apps_worker_test_daily_snapshot_test_ts_docref_adr_0016",
-      "community": 64,
-      "community_name": "Inventory Route Schemas",
+      "community": 151,
+      "community_name": "api/production-runs.ts",
       "norm_label": "adr-0016"
     },
     {
@@ -16458,8 +16458,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_worker_test_onboarding_test",
-      "community": 145,
-      "community_name": "api/onboarding.ts",
+      "community": 144,
+      "community_name": "production-runs.test.ts",
       "norm_label": "onboarding.test.ts"
     },
     {
@@ -16469,8 +16469,8 @@
       "source_location": "L21",
       "_origin": "ast",
       "id": "apps_worker_test_onboarding_test_actor",
-      "community": 145,
-      "community_name": "api/onboarding.ts",
+      "community": 144,
+      "community_name": "production-runs.test.ts",
       "norm_label": "actor"
     },
     {
@@ -16480,8 +16480,8 @@
       "source_location": "L24",
       "_origin": "ast",
       "id": "apps_worker_test_onboarding_test_testdb",
-      "community": 145,
-      "community_name": "api/onboarding.ts",
+      "community": 144,
+      "community_name": "production-runs.test.ts",
       "norm_label": "testdb"
     },
     {
@@ -16491,8 +16491,8 @@
       "source_location": "L108",
       "_origin": "ast",
       "id": "apps_worker_test_onboarding_test_findbyname",
-      "community": 145,
-      "community_name": "api/onboarding.ts",
+      "community": 144,
+      "community_name": "production-runs.test.ts",
       "norm_label": "findbyname()"
     },
     {
@@ -16799,8 +16799,8 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "apps_worker_test_production_runs_test",
-      "community": 144,
-      "community_name": "production-runs.test.ts",
+      "community": 75,
+      "community_name": "Purchasing API & Schemas",
       "norm_label": "production-runs.test.ts"
     },
     {
@@ -16810,8 +16810,8 @@
       "source_location": "L43",
       "_origin": "ast",
       "id": "apps_worker_test_production_runs_test_actor",
-      "community": 144,
-      "community_name": "production-runs.test.ts",
+      "community": 75,
+      "community_name": "Purchasing API & Schemas",
       "norm_label": "actor"
     },
     {
@@ -16821,8 +16821,8 @@
       "source_location": "L47",
       "_origin": "ast",
       "id": "apps_worker_test_production_runs_test_testdb",
-      "community": 144,
-      "community_name": "production-runs.test.ts",
+      "community": 75,
+      "community_name": "Purchasing API & Schemas",
       "norm_label": "testdb"
     },
     {
@@ -16832,8 +16832,8 @@
       "source_location": "L49",
       "_origin": "ast",
       "id": "apps_worker_test_production_runs_test_seeditem",
-      "community": 144,
-      "community_name": "production-runs.test.ts",
+      "community": 75,
+      "community_name": "Purchasing API & Schemas",
       "norm_label": "seeditem()"
     },
     {
@@ -16843,8 +16843,8 @@
       "source_location": "L57",
       "_origin": "ast",
       "id": "apps_worker_test_production_runs_test_seedrecipe",
-      "community": 144,
-      "community_name": "production-runs.test.ts",
+      "community": 75,
+      "community_name": "Purchasing API & Schemas",
       "norm_label": "seedrecipe()"
     },
     {
@@ -16854,8 +16854,8 @@
       "source_location": "L79",
       "_origin": "ast",
       "id": "apps_worker_test_production_runs_test_runmovements",
-      "community": 144,
-      "community_name": "production-runs.test.ts",
+      "community": 75,
+      "community_name": "Purchasing API & Schemas",
       "norm_label": "runmovements()"
     },
     {
@@ -16865,8 +16865,8 @@
       "source_location": "L85",
       "_origin": "ast",
       "id": "apps_worker_test_production_runs_test_runconsumptions",
-      "community": 144,
-      "community_name": "production-runs.test.ts",
+      "community": 75,
+      "community_name": "Purchasing API & Schemas",
       "norm_label": "runconsumptions()"
     },
     {
@@ -16876,8 +16876,8 @@
       "source_location": "L413",
       "_origin": "ast",
       "id": "apps_worker_test_production_runs_test_seedscenario",
-      "community": 144,
-      "community_name": "production-runs.test.ts",
+      "community": 75,
+      "community_name": "Purchasing API & Schemas",
       "norm_label": "seedscenario()"
     },
     {
@@ -19527,8 +19527,8 @@
       "source_location": "L48",
       "_origin": "ast",
       "id": "packages_shared_src_counts_updatecountlinecommandschema",
-      "community": 75,
-      "community_name": "Purchasing API & Schemas",
+      "community": 88,
+      "community_name": "sales/api.ts",
       "norm_label": "updatecountlinecommandschema"
     },
     {
@@ -19549,8 +19549,8 @@
       "source_location": "L55",
       "_origin": "ast",
       "id": "packages_shared_src_counts_commitcountcommandschema",
-      "community": 75,
-      "community_name": "Purchasing API & Schemas",
+      "community": 88,
+      "community_name": "sales/api.ts",
       "norm_label": "commitcountcommandschema"
     },
     {
@@ -19571,8 +19571,8 @@
       "source_location": "L61",
       "_origin": "ast",
       "id": "packages_shared_src_counts_listcountsfiltersschema",
-      "community": 75,
-      "community_name": "Purchasing API & Schemas",
+      "community": 88,
+      "community_name": "sales/api.ts",
       "norm_label": "listcountsfiltersschema"
     },
     {
@@ -20616,8 +20616,8 @@
       "source_location": "L38",
       "_origin": "ast",
       "id": "packages_shared_src_exits_recordstockexitcommandschema",
-      "community": 75,
-      "community_name": "Purchasing API & Schemas",
+      "community": 88,
+      "community_name": "sales/api.ts",
       "norm_label": "recordstockexitcommandschema"
     },
     {
@@ -20649,8 +20649,8 @@
       "source_location": "L82",
       "_origin": "ast",
       "id": "packages_shared_src_exits_deletestockexitcommandschema",
-      "community": 75,
-      "community_name": "Purchasing API & Schemas",
+      "community": 88,
+      "community_name": "sales/api.ts",
       "norm_label": "deletestockexitcommandschema"
     },
     {
@@ -20671,8 +20671,8 @@
       "source_location": "L97",
       "_origin": "ast",
       "id": "packages_shared_src_exits_stockexitimpactrequestschema",
-      "community": 75,
-      "community_name": "Purchasing API & Schemas",
+      "community": 88,
+      "community_name": "sales/api.ts",
       "norm_label": "stockexitimpactrequestschema"
     },
     {
@@ -20693,8 +20693,8 @@
       "source_location": "L110",
       "_origin": "ast",
       "id": "packages_shared_src_exits_liststockexitsfiltersschema",
-      "community": 75,
-      "community_name": "Purchasing API & Schemas",
+      "community": 88,
+      "community_name": "sales/api.ts",
       "norm_label": "liststockexitsfiltersschema"
     },
     {
@@ -20715,8 +20715,8 @@
       "source_location": "L122",
       "_origin": "ast",
       "id": "packages_shared_src_exits_listwastesummaryfiltersschema",
-      "community": 75,
-      "community_name": "Purchasing API & Schemas",
+      "community": 88,
+      "community_name": "sales/api.ts",
       "norm_label": "listwastesummaryfiltersschema"
     },
     {
@@ -21925,8 +21925,8 @@
       "source_location": "L70",
       "_origin": "ast",
       "id": "packages_shared_src_production_runs_recordproductionruncommandschema",
-      "community": 151,
-      "community_name": "api/production-runs.ts",
+      "community": 145,
+      "community_name": "api/onboarding.ts",
       "norm_label": "recordproductionruncommandschema"
     },
     {
@@ -21958,8 +21958,8 @@
       "source_location": "L110",
       "_origin": "ast",
       "id": "packages_shared_src_production_runs_deleteproductionruncommandschema",
-      "community": 151,
-      "community_name": "api/production-runs.ts",
+      "community": 145,
+      "community_name": "api/onboarding.ts",
       "norm_label": "deleteproductionruncommandschema"
     },
     {
@@ -21980,8 +21980,8 @@
       "source_location": "L123",
       "_origin": "ast",
       "id": "packages_shared_src_production_runs_productionrunimpactrequestschema",
-      "community": 151,
-      "community_name": "api/production-runs.ts",
+      "community": 145,
+      "community_name": "api/onboarding.ts",
       "norm_label": "productionrunimpactrequestschema"
     },
     {
@@ -22002,8 +22002,8 @@
       "source_location": "L136",
       "_origin": "ast",
       "id": "packages_shared_src_production_runs_listproductionrunsfiltersschema",
-      "community": 151,
-      "community_name": "api/production-runs.ts",
+      "community": 145,
+      "community_name": "api/onboarding.ts",
       "norm_label": "listproductionrunsfiltersschema"
     },
     {
@@ -22387,8 +22387,8 @@
       "source_location": "L34",
       "_origin": "ast",
       "id": "packages_shared_src_qty_formatqty",
-      "community": 33,
-      "community_name": "CalcTrace & Stock Table UI",
+      "community": 3,
+      "community_name": "Onboarding & Catalog API",
       "norm_label": "formatqty()"
     },
     {
@@ -24191,8 +24191,8 @@
       "source_location": "L73",
       "_origin": "ast",
       "id": "packages_shared_src_exits_updatestockexitcommandschema",
-      "community": 75,
-      "community_name": "Purchasing API & Schemas",
+      "community": 88,
+      "community_name": "sales/api.ts",
       "norm_label": "updatestockexitcommandschema"
     },
     {
@@ -24202,8 +24202,8 @@
       "source_location": "L102",
       "_origin": "ast",
       "id": "packages_shared_src_production_runs_updateproductionruncommandschema",
-      "community": 151,
-      "community_name": "api/production-runs.ts",
+      "community": 145,
+      "community_name": "api/onboarding.ts",
       "norm_label": "updateproductionruncommandschema"
     },
     {
@@ -117648,5 +117648,5 @@
       "source_file": "docs/system-design-knowledge-base/05-ai-assistant-architecture.md"
     }
   ],
-  "built_at_commit": "73c1bdc42d0d1ab9ab873891cebdd6f4c602f565"
+  "built_at_commit": "8f0a7874671c932eb0d7d5421f24d43808c9976e"
 }

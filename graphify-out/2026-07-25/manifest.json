@@ -690,8 +690,8 @@
     "semantic_hash": "866b604c343425556a3152f954855e8e"
   },
   "apps/worker/migrations/meta/_journal.json": {
-    "mtime": 1784931849.311456,
-    "ast_hash": "f331c178be6fd1f94be823c8f1cc7045",
+    "mtime": 1784968807.4228184,
+    "ast_hash": "b437a455dddef38e194c432c8d1713c2",
     "semantic_hash": ""
   },
   "apps/worker/package.json": {
@@ -1010,8 +1010,8 @@
     "semantic_hash": "cdaac1a5b84c29a5637442c1d0eabd0e"
   },
   "apps/worker/src/index.ts": {
-    "mtime": 1784966280.1410682,
-    "ast_hash": "7d1c0d0165c07dcb8f86f328afd5cf91",
+    "mtime": 1784968866.022184,
+    "ast_hash": "d388ee8584368307dc1f97a1d3c1018d",
     "semantic_hash": ""
   },
   "apps/worker/src/jobs/backup.ts": {
@@ -1330,8 +1330,8 @@
     "semantic_hash": "9217a8e638d678c7c84600a52204d614"
   },
   "packages/shared/src/index.ts": {
-    "mtime": 1784966280.1480682,
-    "ast_hash": "9c0a94f81d79f85866234c7b4e4ef076",
+    "mtime": 1784968338.5753746,
+    "ast_hash": "a4a49b91d28879420a1960698cdd0fa0",
     "semantic_hash": ""
   },
   "packages/shared/src/inventory-views.ts": {
@@ -1755,13 +1755,13 @@
     "semantic_hash": "2e56be87cc27264bf8d34b951b35ec98"
   },
   "docs/system-design-knowledge-base/03-domain-model.md": {
-    "mtime": 1784728487.1434908,
-    "ast_hash": "72abffdfb812f0c1791e2d4834ec2b44",
-    "semantic_hash": "72abffdfb812f0c1791e2d4834ec2b44"
+    "mtime": 1784969114.2920918,
+    "ast_hash": "4e019aef2fdc4dcbcec58b1603849497",
+    "semantic_hash": ""
   },
   "docs/system-design-knowledge-base/04-data-model.md": {
-    "mtime": 1784931849.325449,
-    "ast_hash": "24b71605133a65d22aba3a3bb893ce1c",
+    "mtime": 1784969099.597915,
+    "ast_hash": "e06e6b909e6661de09ce6d49cd3c575c",
     "semantic_hash": ""
   },
   "docs/system-design-knowledge-base/05-ai-assistant-architecture.md": {
@@ -1790,8 +1790,8 @@
     "semantic_hash": "ee7d8b492697f8320c098c9a555bfda1"
   },
   "docs/system-design-knowledge-base/10-implementation-backlog.md": {
-    "mtime": 1784966280.1450686,
-    "ast_hash": "e3673f49bf2acacbff268f5002cddc59",
+    "mtime": 1784969126.64406,
+    "ast_hash": "4322d53a87d5173f67f7047dc63378f5",
     "semantic_hash": ""
   },
   "docs/system-design-knowledge-base/11-testing-strategy.md": {
@@ -1995,8 +1995,8 @@
     "semantic_hash": ""
   },
   "apps/worker/src/core/sales/index.ts": {
-    "mtime": 1784931849.31745,
-    "ast_hash": "fdeb00fb09bf702e8c064d5fa5205dca",
+    "mtime": 1784968746.1668046,
+    "ast_hash": "20a240d402cc4faa68e7fe92d1055631",
     "semantic_hash": ""
   },
   "apps/worker/test/sales.test.ts": {
@@ -2132,6 +2132,46 @@
   "packages/shared/src/customers.ts": {
     "mtime": 1784966280.146068,
     "ast_hash": "519cb795a240dce26f66a5bd1db4fce0",
+    "semantic_hash": ""
+  },
+  "apps/worker/migrations/0005_receivables_net_of_deposit.sql": {
+    "mtime": 1784968767.471842,
+    "ast_hash": "a37d4a1a86c0ba9df7d532f6218a4f48",
+    "semantic_hash": ""
+  },
+  "apps/worker/migrations/meta/0005_snapshot.json": {
+    "mtime": 1784968834.6399286,
+    "ast_hash": "6567b256c4a86ab87dfbf1727b184937",
+    "semantic_hash": ""
+  },
+  "apps/worker/src/api/orders.ts": {
+    "mtime": 1784968850.9732728,
+    "ast_hash": "df13eda232f23658b2ad483848243809",
+    "semantic_hash": ""
+  },
+  "apps/worker/src/core/orders/index.ts": {
+    "mtime": 1784969171.6579342,
+    "ast_hash": "64d6c2da9aa1ce07f03438ae919a3a10",
+    "semantic_hash": ""
+  },
+  "apps/worker/test/orders.test.ts": {
+    "mtime": 1784969171.7883458,
+    "ast_hash": "338fc255af6bc890cedbf4427ebac70f",
+    "semantic_hash": ""
+  },
+  "packages/shared/src/orders.test.ts": {
+    "mtime": 1784969171.5904887,
+    "ast_hash": "81e05aa04d92ba00cba8b465c921317a",
+    "semantic_hash": ""
+  },
+  "packages/shared/src/orders.ts": {
+    "mtime": 1784969171.5467448,
+    "ast_hash": "621b81ea333ed78fbcfba52b7aa08070",
+    "semantic_hash": ""
+  },
+  "docs/development/kok-033-custom-orders.md": {
+    "mtime": 1784969160.6659536,
+    "ast_hash": "5a392bafb6dedf6837abe977f45ab081",
     "semantic_hash": ""
   }
 }
