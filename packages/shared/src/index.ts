@@ -19,6 +19,7 @@ export * from "./inventory-views";
 export * from "./money";
 export * from "./onboarding";
 export * from "./orders";
+export * from "./pricing";
 export * from "./production-runs";
 export * from "./purchasing";
 export * from "./qty";

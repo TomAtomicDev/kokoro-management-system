@@ -247,6 +247,100 @@ describe("mergeItems", () => {
   });
 });
 
+describe("price_history (KOK-035, Doc 07 SC-12)", () => {
+  it("logs an initial price_history row when a sale price is set at creation", async () => {
+    const db = createDb(env.DB);
+    const item = await createItem(
+      db,
+      {
+        name: "Torta de chocolate",
+        kind: "FINISHED",
+        category: "BAKERY",
+        unit: "UNIT",
+        salePrice: 5000,
+      },
+      ACTOR,
+    );
+
+    const rows = await db.query.priceHistory.findMany({
+      where: (t, { eq }) => eq(t.itemId, item.id),
+    });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ price: 5000, note: null });
+    expect(rows[0]?.effectiveFrom).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+
+  it("does not log price_history when no sale price is given at creation", async () => {
+    const db = createDb(env.DB);
+    const item = await createItem(
+      db,
+      { name: "Sin precio aún", kind: "FINISHED", category: "BAKERY", unit: "UNIT" },
+      ACTOR,
+    );
+
+    const rows = await db.query.priceHistory.findMany({
+      where: (t, { eq }) => eq(t.itemId, item.id),
+    });
+    expect(rows).toHaveLength(0);
+  });
+
+  it("logs a new price_history row when updateItem changes the sale price", async () => {
+    const db = createDb(env.DB);
+    const item = await createItem(
+      db,
+      {
+        name: "Cheesecake",
+        kind: "FINISHED",
+        category: "BAKERY",
+        unit: "UNIT",
+        salePrice: 4000,
+      },
+      ACTOR,
+    );
+
+    await updateItem(db, { id: item.id, salePrice: 4500 }, ACTOR);
+
+    const rows = await db.query.priceHistory.findMany({
+      where: (t, { eq }) => eq(t.itemId, item.id),
+    });
+    expect(rows.map((r) => r.price).sort((a, b) => a - b)).toEqual([4000, 4500]);
+  });
+
+  it("does not log a no-op resubmit of the same sale price", async () => {
+    const db = createDb(env.DB);
+    const item = await createItem(
+      db,
+      { name: "Brownie", kind: "FINISHED", category: "BAKERY", unit: "UNIT", salePrice: 1500 },
+      ACTOR,
+    );
+
+    await updateItem(db, { id: item.id, salePrice: 1500 }, ACTOR);
+
+    const rows = await db.query.priceHistory.findMany({
+      where: (t, { eq }) => eq(t.itemId, item.id),
+    });
+    expect(rows).toHaveLength(1); // only the creation-time row
+  });
+
+  it("does not log when the sale price is cleared to null", async () => {
+    const db = createDb(env.DB);
+    const item = await createItem(
+      db,
+      { name: "Alfajor", kind: "FINISHED", category: "BAKERY", unit: "UNIT", salePrice: 800 },
+      ACTOR,
+    );
+
+    await updateItem(db, { id: item.id, salePrice: null }, ACTOR);
+
+    const rows = await db.query.priceHistory.findMany({
+      where: (t, { eq }) => eq(t.itemId, item.id),
+    });
+    expect(rows).toHaveLength(1); // only the creation-time row; the clear itself isn't logged
+    const updated = await getItem(db, item.id);
+    expect(updated.salePrice).toBeNull();
+  });
+});
+
 describe("batch atomicity (INV-1)", () => {
   it("a failing statement in the same batch leaves nothing persisted", async () => {
     const id = "item_atomicity_test";
