@@ -59,8 +59,9 @@ export type SaleLineCommand = z.infer<typeof saleLineCommandSchema>;
 
 /** Fields common to both payment branches. `channel` is NOT accepted: this task records CATALOG
  * sales only (CUSTOM_ORDER sales are created by the custom-order delivery flow, KOK-033/034, O-2);
- * the service pins `channel = 'CATALOG'`. `customerId` is an optional nullable FK — customers CRUD
- * (KOK-032) has not shipped, so it is passed through with no validation beyond the DB's own FK. */
+ * the service pins `channel = 'CATALOG'`. `customerId` is an optional nullable FK, set via the web
+ * `CustomerPicker` (KOK-032) — still passed through with no existence check beyond the DB's own
+ * `ON DELETE RESTRICT` FK, since the picker only ever emits ids of customers it already fetched. */
 const saleCommandCommonFields = {
   customerId: z.string().min(1).optional(),
   sessionId: z.string().min(1).optional(),

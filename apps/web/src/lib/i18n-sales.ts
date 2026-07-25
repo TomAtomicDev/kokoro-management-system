@@ -50,6 +50,7 @@ export const salesLabels = {
   fieldPaymentStatus: "Estado de pago",
   fieldPaymentMethod: "Método de pago",
   fieldAccount: "Cuenta",
+  fieldCustomer: "Cliente",
   fieldDate: "Fecha",
   fieldNotes: "Notas",
   notesPlaceholder: "Opcional",

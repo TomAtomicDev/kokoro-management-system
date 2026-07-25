@@ -9,10 +9,9 @@
 // `updateSaleCommandSchema` is a bare alias of `recordSaleCommandSchema` (packages/shared/src/
 // sales.ts) — like PurchaseForm, this parses both branches with the ONE schema import.
 //
-// No customer/session picker: customers CRUD (KOK-032) hasn't shipped, and no SessionPicker
-// component exists anywhere in this codebase yet — both optional fields are simply never set from
-// this form (edit mode preserves whatever the sale already had via `saleToFormState`... except it
-// doesn't surface a picker to CHANGE them either, same gap every other form has).
+// `customerId` is optional and wired via CustomerPicker now that customers CRUD (KOK-032) has
+// shipped. Still no session picker: no SessionPicker component exists anywhere in this codebase
+// yet, so `sessionId` is simply never set from this form (same gap every other form has).
 
 import type {
   FinancialAccountDto,
@@ -35,6 +34,7 @@ import {
 } from "@kokoro/shared";
 import { useEffect, useMemo, useState } from "react";
 
+import { CustomerPicker } from "@/components/customers/CustomerPicker";
 import { LineEditor, type LineEditorLine } from "@/components/line-editor/LineEditor";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
@@ -76,6 +76,7 @@ interface SaleFormState {
   paymentStatus: PaymentStatus;
   paymentMethod: PaymentMethod;
   accountId: string;
+  customerId: string | null;
   businessDate: string;
   notes: string;
   lines: SaleLineValue[];
@@ -92,6 +93,7 @@ export function saleToFormState(sale: SaleDto, accounts: FinancialAccountDto[]):
     paymentStatus: sale.paymentStatus,
     paymentMethod: sale.paymentMethod ?? (PAYMENT_METHODS[0] as PaymentMethod),
     accountId: sale.accountId ?? accounts[0]?.id ?? "",
+    customerId: sale.customerId,
     businessDate: sale.businessDate,
     notes: sale.notes ?? "",
     lines:
@@ -113,6 +115,7 @@ export function SaleForm({ open, onOpenChange, accounts, sale }: SaleFormProps) 
     PAYMENT_METHODS[0] as PaymentMethod,
   );
   const [accountId, setAccountId] = useState<string>("");
+  const [customerId, setCustomerId] = useState<string | null>(null);
   const [businessDate, setBusinessDate] = useState("");
   const [notes, setNotes] = useState("");
   const [lines, setLines] = useState<SaleLineValue[]>([emptyLine()]);
@@ -159,6 +162,7 @@ export function SaleForm({ open, onOpenChange, accounts, sale }: SaleFormProps) 
         setPaymentStatus(initial.paymentStatus);
         setPaymentMethod(initial.paymentMethod);
         setAccountId(initial.accountId);
+        setCustomerId(initial.customerId);
         setBusinessDate(initial.businessDate);
         setNotes(initial.notes);
         setLines(initial.lines);
@@ -166,6 +170,7 @@ export function SaleForm({ open, onOpenChange, accounts, sale }: SaleFormProps) 
         setPaymentStatus("PAID");
         setPaymentMethod(PAYMENT_METHODS[0] as PaymentMethod);
         setAccountId(accounts[0]?.id ?? "");
+        setCustomerId(null);
         setBusinessDate(toBusinessDate(nowIso()));
         setNotes("");
         setLines([emptyLine()]);
@@ -240,6 +245,7 @@ export function SaleForm({ open, onOpenChange, accounts, sale }: SaleFormProps) 
     }
 
     const commonFields = {
+      customerId: customerId ?? undefined,
       notes: notes.trim() === "" ? undefined : notes.trim(),
       // Edit mode keeps the sale's original instant — there's no UI field to change it, and an
       // edit re-stamping `occurredAt` to "now" would rewrite when the sale actually happened every
@@ -356,6 +362,15 @@ export function SaleForm({ open, onOpenChange, accounts, sale }: SaleFormProps) 
                 disabled={disabled}
               />
             </div>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <span className="font-medium text-foreground text-sm">{salesLabels.fieldCustomer}</span>
+            <CustomerPicker
+              value={customerId}
+              onChange={(id) => setCustomerId(id)}
+              disabled={disabled}
+            />
           </div>
 
           {isPaid ? (
