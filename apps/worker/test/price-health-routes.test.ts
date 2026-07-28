@@ -72,7 +72,7 @@ describe("GET /api/price-health", () => {
     // example via price-health.ts's own bridge (Ã·1,000,000) â€” replacementCostMc is not migrated yet.
     await db
       .update(items)
-      .set({ wacMc: 5_000_000, replacementCostMc: 7 })
+      .set({ wacMc: 5_000_000, replacementCostMc: 7_000_000 })
       .where(eq(items.id, cake.id));
 
     const rawMaterial = await SELF.fetch("https://example.com/api/items", {

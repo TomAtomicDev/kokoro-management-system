@@ -14,7 +14,18 @@ import type {
   UpdatePurchaseCommand,
   UpdatePurchaseResult,
 } from "@kokoro/shared";
-import { formatMoney, nowIso, recordPurchaseCommandSchema, toBusinessDate } from "@kokoro/shared";
+import {
+  formatMoney,
+  nowIso,
+  rateFromTotal,
+  recordPurchaseCommandSchema,
+  toBusinessDate,
+  toCentavos,
+  toMilliCentavosPerUnit,
+  toMilliUnits,
+  totalCentavos,
+  WHOLE_UNIT_MILLI_UNITS,
+} from "@kokoro/shared";
 import { type ChangeEvent, useEffect, useMemo, useState } from "react";
 
 import { LineEditor, type LineEditorLine } from "@/components/line-editor/LineEditor";
@@ -252,7 +263,7 @@ export function PurchaseForm({ open, onOpenChange, accounts, purchase }: Purchas
     // Centavos-per-milli-unit â€” the SAME scale item.replacementCostMc is stored in (Doc 04 Â§2), so
     // no Ã—1000 conversion is needed to compare the two; Ã—1000 is only applied when formatting a
     // money-per-whole-unit figure for display (mirrors ItemForm's derived-cost block).
-    const unitCost = lineTotal / qty;
+    const unitCost = rateFromTotal(toCentavos(lineTotal), toMilliUnits(qty));
     const abbrev = purchasesLabels.unitAbbrev[item.unit];
     const isHigher =
       item.replacementCostMc > 0 &&
@@ -263,13 +274,16 @@ export function PurchaseForm({ open, onOpenChange, accounts, purchase }: Purchas
         <span className="text-muted-foreground">
           {purchasesLabels.unitCostLabel}:{" "}
           <span className="numeric-cell font-medium text-foreground">
-            {formatMoney(Math.round(unitCost * 1000))} / {abbrev}
+            {formatMoney(totalCentavos(unitCost, WHOLE_UNIT_MILLI_UNITS))} / {abbrev}
           </span>
         </span>
         {item.replacementCostMc > 0 ? (
           <span className={cn(isHigher ? "font-medium text-warning" : "text-muted-foreground")}>
             {purchasesLabels.vsReplacementCost}:{" "}
-            {formatMoney(Math.round(item.replacementCostMc * 1000))} / {abbrev}
+            {formatMoney(
+              totalCentavos(toMilliCentavosPerUnit(item.replacementCostMc), WHOLE_UNIT_MILLI_UNITS),
+            )}{" "}
+            / {abbrev}
           </span>
         ) : null}
       </div>

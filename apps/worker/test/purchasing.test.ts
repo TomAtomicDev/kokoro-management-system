@@ -140,7 +140,7 @@ describe("recordPurchase (UC-01)", () => {
       where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
     });
     expect(itemRow?.wacMc).toBe(2_000_000);
-    expect(itemRow?.replacementCostMc).toBe(2);
+    expect(itemRow?.replacementCostMc).toBe(2_000_000);
     expect(itemRow?.replacementCostUpdatedAt).not.toBeNull();
 
     const txRow = await db.query.financialTransactions.findFirst({
@@ -242,7 +242,7 @@ describe("recordPurchase (UC-01)", () => {
       where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
     });
     expect(itemRow?.wacMc).toBe(2_000_000);
-    expect(itemRow?.replacementCostMc).toBe(3); // last line's unit cost (3), not the first line's (1)
+    expect(itemRow?.replacementCostMc).toBe(3_000_000); // last line's unit cost (3), not the first line's (1)
 
     const stockRow = await db.query.itemStock.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.itemId, item.id),
@@ -691,7 +691,7 @@ describe("recordPurchase ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â C-3 replacement_
     const afterFirst = await db.query.items.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
     });
-    expect(afterFirst?.replacementCostMc).toBe(5);
+    expect(afterFirst?.replacementCostMc).toBe(5_000_000);
 
     // A backdated 07-14 invoice at unit cost 9 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â captured late, but it is NOT the last price paid.
     await recordPurchase(
@@ -707,7 +707,7 @@ describe("recordPurchase ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â C-3 replacement_
     const afterBackdated = await db.query.items.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
     });
-    expect(afterBackdated?.replacementCostMc).toBe(5); // unchanged ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 07-16 is still the last date
+    expect(afterBackdated?.replacementCostMc).toBe(5_000_000); // unchanged ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 07-16 is still the last date
     expect(afterBackdated?.replacementCostUpdatedAt).toBe(afterFirst?.replacementCostUpdatedAt);
     // The WAC, unlike the replacement cost, absolutely does move: it is a weighted average over
     // ALL entries, so a backdated one belongs in it (C-1 vs C-3 are different questions).
@@ -728,7 +728,7 @@ describe("recordPurchase ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â C-3 replacement_
     const afterForward = await db.query.items.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
     });
-    expect(afterForward?.replacementCostMc).toBe(7);
+    expect(afterForward?.replacementCostMc).toBe(7_000_000);
   });
 
   it("keeps same-day capture order as the tiebreak: a second purchase on the SAME business_date still wins", async () => {
@@ -752,7 +752,7 @@ describe("recordPurchase ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â C-3 replacement_
       where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
     });
     // `>` not `>=` in the supersede check: two invoices on one day are ordered only by capture.
-    expect(itemRow?.replacementCostMc).toBe(9);
+    expect(itemRow?.replacementCostMc).toBe(9_000_000);
   });
 });
 
@@ -989,7 +989,7 @@ describe("updatePurchase (R-1)", () => {
       where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
     });
     expect(itemBefore?.wacMc).toBe(2_000_000);
-    expect(itemBefore?.replacementCostMc).toBe(2);
+    expect(itemBefore?.replacementCostMc).toBe(2_000_000);
 
     const movementsBefore = await purchaseMovements(db, created.purchase.id);
     expect(movementsBefore).toHaveLength(1);
@@ -1009,7 +1009,10 @@ describe("updatePurchase (R-1)", () => {
       ACTOR,
     );
 
-    expect(updated.purchase).toMatchObject({ supplierName: "Proveedor B", notes: "despuÃƒÆ’Ã‚Â©s" });
+    expect(updated.purchase).toMatchObject({
+      supplierName: "Proveedor B",
+      notes: "despuÃƒÆ’Ã‚Â©s",
+    });
 
     // Kardex byte-identical (same qty/unitCost/dates) => NOT regenerated at all: same row, same id.
     const movementsAfter = await purchaseMovements(db, created.purchase.id);
@@ -1021,7 +1024,7 @@ describe("updatePurchase (R-1)", () => {
       where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
     });
     expect(itemAfter?.wacMc).toBe(2_000_000);
-    expect(itemAfter?.replacementCostMc).toBe(2);
+    expect(itemAfter?.replacementCostMc).toBe(2_000_000);
     expect(itemAfter?.replacementCostUpdatedAt).toBe(itemBefore?.replacementCostUpdatedAt);
     expect(itemAfter?.updatedAt).toBe(itemBefore?.updatedAt);
 
@@ -1062,7 +1065,10 @@ describe("updatePurchase (R-1)", () => {
 
   it("edit changing qty/unit cost with NO downstream history recomputes WAC/replacementCostMc automatically, no confirmation needed", async () => {
     const db = createDb(env.DB);
-    const item = await seedItem(db, "Purchase edit ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â qty/costo sin historial posterior");
+    const item = await seedItem(
+      db,
+      "Purchase edit ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â qty/costo sin historial posterior",
+    );
 
     const created = await recordPurchase(
       db,
@@ -1096,7 +1102,7 @@ describe("updatePurchase (R-1)", () => {
       where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
     });
     expect(itemRow?.wacMc).toBe(5_000_000);
-    expect(itemRow?.replacementCostMc).toBe(5);
+    expect(itemRow?.replacementCostMc).toBe(5_000_000);
 
     const stockRow = await db.query.itemStock.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.itemId, item.id),
@@ -1110,7 +1116,10 @@ describe("updatePurchase (R-1)", () => {
 
   it("edit changing a line BEFORE stock already consumed downstream requires confirmation, and commits the replayed WAC + a costing_adjustments row with confirm:true (R-4/R-5)", async () => {
     const db = createDb(env.DB);
-    const item = await seedItem(db, "Purchase edit ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â retroactivo con consumo posterior");
+    const item = await seedItem(
+      db,
+      "Purchase edit ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â retroactivo con consumo posterior",
+    );
 
     const p1 = await recordPurchase(
       db,
@@ -1500,14 +1509,14 @@ describe("deletePurchase (R-3, D-8)", () => {
     const beforeDelete = await db.query.items.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
     });
-    expect(beforeDelete?.replacementCostMc).toBe(9);
+    expect(beforeDelete?.replacementCostMc).toBe(9_000_000);
 
     await deletePurchase(db, later.purchase.id, {}, ACTOR);
 
     const afterDelete = await db.query.items.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
     });
-    expect(afterDelete?.replacementCostMc).toBe(5); // falls back to the earlier LIVE purchase
+    expect(afterDelete?.replacementCostMc).toBe(5_000_000); // falls back to the earlier LIVE purchase
     expect(afterDelete?.wacMc).toBe(5_000_000); // only the earlier purchase's entry remains
   });
 
@@ -1592,7 +1601,7 @@ describe("restorePurchase (Doc 06 principle 6 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬
       where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
     });
     expect(itemAfterRestore?.wacMc).toBe(2_000_000);
-    expect(itemAfterRestore?.replacementCostMc).toBe(2);
+    expect(itemAfterRestore?.replacementCostMc).toBe(2_000_000);
 
     const txRow = await purchaseTx(db, created.purchase.id);
     expect(txRow).toMatchObject({

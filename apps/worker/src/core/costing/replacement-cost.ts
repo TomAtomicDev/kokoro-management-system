@@ -14,7 +14,11 @@
 // Same "plain, synchronous, DB-free" convention as wac.ts/theoretical-cost.ts — no `Db` parameter,
 // nothing async, directly usable by property tests (Doc 11 §2) without a D1 binding.
 
-import { roundHalfUpToInt, toMilliCentavosPerUnit, type MilliCentavosPerUnit } from "@kokoro/shared";
+import {
+  type MilliCentavosPerUnit,
+  roundHalfUpToInt,
+  toMilliCentavosPerUnit,
+} from "@kokoro/shared";
 
 import { validationError } from "../errors.js";
 
@@ -65,6 +69,12 @@ export function computeItemReplacementCost(
     if (line.qty <= 0) {
       throw validationError("La cantidad de la línea debe ser un entero positivo.", {
         qty: line.qty,
+      });
+    }
+    assertSafeIntegerInput(line.unitCost, "unitCost");
+    if (line.unitCost < 0) {
+      throw validationError("El costo unitario debe ser un entero no negativo.", {
+        unitCost: line.unitCost,
       });
     }
     totalMcMilliUnits += line.qty * line.unitCost;

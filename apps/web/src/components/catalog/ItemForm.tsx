@@ -3,7 +3,16 @@
 // Plain controlled React state, no react-hook-form (D-10).
 
 import type { ItemCategory, ItemKind, Unit } from "@kokoro/shared";
-import { formatMoney, formatQty, ITEM_CATEGORIES, ITEM_KINDS, UNITS } from "@kokoro/shared";
+import {
+  formatMoney,
+  formatQty,
+  ITEM_CATEGORIES,
+  ITEM_KINDS,
+  toMilliCentavosPerUnit,
+  totalCentavos,
+  UNITS,
+  WHOLE_UNIT_MILLI_UNITS,
+} from "@kokoro/shared";
 import { type ReactNode, useId } from "react";
 
 import { Input } from "@/components/ui/input";
@@ -238,7 +247,10 @@ export function ItemForm({ values, onChange, derived, disabled }: ItemFormProps)
               {catalogLabels.wac} <span className="text-xs">({catalogLabels.calculated})</span>
             </span>
             <span className="numeric-cell font-medium">
-              {formatMoney(Math.round(derived.wacMc / 1000))} / {UNIT_ABBREV[values.unit]}
+              {formatMoney(
+                totalCentavos(toMilliCentavosPerUnit(derived.wacMc), WHOLE_UNIT_MILLI_UNITS),
+              )}{" "}
+              / {UNIT_ABBREV[values.unit]}
             </span>
           </div>
           <div className="flex items-center justify-between">
@@ -247,7 +259,13 @@ export function ItemForm({ values, onChange, derived, disabled }: ItemFormProps)
               <span className="text-xs">({catalogLabels.calculated})</span>
             </span>
             <span className="numeric-cell font-medium">
-              {formatMoney(Math.round(derived.replacementCostMc * 1000))} / {UNIT_ABBREV[values.unit]}
+              {formatMoney(
+                totalCentavos(
+                  toMilliCentavosPerUnit(derived.replacementCostMc),
+                  WHOLE_UNIT_MILLI_UNITS,
+                ),
+              )}{" "}
+              / {UNIT_ABBREV[values.unit]}
             </span>
           </div>
         </div>

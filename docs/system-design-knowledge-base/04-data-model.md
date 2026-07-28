@@ -68,7 +68,7 @@ CREATE TABLE items (
   category TEXT NOT NULL CHECK (category IN
     ('INGREDIENT','PACKAGING','LABEL','BAKERY','DAIRY','OTHER')),
   unit TEXT NOT NULL CHECK (unit IN ('G','KG','ML','L','UNIT')),
-  wac REAL NOT NULL DEFAULT 0,                   -- weighted avg cost, centavos per milli-unit (derived, C-1)
+  wac_mc INTEGER NOT NULL DEFAULT 0,             -- weighted avg cost, milli-centavos per whole unit (derived, C-1)
   replacement_cost_mc INTEGER NOT NULL DEFAULT 0,-- milli-centavos per whole unit (derived, C-3)
   replacement_cost_updated_at TEXT,
   sale_price INTEGER,                            -- centavos per unit; NULL unless sellable (FINISHED)
@@ -445,9 +445,9 @@ CREATE TABLE pending_drafts (                    -- one active AI draft per Tele
 
 | View | Definition (essence) |
 |------|----------------------|
-| `v_stock` | items ⨝ item_stock + `stock_value = qty_on_hand × wac`, low-stock flag |
+| `v_stock` | items ⨝ item_stock + `stock_value = round(qty_on_hand × wac_mc / 1e6)`, low-stock flag |
 | `v_kardex` | stock_movements ⨝ items, ordered, with running balance via window function |
-| `v_price_health` | FINISHED items: id, name, sale_price, wac, replacement_cost, replacement_cost_updated_at. Raw columns only — margins are computed in `core/costing/price-health.ts` (KOK-035), not in this view; a prior version had `margin_wac_bp`/`margin_repl_bp`/`margin_repl_pct` columns with a sale_price (per-whole-unit) vs wac/replacement_cost (per-milli-unit) scaling bug (~1000x), removed with zero consumers in migration 0006 (KOK-069) rather than fixed in SQL, since the correct C-5 math already lives in application code |
+| `v_price_health` | FINISHED items: id, name, sale_price, wac_mc, replacement_cost_mc, replacement_cost_updated_at. Raw columns only — margins are computed in `core/costing/price-health.ts` (KOK-035), not in this view; the former SQL margin columns were removed in migration 0006 because they mixed per-whole-unit prices with per-milli-unit costs. |
 | `v_receivables` | sales WHERE payment_status='ON_CREDIT' AND deleted_at IS NULL, aged; `total` = **uncollected remainder**, i.e. `sales.total − custom_orders.deposit_paid` for a CUSTOM_ORDER sale (KOK-033, migration 0005) and plain `sales.total` otherwise |
 | `v_liability` | current customer_deposits (see §3.4) |
 | `v_cashflow_daily` | financial_transactions grouped by business_date × category |

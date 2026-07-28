@@ -11,7 +11,13 @@
 // `stock_value INTEGER`), so it needs no such conversion.
 
 import type { StockRowDto } from "@kokoro/shared";
-import { formatMoney, formatQty } from "@kokoro/shared";
+import {
+  formatMoney,
+  formatQty,
+  toMilliCentavosPerUnit,
+  totalCentavos,
+  WHOLE_UNIT_MILLI_UNITS,
+} from "@kokoro/shared";
 import { CalcTrace } from "@/components/common/CalcTrace";
 import { EventTable, type EventTableColumn } from "@/components/data-table/EventTable";
 import { Badge } from "@/components/ui/badge";
@@ -24,14 +30,9 @@ export interface StockTableProps {
   onRowClick?: (row: StockRowDto) => void;
 }
 
-/** Doc 04 Â§2: `replacementCostMc` is still REAL centavos-per-milli-unit (not migrated yet). */
-function formatUnitCost(perMilliUnitCentavos: number, unit: StockRowDto["unit"]): string {
-  return `${formatMoney(Math.round(perMilliUnitCentavos * 1000))} / ${inventoryLabels.unitAbbrev[unit]}`;
-}
-
-/** ADR-017/KOK-071: `wacMc` is integer milli-centavos per WHOLE unit. */
-function formatUnitCostMc(wacMc: number, unit: StockRowDto["unit"]): string {
-  return `${formatMoney(Math.round(wacMc / 1000))} / ${inventoryLabels.unitAbbrev[unit]}`;
+/** ADR-017/KOK-071: both rates are integer milli-centavos per WHOLE unit. */
+function formatUnitCostMc(rateMc: number, unit: StockRowDto["unit"]): string {
+  return `${formatMoney(totalCentavos(toMilliCentavosPerUnit(rateMc), WHOLE_UNIT_MILLI_UNITS))} / ${inventoryLabels.unitAbbrev[unit]}`;
 }
 
 export function StockTable({ rows, loading, onRowClick }: StockTableProps) {
@@ -91,7 +92,7 @@ export function StockTable({ rows, loading, onRowClick }: StockTableProps) {
       id: "replacementCostMc",
       header: inventoryLabels.columnReplacementCost,
       numeric: true,
-      cell: (row) => formatUnitCost(row.replacementCostMc, row.unit),
+      cell: (row) => formatUnitCostMc(row.replacementCostMc, row.unit),
     },
     {
       id: "stockValue",

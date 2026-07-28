@@ -17,13 +17,13 @@
 
 import type { PriceHealthRowDto, PriceMarginDto } from "@kokoro/shared";
 import {
+  type MilliCentavosPerUnit,
   roundHalfUpToInt,
   subMoney,
   toCentavos,
   toMilliCentavosPerUnit,
   totalCentavos,
   WHOLE_UNIT_MILLI_UNITS,
-  type MilliCentavosPerUnit,
 } from "@kokoro/shared";
 
 import type { Db } from "../../db/index.js";
@@ -69,6 +69,12 @@ export function computePriceSuggested(
   assertSafeIntegerInput(minMarginPctBp, "minMarginPctBp");
   if (minMarginPctBp >= 10000) {
     throw validationError("El margen objetivo debe ser menor al 100%.", { minMarginPctBp });
+  }
+  assertSafeIntegerInput(replacementCostMc, "replacementCostMc");
+  if (replacementCostMc < 0) {
+    throw validationError("El costo de reemplazo debe ser un entero no negativo.", {
+      replacementCostMc,
+    });
   }
   if (replacementCostMc === 0) return null;
 
@@ -141,7 +147,10 @@ export async function listPriceHealth(
         row.salePrice,
         toMilliCentavosPerUnit(row.replacementCostMc),
       ),
-      priceSuggested: computePriceSuggested(toMilliCentavosPerUnit(row.replacementCostMc), minMarginPct),
+      priceSuggested: computePriceSuggested(
+        toMilliCentavosPerUnit(row.replacementCostMc),
+        minMarginPct,
+      ),
       lastPriceChangeAt: lastChangeByItemId.get(row.id) ?? null,
     };
   });

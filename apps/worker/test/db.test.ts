@@ -166,7 +166,7 @@ describe("migration 0001", () => {
       sale_price: 5000,
       wac_mc: 1500000000,
       replacement_cost_mc: 1600,
-      replacement_cost_mc_updated_at: null,
+      replacement_cost_updated_at: null,
     });
   });
 });

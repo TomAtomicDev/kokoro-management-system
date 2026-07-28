@@ -31,6 +31,9 @@ import {
   type PaymentStatus,
   recordSaleCommandSchema,
   toBusinessDate,
+  toMilliCentavosPerUnit,
+  totalCentavos,
+  WHOLE_UNIT_MILLI_UNITS,
 } from "@kokoro/shared";
 import { useEffect, useMemo, useState } from "react";
 
@@ -304,7 +307,10 @@ export function SaleForm({ open, onOpenChange, accounts, sale }: SaleFormProps) 
     // PurchaseForm's renderLineExtra which needs no such conversion because its own lineTotal/qty
     // division already lands in centavos-per-milli-unit.
     const belowReplacementWarning =
-      unitPrice !== null && item.replacementCostMc > 0 && unitPrice / 1000 < item.replacementCostMc;
+      unitPrice !== null &&
+      item.replacementCostMc > 0 &&
+      unitPrice <
+        totalCentavos(toMilliCentavosPerUnit(item.replacementCostMc), WHOLE_UNIT_MILLI_UNITS);
 
     return (
       <div className="flex flex-col gap-0.5 text-xs">

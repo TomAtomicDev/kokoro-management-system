@@ -52,7 +52,7 @@ async function createIngredientItem(
   // down by the same Ã—1,000,000 factor before combining them, so this is exact, not an approximation.
   await db
     .update(items)
-    .set({ wacMc: wac * 1_000_000, replacementCostMc })
+    .set({ wacMc: wac * 1_000_000, replacementCostMc: replacementCostMc * 1_000_000 })
     .where(eq(items.id, item.id));
   return item;
 }
