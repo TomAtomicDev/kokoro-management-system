@@ -393,8 +393,17 @@ never-modify-applied-migrations guardrail holds even pre-production, and a fresh
 tests (Doc 11 §2), which gain an overflow bound: `rate ≤ 10⁷ mc × qty ≤ 10⁶ mu = 10¹³`, two
 orders of magnitude inside `Number.MAX_SAFE_INTEGER`. Raw integers in the DB get larger and less
 readable, mitigated by the `_mc` suffix and by formatters at every display boundary. Migration
-0007 rewrites values in place (`× 1000` for per-milli-unit costs, `× 1000` for per-whole-unit
-prices) and is a one-way door once real data exists — which is exactly why it happens now.
+0007 rewrites values in place (**`× 1_000_000`** for the old centavos-per-MILLI-unit costs, `× 1000`
+for the old centavos-per-WHOLE-unit prices) and is a one-way door once real data exists — which is
+exactly why it happens now.
+
+> _Correction (KOK-071 vertical 2, 2026-07-28): this paragraph originally read `× 1000` for **both**
+> groups. Wrong for the first: Bs 8.00/u is `0.8` centavos per milli-unit and `800_000` mc, a factor
+> of 10⁶ — two conversions (milli-unit → whole unit, and centavo → milli-centavo), not one. The
+> shipped migration was always correct (`0007_wac_family_mc_scale.sql` uses
+> `CAST(ROUND("wac" * 1000000) AS INTEGER)`); only this prose was, and it would have led migration
+> 0008 to under-scale `replacement_cost` by 1000×. Same copy-paste failure mode as the KOK-070
+> correction above — check illustrative factors against the formula._
 
 **Alternatives considered.**
 - *Brands only, keep both denominators.* Cheapest, and the compiler would catch the mismatch.
@@ -406,3 +415,79 @@ prices) and is a one-way door once real data exists — which is exactly why it 
   for leaving the door ajar.
 - *Store money as `TEXT` decimal strings or a decimal library.* Rejected under D-10 (no new
   dependency) and for making SQL comparison/aggregation in views awkward.
+
+**Amendment (KOK-071 vertical 2, 2026-07-28) — quantization of derived and recursive rates.**
+
+`core/costing/replacement-cost.ts`'s `computeItemReplacementCost` returns a deliberately UNROUNDED
+float, and its header records why: `items.replacement_cost` is read back **recursively** as an
+ingredient's cost by another item's C-3 calculation (a multi-level BOM — RAW_MATERIAL →
+SEMI_FINISHED → FINISHED), so rounding the stored value compounds a rounding error at every level
+instead of only once, at display time — the discipline `core/recipes/theoretical-cost.ts`'s C-3b
+preview follows. Point 2 above removes `REAL` from the schema and requires every stored money value
+to be an integer. For this one column the two read as a straightforward conflict, and vertical 2
+cannot proceed without settling it.
+
+**Decision: the integer wins, with no exception carved out for this column.** Three findings, in
+order of weight:
+
+1. **The conflict is an artifact of the OLD scale.** The float rationale was written when the only
+   integer alternative was the pre-KOK-071 *centavos-per-milli-unit* grid, on which Bs 8.00/u is
+   `0.8` — quantizing there costs ~25% per level and the header comment is entirely right to refuse
+   it. On the `_mc` grid the same rate is `800_000`. One milli-centavo is Bs 0.00001 per unit:
+   three decimal digits below the centavo the value is ever *displayed* in. "Round only at display
+   time, never in the cached column" is therefore **preserved, not violated** — milli-centavos is
+   not a display scale, and C-3b's preview (which rounds to a whole centavo per whole unit, a grid
+   1000× coarser) remains the only place a display rounding happens.
+2. **The recursion is not unique to this column, and vertical 1 already decided it.** A production
+   run's output cost is `rateFromTotal(total_cost, actual_output_qty)` → an integer
+   `MilliCentavosPerUnit`, written as the PRODUCTION_IN movement's `unit_cost_mc` and rounded a
+   second time by `applyWacEntry`'s C-1 average into `items.wac_mc`; when that output is
+   SEMI_FINISHED and is consumed by a deeper run, its rounded WAC is snapshot as that run's
+   `direct` cost (C-4). That is the identical multi-level compounding structure on the identical
+   grid, and migration 0007 shipped it. The premise that "WAC never had replacement_cost's
+   recursion problem" does not survive inspection; a carve-out here would leave the two halves of
+   one BOM cost model on two different rules — which is the ambiguity ADR-017 exists to remove.
+3. **Measured, the disputed rounding is not what causes BOM drift.** Simulated against an exact
+   rational reference, decomposing drift into the *leaf* quantization (a RAW_MATERIAL's own
+   `replacement_cost_mc = rateFromTotal(line_total, qty)`, an integer under this ADR no matter what
+   is decided here) versus the *incremental* cost of also rounding each derived level. Flour bought
+   3 kg for Bs 25.00, item unit = gram, 1000 g → 1 output unit (true cost `833_333.33` mc):
+
+   | BOM depth | drift from leaf quantization alone | added by rounding the cached column |
+   | --------- | ---------------------------------- | ----------------------------------- |
+   | 1         | 333.3 mc (0.333 centavos)          | 0.000 mc                            |
+   | 2         | 1 003.0 mc (1.003 centavos)        | 0.441 mc (0.0004 centavos)          |
+   | 5         | 27 326 mc (27.3 centavos)          | 15.8 mc (0.016 centavos)            |
+
+   The float cache does not protect against the drift that actually exists: at every depth the leaf
+   term is 100–1700× larger, and it is unavoidable under this ADR. A displayed centavo only moves
+   past 500 mc of drift.
+
+**Normative consequences.**
+
+- `items.replacement_cost_mc` is `INTEGER NOT NULL DEFAULT 0`, milli-centavos per whole unit,
+  rounded half-up once per BOM level by the same `roundHalfUpToInt` every other derived rate uses.
+- **Recorded tolerance:** each derived level adds ≤ 0.5 mc (Bs 0.000005/unit) of absolute
+  quantization. Relative drift down a chain is dominated by, and approximately equal to, the leaf's
+  own `0.5 mc / leaf_cost_mc` — the tolerance this ADR already accepts for every stored rate. This
+  is an accepted, bounded tolerance, not a defect to be fixed later.
+- **A property test pins the bound** (Doc 11 §2, and CLAUDE.md's money-math rule): the integer
+  result of a randomly-generated multi-level BOM must stay within 0.5 mc per level of an exact
+  rational reference.
+- **Unit-of-measure guidance (a real finding, wider than C-3).** Drift scales with how many
+  ingredient units enter one output unit, so cataloguing a bulk ingredient per GRAM rather than per
+  KG multiplies its quantization ~1000× — measured above: 0.33 centavos vs 0.0003 centavos on the
+  identical Bs 25.00 / 3 kg purchase. This is a property of this ADR's scale, not of C-3, and it
+  argues for preferring the coarser unit when defining an item. Not a blocker for vertical 2.
+
+**Alternatives rejected here.**
+
+- *A `REAL` carve-out for this one column, via a KB exception.* Preserves exactly the "one concept,
+  two representations" ambiguity this ADR removes, and per finding 3 buys 0.0004–0.016 centavos of
+  precision against a leaf term 100–1700× larger. It also re-opens the non-determinism point 2
+  closed: a float `replacement_cost` makes the nightly refresh's result depend on summation order.
+- *Recompute each SEMI_FINISHED/FINISHED item from raw materials in one unrounded pass* instead of
+  reading its children's cached values. Genuinely removes the per-level term, but contradicts C-3's
+  "cached with timestamp" and the dependency-ordered refresh
+  (`core/costing/replacement-cost-refresh.ts`), and costs a full BOM tree walk per item — to
+  recover ~10⁻⁵ relative precision that no display can show. Rejected.

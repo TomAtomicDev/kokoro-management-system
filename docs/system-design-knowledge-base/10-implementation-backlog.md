@@ -150,6 +150,23 @@ Execute in order; each row is independently mergeable and leaves the build green
 >   queries), `v_kardex`/`v_waste`/`v_stock` views. The golden WAC-replay tests live here.
 > - **0008 — `items.replacement_cost`**: C-3, independent formula (last purchase cost /
 >   recipe-derived nightly refresh) — `core/purchasing`, `core/costing/replacement-cost*.ts`.
+>   **Decided before implementing (2026-07-28), do not re-litigate:** `computeItemReplacementCost`
+>   returns a deliberately UNROUNDED float today, because `items.replacement_cost` is read back
+>   recursively as an ingredient cost in a multi-level BOM and rounding it compounds per level —
+>   which reads as a direct conflict with ADR-017's no-`REAL` rule. Resolved in favour of the
+>   integer, **no exception**, and written up as ADR-017's KOK-071 vertical-2 amendment: the float
+>   rationale was specific to the OLD centavos-per-milli-unit grid (where Bs 8.00/u is `0.8`) and
+>   dissolves on the `_mc` grid, which is three decimal digits below the displayed centavo; the same
+>   recursion already exists on the WAC side (production output cost → `items.wac_mc` → the next
+>   run's consumption cost) and 0007 shipped it rounded; and measured against an exact rational
+>   reference the per-level rounding contributes 0.0004–0.016 centavos against a leaf-quantization
+>   term 100–1700× larger that is unavoidable either way. Implementation must therefore: rewrite
+>   `replacement-cost.ts`'s header (its stated rationale is obsolete, not merely outdated), return
+>   `MilliCentavosPerUnit` via `roundHalfUpToInt`, switch `core/purchasing`'s two raw `lineTotal /
+>   qty` sites (`recordPurchase`'s `lastUnitCost` threading and
+>   `findLatestOtherPurchaseLineForItem`) to `rateFromTotal`, retire
+>   `price-health.ts`'s `replacementCostPerMilliUnit` parameter and its `× 1000`, and add the
+>   property test pinning the ≤ 0.5 mc-per-level bound (Doc 11 §2).
 > - **0009 — `items.sale_price` + `sale_lines.unit_price`**: independent user-set prices; ordered
 >   after 0007/0008 because price-health's margin math (C-5) wants `wac_mc`/`replacement_cost_mc`
 >   already in scale to avoid a second mixed-scale intermediate state. `core/costing/price-health.ts`,

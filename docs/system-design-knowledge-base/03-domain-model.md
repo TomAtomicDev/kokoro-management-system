@@ -69,7 +69,13 @@ better correction ergonomics for a solo operator (ADR-009).
   C-5's `margin_replacement` and its price-health alert would otherwise drift optimistic. Soft
   -deleted purchases (R-3) do not count. For SEMI_FINISHED/FINISHED,
   `replacement_cost = Σ(default-recipe line qty × ingredient replacement_cost) / expected_yield`,
-  recomputed by the nightly job and on demand; cached with timestamp.
+  recomputed by the nightly job and on demand; cached with timestamp. The cached column is an
+  INTEGER `replacement_cost_mc` (milli-centavos per whole unit) like every other stored rate, and
+  because an ingredient's `replacement_cost_mc` may itself be a SEMI_FINISHED item's cached value
+  (a multi-level BOM), the formula rounds half-up **once per level**. That quantization is bounded
+  and deliberate — ≤ 0.5 mc (Bs 0.000005/unit) per level, dominated by the leaf raw material's own
+  quantization, which is unavoidable; see ADR-017's KOK-071 vertical-2 amendment for the
+  measurements and for why no float exception is carved out for this column.
 - **C-3b Recipe theoretical cost (KOK-025 KB amendment)**: the Recipes screen (SC-06) previews a
   recipe's cost per output unit at both valuations, generalizing C-3's replacement-cost formula
   (which is defined there only for the *default* recipe feeding the cached column) to ANY recipe
