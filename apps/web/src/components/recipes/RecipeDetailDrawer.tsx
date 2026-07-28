@@ -50,7 +50,12 @@ export function RecipeDetailDrawer({ recipeId, open, onOpenChange }: RecipeDetai
     return [
       ...recipe.lines.map((line): CalcTraceInput => {
         const item = itemById.get(line.itemId);
-        const contribution = roundHalfUpToInt(line.qty * (item?.[basis] ?? 0));
+        // KOK-071 vertical 1: wacMc is milli-centavos per WHOLE unit; replacementCost is not
+        // migrated yet, so the wac basis converts back down to the old centavos-per-milli-unit
+        // convention this function still expects (mirrors core/recipes/dto.ts's buildCostDto).
+        const unitCost =
+          basis === "wac" ? (item ? item.wacMc / 1_000_000 : 0) : (item?.replacementCost ?? 0);
+        const contribution = roundHalfUpToInt(line.qty * unitCost);
         return { label: item?.name ?? line.itemId, value: formatMoney(contribution) };
       }),
       {

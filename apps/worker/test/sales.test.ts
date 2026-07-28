@@ -10,8 +10,8 @@
 //   - collectPayment (UC-04, KOK-031) flips ON_CREDIT -> PAID, books an INCOME/DEBT_COLLECTION row
 //     (not SALE — that category is reserved for cash collected at sale time), and only a sale
 //     already ON_CREDIT may be collected (re-collecting a PAID sale is a CONFLICT, not a no-op).
-//   - a sale FREEZES its unit_cost_snapshot at the item's current WAC but NEVER moves that WAC
-//     (C-6 spirit / R-4). A "helpful" items.wac write on the sale path is exactly the bug guarded here.
+//   - a sale FREEZES its unit_cost_snapshot_mc at the item's current WAC but NEVER moves that WAC
+//     (C-6 spirit / R-4). A "helpful" items.wac_mc write on the sale path is exactly the bug guarded here.
 //   - negative stock is ALLOWED (INV-8): overselling flags item_stock, it does not throw.
 //   - sales.total is server-recomputed as Σ(qty × unit_price); the command has no `total` field.
 //
@@ -108,7 +108,7 @@ describe("recordSale — PAID (UC-03)", () => {
     const itemAfterPurchase = await db.query.items.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
     });
-    expect(itemAfterPurchase?.wac).toBe(6);
+    expect(itemAfterPurchase?.wacMc).toBe(6_000_000);
 
     const result = await recordSale(
       db,
@@ -135,7 +135,12 @@ describe("recordSale — PAID (UC-03)", () => {
       notes: "Venta mostrador",
     });
     expect(result.sale.lines).toEqual([
-      expect.objectContaining({ itemId: item.id, qty: 200, unitPrice: 1000, unitCostSnapshot: 6 }),
+      expect.objectContaining({
+        itemId: item.id,
+        qty: 200,
+        unitPrice: 1000,
+        unitCostSnapshotMc: 6_000_000,
+      }),
     ]);
     expect(result.account).toMatchObject({ id: "acc_cash", balance: 200 });
 
@@ -156,7 +161,7 @@ describe("recordSale — PAID (UC-03)", () => {
     expect(movementRow).toMatchObject({
       type: "SALE_OUT",
       qty: -200,
-      unitCost: 6,
+      unitCostMc: 6_000_000,
       totalCost: -1200,
       sourceEventType: "sale",
     });
@@ -166,11 +171,11 @@ describe("recordSale — PAID (UC-03)", () => {
     });
     expect(stockRow?.qtyOnHand).toBe(800); // 1000 − 200
 
-    // C-6 spirit: the sale must NOT have moved items.wac.
+    // C-6 spirit: the sale must NOT have moved items.wac_mc.
     const itemAfterSale = await db.query.items.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
     });
-    expect(itemAfterSale?.wac).toBe(6);
+    expect(itemAfterSale?.wacMc).toBe(6_000_000);
 
     // The income row: INCOME / SALE, positive amount, sourced to the sale.
     const txRows = await db.query.financialTransactions.findMany({
@@ -220,9 +225,9 @@ describe("recordSale — PAID (UC-03)", () => {
     expect(result.sale.lines).toHaveLength(2);
 
     // Each line snapshots its own item's WAC.
-    const byItem = new Map(result.sale.lines.map((l) => [l.itemId, l.unitCostSnapshot]));
-    expect(byItem.get(itemA.id)).toBe(2);
-    expect(byItem.get(itemB.id)).toBe(5);
+    const byItem = new Map(result.sale.lines.map((l) => [l.itemId, l.unitCostSnapshotMc]));
+    expect(byItem.get(itemA.id)).toBe(2_000_000);
+    expect(byItem.get(itemB.id)).toBe(5_000_000);
   });
 
   it("PAID with an inactive/unknown account is rejected before any write", async () => {
@@ -298,7 +303,7 @@ describe("recordSale — ON_CREDIT (UC-03, receivable)", () => {
     const movementRow = await db.query.stockMovements.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.sourceEventId, result.sale.id),
     });
-    expect(movementRow).toMatchObject({ type: "SALE_OUT", qty: -300, unitCost: 4 });
+    expect(movementRow).toMatchObject({ type: "SALE_OUT", qty: -300, unitCostMc: 4_000_000 });
   });
 });
 
@@ -403,7 +408,7 @@ describe("recordSale — multi-line same item (one batch, netted stock)", () => 
     expect(result.sale.total).toBe(900);
     expect(result.sale.lines).toHaveLength(2);
     // Both lines snapshot the same current WAC (a sale never moves WAC mid-sale).
-    expect(result.sale.lines.every((l) => l.unitCostSnapshot === 3)).toBe(true);
+    expect(result.sale.lines.every((l) => l.unitCostSnapshotMc === 3_000_000)).toBe(true);
 
     const movements = await db.query.stockMovements.findMany({
       where: (t, { eq: eqOp }) => eqOp(t.sourceEventId, result.sale.id),
@@ -826,7 +831,8 @@ describe("recordSale — backdated capture: INV-11 replay guard (R-2/R-5, ADR-01
     const itemRow = await db.query.items.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
     });
-    expect(itemRow?.wac).toBeCloseTo(44_000 / 12_000, 9);
+    // (2000·2 000 000 + 10000·4 000 000)/12000 = 3 666 666.667 -> 3 666 667.
+    expect(itemRow?.wacMc).toBe(3_666_667);
   });
 
   it("commits the same sale with `confirm: true`, replaying the later purchase's WAC without booking a WAC of its own (C-6)", async () => {
@@ -843,8 +849,9 @@ describe("recordSale — backdated capture: INV-11 replay guard (R-2/R-5, ADR-01
       ACTOR,
     );
 
-    // C-6: valued at the item's CURRENT wac at capture time (3.6667, before this replay lands).
-    expect(result.sale.lines[0]?.unitCostSnapshot).toBeCloseTo(44_000 / 12_000, 9);
+    // C-6: valued at the item's CURRENT wac at capture time (3.6667, before this replay lands) ->
+    // 3 666 667 mc (same arithmetic as the refusal test above).
+    expect(result.sale.lines[0]?.unitCostSnapshotMc).toBe(3_666_667);
     // ON_CREDIT: no cash side.
     expect(result.account).toBeNull();
 
@@ -858,7 +865,8 @@ describe("recordSale — backdated capture: INV-11 replay guard (R-2/R-5, ADR-01
     const itemRow = await db.query.items.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
     });
-    expect(itemRow?.wac).toBeCloseTo(4, 9);
+    // max(-6000,0)·2 000 000 + 10000·4 000 000 = 40 000 000 000, /10000 = 4 000 000 exactly.
+    expect(itemRow?.wacMc).toBe(4_000_000);
   });
 });
 
@@ -949,7 +957,7 @@ describe("updateSale (R-1, KOK-064)", () => {
     );
 
     expect(result.sale.total).toBe(1000);
-    expect(result.sale.lines[0]).toMatchObject({ qty: 500, unitCostSnapshot: 4 });
+    expect(result.sale.lines[0]).toMatchObject({ qty: 500, unitCostSnapshotMc: 4_000_000 });
     expect(result.account).toMatchObject({ id: "acc_cash", balance: 1000 });
 
     const stockRow = await db.query.itemStock.findFirst({
@@ -1171,7 +1179,7 @@ describe("restoreSale (Doc 06 principle 6 — 'Deshacer', KOK-064)", () => {
       },
       ACTOR,
     );
-    expect(created.sale.lines[0]?.unitCostSnapshot).toBe(4);
+    expect(created.sale.lines[0]?.unitCostSnapshotMc).toBe(4_000_000);
 
     await deleteSale(db, created.sale.id, {}, ACTOR);
     expect(await accountBalance(db, "acc_cash")).toBe(0);
@@ -1194,7 +1202,7 @@ describe("restoreSale (Doc 06 principle 6 — 'Deshacer', KOK-064)", () => {
     const itemAfterPurchase = await db.query.items.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
     });
-    expect(itemAfterPurchase?.wac).not.toBe(4);
+    expect(itemAfterPurchase?.wacMc).not.toBe(4_000_000);
 
     await expect(restoreSale(db, created.sale.id, {}, ACTOR)).rejects.toMatchObject({
       code: "CONFLICT",
@@ -1203,14 +1211,14 @@ describe("restoreSale (Doc 06 principle 6 — 'Deshacer', KOK-064)", () => {
 
     const restored = await restoreSale(db, created.sale.id, { confirm: true }, ACTOR);
 
-    expect(restored.sale.lines[0]?.unitCostSnapshot).toBe(4); // NOT the new current wac
+    expect(restored.sale.lines[0]?.unitCostSnapshotMc).toBe(4_000_000); // NOT the new current wac
     expect(restored.account).toMatchObject({ id: "acc_cash", balance: 600 });
 
     const movementRows = await db.query.stockMovements.findMany({
       where: (t, { eq: eqOp }) => eqOp(t.sourceEventId, created.sale.id),
     });
     expect(movementRows).toHaveLength(1);
-    expect(movementRows[0]).toMatchObject({ type: "SALE_OUT", qty: -300, unitCost: 4 });
+    expect(movementRows[0]).toMatchObject({ type: "SALE_OUT", qty: -300, unitCostMc: 4_000_000 });
 
     const auditRow = await db.query.auditLog.findFirst({
       where: (t, { and, eq: eqOp }) =>
@@ -1383,7 +1391,7 @@ describe("batch atomicity (INV-1)", () => {
            VALUES ('sale_atomicity_test', ?, ?, 'CATALOG', 0, 'ON_CREDIT', ?, ?)`,
         ).bind(NOW, BUSINESS_DATE, NOW, NOW),
         env.DB.prepare(
-          `INSERT INTO sale_lines (id, sale_id, item_id, qty, unit_price, unit_cost_snapshot)
+          `INSERT INTO sale_lines (id, sale_id, item_id, qty, unit_price, unit_cost_snapshot_mc)
            VALUES ('sale_line_atomicity_test', 'sale_atomicity_test', ?, 0, 500, 0)`,
         ).bind(item.id),
       ]),

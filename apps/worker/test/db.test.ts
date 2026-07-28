@@ -96,12 +96,12 @@ describe("migration 0001", () => {
     ).rejects.toThrow();
   });
 
-  it("v_stock computes stock_value = qty_on_hand x wac and flags low stock", async () => {
+  it("v_stock computes stock_value = qty_on_hand x wac_mc / 1e6 and flags low stock", async () => {
     const now = "2026-07-14T10:00:00.000Z";
     await env.DB.batch([
       env.DB.prepare(
-        `INSERT INTO items (id, name, kind, category, unit, wac, min_stock_qty, created_at, updated_at)
-         VALUES ('item_test', 'Test flour', 'RAW_MATERIAL', 'INGREDIENT', 'KG', 12.0, 10000, ?, ?)`,
+        `INSERT INTO items (id, name, kind, category, unit, wac_mc, min_stock_qty, created_at, updated_at)
+         VALUES ('item_test', 'Test flour', 'RAW_MATERIAL', 'INGREDIENT', 'KG', 12000000, 10000, ?, ?)`,
       ).bind(now, now),
       env.DB.prepare(
         "INSERT INTO item_stock (item_id, qty_on_hand, updated_at) VALUES ('item_test', 5000, ?)",
@@ -124,15 +124,15 @@ describe("migration 0001", () => {
       ).bind(now, now),
       env.DB.prepare(
         `INSERT INTO stock_movements
-           (id, occurred_at, business_date, item_id, type, qty, unit_cost, total_cost,
+           (id, occurred_at, business_date, item_id, type, qty, unit_cost_mc, total_cost,
             source_event_type, source_event_id, created_at)
-         VALUES ('mv_a', ?, '2026-07-14', 'item_kardex_test', 'PURCHASE_IN', 3000, 10, 30000, 'purchase', 'p1', ?)`,
+         VALUES ('mv_a', ?, '2026-07-14', 'item_kardex_test', 'PURCHASE_IN', 3000, 10000000, 30000, 'purchase', 'p1', ?)`,
       ).bind(now, now),
       env.DB.prepare(
         `INSERT INTO stock_movements
-           (id, occurred_at, business_date, item_id, type, qty, unit_cost, total_cost,
+           (id, occurred_at, business_date, item_id, type, qty, unit_cost_mc, total_cost,
             source_event_type, source_event_id, created_at)
-         VALUES ('mv_b', ?, '2026-07-14', 'item_kardex_test', 'SALE_OUT', -1000, 10, -10000, 'sale', 's1', ?)`,
+         VALUES ('mv_b', ?, '2026-07-14', 'item_kardex_test', 'SALE_OUT', -1000, 10000000, -10000, 'sale', 's1', ?)`,
       ).bind(now, now),
     ]);
 
@@ -150,8 +150,8 @@ describe("migration 0001", () => {
     const now = "2026-07-14T10:00:00.000Z";
     await env.DB.prepare(
       `INSERT INTO items
-         (id, name, kind, category, unit, is_active, sale_price, wac, replacement_cost, created_at, updated_at)
-       VALUES ('item_price_health_test', 'Price health test cake', 'FINISHED', 'BAKERY', 'UNIT', 1, 5000, 1500, 1600, ?, ?)`,
+         (id, name, kind, category, unit, is_active, sale_price, wac_mc, replacement_cost, created_at, updated_at)
+       VALUES ('item_price_health_test', 'Price health test cake', 'FINISHED', 'BAKERY', 'UNIT', 1, 5000, 1500000000, 1600, ?, ?)`,
     )
       .bind(now, now)
       .run();
@@ -164,7 +164,7 @@ describe("migration 0001", () => {
       item_id: "item_price_health_test",
       name: "Price health test cake",
       sale_price: 5000,
-      wac: 1500,
+      wac_mc: 1500000000,
       replacement_cost: 1600,
       replacement_cost_updated_at: null,
     });

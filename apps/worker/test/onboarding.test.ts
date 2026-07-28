@@ -125,14 +125,14 @@ describe("bulkCreateItems", () => {
 
     expect(result.items).toHaveLength(3);
     for (const dto of result.items) {
-      expect(dto.wac).toBe(0);
+      expect(dto.wacMc).toBe(0);
       expect(dto.replacementCost).toBe(0);
       expect(dto.replacementCostUpdatedAt).toBeNull();
       expect(dto.isActive).toBe(true);
     }
 
     const rowA = await findByName(db, "Bulk item A");
-    expect(rowA).toMatchObject({ wac: 0, replacementCost: 0, isActive: 1 });
+    expect(rowA).toMatchObject({ wacMc: 0, replacementCost: 0, isActive: 1 });
 
     const auditRows = await db.query.auditLog.findMany({
       where: (t, { and, eq: eqOp }) =>

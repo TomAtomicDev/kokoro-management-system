@@ -28,7 +28,7 @@ describe("createItem", () => {
     );
 
     expect(item.name).toBe("Harina 000");
-    expect(item.wac).toBe(0);
+    expect(item.wacMc).toBe(0);
     expect(item.replacementCost).toBe(0);
     expect(item.isActive).toBe(true);
     expect(item.aliases).toEqual([]);

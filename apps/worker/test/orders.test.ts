@@ -535,8 +535,9 @@ describe("deliverOrder (UC-07, O-2)", () => {
     });
     expect(result.sale.lines).toHaveLength(1);
     expect(result.sale.lines[0]).toMatchObject({ itemId, qty: 1000, unitPrice: 30_000 });
-    // WAC frozen at sale time (C-6): the seeded item's WAC is 6 centavos per milli-unit.
-    expect(result.sale.lines[0]?.unitCostSnapshot).toBe(6);
+    // WAC frozen at sale time (C-6): the seeded item's WAC is 6_000_000 milli-centavos per whole
+    // unit (KOK-071/ADR-017; recordPurchase's rateFromTotal(60000, 10000) = 6_000_000 exactly).
+    expect(result.sale.lines[0]?.unitCostSnapshotMc).toBe(6_000_000);
     expect(result.sale.total).toBe(
       (result.sale.lines[0]?.unitPrice ?? 0) * ((result.sale.lines[0]?.qty ?? 0) / 1000),
     );

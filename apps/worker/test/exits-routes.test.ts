@@ -83,7 +83,7 @@ interface ExitDtoShape {
     id: string;
     itemId: string;
     qty: number;
-    unitCostSnapshot: number;
+    unitCostSnapshotMc: number;
     deletedAt?: string | null;
   };
 }
@@ -139,7 +139,7 @@ describe("PATCH /api/inventory/exits/:id", () => {
 
   it("edits an exit and returns the updated exit", async () => {
     const auth = await login();
-    const itemId = await seedPurchasedItem(auth, "Exit route — edit item", 2000, 4000); // wac 2
+    const itemId = await seedPurchasedItem(auth, "Exit route — edit item", 2000, 4000); // wacMc 2_000_000
     const created = await createExit(auth, {
       itemId,
       qty: 500,
@@ -164,7 +164,7 @@ describe("PATCH /api/inventory/exits/:id", () => {
     expect(body.exit.id).toBe(created.exit.id);
     expect(body.exit.qty).toBe(800);
     // Same item -> the frozen snapshot survives the edit (module policy, mirrors exits.test.ts).
-    expect(body.exit.unitCostSnapshot).toBe(2);
+    expect(body.exit.unitCostSnapshotMc).toBe(2_000_000);
   });
 
   it("rejects a non-positive qty with 400 VALIDATION", async () => {
@@ -307,7 +307,7 @@ describe("POST /api/inventory/exits/:id/restore", () => {
     const restored = (await restoreRes.json()) as ExitDtoShape;
     expect(restored.exit.id).toBe(created.exit.id);
     // Reused verbatim, never re-snapshotted at today's WAC (C-6/R-4 spirit).
-    expect(restored.exit.unitCostSnapshot).toBe(2);
+    expect(restored.exit.unitCostSnapshotMc).toBe(2_000_000);
 
     const getRes = await SELF.fetch(`https://example.com/api/inventory/exits/${created.exit.id}`, {
       headers: { cookie: auth.cookie },

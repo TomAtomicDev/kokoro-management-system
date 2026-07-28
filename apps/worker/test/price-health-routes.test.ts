@@ -67,8 +67,13 @@ describe("GET /api/price-health", () => {
     }).then((r) => r.json() as Promise<{ id: string }>);
 
     // wac/replacementCost are system-derived (never settable via the API) — set directly, same
-    // pattern costing-routes.test.ts uses for its precondition setup.
-    await db.update(items).set({ wac: 5, replacementCost: 7 }).where(eq(items.id, cake.id));
+    // pattern costing-routes.test.ts uses for its precondition setup. KOK-071: wacMc is
+    // milli-centavos per WHOLE unit; 5_000_000 here reproduces the old wac=5-per-milli-unit
+    // example via price-health.ts's own bridge (÷1,000,000) — replacementCost is not migrated yet.
+    await db
+      .update(items)
+      .set({ wacMc: 5_000_000, replacementCost: 7 })
+      .where(eq(items.id, cake.id));
 
     const rawMaterial = await SELF.fetch("https://example.com/api/items", {
       method: "POST",

@@ -47,7 +47,13 @@ async function createIngredientItem(
     { name: `Harina ${crypto.randomUUID()}`, kind, category: "INGREDIENT", unit: "KG" },
     ACTOR,
   );
-  await db.update(items).set({ wac, replacementCost }).where(eq(items.id, item.id));
+  // `wac` is stated at the old centavos-per-milli-unit scale for readability, matching
+  // `replacementCost` (not migrated yet) — core/recipes/dto.ts's buildCostDto bridges `wacMc` back
+  // down by the same ×1,000,000 factor before combining them, so this is exact, not an approximation.
+  await db
+    .update(items)
+    .set({ wacMc: wac * 1_000_000, replacementCost })
+    .where(eq(items.id, item.id));
   return item;
 }
 

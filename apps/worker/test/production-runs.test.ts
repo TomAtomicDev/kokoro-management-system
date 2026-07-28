@@ -140,10 +140,11 @@ describe("recordProductionRun (UC-02)", () => {
       ACTOR,
     );
 
-    // C-4: direct = 200*500 + 100*300 = 130000; total = 130150; outputUnitCost = 130150.
+    // C-4: direct = 200*500 + 100*300 = 130000; total = 130150; outputUnitCostMc =
+    // rateFromTotal(130150, 1000) = round(130150 * 1e6/1000) = 130150000 (exact, KOK-071).
     expect(result.productionRun.directCost).toBe(130_000);
     expect(result.productionRun.totalCost).toBe(130_150);
-    expect(result.productionRun.outputUnitCost).toBe(130_150);
+    expect(result.productionRun.outputUnitCostMc).toBe(130_150_000);
     expect(result.productionRun.outputItemId).toBe(output.id);
     expect(result.productionRun.allocatedSessionCost).toBe(0);
     expect(result.productionRun.lines).toHaveLength(2);
@@ -157,18 +158,18 @@ describe("recordProductionRun (UC-02)", () => {
 
     const movementA = outMovements.find((m) => m.itemId === itemA.id);
     const movementB = outMovements.find((m) => m.itemId === itemB.id);
-    expect(movementA).toMatchObject({ qty: -200, unitCost: 500 });
-    expect(movementB).toMatchObject({ qty: -100, unitCost: 300 });
-    // outputUnitCostPerMilliUnit = totalCost / actualOutputQty = 130150 / 1000 = 130.15 — NOT the
-    // rounded whole-unit DTO figure (130150).
-    expect(inMovements[0]).toMatchObject({ itemId: output.id, qty: 1000, unitCost: 130.15 });
+    expect(movementA).toMatchObject({ qty: -200, unitCostMc: 500_000_000 });
+    expect(movementB).toMatchObject({ qty: -100, unitCostMc: 300_000_000 });
+    // outputUnitCostMc = rateFromTotal(totalCost, actualOutputQty) = round(130150 * 1e6/1000) =
+    // 130150000 exactly (KOK-071) — same convention as items.wac_mc.
+    expect(inMovements[0]).toMatchObject({ itemId: output.id, qty: 1000, unitCostMc: 130_150_000 });
 
     // C-1: output item is a brand-new WAC seed (onHand=0, wac=0) -> first entry yields exactly the
     // entry's own unit cost.
     const outputItemRow = await db.query.items.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.id, output.id),
     });
-    expect(outputItemRow?.wac).toBeCloseTo(130.15, 9);
+    expect(outputItemRow?.wacMc).toBe(130_150_000);
 
     // C-6: consumption items' WAC is UNCHANGED by this run.
     const itemARow = await db.query.items.findFirst({
@@ -177,8 +178,8 @@ describe("recordProductionRun (UC-02)", () => {
     const itemBRow = await db.query.items.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.id, itemB.id),
     });
-    expect(itemARow?.wac).toBe(500);
-    expect(itemBRow?.wac).toBe(300);
+    expect(itemARow?.wacMc).toBe(500_000_000);
+    expect(itemBRow?.wacMc).toBe(300_000_000);
 
     // item_stock: output +1000, consumption items netted down.
     const outputStock = await db.query.itemStock.findFirst({
@@ -195,7 +196,7 @@ describe("recordProductionRun (UC-02)", () => {
     expect(consumptions).toHaveLength(2);
     expect(consumptions.find((c) => c.itemId === itemA.id)).toMatchObject({
       qty: 200,
-      unitCostSnapshot: 500,
+      unitCostSnapshotMc: 500_000_000,
     });
 
     // C-6 / this module's header: NEVER a financial_transactions row for this vertical.
@@ -309,8 +310,8 @@ describe("recordProductionRun (UC-02)", () => {
 // consumed. indirectCost 150 centavos. actualOutputQty 1000g.
 //   direct = 200*500 + 100*300 = 100000 + 30000 = 130000
 //   total  = direct + indirectCost = 130000 + 150 = 130150
-//   outputUnitCostPerMilliUnit = total / actualOutputQty = 130150 / 1000 = 130.15
-//   outputUnitCost (per whole unit, ×1000) = 130150 / 1000 * 1000 = 130150
+//   outputUnitCostMc (KOK-071/ADR-017) = rateFromTotal(130150, 1000) = round(130150 * 1e6/1000)
+//     = 130150000 exactly — same milli-centavos-per-WHOLE-unit convention as items.wac_mc.
 // Asserted EXACTLY, no tolerance (INV-6: money is exact integer centavos).
 // ---------------------------------------------------------------------------
 describe("golden-number fixture: C-4 direct/total/output cost", () => {
@@ -366,12 +367,12 @@ describe("golden-number fixture: C-4 direct/total/output cost", () => {
 
     expect(result.productionRun.directCost).toBe(130_000);
     expect(result.productionRun.totalCost).toBe(130_150);
-    expect(result.productionRun.outputUnitCost).toBe(130_150);
+    expect(result.productionRun.outputUnitCostMc).toBe(130_150_000);
 
     const outMovement = (await runMovements(db, result.productionRun.id)).find(
       (m) => m.type === "PRODUCTION_IN",
     );
-    expect(outMovement?.unitCost).toBe(130.15);
+    expect(outMovement?.unitCostMc).toBe(130_150_000);
   });
 });
 
@@ -392,7 +393,7 @@ describe("batch atomicity (INV-1)", () => {
            VALUES ('run_atomicity_test', ?, ?, 'does_not_matter', 1, ?, 500, ?, ?)`,
         ).bind(NOW, BUSINESS_DATE, rawItem.id, NOW, NOW),
         env.DB.prepare(
-          `INSERT INTO production_consumptions (id, production_run_id, item_id, qty, unit_cost_snapshot)
+          `INSERT INTO production_consumptions (id, production_run_id, item_id, qty, unit_cost_snapshot_mc)
            VALUES ('consumption_atomicity_test', 'run_atomicity_test', ?, 0, 1)`,
         ).bind(rawItem.id),
       ]),
@@ -519,7 +520,9 @@ describe("recordProductionRun — backdated capture: INV-11 replay guard (R-2/R-
     const outputRow = await db.query.items.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.id, output.id),
     });
-    expect(outputRow?.wac).toBeCloseTo(112_000 / 22_000, 9);
+    // (12000·6 000 000 + 10000·4 000 000)/22000 = 112 000 000 000/22 000 = 5 090 909.0909… ->
+    // roundHalfUpToInt -> 5 090 909 (same arithmetic as purchasing.test.ts's identical scenario).
+    expect(outputRow?.wacMc).toBe(5_090_909);
 
     const adjustments = await db
       .select()
@@ -538,7 +541,7 @@ describe("recordProductionRun — backdated capture: INV-11 replay guard (R-2/R-
     const exitRow = await db.query.stockExits.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.id, exit.exit.id),
     });
-    expect(exitRow?.unitCostSnapshot).toBe(2);
+    expect(exitRow?.unitCostSnapshotMc).toBe(2_000_000);
   });
 });
 
@@ -686,7 +689,7 @@ describe("updateProductionRun (R-1)", () => {
     const outputAfter = await db.query.items.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.id, output.id),
     });
-    expect(outputAfter?.wac).toBe(outputBefore?.wac);
+    expect(outputAfter?.wacMc).toBe(outputBefore?.wacMc);
     expect(outputAfter?.updatedAt).toBe(outputBefore?.updatedAt);
 
     expect(
@@ -749,13 +752,14 @@ describe("updateProductionRun (R-1)", () => {
 
     const movements = await runMovements(db, created.productionRun.id);
     const outMovement = movements.find((m) => m.type === "PRODUCTION_OUT");
-    expect(outMovement).toMatchObject({ qty: -400, unitCost: 1 });
+    expect(outMovement).toMatchObject({ qty: -400, unitCostMc: 1_000_000 });
 
     const outputRow = await db.query.items.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.id, output.id),
     });
-    // total=400, actualOutputQty=500 -> unit cost 0.8, first-ever entry.
-    expect(outputRow?.wac).toBeCloseTo(0.8, 9);
+    // total=400, actualOutputQty=500mu -> rateFromTotal(400,500) = round(400*1e6/500) = 800000
+    // exactly (0.8 old scale x 1,000,000), first-ever entry.
+    expect(outputRow?.wacMc).toBe(800_000);
 
     expect(
       await db.select().from(costingAdjustments).where(eq(costingAdjustments.itemId, output.id)),
@@ -829,7 +833,7 @@ describe("deleteProductionRun (R-3, D-8)", () => {
     const outputRow = await db.query.items.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.id, output.id),
     });
-    expect(outputRow?.wac).toBe(0); // no kardex left to average
+    expect(outputRow?.wacMc).toBe(0); // no kardex left to average
 
     await expect(getProductionRun(db, created.productionRun.id)).rejects.toMatchObject({
       code: "NOT_FOUND",
@@ -895,7 +899,7 @@ describe("restoreProductionRun (Doc 06 principle 6 — 'Deshacer')", () => {
     const outputAfterDelete = await db.query.items.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.id, output.id),
     });
-    expect(outputAfterDelete?.wac).toBe(0);
+    expect(outputAfterDelete?.wacMc).toBe(0);
 
     const restored = await restoreProductionRun(db, created.productionRun.id, {}, ACTOR);
 
@@ -913,7 +917,10 @@ describe("restoreProductionRun (Doc 06 principle 6 — 'Deshacer')", () => {
     const outputRow = await db.query.items.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.id, output.id),
     });
-    expect(outputRow?.wac).toBeCloseTo(created.productionRun.totalCost / 500, 9);
+    // First-ever entry for a brand-new output item -> wacMc lands exactly on the run's own
+    // outputUnitCostMc (KOK-071: both are rateFromTotal(totalCost, actualOutputQty)); comparing
+    // against the pre-delete DTO value is also the "exactly as they were" claim this test makes.
+    expect(outputRow?.wacMc).toBe(created.productionRun.outputUnitCostMc);
 
     const fetched = await getProductionRun(db, created.productionRun.id);
     expect(fetched.id).toBe(created.productionRun.id);

@@ -11,12 +11,13 @@
 // rows from prior tests. Items are created fresh with a unique name per test (items.name is
 // UNIQUE), so they never need resetting between tests.
 import { env } from "cloudflare:test";
-import { generateUuidV7 } from "@kokoro/shared";
+import { generateUuidV7, toMilliCentavosPerUnit } from "@kokoro/shared";
 import { eq, inArray } from "drizzle-orm";
 import fc from "fast-check";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { createItem } from "../src/core/catalog/index.js";
+import type { ReplayMovement } from "../src/core/costing/wac.js";
 import { recomputeWacFromMovements } from "../src/core/costing/wac.js";
 import { recordExit } from "../src/core/inventory/exits.js";
 import {
@@ -39,8 +40,22 @@ import {
 const ACTOR = "OWNER_WEB" as const;
 const NOW = "2026-07-16T10:00:00.000Z";
 const BUSINESS_DATE = "2026-07-16";
+// KOK-071 (ADR-017): brand alias, local to this file for readability — see costing.test.ts.
+const mc = toMilliCentavosPerUnit;
 
 type TestDb = ReturnType<typeof createDb>;
+
+/** DB rows carry a plain `number` for `unit_cost_mc`; `recomputeWacFromMovements` wants the branded
+ * `MilliCentavosPerUnit` (KOK-071). Mirrors invariants/wac-replay.test.ts's identical helper. */
+function toReplayMovements(
+  rows: readonly { type: string; qty: number; unitCostMc: number }[],
+): ReplayMovement[] {
+  return rows.map((r) => ({
+    type: r.type as ReplayMovement["type"],
+    qty: r.qty,
+    unitCostMc: mc(r.unitCostMc),
+  }));
+}
 
 async function seedItem(
   db: TestDb,
@@ -111,7 +126,7 @@ describe("recordPurchase (UC-01)", () => {
     expect(movementRow).toMatchObject({
       type: "PURCHASE_IN",
       qty: 5000,
-      unitCost: 2,
+      unitCostMc: 2_000_000,
       sourceEventType: "purchase",
     });
 
@@ -124,7 +139,7 @@ describe("recordPurchase (UC-01)", () => {
     const itemRow = await db.query.items.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
     });
-    expect(itemRow?.wac).toBe(2);
+    expect(itemRow?.wacMc).toBe(2_000_000);
     expect(itemRow?.replacementCost).toBe(2);
     expect(itemRow?.replacementCostUpdatedAt).not.toBeNull();
 
@@ -180,8 +195,8 @@ describe("recordPurchase (UC-01)", () => {
     const itemBRow = await db.query.items.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.id, itemB.id),
     });
-    expect(itemARow?.wac).toBe(2);
-    expect(itemBRow?.wac).toBe(5);
+    expect(itemARow?.wacMc).toBe(2_000_000);
+    expect(itemBRow?.wacMc).toBe(5_000_000);
 
     const stockA = await db.query.itemStock.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.itemId, itemA.id),
@@ -226,7 +241,7 @@ describe("recordPurchase (UC-01)", () => {
     const itemRow = await db.query.items.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
     });
-    expect(itemRow?.wac).toBe(2);
+    expect(itemRow?.wacMc).toBe(2_000_000);
     expect(itemRow?.replacementCost).toBe(3); // last line's unit cost (3), not the first line's (1)
 
     const stockRow = await db.query.itemStock.findFirst({
@@ -264,7 +279,7 @@ describe("recordPurchase (UC-01)", () => {
     const itemRow = await db.query.items.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
     });
-    expect(itemRow?.wac).toBe(2);
+    expect(itemRow?.wacMc).toBe(2_000_000);
     expect(itemRow?.replacementCost).toBe(0); // untouched default
     expect(itemRow?.replacementCostUpdatedAt).toBeNull(); // untouched default
   });
@@ -329,7 +344,7 @@ describe("recordPurchase (UC-01)", () => {
     const itemRow = await db.query.items.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
     });
-    expect(itemRow?.wac).toBe(0);
+    expect(itemRow?.wacMc).toBe(0);
   });
 
   it("rejects a nonexistent account with NOT_FOUND", async () => {
@@ -411,7 +426,7 @@ describe("recordPurchase (UC-01)", () => {
 
 // KOK-024 D1. ADR-016 §1: the replay is owed to ANY create/edit/delete that lands behind an
 // already-processed movement — a plain backdated CREATE included. Before this phase `recordPurchase`
-// read `items.wac` / `item_stock.qty_on_hand` at their CURRENT value and applied C-1 regardless of
+// read `items.wac_mc` / `item_stock.qty_on_hand` at their CURRENT value and applied C-1 regardless of
 // `business_date`, with no ordering guard anywhere; these tests are that hole.
 describe("recordPurchase — backdated capture: INV-11 replay guard (R-2/R-5, ADR-016)", () => {
   /**
@@ -564,7 +579,10 @@ describe("recordPurchase — backdated capture: INV-11 replay guard (R-2/R-5, AD
     const itemRow = await db.query.items.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
     });
-    expect(itemRow?.wac).toBeCloseTo(112_000 / 22_000, 9);
+    // (12 000·6 000 000 + 10 000·4 000 000) / 22 000 = 112 000 000 000/22 000 = 5 090 909.0909… ->
+    // roundHalfUpToInt -> 5 090 909 (KOK-071: redo the division at the new scale — 112 000/22 000's
+    // old float approximation 5.0909 x 1,000,000 would give the wrong 5 090 900).
+    expect(itemRow?.wacMc).toBe(5_090_909);
 
     // ...and it equals a from-zero recompute over the whole committed kardex (R-2): whatever the
     // service and the planner each wrote, the stored cache agrees with the movements it summarizes.
@@ -573,7 +591,7 @@ describe("recordPurchase — backdated capture: INV-11 replay guard (R-2/R-5, AD
       orderBy: (t, { asc }) => [asc(t.occurredAt), asc(t.createdAt)],
     });
     expect(kardex).toHaveLength(4);
-    expect(itemRow?.wac).toBeCloseTo(recomputeWacFromMovements(kardex), 9);
+    expect(itemRow?.wacMc).toBe(recomputeWacFromMovements(toReplayMovements(kardex)));
 
     // R-4: the correction is booked forward, and the exit's frozen snapshot is NOT rewritten.
     const adjustments = await db
@@ -590,7 +608,7 @@ describe("recordPurchase — backdated capture: INV-11 replay guard (R-2/R-5, AD
     const exitRow = await db.query.stockExits.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.id, exit.exit.id),
     });
-    expect(exitRow?.unitCostSnapshot).toBe(2);
+    expect(exitRow?.unitCostSnapshotMc).toBe(2_000_000);
 
     // The purchase itself still behaves exactly like any other purchase (Σ lineTotal, cash out).
     expect(result.purchase.total).toBe(100_000);
@@ -642,7 +660,7 @@ describe("recordPurchase — backdated capture: INV-11 replay guard (R-2/R-5, AD
     const itemRow = await db.query.items.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
     });
-    expect(itemRow?.wac).toBeCloseTo(recomputeWacFromMovements(kardex), 9);
+    expect(itemRow?.wacMc).toBe(recomputeWacFromMovements(toReplayMovements(kardex)));
     // Zero delta => no correction row (nothing downstream had frozen a cost).
     expect(
       await db.select().from(costingAdjustments).where(eq(costingAdjustments.itemId, item.id)),
@@ -693,7 +711,8 @@ describe("recordPurchase — C-3 replacement_cost is last by business_date", () 
     expect(afterBackdated?.replacementCostUpdatedAt).toBe(afterFirst?.replacementCostUpdatedAt);
     // The WAC, unlike the replacement cost, absolutely does move: it is a weighted average over
     // ALL entries, so a backdated one belongs in it (C-1 vs C-3 are different questions).
-    expect(afterBackdated?.wac).toBeCloseTo(14_000 / 2_000, 9);
+    // (1000·9 000 000 + 1000·5 000 000) / 2000 = 7 000 000 exactly (14 000/2 000 = 7).
+    expect(afterBackdated?.wacMc).toBe(7_000_000);
 
     // A forward-dated 07-18 invoice at unit cost 7 — this one IS the last price paid.
     await recordPurchase(
@@ -907,11 +926,16 @@ describe("property: purchase sequences keep item_stock and WAC consistent (INV-5
             const itemRow = await db.query.items.findFirst({
               where: (t, { eq: eqOp }) => eqOp(t.id, itemId),
             });
-            const min = Math.min(...costs);
-            const max = Math.max(...costs);
-            const epsilon = Math.max(1e-6, (max - min) * 1e-6 + 1e-6);
-            expect(itemRow?.wac ?? 0).toBeGreaterThanOrEqual(min - epsilon);
-            expect(itemRow?.wac ?? 0).toBeLessThanOrEqual(max + epsilon);
+            // KOK-071: costs are entered at the pre-migration scale (lineTotal/qty); rescale by
+            // 1,000,000 to compare against wacMc. wacMc is an exact integer produced via repeated
+            // roundHalfUpToInt (C-1), so the tolerance only needs to cover accumulated half-up
+            // rounding across at most costs.length applyWacEntry calls (<=0.5 mc each), not
+            // floating-point noise.
+            const min = Math.min(...costs) * 1_000_000;
+            const max = Math.max(...costs) * 1_000_000;
+            const epsilon = costs.length + 1;
+            expect(itemRow?.wacMc ?? 0).toBeGreaterThanOrEqual(min - epsilon);
+            expect(itemRow?.wacMc ?? 0).toBeLessThanOrEqual(max + epsilon);
           }
         },
       ),
@@ -964,7 +988,7 @@ describe("updatePurchase (R-1)", () => {
     const itemBefore = await db.query.items.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
     });
-    expect(itemBefore?.wac).toBe(2);
+    expect(itemBefore?.wacMc).toBe(2_000_000);
     expect(itemBefore?.replacementCost).toBe(2);
 
     const movementsBefore = await purchaseMovements(db, created.purchase.id);
@@ -996,7 +1020,7 @@ describe("updatePurchase (R-1)", () => {
     const itemAfter = await db.query.items.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
     });
-    expect(itemAfter?.wac).toBe(2);
+    expect(itemAfter?.wacMc).toBe(2_000_000);
     expect(itemAfter?.replacementCost).toBe(2);
     expect(itemAfter?.replacementCostUpdatedAt).toBe(itemBefore?.replacementCostUpdatedAt);
     expect(itemAfter?.updatedAt).toBe(itemBefore?.updatedAt);
@@ -1066,12 +1090,12 @@ describe("updatePurchase (R-1)", () => {
 
     const movements = await purchaseMovements(db, created.purchase.id);
     expect(movements).toHaveLength(1);
-    expect(movements[0]).toMatchObject({ qty: 1000, unitCost: 5 });
+    expect(movements[0]).toMatchObject({ qty: 1000, unitCostMc: 5_000_000 });
 
     const itemRow = await db.query.items.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
     });
-    expect(itemRow?.wac).toBe(5);
+    expect(itemRow?.wacMc).toBe(5_000_000);
     expect(itemRow?.replacementCost).toBe(5);
 
     const stockRow = await db.query.itemStock.findFirst({
@@ -1120,11 +1144,12 @@ describe("updatePurchase (R-1)", () => {
       ACTOR,
     );
 
-    // Pre-edit wac = (2000*2 + 10000*4) / 12000 = 44000/12000 = 3.6667.
+    // Pre-edit wac = (2000*2 + 10000*4) / 12000 = 44000/12000 = 3.6667 -> at the new scale,
+    // (2000·2 000 000 + 10000·4 000 000)/12000 = 44 000 000 000/12 000 = 3 666 666.667 -> 3 666 667.
     const beforeEdit = await db.query.items.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
     });
-    expect(beforeEdit?.wac).toBeCloseTo(44_000 / 12_000, 9);
+    expect(beforeEdit?.wacMc).toBe(3_666_667);
 
     // Edits P1's own line from unit cost 2 to unit cost 10 — same dates, so this lands at the SAME
     // kardex point P1 already occupies, ahead of both exitA and P2 exactly as the analogous
@@ -1152,7 +1177,7 @@ describe("updatePurchase (R-1)", () => {
     const itemAfterRefusal = await db.query.items.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
     });
-    expect(itemAfterRefusal?.wac).toBeCloseTo(44_000 / 12_000, 9);
+    expect(itemAfterRefusal?.wacMc).toBe(3_666_667);
     expect(
       await db.select().from(costingAdjustments).where(eq(costingAdjustments.itemId, item.id)),
     ).toHaveLength(0);
@@ -1170,14 +1195,15 @@ describe("updatePurchase (R-1)", () => {
     const itemAfterConfirm = await db.query.items.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
     });
-    expect(itemAfterConfirm?.wac).toBeCloseTo(5, 9);
+    // (2000·10 000 000 + 10000·4 000 000)/12000 = 60 000 000 000/12 000 = 5 000 000 exactly.
+    expect(itemAfterConfirm?.wacMc).toBe(5_000_000);
 
     const kardex = await db.query.stockMovements.findMany({
       where: (t, { eq: eqOp }) => eqOp(t.itemId, item.id),
       orderBy: (t, { asc }) => [asc(t.occurredAt), asc(t.createdAt)],
     });
     expect(kardex).toHaveLength(3);
-    expect(itemAfterConfirm?.wac).toBeCloseTo(recomputeWacFromMovements(kardex), 9);
+    expect(itemAfterConfirm?.wacMc).toBe(recomputeWacFromMovements(toReplayMovements(kardex)));
 
     // R-4: the correction is booked forward as a costing_adjustments row, dated by the trigger
     // (this edit), and exitA's own frozen snapshot is READ, never rewritten.
@@ -1195,7 +1221,7 @@ describe("updatePurchase (R-1)", () => {
     const exitRow = await db.query.stockExits.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.id, exitA.exit.id),
     });
-    expect(exitRow?.unitCostSnapshot).toBe(2);
+    expect(exitRow?.unitCostSnapshotMc).toBe(2_000_000);
 
     // Cash: P1's tx is regenerated at the corrected total; P2's is untouched. Old total was
     // -20000 (P1) + -40000 (P2) = -60000; the corrected P1 total (-100000) replaces the old
@@ -1340,7 +1366,7 @@ describe("deletePurchase (R-3, D-8)", () => {
     const itemRow = await db.query.items.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
     });
-    expect(itemRow?.wac).toBe(0); // no kardex left to average
+    expect(itemRow?.wacMc).toBe(0); // no kardex left to average
     expect(itemRow?.replacementCost).toBe(0); // C-3: no live purchase left to name a price
 
     // Cash reversed entirely: no financial_transactions row survives, balance back to 0.
@@ -1425,7 +1451,7 @@ describe("deletePurchase (R-3, D-8)", () => {
     const itemRow = await db.query.items.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
     });
-    expect(itemRow?.wac).toBe(0); // no PURCHASE_IN left to average against
+    expect(itemRow?.wacMc).toBe(0); // no PURCHASE_IN left to average against
 
     const adjustments = await db
       .select()
@@ -1443,7 +1469,7 @@ describe("deletePurchase (R-3, D-8)", () => {
     const exitRow = await db.query.stockExits.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.id, exit.exit.id),
     });
-    expect(exitRow?.unitCostSnapshot).toBe(2);
+    expect(exitRow?.unitCostSnapshotMc).toBe(2_000_000);
   });
 
   it("C-3: deleting the LATER of two purchases falls the replacement_cost back to the earlier live purchase's unit cost", async () => {
@@ -1482,7 +1508,7 @@ describe("deletePurchase (R-3, D-8)", () => {
       where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
     });
     expect(afterDelete?.replacementCost).toBe(5); // falls back to the earlier LIVE purchase
-    expect(afterDelete?.wac).toBe(5); // only the earlier purchase's entry remains
+    expect(afterDelete?.wacMc).toBe(5_000_000); // only the earlier purchase's entry remains
   });
 
   it("rejects an unknown or already-deleted purchase with NOT_FOUND", async () => {
@@ -1538,7 +1564,7 @@ describe("restorePurchase (Doc 06 principle 6 — 'Deshacer')", () => {
     const itemAfterDelete = await db.query.items.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
     });
-    expect(itemAfterDelete?.wac).toBe(0);
+    expect(itemAfterDelete?.wacMc).toBe(0);
     expect(await purchaseMovements(db, created.purchase.id)).toHaveLength(0);
 
     const restored = await restorePurchase(db, created.purchase.id, {}, ACTOR);
@@ -1551,7 +1577,11 @@ describe("restorePurchase (Doc 06 principle 6 — 'Deshacer')", () => {
     // regeneration primitive's own idempotency contract — see buildReplaceMovementsForSourceStatements).
     const movementsAfter = await purchaseMovements(db, created.purchase.id);
     expect(movementsAfter).toHaveLength(1);
-    expect(movementsAfter[0]).toMatchObject({ type: "PURCHASE_IN", qty: 1000, unitCost: 2 });
+    expect(movementsAfter[0]).toMatchObject({
+      type: "PURCHASE_IN",
+      qty: 1000,
+      unitCostMc: 2_000_000,
+    });
 
     const stockRow = await db.query.itemStock.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.itemId, item.id),
@@ -1561,7 +1591,7 @@ describe("restorePurchase (Doc 06 principle 6 — 'Deshacer')", () => {
     const itemAfterRestore = await db.query.items.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
     });
-    expect(itemAfterRestore?.wac).toBe(2);
+    expect(itemAfterRestore?.wacMc).toBe(2_000_000);
     expect(itemAfterRestore?.replacementCost).toBe(2);
 
     const txRow = await purchaseTx(db, created.purchase.id);
@@ -1646,7 +1676,7 @@ describe("restorePurchase (Doc 06 principle 6 — 'Deshacer')", () => {
     const exitRowBefore = await db.query.stockExits.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.id, exit.exit.id),
     });
-    expect(exitRowBefore?.unitCostSnapshot).toBe(4); // frozen against P2 alone, P1 not restored yet
+    expect(exitRowBefore?.unitCostSnapshotMc).toBe(4_000_000); // frozen against P2 alone, P1 not restored yet
 
     // Restoring P1 re-inserts its movement at 07-10, BEFORE both P2 and the exit — exactly the
     // ordering guard a backdated create/edit trips (ADR-016 §1). Refused without confirm.
@@ -1678,8 +1708,9 @@ describe("restorePurchase (Doc 06 principle 6 — 'Deshacer')", () => {
     const itemRow = await db.query.items.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
     });
-    expect(itemRow?.wac).toBeCloseTo(3, 9);
-    expect(itemRow?.wac).toBeCloseTo(recomputeWacFromMovements(kardex), 9);
+    // (10000·2 000 000 + 10000·4 000 000)/20000 = 3 000 000 exactly.
+    expect(itemRow?.wacMc).toBe(3_000_000);
+    expect(itemRow?.wacMc).toBe(recomputeWacFromMovements(toReplayMovements(kardex)));
 
     const stockRow = await db.query.itemStock.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.itemId, item.id),
@@ -1704,7 +1735,7 @@ describe("restorePurchase (Doc 06 principle 6 — 'Deshacer')", () => {
     const exitRowAfter = await db.query.stockExits.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.id, exit.exit.id),
     });
-    expect(exitRowAfter?.unitCostSnapshot).toBe(4);
+    expect(exitRowAfter?.unitCostSnapshotMc).toBe(4_000_000);
 
     const auditRow = await db.query.auditLog.findFirst({
       where: (t, { and, eq: eqOp }) =>

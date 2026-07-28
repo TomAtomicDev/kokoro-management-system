@@ -24,7 +24,22 @@
 -- already used for the pre-migration REAL columns (0001_init.sql). A handful of last-digit
 -- differences vs. a from-scratch integer replay are expected and reviewed, not treated as bugs
 -- (this file's own PR description).
+--
+-- Views touching `items`/`stock_movements`/`stock_exits` (Doc 04 §4) MUST be dropped BEFORE those
+-- tables are recreated, not after: SQLite's `ALTER TABLE ... RENAME TO` re-validates every view in
+-- the schema as part of the rename, and a view still pointing at a table that this same migration
+-- has already DROPPED (mid table-recreate) fails that check with a spurious "no such table" error
+-- even though the rename itself would otherwise succeed. Dropping the views up front avoids the
+-- dangling reference entirely; they are recreated at the very end, once every table is in its
+-- final shape. `v_session_hours` is included even though none of its own columns change (it only
+-- counts `stock_exits` rows in a subquery) — it still depends on the TABLE, so it is just as
+-- dangling mid-recreate and needs the same drop/recreate treatment, verbatim.
 PRAGMA foreign_keys=OFF;--> statement-breakpoint
+DROP VIEW `v_stock`;--> statement-breakpoint
+DROP VIEW `v_kardex`;--> statement-breakpoint
+DROP VIEW `v_price_health`;--> statement-breakpoint
+DROP VIEW `v_waste`;--> statement-breakpoint
+DROP VIEW `v_session_hours`;--> statement-breakpoint
 CREATE TABLE `__new_items` (
 	`id` text PRIMARY KEY NOT NULL,
 	`name` text NOT NULL,
@@ -133,9 +148,9 @@ ALTER TABLE `__new_stock_movements` RENAME TO `stock_movements`;--> statement-br
 CREATE INDEX `ix_movements_item_date` ON `stock_movements` (`item_id`,`business_date`);--> statement-breakpoint
 CREATE INDEX `ix_movements_source` ON `stock_movements` (`source_event_type`,`source_event_id`);--> statement-breakpoint
 PRAGMA foreign_keys=ON;--> statement-breakpoint
--- Views touching the renamed columns (Doc 04 §4) must be recreated — SQLite has no `CREATE OR
--- REPLACE VIEW` / `ALTER VIEW`.
-DROP VIEW `v_stock`;--> statement-breakpoint
+-- Views touching the renamed columns (Doc 04 §4) are recreated here, now that every table is in
+-- its final shape — SQLite has no `CREATE OR REPLACE VIEW` / `ALTER VIEW`, and they were already
+-- dropped up front (see the note above this migration's first statement).
 CREATE VIEW v_stock AS
 SELECT
   i.id AS item_id,
@@ -155,7 +170,6 @@ FROM items i
 LEFT JOIN item_stock s ON s.item_id = i.id
 WHERE i.is_active = 1;
 --> statement-breakpoint
-DROP VIEW `v_kardex`;--> statement-breakpoint
 CREATE VIEW v_kardex AS
 SELECT
   m.id, m.occurred_at, m.business_date,
@@ -170,7 +184,6 @@ SELECT
 FROM stock_movements m
 JOIN items i ON i.id = m.item_id;
 --> statement-breakpoint
-DROP VIEW `v_price_health`;--> statement-breakpoint
 CREATE VIEW v_price_health AS
 SELECT
   i.id AS item_id, i.name, i.sale_price, i.wac_mc, i.replacement_cost,
@@ -178,7 +191,6 @@ SELECT
 FROM items i
 WHERE i.kind = 'FINISHED' AND i.is_active = 1;
 --> statement-breakpoint
-DROP VIEW `v_waste`;--> statement-breakpoint
 CREATE VIEW v_waste AS
 SELECT
   strftime('%Y-%m', business_date) AS month,
@@ -190,3 +202,24 @@ SELECT
 FROM stock_exits
 WHERE deleted_at IS NULL
 GROUP BY strftime('%Y-%m', business_date), reason;
+--> statement-breakpoint
+-- Recreated verbatim (0001_init.sql) — unchanged by this migration, only dropped above because it
+-- depends on the `stock_exits` table that was recreated mid-migration.
+CREATE VIEW v_session_hours AS
+SELECT
+  s.id AS session_id, s.type, s.business_date, s.status,
+  s.started_at, s.ended_at,
+  COALESCE(
+    s.duration_min,
+    CASE WHEN s.started_at IS NOT NULL AND s.ended_at IS NOT NULL
+      THEN CAST(ROUND((julianday(s.ended_at) - julianday(s.started_at)) * 24 * 60) AS INTEGER)
+      ELSE NULL
+    END
+  ) AS duration_min,
+  (SELECT COUNT(*) FROM purchases p WHERE p.session_id = s.id AND p.deleted_at IS NULL) +
+  (SELECT COUNT(*) FROM production_runs r WHERE r.session_id = s.id AND r.deleted_at IS NULL) +
+  (SELECT COUNT(*) FROM sales sl WHERE sl.session_id = s.id AND sl.deleted_at IS NULL) +
+  (SELECT COUNT(*) FROM stock_exits e WHERE e.session_id = s.id AND e.deleted_at IS NULL)
+    AS linked_event_count
+FROM sessions s
+WHERE s.deleted_at IS NULL;
