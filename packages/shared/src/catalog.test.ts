@@ -49,7 +49,7 @@ describe("createItemCommandSchema", () => {
     expect(result.success).toBe(false);
   });
 
-  it("does not accept wac/replacementCost as input fields (derived, not user-settable)", () => {
+  it("does not accept wac/replacementCostMc as input fields (derived, not user-settable)", () => {
     const result = createItemCommandSchema.safeParse({
       name: "Harina",
       kind: "RAW_MATERIAL",
@@ -58,7 +58,7 @@ describe("createItemCommandSchema", () => {
       wac: 999,
     });
     expect(result.success).toBe(true);
-    // wac is stripped — not part of the schema's shape, so it never reaches core/.
+    // wac is stripped â€” not part of the schema's shape, so it never reaches core/.
     expect((result as { data: Record<string, unknown> }).data.wac).toBeUndefined();
   });
 });

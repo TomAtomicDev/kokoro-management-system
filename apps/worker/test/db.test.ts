@@ -1,4 +1,4 @@
-// P0 acceptance gate (Doc 11 §6): "migration 0001 applied cleanly to fresh DB". test/setup.ts
+// P0 acceptance gate (Doc 11 Â§6): "migration 0001 applied cleanly to fresh DB". test/setup.ts
 // applies it before this file runs; these assertions confirm the resulting shape and that the
 // generated views actually compute (not just that CREATE VIEW parsed).
 import { env } from "cloudflare:test";
@@ -50,7 +50,7 @@ const EXPECTED_VIEWS = [
 ];
 
 describe("migration 0001", () => {
-  it("creates every table from Doc 04 §3", async () => {
+  it("creates every table from Doc 04 Â§3", async () => {
     const { results } = await env.DB.prepare(
       "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name",
     ).all<{ name: string }>();
@@ -60,7 +60,7 @@ describe("migration 0001", () => {
     }
   });
 
-  it("creates every view from Doc 04 §4", async () => {
+  it("creates every view from Doc 04 Â§4", async () => {
     const { results } = await env.DB.prepare(
       "SELECT name FROM sqlite_master WHERE type = 'view' ORDER BY name",
     ).all<{ name: string }>();
@@ -70,7 +70,7 @@ describe("migration 0001", () => {
     }
   });
 
-  it("seeds the two financial accounts (Doc 04 §7)", async () => {
+  it("seeds the two financial accounts (Doc 04 Â§7)", async () => {
     const { results } = await env.DB.prepare(
       "SELECT id, type, balance FROM financial_accounts ORDER BY id",
     ).all<{ id: string; type: string; balance: number }>();
@@ -80,7 +80,7 @@ describe("migration 0001", () => {
     ]);
   });
 
-  it("seeds app_settings defaults (Doc 04 §7)", async () => {
+  it("seeds app_settings defaults (Doc 04 Â§7)", async () => {
     const row = await env.DB.prepare(
       "SELECT value FROM app_settings WHERE key = 'min_margin_pct'",
     ).first<{ value: string }>();
@@ -150,7 +150,7 @@ describe("migration 0001", () => {
     const now = "2026-07-14T10:00:00.000Z";
     await env.DB.prepare(
       `INSERT INTO items
-         (id, name, kind, category, unit, is_active, sale_price, wac_mc, replacement_cost, created_at, updated_at)
+         (id, name, kind, category, unit, is_active, sale_price, wac_mc, replacement_cost_mc, created_at, updated_at)
        VALUES ('item_price_health_test', 'Price health test cake', 'FINISHED', 'BAKERY', 'UNIT', 1, 5000, 1500000000, 1600, ?, ?)`,
     )
       .bind(now, now)
@@ -165,8 +165,8 @@ describe("migration 0001", () => {
       name: "Price health test cake",
       sale_price: 5000,
       wac_mc: 1500000000,
-      replacement_cost: 1600,
-      replacement_cost_updated_at: null,
+      replacement_cost_mc: 1600,
+      replacement_cost_mc_updated_at: null,
     });
   });
 });

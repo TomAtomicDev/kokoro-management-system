@@ -21,7 +21,7 @@ export function toItemDto(row: ItemRow, aliases: ItemAliasRow[]): ItemDto {
     category: row.category,
     unit: row.unit,
     wacMc: row.wacMc,
-    replacementCost: row.replacementCost,
+    replacementCostMc: row.replacementCostMc,
     replacementCostUpdatedAt: row.replacementCostUpdatedAt,
     salePrice: row.salePrice,
     minStockQty: row.minStockQty,

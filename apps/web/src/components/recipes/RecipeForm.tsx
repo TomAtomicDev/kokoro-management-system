@@ -1,13 +1,13 @@
 // Dialog for KOK-025 "record/update recipe" (Doc 07 SC-06). Mirrors PurchaseForm.tsx's structure
 // (Dialog wrapper, local form state, submit -> mutation -> close) but drops everything purchases
-// needed that recipes don't: no replay-confirmation dance (recipes.ts's header comment — a recipe
+// needed that recipes don't: no replay-confirmation dance (recipes.ts's header comment â€” a recipe
 // is catalog/config, not a movement-affecting event), no receipt photo, no account/date fields.
 //
 // Theoretical-cost panel (Doc 06 principle 3 "derived numbers are visibly derived" + principle 4
 // "replacement-cost is the prominent figure"): only rendered once a `recipe` prop exists, i.e.
 // during EDIT of an already-saved recipe. A brand-new (unsaved) recipe has no server-computed
 // RecipeDto yet; rather than hand-roll a client-side cost estimate (money math outside money.ts,
-// D-5's whole point), this form simply shows no panel until the recipe has been saved once — the
+// D-5's whole point), this form simply shows no panel until the recipe has been saved once â€” the
 // list/detail views pick it up immediately after (RecipeDetailDrawer / RecipesTable).
 
 import type { ItemDto, RecipeDto, RecipeSettingsDto } from "@kokoro/shared";
@@ -34,14 +34,14 @@ export interface RecipeFormProps {
   /** Present -> edit mode: prefill from this recipe and submit via `useUpdateRecipe`. Absent ->
    * create mode, submits via `useRecordRecipe`. */
   recipe?: RecipeDto;
-  /** Rides along on the same API response as `recipe` (RecipeSettingsDto) — required to render
+  /** Rides along on the same API response as `recipe` (RecipeSettingsDto) â€” required to render
    * the margin badge's C-5 threshold. Only meaningful (and only used) in edit mode. */
   settings?: RecipeSettingsDto;
 }
 
 interface RecipeLineValue extends LineEditorLine {
   itemId: string | null;
-  /** Milli-units decimal string (scale 3) — same convention as PurchaseForm's line qty. */
+  /** Milli-units decimal string (scale 3) â€” same convention as PurchaseForm's line qty. */
   qty: string;
 }
 
@@ -68,7 +68,7 @@ function recipeToFormState(recipe: RecipeDto) {
 }
 
 /** Minutes are a plain non-negative integer (not milli-scaled money/qty, so parseDecimalToInt
- * doesn't apply) — informative only (C-7), never enters the theoretical-cost calc. */
+ * doesn't apply) â€” informative only (C-7), never enters the theoretical-cost calc. */
 function parseNonNegativeInt(input: string): number | null {
   const trimmed = input.trim();
   if (trimmed === "") return null;
@@ -91,12 +91,12 @@ export function RecipeForm({ open, onOpenChange, recipe, settings }: RecipeFormP
   const [error, setError] = useState<string | null>(null);
 
   const createMutation = useRecordRecipe();
-  // Called unconditionally (rules of hooks) even in create mode — `recipe?.id` is only "" then,
+  // Called unconditionally (rules of hooks) even in create mode â€” `recipe?.id` is only "" then,
   // and the mutation is never actually invoked unless `isEditMode` is true (see handleSubmit).
   const updateMutation = useUpdateRecipe(recipe?.id ?? "");
 
-  // Broad, unfiltered item list — same precedent as PurchaseForm's itemsById: cheap at this app's
-  // solo-business scale, and needed to look up each ingredient line's replacementCost for the
+  // Broad, unfiltered item list â€” same precedent as PurchaseForm's itemsById: cheap at this app's
+  // solo-business scale, and needed to look up each ingredient line's replacementCostMc for the
   // per-line cost-contribution preview, plus a fallback for the output item (before the picker's
   // own onChange has fired, e.g. right after opening in edit mode).
   const itemsQuery = useItemsQuery({ isActive: true });
@@ -109,7 +109,7 @@ export function RecipeForm({ open, onOpenChange, recipe, settings }: RecipeFormP
   const effectiveOutputItem =
     outputItem ?? (outputItemId ? (itemsById.get(outputItemId) ?? null) : null);
 
-  // Reset only on the open transition (or a switch to a different recipe while open) — mirrors
+  // Reset only on the open transition (or a switch to a different recipe while open) â€” mirrors
   // PurchaseForm's `purchase?.id` precedent so a background refetch of the SAME recipe never
   // clobbers in-progress edits.
   // biome-ignore lint/correctness/useExhaustiveDependencies: see comment above.
@@ -206,14 +206,14 @@ export function RecipeForm({ open, onOpenChange, recipe, settings }: RecipeFormP
     const qty = parseDecimalToInt(line.qty, 3);
     if (qty === null || qty <= 0) {
       return (
-        <span className="text-subtle-foreground text-xs">{recipesLabels.lineContribution}: —</span>
+        <span className="text-subtle-foreground text-xs">{recipesLabels.lineContribution}: â€”</span>
       );
     }
-    // qty is milli-units, item.replacementCost is centavos PER MILLI-UNIT (Doc 04 §2, same scale
-    // StockTable.tsx documents) — so qty × replacementCost is directly the line's contribution in
-    // whole centavos, no ×1000 conversion needed (that only applies when displaying a per-WHOLE-
+    // qty is milli-units, item.replacementCostMc is centavos PER MILLI-UNIT (Doc 04 Â§2, same scale
+    // StockTable.tsx documents) â€” so qty Ã— replacementCostMc is directly the line's contribution in
+    // whole centavos, no Ã—1000 conversion needed (that only applies when displaying a per-WHOLE-
     // unit cost). Display-only preview, rounded for formatMoney's integer requirement.
-    const contribution = roundHalfUpToInt(qty * item.replacementCost);
+    const contribution = roundHalfUpToInt(qty * item.replacementCostMc);
     return (
       <span className="text-muted-foreground text-xs">
         {recipesLabels.lineContribution}:{" "}
@@ -225,19 +225,19 @@ export function RecipeForm({ open, onOpenChange, recipe, settings }: RecipeFormP
   }
 
   /** CalcTrace inputs for the saved recipe's cost panel below: one row per ingredient line's
-   * contribution (qty × unit cost on `basis`) plus the expected yield the batch is divided by —
+   * contribution (qty Ã— unit cost on `basis`) plus the expected yield the batch is divided by â€”
    * the same two numbers `computeTheoreticalCostPerOutputUnit` (core/recipes/theoretical-cost.ts,
    * C-3b) folds together server-side. Only meaningful once `recipe` exists (edit mode). */
-  function buildCostTraceInputs(basis: "wac" | "replacementCost"): CalcTraceInput[] {
+  function buildCostTraceInputs(basis: "wac" | "replacementCostMc"): CalcTraceInput[] {
     if (!recipe) return [];
     return [
       ...recipe.lines.map((line): CalcTraceInput => {
         const item = itemsById.get(line.itemId);
-        // KOK-071 vertical 1: wacMc is milli-centavos per WHOLE unit; replacementCost is not
+        // KOK-071 vertical 1: wacMc is milli-centavos per WHOLE unit; replacementCostMc is not
         // migrated yet, so the wac basis converts back down to the old centavos-per-milli-unit
         // convention this function still expects (mirrors core/recipes/dto.ts's buildCostDto).
         const unitCost =
-          basis === "wac" ? (item ? item.wacMc / 1_000_000 : 0) : (item?.replacementCost ?? 0);
+          basis === "wac" ? (item ? item.wacMc / 1_000_000 : 0) : (item?.replacementCostMc ?? 0);
         const contribution = roundHalfUpToInt(line.qty * unitCost);
         return { label: item?.name ?? line.itemId, value: formatMoney(contribution) };
       }),
@@ -385,7 +385,7 @@ export function RecipeForm({ open, onOpenChange, recipe, settings }: RecipeFormP
                 {recipesLabels.costReplacementLabel}
                 <CalcTrace
                   formula={recipesLabels.costFormula}
-                  inputs={buildCostTraceInputs("replacementCost")}
+                  inputs={buildCostTraceInputs("replacementCostMc")}
                 />
               </span>
               <span className="numeric-cell font-semibold text-foreground text-lg">

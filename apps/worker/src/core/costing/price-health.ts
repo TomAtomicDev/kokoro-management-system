@@ -1,22 +1,30 @@
-// core/costing — C-5 margin math + price-suggestion (KOK-035, Doc 03 §4 C-5, Doc 07 SC-12) and the
+// core/costing ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â C-5 margin math + price-suggestion (KOK-035, Doc 03 Ãƒâ€šÃ‚Â§4 C-5, Doc 07 SC-12) and the
 // read query that assembles SC-12's table (`listPriceHealth`).
 //
 // `v_price_health` (migrations/0001_init.sql) is NOT used here: it originally had `margin_wac_bp`/
-// `margin_repl_bp`/`margin_repl_pct` columns computing `sale_price − wac` directly in SQL, but
+// `margin_repl_bp`/`margin_repl_pct` columns computing `sale_price ÃƒÂ¢Ã‹â€ Ã¢â‚¬â„¢ wac` directly in SQL, but
 // `sale_price` is centavos per WHOLE unit while `items.wac`/`items.replacement_cost` are centavos
 // per MILLI-unit (core/costing/wac.ts's header; confirmed by SaleForm.tsx's `unitPrice / 1000 <
-// item.replacementCost` below-replacement-cost check) — a ~1000x unit mismatch that would make
+// item.replacementCostMc` below-replacement-cost check) ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â a ~1000x unit mismatch that would make
 // every FINISHED item look like it has a ~100% margin. Those three columns were removed (KOK-069,
-// migration 0006, Doc 04 §4) rather than fixed in SQL, since this file already computes margins
+// migration 0006, Doc 04 Ãƒâ€šÃ‚Â§4) rather than fixed in SQL, since this file already computes margins
 // correctly in application code and nothing else consumed them. `v_price_health` still supplies
 // nothing this function needs beyond `items` itself, so this queries `items` directly.
 //
-// Same "plain, synchronous, DB-free" convention as wac.ts/replacement-cost.ts for the pure math —
+// Same "plain, synchronous, DB-free" convention as wac.ts/replacement-cost.ts for the pure math ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â
 // `computePriceMargin`/`computePriceSuggested` take no `Db` and are directly usable by fast-check
-// property tests (Doc 11 §2, D-5: this touches money math).
+// property tests (Doc 11 Ãƒâ€šÃ‚Â§2, D-5: this touches money math).
 
 import type { PriceHealthRowDto, PriceMarginDto } from "@kokoro/shared";
-import { roundHalfUpToInt, subMoney } from "@kokoro/shared";
+import {
+  roundHalfUpToInt,
+  subMoney,
+  toCentavos,
+  toMilliCentavosPerUnit,
+  totalCentavos,
+  WHOLE_UNIT_MILLI_UNITS,
+  type MilliCentavosPerUnit,
+} from "@kokoro/shared";
 
 import type { Db } from "../../db/index.js";
 import { validationError } from "../errors.js";
@@ -28,61 +36,51 @@ function assertSafeIntegerInput(value: number, label: string): void {
   }
 }
 
-function assertFiniteNonNegative(value: number, label: string): void {
-  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
-    throw validationError(`${label} debe ser un número finito no negativo.`, { [label]: value });
-  }
-}
-
 /**
- * C-5: `margin = price − cost`, and `margin / price` as basis points. `costPerMilliUnit` is a
- * per-MILLI-unit float (the `items.wac`/`items.replacementCost` convention) — converted to a
- * per-WHOLE-unit centavos amount (rounded half-up, the one rounding step, D-5) before subtracting
+ * C-5: `margin = price ÃƒÂ¢Ã‹â€ Ã¢â‚¬â„¢ cost`, and `margin / price` as basis points. The rate is converted to a
+ * whole-unit centavo amount by the sanctioned `totalCentavos` helper before subtracting
  * from `salePrice` (already per-whole-unit centavos). Returns `null` when there is nothing
  * meaningful to compare against: no sale price set yet, or a sale price of exactly zero (mirrors
  * `computeRecipeMargin`'s identical precedent in core/recipes/theoretical-cost.ts).
  */
 export function computePriceMargin(
   salePrice: number | null,
-  costPerMilliUnit: number,
+  costMc: MilliCentavosPerUnit,
 ): PriceMarginDto | null {
   if (salePrice === null || salePrice === 0) return null;
   assertSafeIntegerInput(salePrice, "salePrice");
-  assertFiniteNonNegative(costPerMilliUnit, "costPerMilliUnit");
-
-  const costPerUnit = roundHalfUpToInt(costPerMilliUnit * 1000);
-  const amount = subMoney(salePrice, costPerUnit);
+  const costPerUnit = totalCentavos(costMc, WHOLE_UNIT_MILLI_UNITS);
+  const amount = subMoney(toCentavos(salePrice), costPerUnit);
   const pctBasisPoints = roundHalfUpToInt((amount * 10000) / salePrice);
   return { amount, pctBasisPoints };
 }
 
 /**
- * Doc 07 SC-12: `price_suggested = replacement_cost / (1 − min_margin_pct)` — the price at which
- * `margin_replacement_pct` exactly equals the target. `replacementCostPerMilliUnit` uses the same
- * per-MILLI-unit convention as `items.replacementCost`; converted to per-WHOLE-unit before the
- * division. Returns `null` when replacement cost is 0 (nothing to mark up from yet — e.g. a
+ * Doc 07 SC-12: `price_suggested = replacement_cost / (1 ÃƒÂ¢Ã‹â€ Ã¢â‚¬â„¢ min_margin_pct)` ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â the price at which
+ * `margin_replacement_pct` exactly equals the target. The stored `_mc` rate is converted to a
+ * whole-unit centavo amount before the
+ * division. Returns `null` when replacement cost is 0 (nothing to mark up from yet ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â e.g. a
  * FINISHED item whose default-recipe C-3 refresh (KOK-029) hasn't run).
  */
 export function computePriceSuggested(
-  replacementCostPerMilliUnit: number,
+  replacementCostMc: MilliCentavosPerUnit,
   minMarginPctBp: number,
 ): number | null {
-  assertFiniteNonNegative(replacementCostPerMilliUnit, "replacementCostPerMilliUnit");
   assertSafeIntegerInput(minMarginPctBp, "minMarginPctBp");
   if (minMarginPctBp >= 10000) {
     throw validationError("El margen objetivo debe ser menor al 100%.", { minMarginPctBp });
   }
-  if (replacementCostPerMilliUnit === 0) return null;
+  if (replacementCostMc === 0) return null;
 
-  const replacementCostPerUnit = replacementCostPerMilliUnit * 1000; // unrounded intermediate.
-  return roundHalfUpToInt(replacementCostPerUnit / (1 - minMarginPctBp / 10000));
+  const replacementCostMcPerUnit = totalCentavos(replacementCostMc, WHOLE_UNIT_MILLI_UNITS);
+  return roundHalfUpToInt(replacementCostMcPerUnit / (1 - minMarginPctBp / 10000));
 }
 
 interface PriceHealthItemRow {
   id: string;
   name: string;
   wacMc: number;
-  replacementCost: number;
+  replacementCostMc: number;
   replacementCostUpdatedAt: string | null;
   salePrice: number | null;
 }
@@ -103,7 +101,7 @@ export async function listPriceHealth(
       id: true,
       name: true,
       wacMc: true,
-      replacementCost: true,
+      replacementCostMc: true,
       replacementCostUpdatedAt: true,
       salePrice: true,
     },
@@ -112,7 +110,7 @@ export async function listPriceHealth(
   const itemIds = itemRows.map((row) => row.id);
   const lastChangeByItemId = new Map<string, string>();
   if (itemIds.length > 0) {
-    // Newest-first per item (`effective_from DESC`, UUIDv7 `id DESC` tiebreak — price_history has
+    // Newest-first per item (`effective_from DESC`, UUIDv7 `id DESC` tiebreak ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â price_history has
     // no `created_at`, so id's own chronological ordering breaks same-business-date ties, mirroring
     // the kardex view's `occurred_at DESC, created_at DESC, id DESC` precedent).
     const historyRows = await db.query.priceHistory.findMany({
@@ -131,23 +129,19 @@ export async function listPriceHealth(
   const minMarginPct = Number(minMarginPctRaw ?? 0);
 
   const rows: PriceHealthRowDto[] = itemRows.map((row) => {
-    // KOK-071 (ADR-017) vertical 1 moved `items.wac` to `items.wac_mc` (integer milli-centavos per
-    // WHOLE unit); `items.replacement_cost`/`items.sale_price` are not migrated yet (later
-    // verticals), and `PriceHealthRowDto.wac`/`computePriceMargin` still expect the old
-    // centavos-per-milli-unit scale to stay comparable to those unmigrated fields. This divides
-    // `wacMc` back down by the same ×1,000,000 factor migration 0007 applied — both this bridge
-    // and the DTO's scale will flip together once `sale_price`/`replacement_cost` migrate.
-    const wac = row.wacMc / 1_000_000;
     return {
       itemId: row.id,
       name: row.name,
       salePrice: row.salePrice,
-      wac,
-      replacementCost: row.replacementCost,
+      wacMc: row.wacMc,
+      replacementCostMc: row.replacementCostMc,
       replacementCostUpdatedAt: row.replacementCostUpdatedAt,
-      marginWac: computePriceMargin(row.salePrice, wac),
-      marginReplacement: computePriceMargin(row.salePrice, row.replacementCost),
-      priceSuggested: computePriceSuggested(row.replacementCost, minMarginPct),
+      marginWac: computePriceMargin(row.salePrice, toMilliCentavosPerUnit(row.wacMc)),
+      marginReplacement: computePriceMargin(
+        row.salePrice,
+        toMilliCentavosPerUnit(row.replacementCostMc),
+      ),
+      priceSuggested: computePriceSuggested(toMilliCentavosPerUnit(row.replacementCostMc), minMarginPct),
       lastPriceChangeAt: lastChangeByItemId.get(row.id) ?? null,
     };
   });

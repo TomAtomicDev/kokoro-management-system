@@ -1,11 +1,11 @@
 // Read-only DTOs/filters for the two SQL views backing SC-08's Inventory screen (KOK-017,
-// Doc 04 §4 `v_stock`/`v_kardex`, Doc 07 SC-08). These are query-result shapes, not command
-// inputs — like packages/shared/src/finance.ts's `FinancialAccountDto`/`ListAccountsResult`, the
+// Doc 04 Ã‚Â§4 `v_stock`/`v_kardex`, Doc 07 SC-08). These are query-result shapes, not command
+// inputs Ã¢â‚¬â€ like packages/shared/src/finance.ts's `FinancialAccountDto`/`ListAccountsResult`, the
 // DTOs here are hand-written interfaces (not `z.infer`) since nothing ever constructs one from
 // user input; only the *filters* schemas below are real Zod schemas (D-4: the API route and any
 // future web form import them, never redeclare the same validation).
 //
-// `v_stock`/`v_kardex` are raw SQL views (apps/worker/migrations/0001_init.sql) — Drizzle's SQLite
+// `v_stock`/`v_kardex` are raw SQL views (apps/worker/migrations/0001_init.sql) Ã¢â‚¬â€ Drizzle's SQLite
 // dialect can't express `v_kardex`'s window function or `v_stock`'s partial aggregation, so
 // apps/worker/src/core/inventory/queries.ts queries them via `db.all(sql\`...\`)` and maps the
 // raw snake_case rows into the camelCase DTOs declared here.
@@ -18,7 +18,7 @@ import { z } from "zod";
 import type { ItemCategory, ItemKind, StockMovementType, Unit } from "./enums.js";
 import { itemKindSchema } from "./enums.js";
 
-/** `YYYY-MM-DD`, America/La_Paz local calendar date (Doc 04 §1, INV-3). */
+/** `YYYY-MM-DD`, America/La_Paz local calendar date (Doc 04 Ã‚Â§1, INV-3). */
 const businessDateSchema = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/, "La fecha debe tener el formato AAAA-MM-DD.");
@@ -33,7 +33,7 @@ export const listStockFiltersSchema = z.object({
 });
 export type ListStockFilters = z.infer<typeof listStockFiltersSchema>;
 
-/** GET /inventory/kardex query filters. `itemId` is REQUIRED — a kardex view without an item
+/** GET /inventory/kardex query filters. `itemId` is REQUIRED Ã¢â‚¬â€ a kardex view without an item
  * filter would return every movement ever recorded and isn't a real use case per SC-08 (a table
  * row's "row -> Kardex drawer" interaction is always scoped to one item). */
 export const listKardexFiltersSchema = z.object({
@@ -50,16 +50,16 @@ export interface StockRowDto {
   kind: ItemKind;
   category: ItemCategory;
   unit: Unit;
-  /** Weighted average cost, integer milli-centavos per WHOLE unit (Doc 04 §2/§3.4, ADR-017/
-   * KOK-071 — same scale as `items.wac_mc`/`stock_movements.unit_cost_mc`). */
+  /** Weighted average cost, integer milli-centavos per WHOLE unit (Doc 04 Ã‚Â§2/Ã‚Â§3.4, ADR-017/
+   * KOK-071 Ã¢â‚¬â€ same scale as `items.wac_mc`/`stock_movements.unit_cost_mc`). */
   wacMc: number;
-  /** Centavos per milli-unit (Doc 04 §2), float — migrated to `_mc` in a later KOK-071 vertical. */
-  replacementCost: number;
+  /** Replacement cost, integer milli-centavos per WHOLE unit (ADR-017/KOK-071). */
+  replacementCostMc: number;
   /** Centavos (INV-6). Null when the item has no set sale price yet. */
   salePrice: number | null;
-  /** Milli-units (Doc 04 §2). Null when no minimum stock threshold is configured for the item. */
+  /** Milli-units (Doc 04 Ã‚Â§2). Null when no minimum stock threshold is configured for the item. */
   minStockQty: number | null;
-  /** Milli-units (Doc 04 §2). */
+  /** Milli-units (Doc 04 Ã‚Â§2). */
   qtyOnHand: number;
   /** ISO-8601 instant the balance first went negative (INV-8), or null if currently non-negative. */
   negativeSince: string | null;
@@ -74,7 +74,7 @@ export interface ListStockResult {
 
 export interface KardexRowDto {
   id: string;
-  /** UTC ISO-8601 instant (Doc 04 §1). */
+  /** UTC ISO-8601 instant (Doc 04 Ã‚Â§1). */
   occurredAt: string;
   /** Local business date `YYYY-MM-DD`, America/La_Paz (INV-3). */
   businessDate: string;
@@ -82,17 +82,17 @@ export interface KardexRowDto {
   itemName: string;
   unit: Unit;
   type: StockMovementType;
-  /** Signed milli-units (Doc 04 §3.4). */
+  /** Signed milli-units (Doc 04 Ã‚Â§3.4). */
   qty: number;
-  /** Milli-centavos per WHOLE unit at movement time (Doc 04 §3.4, ADR-017/KOK-071). */
+  /** Milli-centavos per WHOLE unit at movement time (Doc 04 Ã‚Â§3.4, ADR-017/KOK-071). */
   unitCostMc: number;
-  /** Centavos, signed (Doc 04 §3.4). */
+  /** Centavos, signed (Doc 04 Ã‚Â§3.4). */
   totalCost: number;
   sourceEventType: string;
   sourceEventId: string;
   createdAt: string;
   /** Running signed milli-unit balance for this item as of this movement, computed by the view's
-   * window function (Doc 04 §4). */
+   * window function (Doc 04 Ã‚Â§4). */
   runningBalance: number;
 }
 

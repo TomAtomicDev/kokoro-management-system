@@ -1,5 +1,5 @@
 // Unit + property tests for core/costing's pure C-5 margin/price-suggestion math (KOK-035, Doc 03
-// §4 C-5, Doc 07 SC-12, Doc 11 §1-2). Plain, synchronous, DB-free (see price-health.ts's header) —
+// Â§4 C-5, Doc 07 SC-12, Doc 11 Â§1-2). Plain, synchronous, DB-free (see price-health.ts's header) â€”
 // a plain Vitest run is enough, no D1 binding needed. Mirrors
 // test/recipes-theoretical-cost.test.ts's exact style for the sibling C-3b pure-math module.
 
@@ -24,7 +24,7 @@ describe("computePriceMargin (C-5)", () => {
     expect(computePriceMargin(8000, 5)).toEqual({ amount: 3000, pctBasisPoints: 3750 });
   });
 
-  it("computes a negative margin when cost (converted) exceeds price — C-5 alert territory", () => {
+  it("computes a negative margin when cost (converted) exceeds price â€” C-5 alert territory", () => {
     const margin = computePriceMargin(4000, 5); // cost/unit = 5000 > price 4000
     expect(margin).toEqual({ amount: -1000, pctBasisPoints: -2500 });
   });
@@ -81,15 +81,15 @@ describe("computePriceSuggested (Doc 07 SC-12)", () => {
       fc.property(
         fc.double({ min: 0.01, max: 100_000, noNaN: true }),
         fc.integer({ min: 0, max: 9900 }),
-        (replacementCostPerMilliUnit, minMarginPctBp) => {
-          const suggested = computePriceSuggested(replacementCostPerMilliUnit, minMarginPctBp);
+        (replacementCostMcPerMilliUnit, minMarginPctBp) => {
+          const suggested = computePriceSuggested(replacementCostMcPerMilliUnit, minMarginPctBp);
           expect(suggested).not.toBeNull();
-          const margin = computePriceMargin(suggested, replacementCostPerMilliUnit);
+          const margin = computePriceMargin(suggested, replacementCostMcPerMilliUnit);
           expect(margin).not.toBeNull();
           const actualBp = (margin as { pctBasisPoints: number }).pctBasisPoints;
           // Two independent half-up roundings can each shift the effective numerator by up to 0.5
           // centavo in the same direction (rounding `suggested` itself, and re-rounding the cost
-          // inside computePriceMargin) — up to ~1 whole centavo combined, which is a LARGER share
+          // inside computePriceMargin) â€” up to ~1 whole centavo combined, which is a LARGER share
           // of bp for a small price than a large one (e.g. Bs 0.10 vs Bs 1000.00). So the tolerance
           // must scale with 1/suggested, not be a flat few bp.
           const toleranceBp = Math.ceil(10000 / (suggested as number)) + 2;
@@ -105,10 +105,10 @@ describe("computePriceSuggested (Doc 07 SC-12)", () => {
         fc.double({ min: 0.01, max: 100_000, noNaN: true }),
         fc.integer({ min: 0, max: 9800 }),
         fc.integer({ min: 0, max: 100 }),
-        (replacementCostPerMilliUnit, minMarginPctBp, extraBp) => {
-          const before = computePriceSuggested(replacementCostPerMilliUnit, minMarginPctBp);
+        (replacementCostMcPerMilliUnit, minMarginPctBp, extraBp) => {
+          const before = computePriceSuggested(replacementCostMcPerMilliUnit, minMarginPctBp);
           const after = computePriceSuggested(
-            replacementCostPerMilliUnit,
+            replacementCostMcPerMilliUnit,
             minMarginPctBp + extraBp,
           );
           expect(after).not.toBeNull();

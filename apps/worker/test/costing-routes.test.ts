@@ -1,8 +1,8 @@
 // Route-level smoke test for POST /api/costing/replacement-cost-refresh (KOK-029). Mirrors
 // test/backups-routes.test.ts's exact pattern (`SELF.fetch`, the `login()` helper). Service-level
 // assertions (dependency order, skip path, job_runs bookkeeping) live in
-// test/replacement-cost-refresh.test.ts; this file only proves the Hono wiring — auth gate, body
-// shape — and that the on-demand endpoint reuses the exact same planner the nightly job does.
+// test/replacement-cost-refresh.test.ts; this file only proves the Hono wiring Ã¢â‚¬â€ auth gate, body
+// shape Ã¢â‚¬â€ and that the on-demand endpoint reuses the exact same planner the nightly job does.
 import { env, SELF } from "cloudflare:test";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -48,7 +48,7 @@ describe("POST /api/costing/replacement-cost-refresh", () => {
     expect(res.status).toBe(401);
   });
 
-  it("recomputes replacement_cost for every SEMI_FINISHED/FINISHED item with an active default recipe", async () => {
+  it("recomputes replacement_cost_mc for every SEMI_FINISHED/FINISHED item with an active default recipe", async () => {
     const auth = await login();
     const db = createDb(env.DB);
 
@@ -63,7 +63,7 @@ describe("POST /api/costing/replacement-cost-refresh", () => {
       }),
     });
     const flour = (await flourRes.json()) as { id: string };
-    await db.update(items).set({ replacementCost: 8 }).where(eq(items.id, flour.id));
+    await db.update(items).set({ replacementCostMc: 8 }).where(eq(items.id, flour.id));
 
     const masaRes = await SELF.fetch("https://example.com/api/items", {
       method: "POST",
@@ -107,6 +107,6 @@ describe("POST /api/costing/replacement-cost-refresh", () => {
     const updated = await db.query.items.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.id, masa.id),
     });
-    expect(updated?.replacementCost).toBe(8);
+    expect(updated?.replacementCostMc).toBe(8);
   });
 });

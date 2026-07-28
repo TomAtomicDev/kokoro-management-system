@@ -1,15 +1,15 @@
-// Read queries against `v_stock`/`v_kardex` (KOK-017, Doc 04 §4, Doc 07 SC-08). These two SQL
-// views are defined only in apps/worker/migrations/0001_init.sql — Drizzle's SQLite dialect
+// Read queries against `v_stock`/`v_kardex` (KOK-017, Doc 04 Ã‚Â§4, Doc 07 SC-08). These two SQL
+// views are defined only in apps/worker/migrations/0001_init.sql Ã¢â‚¬â€ Drizzle's SQLite dialect
 // cannot express `v_kardex`'s window function (running balance) or `v_stock`'s partial
 // aggregation (LEFT JOIN + COALESCE against item_stock), so there is no Drizzle table binding for
 // either view (see db/schema.ts's header note). Both functions here query them via
-// `db.all(sql\`...\`)` — Drizzle's raw-SQL escape hatch — and hand-map the raw snake_case rows
+// `db.all(sql\`...\`)` Ã¢â‚¬â€ Drizzle's raw-SQL escape hatch Ã¢â‚¬â€ and hand-map the raw snake_case rows
 // into the camelCase DTOs declared in packages/shared/src/inventory-views.ts.
 //
 // Unlike movements.ts's `buildStockMovementStatements` (a WRITE building block that only builds
 // statements for a caller's own db.batch()), this file is READ-ONLY: no commands, no db.batch(),
 // no mutation of any kind (D-2 is about writes; reads have no such constraint, and these views are
-// never write targets — SQLite views are inherently read-only).
+// never write targets Ã¢â‚¬â€ SQLite views are inherently read-only).
 
 import type {
   ItemCategory,
@@ -28,7 +28,7 @@ import { type SQL, sql } from "drizzle-orm";
 import type { Db } from "../../db/index.js";
 import { validationError } from "../errors.js";
 
-/** Raw `v_stock` row shape (snake_case, exactly the view's SELECT list — Doc 04 §4). SQLite has no
+/** Raw `v_stock` row shape (snake_case, exactly the view's SELECT list Ã¢â‚¬â€ Doc 04 Ã‚Â§4). SQLite has no
  * boolean type: `is_low_stock` arrives as `0`/`1`. */
 interface StockViewRow {
   item_id: string;
@@ -37,7 +37,7 @@ interface StockViewRow {
   category: ItemCategory;
   unit: Unit;
   wac_mc: number;
-  replacement_cost: number;
+  replacement_cost_mc: number;
   sale_price: number | null;
   min_stock_qty: number | null;
   is_active: number;
@@ -47,7 +47,7 @@ interface StockViewRow {
   is_low_stock: number;
 }
 
-/** Raw `v_kardex` row shape (snake_case, exactly the view's SELECT list — Doc 04 §4). */
+/** Raw `v_kardex` row shape (snake_case, exactly the view's SELECT list Ã¢â‚¬â€ Doc 04 Ã‚Â§4). */
 interface KardexViewRow {
   id: string;
   occurred_at: string;
@@ -73,7 +73,7 @@ function toStockRowDto(row: StockViewRow): StockRowDto {
     category: row.category,
     unit: row.unit,
     wacMc: row.wac_mc,
-    replacementCost: row.replacement_cost,
+    replacementCostMc: row.replacement_cost_mc,
     salePrice: row.sale_price,
     minStockQty: row.min_stock_qty,
     qtyOnHand: row.qty_on_hand,
@@ -83,8 +83,8 @@ function toStockRowDto(row: StockViewRow): StockRowDto {
   };
 }
 
-/** Raw aggregate row for `getStockConsistencyMismatches` — a hand-written GROUP BY/JOIN over
- * `stock_movements`/`item_stock` (Doc 04 §3.4), not a view. */
+/** Raw aggregate row for `getStockConsistencyMismatches` Ã¢â‚¬â€ a hand-written GROUP BY/JOIN over
+ * `stock_movements`/`item_stock` (Doc 04 Ã‚Â§3.4), not a view. */
 interface StockMismatchRow {
   item_id: string;
   item_name: string;
@@ -97,7 +97,7 @@ interface StockMismatchRow {
 export interface StockMismatchDto {
   itemId: string;
   itemName: string;
-  /** Milli-units (Doc 04 §2): `SUM(stock_movements.qty)` for this item — what
+  /** Milli-units (Doc 04 Ã‚Â§2): `SUM(stock_movements.qty)` for this item Ã¢â‚¬â€ what
    * `item_stock.qtyOnHand` SHOULD equal if every movement was correctly netted. */
   expectedQty: number;
   /** Milli-units: the value actually stored in `item_stock.qtyOnHand`. */
@@ -125,10 +125,10 @@ function toKardexRowDto(row: KardexViewRow): KardexRowDto {
 
 /**
  * SC-08's default "Stock" tab. `v_stock` already restricts to `is_active = 1` (the view's own
- * WHERE clause, Doc 04 §4) — inactive items never appear here regardless of filters.
+ * WHERE clause, Doc 04 Ã‚Â§4) Ã¢â‚¬â€ inactive items never appear here regardless of filters.
  *
  * Ordering: negative-stock rows first, then low-stock rows, then everything else, all by name
- * within each group — SC-08 calls for "low-stock and negative-stock rows pinned on top" so the
+ * within each group Ã¢â‚¬â€ SC-08 calls for "low-stock and negative-stock rows pinned on top" so the
  * owner sees what needs attention without scrolling. `(negative_since IS NOT NULL)` evaluates to
  * 0/1 in SQLite, so `DESC` puts the 1s (flagged) first; same for `is_low_stock DESC`.
  */
@@ -154,10 +154,10 @@ export async function listStock(db: Db, filters: ListStockFilters = {}): Promise
  * Per-item movement history for SC-08's "row -> Kardex drawer" interaction (Doc 07). `itemId` is
  * required (see listKardexFiltersSchema's doc comment for why).
  *
- * Ordering: newest-first (`occurred_at DESC, created_at DESC` — the same tiebreak columns the
+ * Ordering: newest-first (`occurred_at DESC, created_at DESC` Ã¢â‚¬â€ the same tiebreak columns the
  * view's own window function partitions/orders by, just reversed, so ties break identically to
  * how the running balance was computed). Doc 07's `KardexView` spec doesn't pin an order; this is
- * the natural read for "what happened to this item" — a drawer opened to answer "why is this
+ * the natural read for "what happened to this item" Ã¢â‚¬â€ a drawer opened to answer "why is this
  * number what it is right now" wants the most recent activity on top, not buried after scrolling
  * through the item's entire history. `limit` defaults to 200, matching listTransactions/
  * listPurchases's precedent (finance.ts / purchasing.ts).
@@ -166,7 +166,7 @@ export async function listStock(db: Db, filters: ListStockFilters = {}): Promise
  * it (D-2-style precedent: core/ services don't trust every caller already ran Zod, e.g. this
  * module's own tests call `listKardex` directly with a hand-built filters object). Without this
  * check a caller-supplied `undefined` would silently bind as SQL NULL and `item_id = NULL` would
- * just return zero rows — a confusing "empty kardex" instead of a clear validation error.
+ * just return zero rows Ã¢â‚¬â€ a confusing "empty kardex" instead of a clear validation error.
  */
 export async function listKardex(db: Db, filters: ListKardexFilters): Promise<ListKardexResult> {
   if (!filters.itemId) {
@@ -190,7 +190,7 @@ export async function listKardex(db: Db, filters: ListKardexFilters): Promise<Li
 }
 
 /**
- * Total stock value across all active items — `SUM(v_stock.stock_value)` (Doc 04 §4). A dedicated
+ * Total stock value across all active items Ã¢â‚¬â€ `SUM(v_stock.stock_value)` (Doc 04 Ã‚Â§4). A dedicated
  * aggregate rather than summing `listStock`'s rows in JS so the addition (a `Centavos` sum, INV-6)
  * happens once, in SQL, instead of needing a `money.ts` reduce at every call site. Introduced for
  * `jobs/daily-snapshot.ts`'s (KOK-021) `daily_snapshots.stock_value` column; the KOK-023 dashboard
@@ -205,12 +205,12 @@ export async function getStockValueTotal(db: Db): Promise<number> {
 
 /**
  * INV-5's nightly consistency sentinel (KOK-021) for stock: for every item, compares
- * `SUM(stock_movements.qty)` — the append-only ledger's own truth, never soft-deleted (Doc 04
- * §3.4) — against the `item_stock.qty_on_hand` it should net to. A mismatch means an earlier batch
+ * `SUM(stock_movements.qty)` Ã¢â‚¬â€ the append-only ledger's own truth, never soft-deleted (Doc 04
+ * Ã‚Â§3.4) Ã¢â‚¬â€ against the `item_stock.qty_on_hand` it should net to. A mismatch means an earlier batch
  * broke atomicity somewhere upstream (a movement written without its paired `item_stock` upsert,
- * or vice versa). This function only DETECTS and reports it — same as WAC drift now does
+ * or vice versa). This function only DETECTS and reports it Ã¢â‚¬â€ same as WAC drift now does
  * (`core/costing`'s `detectWacDrift`, since KOK-024/ADR-016 demoted its nightly repair to
- * detection) — a pure read with no statements to build, a bug to surface, not silently patch.
+ * detection) Ã¢â‚¬â€ a pure read with no statements to build, a bug to surface, not silently patch.
  *
  * Not filtered to active items (unlike `listStock`/`v_stock`): a ledger inconsistency on an
  * inactive item is still a real inconsistency worth surfacing.

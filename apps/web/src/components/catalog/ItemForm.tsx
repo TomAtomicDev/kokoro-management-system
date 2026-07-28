@@ -1,4 +1,4 @@
-// Shared field set for creating/editing an Item — used by both the full Catalog screen
+// Shared field set for creating/editing an Item Ã¢â‚¬â€ used by both the full Catalog screen
 // (create/edit drawer) and ItemPicker's inline-create dialog, so the two flows can never drift.
 // Plain controlled React state, no react-hook-form (D-10).
 
@@ -16,9 +16,9 @@ export interface ItemFormValues {
   kind: ItemKind;
   category: ItemCategory;
   unit: Unit;
-  /** Decimal string in Bs, e.g. "12.50" — empty string means "no price set". */
+  /** Decimal string in Bs, e.g. "12.50" Ã¢â‚¬â€ empty string means "no price set". */
   salePrice: string;
-  /** Decimal string in the item's own unit, e.g. "1.5" — empty string means "no alert". */
+  /** Decimal string in the item's own unit, e.g. "1.5" Ã¢â‚¬â€ empty string means "no alert". */
   minStockQty: string;
   notes: string;
 }
@@ -122,12 +122,12 @@ export interface ItemFormProps {
   values: ItemFormValues;
   onChange: (values: ItemFormValues) => void;
   /**
-   * Shown as a read-only "calculado" block — never editable (Doc 03 C-1/C-3). `wacMc` comes off
-   * ItemDto as integer milli-centavos-per-WHOLE-unit (ADR-017/KOK-071, ÷1000 to display).
-   * `replacementCost` is not migrated yet and stays REAL centavos-PER-MILLI-UNIT (Doc 04 §2, ×1000
+   * Shown as a read-only "calculado" block Ã¢â‚¬â€ never editable (Doc 03 C-1/C-3). `wacMc` comes off
+   * ItemDto as integer milli-centavos-per-WHOLE-unit (ADR-017/KOK-071, ÃƒÂ·1000 to display).
+   * `replacementCostMc` is not migrated yet and stays REAL centavos-PER-MILLI-UNIT (Doc 04 Ã‚Â§2, Ãƒâ€”1000
    * to display) until its own KOK-071 vertical lands.
    */
-  derived?: { wacMc: number; replacementCost: number; replacementCostUpdatedAt: string | null };
+  derived?: { wacMc: number; replacementCostMc: number; replacementCostUpdatedAt: string | null };
   disabled?: boolean;
 }
 
@@ -243,11 +243,11 @@ export function ItemForm({ values, onChange, derived, disabled }: ItemFormProps)
           </div>
           <div className="flex items-center justify-between">
             <span className="text-muted-foreground">
-              {catalogLabels.replacementCost}{" "}
+              {catalogLabels.replacementCostMc}{" "}
               <span className="text-xs">({catalogLabels.calculated})</span>
             </span>
             <span className="numeric-cell font-medium">
-              {formatMoney(Math.round(derived.replacementCost * 1000))} / {UNIT_ABBREV[values.unit]}
+              {formatMoney(Math.round(derived.replacementCostMc * 1000))} / {UNIT_ABBREV[values.unit]}
             </span>
           </div>
         </div>

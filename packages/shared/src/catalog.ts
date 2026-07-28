@@ -1,8 +1,8 @@
-// Catalog command DTOs (KOK-011, Doc 04 §3.1, Doc 07 SC-15). Single-contract rule (D-4): the
+// Catalog command DTOs (KOK-011, Doc 04 Ãƒâ€šÃ‚Â§3.1, Doc 07 SC-15). Single-contract rule (D-4): the
 // API route, the web forms, and any future AI draft tool for items/aliases all import these same
-// schemas — never redeclare field validation elsewhere.
+// schemas ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â never redeclare field validation elsewhere.
 //
-// wac / replacementCost / replacementCostUpdatedAt are deliberately absent from every command
+// wac / replacementCostMc / replacementCostUpdatedAt are deliberately absent from every command
 // schema below: they are system-derived (Doc 03 C-1/C-3) and are never user-settable.
 
 import { z } from "zod";
@@ -11,7 +11,7 @@ import type { ItemCategory, ItemKind, Unit } from "./enums.js";
 import { itemCategorySchema, itemKindSchema, unitSchema } from "./enums.js";
 
 const itemNameSchema = z.string().trim().min(1, "El nombre es obligatorio.").max(200);
-const aliasSchema = z.string().trim().min(1, "El alias no puede estar vacío.").max(200);
+const aliasSchema = z.string().trim().min(1, "El alias no puede estar vacÃƒÆ’Ã‚Â­o.").max(200);
 const notesSchema = z.string().trim().max(2000).nullable().optional();
 /** Centavos, matching money.ts's Centavos representation (INV-6). */
 const salePriceSchema = z.number().int().nonnegative().nullable().optional();
@@ -65,7 +65,7 @@ export const mergeItemsCommandSchema = z
     targetItemId: z.string().min(1),
   })
   .refine((v) => v.sourceItemId !== v.targetItemId, {
-    message: "No puedes fusionar un ítem consigo mismo.",
+    message: "No puedes fusionar un ÃƒÆ’Ã‚Â­tem consigo mismo.",
     path: ["targetItemId"],
   });
 export type MergeItemsCommand = z.infer<typeof mergeItemsCommandSchema>;
@@ -97,11 +97,11 @@ export interface ItemDto {
   kind: ItemKind;
   category: ItemCategory;
   unit: Unit;
-  /** Derived (C-1), milli-centavos per WHOLE unit (ADR-017/KOK-071) — read-only, render with a
+  /** Derived (C-1), milli-centavos per WHOLE unit (ADR-017/KOK-071) ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â read-only, render with a
    * "calculado" affordance, never editable. */
   wacMc: number;
-  /** Derived (C-3) — read-only, render with a "calculado" affordance, never editable. */
-  replacementCost: number;
+  /** Derived (C-3), integer milli-centavos per WHOLE unit ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â read-only. */
+  replacementCostMc: number;
   replacementCostUpdatedAt: string | null;
   salePrice: number | null;
   minStockQty: number | null;

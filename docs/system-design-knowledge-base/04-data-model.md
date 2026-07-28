@@ -69,7 +69,7 @@ CREATE TABLE items (
     ('INGREDIENT','PACKAGING','LABEL','BAKERY','DAIRY','OTHER')),
   unit TEXT NOT NULL CHECK (unit IN ('G','KG','ML','L','UNIT')),
   wac REAL NOT NULL DEFAULT 0,                   -- weighted avg cost, centavos per milli-unit (derived, C-1)
-  replacement_cost REAL NOT NULL DEFAULT 0,      -- centavos per milli-unit (derived, C-3)
+  replacement_cost_mc INTEGER NOT NULL DEFAULT 0,-- milli-centavos per whole unit (derived, C-3)
   replacement_cost_updated_at TEXT,
   sale_price INTEGER,                            -- centavos per unit; NULL unless sellable (FINISHED)
   min_stock_qty INTEGER,                         -- milli-units; NULL = no alert
