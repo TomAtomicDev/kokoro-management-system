@@ -1340,13 +1340,13 @@
     "semantic_hash": "27322f2dfa3599379ee25656d3a327d0"
   },
   "packages/shared/src/money.test.ts": {
-    "mtime": 1785215240.1472826,
-    "ast_hash": "75a6ccc897943a5f843e76712b0567f0",
-    "semantic_hash": ""
+    "mtime": 1784064859.1384757,
+    "ast_hash": "c204e072d560221bbc262f4c83733d89",
+    "semantic_hash": "c204e072d560221bbc262f4c83733d89"
   },
   "packages/shared/src/money.ts": {
-    "mtime": 1785215193.3232412,
-    "ast_hash": "457811a5df1508e32eac6038471b85e4",
+    "mtime": 1785215179.2459629,
+    "ast_hash": "0d929fc7e3a753c9c313be21558450c6",
     "semantic_hash": ""
   },
   "packages/shared/src/numeric.ts": {
@@ -1370,14 +1370,14 @@
     "semantic_hash": "b02bc221e6c58e24baf672b4144701eb"
   },
   "packages/shared/src/qty.test.ts": {
-    "mtime": 1785215246.081364,
-    "ast_hash": "a70f2130771a9a6a793b1d04d417fa9d",
-    "semantic_hash": ""
+    "mtime": 1784064859.1433501,
+    "ast_hash": "f9681e471af914ddd932af3323d67ad1",
+    "semantic_hash": "f9681e471af914ddd932af3323d67ad1"
   },
   "packages/shared/src/qty.ts": {
-    "mtime": 1785215203.9158595,
-    "ast_hash": "ea26b2753e44fdade028150fe9789683",
-    "semantic_hash": ""
+    "mtime": 1784064859.1455214,
+    "ast_hash": "8d16b1636fdc08f89985db946b6e79b2",
+    "semantic_hash": "8d16b1636fdc08f89985db946b6e79b2"
   },
   "packages/shared/src/recipes.ts": {
     "mtime": 1784729929.373341,
@@ -1760,8 +1760,8 @@
     "semantic_hash": ""
   },
   "docs/system-design-knowledge-base/04-data-model.md": {
-    "mtime": 1785215279.8339427,
-    "ast_hash": "7bb34d221a23a795c7f05c6a9c09a9c8",
+    "mtime": 1785209542.8772624,
+    "ast_hash": "6366fd33e26ae818dd71100e31348b82",
     "semantic_hash": ""
   },
   "docs/system-design-knowledge-base/05-ai-assistant-architecture.md": {
@@ -1790,8 +1790,8 @@
     "semantic_hash": ""
   },
   "docs/system-design-knowledge-base/10-implementation-backlog.md": {
-    "mtime": 1785215518.3429034,
-    "ast_hash": "fb4b8b269efd4bf978fb5cc4d16d6e03",
+    "mtime": 1785212157.1552207,
+    "ast_hash": "c8515362b8937f6f1850f9f2eab6a6be",
     "semantic_hash": ""
   },
   "docs/system-design-knowledge-base/11-testing-strategy.md": {
@@ -1800,13 +1800,13 @@
     "semantic_hash": "270b98974697931f0b74a3604e7668e2"
   },
   "docs/system-design-knowledge-base/12-architecture-decision-records.md": {
-    "mtime": 1785215266.3037567,
-    "ast_hash": "77ce355904c1d6a4b98c21b05d0cf6c7",
+    "mtime": 1785209265.4065063,
+    "ast_hash": "1b6b63ecd508e06546d4a1559338f1cd",
     "semantic_hash": ""
   },
   "docs/system-design-knowledge-base/13-project-glossary.md": {
-    "mtime": 1785215284.230805,
-    "ast_hash": "58b7aa9b911ba7328f93cf3790588832",
+    "mtime": 1785210520.3960092,
+    "ast_hash": "34f183c847597f4d7e4b6532858bf6e0",
     "semantic_hash": ""
   },
   "docs/system-design-knowledge-base/README.md": {
