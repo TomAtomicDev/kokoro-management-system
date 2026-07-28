@@ -4,7 +4,7 @@
 //
 // WAC DRIFT IS DETECTION-ONLY (KOK-024 / ADR-016 demoted this job from repair to backstop
 // auditor — see `core/costing/repair.ts`'s header for the full reasoning). Before KOK-024 this
-// job was the sole corrector of `items.wac` drift; now the synchronous replay
+// job was the sole corrector of `items.wac_mc` drift; now the synchronous replay
 // (`core/costing/replay.ts`, INV-11) corrects it immediately, R-4/R-5-correctly, inside the
 // triggering command's own batch. This job now treats a WAC mismatch exactly like the stock-qty
 // and account-balance ones below: something the synchronous path should have already prevented,
@@ -93,7 +93,7 @@ export async function runDailySnapshot(db: Db): Promise<void> {
     const customerDeposits = liabilityRows[0]?.customer_deposits ?? 0;
 
     // R-2 backstop (KOK-024/ADR-016): detect WAC drift, once per active item — never repair it.
-    // `items.wac` is corrected exclusively by the synchronous replay now; a drift found here means
+    // `items.wac_mc` is corrected exclusively by the synchronous replay now; a drift found here means
     // that path missed something and a human needs to look, same as stockMismatches/
     // balanceMismatches below.
     const wacDrift: WacDrift[] = [];

@@ -147,7 +147,7 @@ export function ExitDetailDrawer({ exitId, open, onOpenChange }: ExitDetailDrawe
                   {inventoryLabels.exitsColumnValuedCost}
                 </span>
                 <span className="numeric-cell font-medium text-foreground">
-                  {formatMoney(Math.round(exit.qty * exit.unitCostSnapshot))}
+                  {formatMoney(Math.round((exit.qty * exit.unitCostSnapshotMc) / 1_000_000))}
                 </span>
               </div>
             </div>

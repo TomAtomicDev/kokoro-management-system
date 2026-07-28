@@ -21,10 +21,10 @@ export interface KardexViewProps {
   onOpenChange: (open: boolean) => void;
 }
 
-/** Doc 04 §3.4: unit_cost is REAL centavos-per-milli-unit — same display scale as StockTable's
- * wac/replacementCost columns. */
+/** Doc 04 §3.4 (ADR-017/KOK-071): unit_cost_mc is integer milli-centavos per WHOLE unit — same
+ * display scale as StockTable's wac column. */
 function formatUnitCost(row: KardexRowDto): string {
-  return `${formatMoney(Math.round(row.unitCost * 1000))} / ${inventoryLabels.unitAbbrev[row.unit]}`;
+  return `${formatMoney(Math.round(row.unitCostMc / 1000))} / ${inventoryLabels.unitAbbrev[row.unit]}`;
 }
 
 function SourceCell({ row }: { row: KardexRowDto }) {

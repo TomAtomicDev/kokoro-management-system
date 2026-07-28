@@ -3,18 +3,21 @@
 // `snapshotUnitCost`) and detecting nightly WAC drift (`detectWacDrift`).
 //
 // KOK-024 / ADR-016 DEMOTED THIS FROM REPAIR TO DETECTION. Before KOK-024, this was the ONLY
-// mechanism that ever corrected `items.wac` — ADR-009's "nightly-only, O(1) edits" framing — so
+// mechanism that ever corrected `items.wac_mc` — ADR-009's "nightly-only, O(1) edits" framing — so
 // it silently overwrote the column and left a `costing_repair` audit row as its only record.
 // KOK-024's synchronous replay (INV-11, `core/costing/replay.ts`) now corrects WAC drift
 // immediately, inside the triggering command's own batch, and does it R-4/R-5-correctly: it never
-// rewrites an already-frozen `unit_cost_snapshot` and it asks for confirmation before moving
-// already-booked cost. A blind nightly overwrite of `items.wac` does neither of those — it would
-// silently reintroduce exactly the history-rewriting risk R-4 exists to prevent, the day some
-// caller's replay has a bug or a direct DB fix bypasses services entirely. So this function no
-// longer builds a repair; it only detects and reports drift, exactly like
+// rewrites an already-frozen `unit_cost_snapshot_mc` and it asks for confirmation before moving
+// already-booked cost. A blind nightly overwrite of `items.wac_mc` does neither of those — it
+// would silently reintroduce exactly the history-rewriting risk R-4 exists to prevent, the day
+// some caller's replay has a bug or a direct DB fix bypasses services entirely. So this function
+// no longer builds a repair; it only detects and reports drift, exactly like
 // `core/inventory/queries.ts`'s `getStockConsistencyMismatches` and `core/finance/accounts.ts`'s
 // `getBalanceConsistencyMismatches` already do for their own consistency checks — a human
 // investigates, this doesn't guess which side is right.
+
+import type { MilliCentavosPerUnit } from "@kokoro/shared";
+import { toMilliCentavosPerUnit } from "@kokoro/shared";
 
 import type { Db } from "../../db/index.js";
 import { notFound } from "../errors.js";
@@ -28,34 +31,35 @@ const DRIFT_THRESHOLD_RATIO = 0.01;
 const DRIFT_EPSILON = 1e-9;
 
 /**
- * Fetches the live `items.wac` for `itemId` (centavos per milli-unit). This is the actual
- * integration point future services (purchases, production, sales, exits, counts) use to obtain
- * the value to pass through `snapshotUnitCost` onto their own `*_unit_cost_snapshot` column.
+ * Fetches the live `items.wac_mc` for `itemId` (milli-centavos per whole unit, ADR-017). This is
+ * the actual integration point future services (purchases, production, sales, exits, counts) use
+ * to obtain the value to pass through `snapshotUnitCost` onto their own
+ * `*_unit_cost_snapshot_mc` column.
  */
-export async function getCurrentWac(db: Db, itemId: string): Promise<number> {
+export async function getCurrentWac(db: Db, itemId: string): Promise<MilliCentavosPerUnit> {
   const row = await db.query.items.findFirst({
     where: (t, { eq: eqOp }) => eqOp(t.id, itemId),
   });
   if (!row) {
     throw notFound("No se encontró el ítem.", { id: itemId });
   }
-  return row.wac;
+  return toMilliCentavosPerUnit(row.wacMc);
 }
 
 /** One item's detected WAC drift: the currently-stored value, what the full kardex replay says it
  * should be, and the relative drift ratio between them. */
 export interface WacDrift {
   itemId: string;
-  current: number;
-  recomputed: number;
+  current: MilliCentavosPerUnit;
+  recomputed: MilliCentavosPerUnit;
   driftRatio: number;
 }
 
 /**
  * The nightly backstop's per-item WAC check (R-2, INV-5): recomputes WAC from the FULL kardex
- * (`recomputeWacFromMovements`) and compares it against the currently-stored `items.wac`.
+ * (`recomputeWacFromMovements`) and compares it against the currently-stored `items.wac_mc`.
  * DETECTION ONLY — returns the drift for a human to see when the relative difference exceeds 1%,
- * and never builds or executes a write. `items.wac` is now corrected exclusively by the
+ * and never builds or executes a write. `items.wac_mc` is now corrected exclusively by the
  * synchronous replay (`core/costing/replay.ts`, INV-11); if this function ever finds real drift,
  * that means the synchronous path missed something (a bug, or a direct DB fix bypassing services)
  * and the fix belongs to a human investigating it, not to this job silently applying one. Returns
@@ -74,7 +78,7 @@ export async function detectWacDrift(db: Db, itemId: string): Promise<WacDrift |
   if (!itemRow) {
     throw notFound("No se encontró el ítem.", { id: itemId });
   }
-  const current = itemRow.wac;
+  const current = toMilliCentavosPerUnit(itemRow.wacMc);
 
   const movementRows = await db.query.stockMovements.findMany({
     where: (t, { eq: eqOp }) => eqOp(t.itemId, itemId),
@@ -82,7 +86,11 @@ export async function detectWacDrift(db: Db, itemId: string): Promise<WacDrift |
   });
 
   const recomputed = recomputeWacFromMovements(
-    movementRows.map((row) => ({ type: row.type, qty: row.qty, unitCost: row.unitCost })),
+    movementRows.map((row) => ({
+      type: row.type,
+      qty: row.qty,
+      unitCostMc: toMilliCentavosPerUnit(row.unitCostMc),
+    })),
   );
 
   const driftDenominator = Math.max(Math.abs(current), DRIFT_EPSILON);

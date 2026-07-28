@@ -6,7 +6,7 @@
 // nothing is written.
 
 import type { AuditActor, BulkCreateItemsCommand, BulkCreateItemsResult } from "@kokoro/shared";
-import { generateUuidV7, nowIso } from "@kokoro/shared";
+import { generateUuidV7, nowIso, toMilliCentavosPerUnit } from "@kokoro/shared";
 import type { BatchItem } from "drizzle-orm/batch";
 
 import type { Db } from "../../db/index.js";
@@ -53,7 +53,7 @@ export async function bulkCreateItems(
     kind: item.kind,
     category: item.category,
     unit: item.unit,
-    wac: 0,
+    wacMc: toMilliCentavosPerUnit(0),
     replacementCost: 0,
     replacementCostUpdatedAt: null,
     salePrice: item.salePrice ?? null,

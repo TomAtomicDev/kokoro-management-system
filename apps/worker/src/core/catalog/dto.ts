@@ -20,7 +20,7 @@ export function toItemDto(row: ItemRow, aliases: ItemAliasRow[]): ItemDto {
     kind: row.kind,
     category: row.category,
     unit: row.unit,
-    wac: row.wac,
+    wacMc: row.wacMc,
     replacementCost: row.replacementCost,
     replacementCostUpdatedAt: row.replacementCostUpdatedAt,
     salePrice: row.salePrice,

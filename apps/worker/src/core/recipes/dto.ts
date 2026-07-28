@@ -31,8 +31,18 @@ async function loadItemsById(db: Db, itemIds: readonly string[]): Promise<Map<st
   return new Map(rows.map((row) => [row.id, row]));
 }
 
-/** Builds one RecipeCostDto on the given basis (`wac` or `replacementCost`, C-3b) — the pure math
- * lives entirely in theoretical-cost.ts; this only picks which item column feeds it. */
+/**
+ * Builds one RecipeCostDto on the given basis (`wac` or `replacementCost`, C-3b) — the pure math
+ * lives entirely in theoretical-cost.ts; this only picks which item column feeds it.
+ *
+ * KOK-071 (ADR-017) vertical 1 moved `items.wac` to `items.wac_mc` (integer milli-centavos per
+ * WHOLE unit); `items.replacement_cost` and `items.sale_price` are NOT migrated yet (later
+ * verticals). `computeTheoreticalCostPerOutputUnit`'s output must stay directly comparable to
+ * `salePrice` (fed straight into `computeRecipeMargin`'s subtraction below), so its scale can't
+ * flip until `salePrice` also does — both will move together when that vertical lands. Until
+ * then, the WAC basis converts `wacMc` back down to the old centavos-per-milli-unit convention
+ * this function still expects, the inverse of the same ×1,000,000 factor migration 0007 applied.
+ */
 function buildCostDto(
   basis: "wac" | "replacementCost",
   outputItem: Pick<ItemRow, "salePrice">,
@@ -45,7 +55,8 @@ function buildCostDto(
     // loadItemsById's Map lookup can't statically prove that, so this narrows defensively rather
     // than risking `undefined.wac` at runtime.
     const item = itemsById.get(line.itemId);
-    const unitCost = item ? item[basis] : 0;
+    const unitCost =
+      basis === "wac" ? (item ? item.wacMc / 1_000_000 : 0) : item ? item.replacementCost : 0;
     return { qty: line.qty, unitCost };
   });
   const costPerOutputUnit = computeTheoreticalCostPerOutputUnit(lines, expectedYieldQty);

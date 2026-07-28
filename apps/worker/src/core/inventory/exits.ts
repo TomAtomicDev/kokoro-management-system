@@ -42,6 +42,7 @@ import type {
   DeleteStockExitResult,
   ListStockExitsFilters,
   ListStockExitsResult,
+  MilliCentavosPerUnit,
   RecordStockExitCommand,
   RecordStockExitResult,
   ReplayImpactDto,
@@ -50,7 +51,12 @@ import type {
   UpdateStockExitCommand,
   UpdateStockExitResult,
 } from "@kokoro/shared";
-import { generateUuidV7, nowIso, REPLAY_CONFIRMATION_REQUIRED } from "@kokoro/shared";
+import {
+  generateUuidV7,
+  nowIso,
+  REPLAY_CONFIRMATION_REQUIRED,
+  toMilliCentavosPerUnit,
+} from "@kokoro/shared";
 import { eq } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 
@@ -79,7 +85,7 @@ function toStockExitDto(row: StockExitRow): StockExitDto {
     itemId: row.itemId,
     qty: row.qty,
     reason: row.reason,
-    unitCostSnapshot: row.unitCostSnapshot,
+    unitCostSnapshotMc: row.unitCostSnapshotMc,
     sessionId: row.sessionId,
     notes: row.notes,
     createdAt: row.createdAt,
@@ -104,7 +110,7 @@ async function buildRecordExitMovement(
 ): Promise<{
   exitId: string;
   movement: StockMovementInput;
-  unitCostSnapshot: number;
+  unitCostSnapshotMc: MilliCentavosPerUnit;
   now: string;
 }> {
   // Defensive re-check (core/ services never trust a caller already ran Zod, D-2) — mirrors
@@ -122,10 +128,10 @@ async function buildRecordExitMovement(
     throw notFound("No se encontró el ítem.", { id: command.itemId });
   }
 
-  // C-6: value at the item's CURRENT WAC, snapshotted onto this exit's own unit_cost_snapshot —
+  // C-6: value at the item's CURRENT WAC, snapshotted onto this exit's own unit_cost_snapshot_mc —
   // never recomputed via applyWacEntry (that's only for PURCHASE_IN/PRODUCTION_IN entries).
   const currentWac = await getCurrentWac(db, command.itemId);
-  const unitCostSnapshot = snapshotUnitCost(currentWac);
+  const unitCostSnapshotMc = snapshotUnitCost(currentWac);
 
   const exitId = generateUuidV7();
   const now = nowIso();
@@ -138,12 +144,12 @@ async function buildRecordExitMovement(
     // stock_exits.qty is stored POSITIVE (its own CHECK constraint); the kardex sign convention
     // (EXIT_OUT is always an OUT movement) is applied only here, at the movements boundary.
     qty: -command.qty,
-    unitCost: unitCostSnapshot,
+    unitCostMc: unitCostSnapshotMc,
     sourceEventType: "stock_exit",
     sourceEventId: exitId,
   };
 
-  return { exitId, movement, unitCostSnapshot, now };
+  return { exitId, movement, unitCostSnapshotMc, now };
 }
 
 /**
@@ -164,7 +170,7 @@ export async function recordExit(
   command: RecordStockExitCommand,
   actor: AuditActor,
 ): Promise<RecordStockExitResult> {
-  const { exitId, movement, unitCostSnapshot, now } = await buildRecordExitMovement(db, command);
+  const { exitId, movement, unitCostSnapshotMc, now } = await buildRecordExitMovement(db, command);
   // ---- INV-11 / R-2 ordering guard (ADR-016 §1) --------------------------------------------
   // C-6 says an exit is not a WAC entry, and that stays true here: this exit books NO WAC of its
   // own and the plan can never attribute one to it. What a BACKDATED exit does change is
@@ -202,7 +208,7 @@ export async function recordExit(
     itemId: command.itemId,
     qty: command.qty,
     reason: command.reason,
-    unitCostSnapshot,
+    unitCostSnapshotMc,
     sessionId: command.sessionId ?? null,
     notes: command.notes ?? null,
     deletedAt: null,
@@ -273,7 +279,7 @@ async function buildUpdateExitMovement(
   db: Db,
   current: StockExitRow,
   command: UpdateStockExitCommand,
-): Promise<{ movement: StockMovementInput; unitCostSnapshot: number }> {
+): Promise<{ movement: StockMovementInput; unitCostSnapshotMc: MilliCentavosPerUnit }> {
   const itemRow = await db.query.items.findFirst({
     where: (t, { eq: eqOp }) => eqOp(t.id, command.itemId),
   });
@@ -285,9 +291,9 @@ async function buildUpdateExitMovement(
   // SAME item, and is taken afresh only when the edit points this exit at a DIFFERENT item, whose
   // WAC the old snapshot says nothing about.
   const itemChanged = command.itemId !== current.itemId;
-  const unitCostSnapshot = itemChanged
+  const unitCostSnapshotMc = itemChanged
     ? snapshotUnitCost(await getCurrentWac(db, command.itemId))
-    : current.unitCostSnapshot;
+    : toMilliCentavosPerUnit(current.unitCostSnapshotMc);
 
   const movement: StockMovementInput = {
     itemId: command.itemId,
@@ -297,12 +303,12 @@ async function buildUpdateExitMovement(
     // Positive on the event row, negative in the kardex — the sign convention is applied only at
     // this boundary, identically to recordExit.
     qty: -command.qty,
-    unitCost: unitCostSnapshot,
+    unitCostMc: unitCostSnapshotMc,
     sourceEventType: "stock_exit",
     sourceEventId: current.id,
   };
 
-  return { movement, unitCostSnapshot };
+  return { movement, unitCostSnapshotMc };
 }
 
 /** Canonical identity of one kardex row for the "did the kardex actually change?" comparison below —
@@ -316,9 +322,9 @@ function movementKey(m: {
   businessDate: string;
   type: string;
   qty: number;
-  unitCost: number;
+  unitCostMc: number;
 }): string {
-  return [m.itemId, m.occurredAt, m.businessDate, m.type, m.qty, m.unitCost].join("|");
+  return [m.itemId, m.occurredAt, m.businessDate, m.type, m.qty, m.unitCostMc].join("|");
 }
 
 /** True when `newMovements` describes exactly the kardex row that already exists for this exit —
@@ -332,7 +338,7 @@ function movementSetsEqual(
     businessDate: string;
     type: string;
     qty: number;
-    unitCost: number;
+    unitCostMc: number;
   }[],
   newMovements: readonly StockMovementInput[],
 ): boolean {
@@ -446,7 +452,7 @@ export async function updateStockExit(
 
   const current = await loadLiveExit(db, id);
 
-  const { movement, unitCostSnapshot } = await buildUpdateExitMovement(db, current, command);
+  const { movement, unitCostSnapshotMc } = await buildUpdateExitMovement(db, current, command);
 
   const now = nowIso();
 
@@ -491,7 +497,7 @@ export async function updateStockExit(
     itemId: command.itemId,
     qty: command.qty,
     reason: command.reason,
-    unitCostSnapshot,
+    unitCostSnapshotMc,
     sessionId: command.sessionId ?? null,
     notes: command.notes ?? null,
     updatedAt: now,
@@ -506,7 +512,7 @@ export async function updateStockExit(
         itemId: updatedRow.itemId,
         qty: updatedRow.qty,
         reason: updatedRow.reason,
-        unitCostSnapshot: updatedRow.unitCostSnapshot,
+        unitCostSnapshotMc: updatedRow.unitCostSnapshotMc,
         sessionId: updatedRow.sessionId,
         notes: updatedRow.notes,
         updatedAt: updatedRow.updatedAt,
@@ -724,7 +730,7 @@ export async function restoreStockExit(
     // Positive on the event row, negative in the kardex — same convention as recordExit/
     // updateStockExit, applied only at this boundary.
     qty: -current.qty,
-    unitCost: current.unitCostSnapshot,
+    unitCostMc: toMilliCentavosPerUnit(current.unitCostSnapshotMc),
     sourceEventType: "stock_exit",
     sourceEventId: id,
   };

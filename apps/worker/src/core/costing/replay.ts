@@ -29,8 +29,22 @@
 // recomputes `negative_since` incrementally from its own delta; the `negative_since` UPDATE built
 // here is the authoritative recomputation and must land last to win. See `buildNegativeSinceFix`.
 
-import type { AuditActor, ReplayImpactDto, StockMovementType } from "@kokoro/shared";
-import { nowIso, roundHalfUpToInt } from "@kokoro/shared";
+import type {
+  AuditActor,
+  Centavos,
+  MilliCentavosPerUnit,
+  ReplayImpactDto,
+  StockMovementType,
+} from "@kokoro/shared";
+import {
+  nowIso,
+  rateFromTotal,
+  roundHalfUpToInt,
+  toCentavos,
+  toMilliCentavosPerUnit,
+  toMilliUnits,
+  totalCentavos,
+} from "@kokoro/shared";
 import { and, eq, inArray } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 
@@ -54,13 +68,25 @@ import { replayWacFrom, replayWacWithTrace } from "./wac.js";
 type Statement = BatchItem<"sqlite">;
 
 /**
- * `items.wac` is a REAL cache column (ADR-011), so a replay that is logically a no-op can still
- * land a few ULPs away from the stored value purely from a different summation order. Emitting an
- * UPDATE (and an audit row) for that would be noise, so "the WAC moved" is an epsilon comparison.
- * The unit is centavos per milli-unit, i.e. 1e-9 here is a nanocentavo per gram — many orders of
- * magnitude below anything that can round differently in a real money total.
+ * KOK-071/ADR-017: `items.wac_mc` is now an integer (REAL removed from the schema), so a replay
+ * that reproduces the same inputs reproduces the identical integer every time — no epsilon
+ * comparison is needed anymore. "The WAC moved" is a plain `!==`. (Before this migration, `wac`
+ * was a REAL cache column and could land a few ULPs away purely from summation order; that
+ * class of noise cannot happen with integer arithmetic.)
  */
-const WAC_EPSILON = 1e-9;
+
+/** Doc 04 §2/ADR-017's scale factor between a `Centavos` total and the microcentavos-scale
+ * numerator of a `rate × qty` product (the same numerator `totalCentavos`/`rateFromTotal`,
+ * packages/shared/money.ts, divide by internally). Used ONLY here and in
+ * `applyProductionCostCorrections` below to sum several rate×qty terms and round ONCE at the
+ * aggregate (INV-6: "rounded half-up at the final step only" — summing several already-rounded
+ * per-line amounts would let sub-centavo residuals compound, exactly the failure mode this
+ * accumulator avoids). This mirrors `core/costing/wac.ts`'s `applyWacEntry`, which sums the same
+ * kind of numerator across two terms before its own single division — both are core/costing's own
+ * trusted-boundary arithmetic (this file's established precedent for local copies, e.g.
+ * `assertSafeIntegerInput`), not a second sanctioned conversion helper.
+ */
+const MC_TO_CENTAVOS_DIVISOR = 1_000_000;
 
 /**
  * The movements that will exist for one source event AFTER the pending change commits.
@@ -82,11 +108,11 @@ export interface CostingReplayPlan {
   required: boolean;
   impact: ReplayImpactDto;
   /**
-   * The items this plan OWNS the `items.wac` of, in dependency order: every item it actually
+   * The items this plan OWNS the `items.wac_mc` of, in dependency order: every item it actually
    * replayed — the seeds whose kardex the change disturbs, plus everything reached from them
    * through the recipe graph.
    *
-   * CALLERS MUST SUPPRESS THEIR OWN `items.wac` WRITE FOR EXACTLY THESE ITEMS. A command that
+   * CALLERS MUST SUPPRESS THEIR OWN `items.wac_mc` WRITE FOR EXACTLY THESE ITEMS. A command that
    * threads C-1 incrementally (core/purchasing's `recordPurchase`) computes a value that is
    * simply stale for a backdated item; this plan's replayed value is the authoritative one, and
    * writing both would put two conflicting `items` UPDATEs in one batch.
@@ -102,7 +128,7 @@ export interface CostingReplayPlan {
   replayedItemIds: string[];
   /** R-5: the impact touches already-recorded sales / exits / production runs. */
   confirmationRequired: boolean;
-  /** `items.wac` UPDATEs + `costing_adjustments` INSERTs + `item_stock.negative_since` fixes +
+  /** `items.wac_mc` UPDATEs + `costing_adjustments` INSERTs + `item_stock.negative_since` fixes +
    * one `audit_log` row. Contains ZERO writes to `sale_lines` / `stock_exits` (R-4). */
   statements: Statement[];
 }
@@ -125,7 +151,7 @@ interface ReplayRow {
   createdAt: string;
   type: StockMovementType;
   qty: number;
-  unitCost: number;
+  unitCostMc: MilliCentavosPerUnit;
   sourceEventType: string;
   sourceEventId: string;
 }
@@ -258,23 +284,25 @@ export async function planCostingReplay(
    * dependency order, and only past the `stored === undefined` guard below: an item whose row has
    * vanished is skipped entirely, so the plan computes no WAC for it and owns nothing. */
   const replayedItemIds: string[] = [];
-  /** Float centavos, summed across every corrected consumption and rounded ONCE at the end. */
+  /** Microcentavos-scale (see `MC_TO_CENTAVOS_DIVISOR`), summed across every corrected consumption
+   * and divided/rounded ONCE at the end. */
   let costDeltaRaw = 0;
 
-  const wacBeforeByItem: Record<string, number> = {};
-  const wacAfterByItem: Record<string, number> = {};
+  const wacBeforeByItem: Record<string, MilliCentavosPerUnit> = {};
+  const wacAfterByItem: Record<string, MilliCentavosPerUnit> = {};
   const perItemDelta = new Map<
     string,
     { costDelta: number; saleLineIds: string[]; stockExitIds: string[] }
   >();
   const negativeSinceByItem = new Map<string, string | null>();
-  const finalWacByItem = new Map<string, number>();
+  const finalWacByItem = new Map<string, MilliCentavosPerUnit>();
 
-  // C-4 cascade state: for each production run, the REPLAYED cost of each input it consumed.
-  // Populated when an ingredient item's kardex is replayed (the consumption shows up there as a
-  // PRODUCTION_OUT), and read when the run's OUTPUT item is replayed later in dependency order.
-  // That ordering is exactly what `topoOrderAffectedItems` guarantees.
-  const replayedConsumptionCost = new Map<string, Map<string, number>>();
+  // C-4 cascade state: for each production run, the REPLAYED cost of each input it consumed
+  // (Centavos — a proper rounded total via `totalCentavos`, KOK-071). Populated when an
+  // ingredient item's kardex is replayed (the consumption shows up there as a PRODUCTION_OUT), and
+  // read when the run's OUTPUT item is replayed later in dependency order. That ordering is
+  // exactly what `topoOrderAffectedItems` guarantees.
+  const replayedConsumptionCost = new Map<string, Map<string, Centavos>>();
 
   for (const itemId of orderedItemIds) {
     const stored = await db.query.items.findFirst({
@@ -305,7 +333,7 @@ export async function planCostingReplay(
     // Step 4: the seed state is obtained by replaying the untouched PREFIX. There is no stored
     // per-movement WAC to resume from — accepted as an O(n) prefix cost rather than a cache
     // column, which would be a third place for the WAC to be wrong.
-    const seed = replayWacFrom({ onHand: 0, wac: 0 }, rows.slice(0, cut));
+    const seed = replayWacFrom({ onHand: 0, wac: toMilliCentavosPerUnit(0) }, rows.slice(0, cut));
 
     // Step 7: correct the output cost of any production run whose inputs this replay moved,
     // BEFORE replaying, so C-1 folds the corrected cost in rather than the stale stored one.
@@ -332,8 +360,8 @@ export async function planCostingReplay(
       if (movement.type === "PRODUCTION_OUT" && movement.sourceEventType === "production_run") {
         // This consumption feeds a run whose output item is replayed later (dependency order).
         const perRun =
-          replayedConsumptionCost.get(movement.sourceEventId) ?? new Map<string, number>();
-        perRun.set(itemId, Math.abs(movement.qty) * step.wacBefore);
+          replayedConsumptionCost.get(movement.sourceEventId) ?? new Map<string, Centavos>();
+        perRun.set(itemId, totalCentavos(step.wacBefore, toMilliUnits(Math.abs(movement.qty))));
         replayedConsumptionCost.set(movement.sourceEventId, perRun);
         affectedProductionRunIds.add(movement.sourceEventId);
         continue;
@@ -347,20 +375,22 @@ export async function planCostingReplay(
       if (frozen.kind === "sale_line") itemSaleLineIds.push(frozen.id);
       else itemStockExitIds.push(frozen.id);
 
-      // Step 6: Σ (frozen − replayed) × |qty|, accumulated as a float and rounded half-up ONCE at
-      // the aggregate (INV-6) — rounding per line would let dozens of sub-centavo residuals
-      // compound into a visible drift. `unitCost` is centavos per milli-unit and `qty` is
-      // milli-units, so the product is already centavos; no unit conversion.
-      itemDeltaRaw += (frozen.unitCostSnapshot - step.wacBefore) * Math.abs(movement.qty);
+      // Step 6: Σ (frozen − replayed) × |qty|, accumulated at the microcentavos scale and
+      // divided/rounded half-up ONCE at the aggregate (INV-6, see `MC_TO_CENTAVOS_DIVISOR`) —
+      // rounding per line would let dozens of sub-centavo residuals compound into a visible
+      // drift. `unitCostMc`/`wacBefore` are milli-centavos per WHOLE unit and `qty` is
+      // milli-units, so the product is the same microcentavos scale `totalCentavos` divides once.
+      itemDeltaRaw += (frozen.unitCostSnapshotMc - step.wacBefore) * Math.abs(movement.qty);
     }
 
-    const itemDelta = roundHalfUpToInt(itemDeltaRaw);
+    const itemDelta = roundHalfUpToInt(itemDeltaRaw / MC_TO_CENTAVOS_DIVISOR);
     costDeltaRaw += itemDeltaRaw;
 
-    const wacMoved = Math.abs(final.wac - stored.wac) > WAC_EPSILON;
+    const storedWacMc = toMilliCentavosPerUnit(stored.wacMc);
+    const wacMoved = final.wac !== storedWacMc;
     if (wacMoved) {
       affectedItemIds.push(itemId);
-      wacBeforeByItem[itemId] = stored.wac;
+      wacBeforeByItem[itemId] = storedWacMc;
       wacAfterByItem[itemId] = final.wac;
       finalWacByItem.set(itemId, final.wac);
     }
@@ -382,7 +412,7 @@ export async function planCostingReplay(
   }
 
   // ---- 8/11. Assemble statements and the impact --------------------------------------------
-  const costDelta = roundHalfUpToInt(costDeltaRaw);
+  const costDelta = roundHalfUpToInt(costDeltaRaw / MC_TO_CENTAVOS_DIVISOR);
 
   // R-5: a WAC that merely moved, with no frozen consumer downstream of it, is a silent internal
   // correction with no reported number to contradict — nothing for the owner to confirm. What
@@ -405,8 +435,8 @@ export async function planCostingReplay(
   const now = nowIso();
   const statements: Statement[] = [];
 
-  for (const [itemId, wac] of finalWacByItem) {
-    statements.push(db.update(items).set({ wac, updatedAt: now }).where(eq(items.id, itemId)));
+  for (const [itemId, wacMc] of finalWacByItem) {
+    statements.push(db.update(items).set({ wacMc, updatedAt: now }).where(eq(items.id, itemId)));
   }
 
   for (const [itemId, entry] of perItemDelta) {
@@ -438,8 +468,8 @@ export async function planCostingReplay(
         action: "costing_replay",
         entityType: input.trigger.eventType,
         entityId: input.trigger.eventId,
-        before: { wac: wacBeforeByItem },
-        after: { wac: wacAfterByItem, costDelta },
+        before: { wacMc: wacBeforeByItem },
+        after: { wacMc: wacAfterByItem, costDelta },
       }),
     );
   }
@@ -481,7 +511,7 @@ async function loadProjectedKardex(
       createdAt: row.createdAt,
       type: row.type,
       qty: row.qty,
-      unitCost: row.unitCost,
+      unitCostMc: toMilliCentavosPerUnit(row.unitCostMc),
       sourceEventType: row.sourceEventType,
       sourceEventId: row.sourceEventId,
     }));
@@ -494,7 +524,7 @@ async function loadProjectedKardex(
         createdAt: pendingCreatedAt,
         type: movement.type,
         qty: movement.qty,
-        unitCost: movement.unitCost,
+        unitCostMc: movement.unitCostMc,
         sourceEventType: movement.sourceEventType,
         sourceEventId: movement.sourceEventId,
       });
@@ -543,7 +573,7 @@ async function loadRecipeEdges(db: Db): Promise<RecipeEdge[]> {
 async function applyProductionCostCorrections(
   db: Db,
   suffix: readonly ReplayRow[],
-  replayedConsumptionCost: ReadonlyMap<string, Map<string, number>>,
+  replayedConsumptionCost: ReadonlyMap<string, Map<string, Centavos>>,
   affectedProductionRunIds: Set<string>,
 ): Promise<ReplayRow[]> {
   const runIds = [
@@ -564,17 +594,29 @@ async function applyProductionCostCorrections(
     .from(productionConsumptions)
     .where(inArray(productionConsumptions.productionRunId, runIds));
 
-  const correctedUnitCost = new Map<string, number>();
+  const correctedUnitCost = new Map<string, MilliCentavosPerUnit>();
   for (const run of runs) {
     if (run.actualOutputQty <= 0) continue;
     const replayed = replayedConsumptionCost.get(run.id);
+    // Each consumption's contribution is a proper rounded Centavos amount (`totalCentavos`,
+    // KOK-071) whether it came from this replay (`replayed`) or is unaffected by it (the
+    // fallback) — both must share one scale before they can be summed with `indirectCost`/
+    // `allocatedSessionCost`, which are already Centavos.
     let direct = 0;
     for (const consumption of consumptions) {
       if (consumption.productionRunId !== run.id) continue;
-      direct += replayed?.get(consumption.itemId) ?? consumption.qty * consumption.unitCostSnapshot;
+      direct +=
+        replayed?.get(consumption.itemId) ??
+        totalCentavos(
+          toMilliCentavosPerUnit(consumption.unitCostSnapshotMc),
+          toMilliUnits(consumption.qty),
+        );
     }
     const total = direct + run.indirectCost + run.allocatedSessionCost;
-    correctedUnitCost.set(run.id, total / run.actualOutputQty);
+    correctedUnitCost.set(
+      run.id,
+      rateFromTotal(toCentavos(total), toMilliUnits(run.actualOutputQty)),
+    );
     affectedProductionRunIds.add(run.id);
   }
 
@@ -582,13 +624,13 @@ async function applyProductionCostCorrections(
     if (row.type !== "PRODUCTION_IN" || row.sourceEventType !== "production_run") return row;
     const corrected = correctedUnitCost.get(row.sourceEventId);
     if (corrected === undefined) return row;
-    return { ...row, unitCost: corrected };
+    return { ...row, unitCostMc: corrected };
   });
 }
 
 type FrozenSnapshot =
-  | { kind: "sale_line"; id: string; unitCostSnapshot: number }
-  | { kind: "stock_exit"; id: string; unitCostSnapshot: number };
+  | { kind: "sale_line"; id: string; unitCostSnapshotMc: MilliCentavosPerUnit }
+  | { kind: "stock_exit"; id: string; unitCostSnapshotMc: MilliCentavosPerUnit };
 
 /**
  * READ-ONLY (R-4) join from an exit movement back to the row that froze its cost snapshot.
@@ -606,14 +648,18 @@ async function readFrozenSnapshot(
 ): Promise<FrozenSnapshot | null> {
   if (movement.type === "SALE_OUT") {
     const line = await db
-      .select({ id: saleLines.id, unitCostSnapshot: saleLines.unitCostSnapshot })
+      .select({ id: saleLines.id, unitCostSnapshotMc: saleLines.unitCostSnapshotMc })
       .from(saleLines)
       .where(and(eq(saleLines.saleId, movement.sourceEventId), eq(saleLines.itemId, itemId)))
       .limit(1);
     const row = line[0];
     return row === undefined
       ? null
-      : { kind: "sale_line", id: row.id, unitCostSnapshot: row.unitCostSnapshot };
+      : {
+          kind: "sale_line",
+          id: row.id,
+          unitCostSnapshotMc: toMilliCentavosPerUnit(row.unitCostSnapshotMc),
+        };
   }
 
   const exit = await db.query.stockExits.findFirst({
@@ -621,7 +667,11 @@ async function readFrozenSnapshot(
   });
   return exit === undefined
     ? null
-    : { kind: "stock_exit", id: exit.id, unitCostSnapshot: exit.unitCostSnapshot };
+    : {
+        kind: "stock_exit",
+        id: exit.id,
+        unitCostSnapshotMc: toMilliCentavosPerUnit(exit.unitCostSnapshotMc),
+      };
 }
 
 /**

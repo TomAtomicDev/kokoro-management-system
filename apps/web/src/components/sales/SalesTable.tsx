@@ -41,14 +41,14 @@ function summarizeLines(lines: SaleLineDto[], itemNameById: Map<string, string>)
 
 /** Margin off the frozen WAC snapshot per line (never the item's LIVE wac, which may have moved
  * since the sale) — `total` is the server-recomputed Σ(qty×unitPrice) (Doc 04 §5), `cost` sums
- * each line's `qty × unitCostSnapshot` (same basis ProductionRunForm's `renderLineExtra` uses for
- * `qty × item.wac`: qty is milli-units, unitCostSnapshot is centavos-per-milli-unit, so the
- * product is already whole centavos, no ×1000 conversion). Returns `null` margin% when the sale
- * has zero total (an all-giveaway sale) — a percentage of zero is not meaningful. */
+ * each line's `qty × unitCostSnapshotMc / 1,000,000` (ADR-017/KOK-071: qty is milli-units,
+ * unitCostSnapshotMc is milli-centavos-per-WHOLE-unit — the same `totalCentavos` formula
+ * ProductionRunForm's `renderLineExtra` uses for `qty × item.wacMc`). Returns `null` margin% when
+ * the sale has zero total (an all-giveaway sale) — a percentage of zero is not meaningful. */
 function computeMargin(sale: SaleDto): { margin: number; marginPct: number | null } {
   let cost = 0;
   for (const line of sale.lines) {
-    cost += roundHalfUpToInt(line.qty * line.unitCostSnapshot);
+    cost += roundHalfUpToInt((line.qty * line.unitCostSnapshotMc) / 1_000_000);
   }
   const margin = subMoney(sale.total, cost);
   const marginPct = sale.total > 0 ? margin / sale.total : null;

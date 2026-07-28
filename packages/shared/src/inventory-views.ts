@@ -50,11 +50,10 @@ export interface StockRowDto {
   kind: ItemKind;
   category: ItemCategory;
   unit: Unit;
-  /** Weighted average cost, centavos per MILLI-unit (Doc 04 §2/§3.4, the one deliberately-float
-   * column — same scale as `items.wac`/`stock_movements.unit_cost`; ×1000 to display as a
-   * per-whole-unit price, matching `ItemForm.tsx`'s existing display precedent). */
-  wac: number;
-  /** Centavos per milli-unit (Doc 04 §2), also float — same scale as `wac` above. */
+  /** Weighted average cost, integer milli-centavos per WHOLE unit (Doc 04 §2/§3.4, ADR-017/
+   * KOK-071 — same scale as `items.wac_mc`/`stock_movements.unit_cost_mc`). */
+  wacMc: number;
+  /** Centavos per milli-unit (Doc 04 §2), float — migrated to `_mc` in a later KOK-071 vertical. */
   replacementCost: number;
   /** Centavos (INV-6). Null when the item has no set sale price yet. */
   salePrice: number | null;
@@ -64,7 +63,7 @@ export interface StockRowDto {
   qtyOnHand: number;
   /** ISO-8601 instant the balance first went negative (INV-8), or null if currently non-negative. */
   negativeSince: string | null;
-  /** Centavos (INV-6): `ROUND(qtyOnHand * wac)`, computed by the view itself. */
+  /** Centavos (INV-6): `totalCentavos(wacMc, qtyOnHand)`, computed by the view itself. */
   stockValue: number;
   isLowStock: boolean;
 }
@@ -85,8 +84,8 @@ export interface KardexRowDto {
   type: StockMovementType;
   /** Signed milli-units (Doc 04 §3.4). */
   qty: number;
-  /** Centavos per milli-unit at movement time (Doc 04 §3.4). */
-  unitCost: number;
+  /** Milli-centavos per WHOLE unit at movement time (Doc 04 §3.4, ADR-017/KOK-071). */
+  unitCostMc: number;
   /** Centavos, signed (Doc 04 §3.4). */
   totalCost: number;
   sourceEventType: string;

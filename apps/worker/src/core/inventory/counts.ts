@@ -266,14 +266,14 @@ export async function commitCount(
   for (const { line, delta } of variantLines) {
     // Live at commit time (C-6) — NOT the frozen side of this command, unlike `line.expectedQty`.
     const currentWac = await getCurrentWac(db, line.itemId);
-    const unitCostSnapshot = snapshotUnitCost(currentWac);
+    const unitCostSnapshotMc = snapshotUnitCost(currentWac);
     movements.push({
       itemId: line.itemId,
       occurredAt: now,
       businessDate,
       type: "ADJUST",
       qty: delta,
-      unitCost: unitCostSnapshot,
+      unitCostMc: unitCostSnapshotMc,
       sourceEventType: "inventory_count",
       sourceEventId: countRow.id,
     });
