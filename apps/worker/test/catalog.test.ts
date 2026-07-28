@@ -268,7 +268,7 @@ describe("price_history (KOK-035, Doc 07 SC-12)", () => {
       where: (t, { eq }) => eq(t.itemId, item.id),
     });
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ price: 5000, note: null });
+    expect(rows[0]).toMatchObject({ priceMc: 5_000_000, note: null });
     expect(rows[0]?.effectiveFrom).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 
@@ -305,7 +305,7 @@ describe("price_history (KOK-035, Doc 07 SC-12)", () => {
     const rows = await db.query.priceHistory.findMany({
       where: (t, { eq }) => eq(t.itemId, item.id),
     });
-    expect(rows.map((r) => r.price).sort((a, b) => a - b)).toEqual([4000, 4500]);
+    expect(rows.map((r) => r.priceMc).sort((a, b) => a - b)).toEqual([4_000_000, 4_500_000]);
   });
 
   it("does not log a no-op resubmit of the same sale price", async () => {

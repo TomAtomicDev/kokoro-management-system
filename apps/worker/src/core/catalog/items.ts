@@ -7,17 +7,11 @@ import type {
   ItemDto,
   ListItemsFilters,
   ListItemsResult,
+  MilliCentavosPerUnit,
   SetItemActiveCommand,
   UpdateItemCommand,
 } from "@kokoro/shared";
-import {
-  generateUuidV7,
-  nowIso,
-  toBusinessDate,
-  toMilliCentavosPerUnit,
-  totalCentavos,
-  WHOLE_UNIT_MILLI_UNITS,
-} from "@kokoro/shared";
+import { generateUuidV7, nowIso, toBusinessDate, toMilliCentavosPerUnit } from "@kokoro/shared";
 import { eq } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 
@@ -34,13 +28,13 @@ type Statement = BatchItem<"sqlite">;
 function buildPriceHistoryInsert(
   db: Db,
   itemId: string,
-  price: number,
+  priceMc: MilliCentavosPerUnit,
   now: string,
 ) {
   return db.insert(priceHistory).values({
     id: generateUuidV7(),
     itemId,
-    price,
+    priceMc,
     effectiveFrom: toBusinessDate(now),
     note: null,
   });
@@ -95,15 +89,7 @@ export async function createItem(
     }),
   ];
   if (row.salePriceMc !== null) {
-    // Migration 0010 follows this slice: price_history.price still stores Centavos here.
-    statements.push(
-      buildPriceHistoryInsert(
-        db,
-        row.id,
-        totalCentavos(row.salePriceMc, WHOLE_UNIT_MILLI_UNITS),
-        now,
-      ),
-    );
+    statements.push(buildPriceHistoryInsert(db, row.id, row.salePriceMc, now));
   }
   await db.batch(statements as [Statement, ...Statement[]]);
 
@@ -161,15 +147,7 @@ export async function updateItem(
     command.salePriceMc !== null &&
     command.salePriceMc !== existingRow.salePriceMc
   ) {
-    // Migration 0010 follows this slice: price_history.price still stores Centavos here.
-    statements.push(
-      buildPriceHistoryInsert(
-        db,
-        command.id,
-        totalCentavos(command.salePriceMc, WHOLE_UNIT_MILLI_UNITS),
-        now,
-      ),
-    );
+    statements.push(buildPriceHistoryInsert(db, command.id, command.salePriceMc, now));
   }
   await db.batch(statements as [Statement, ...Statement[]]);
 

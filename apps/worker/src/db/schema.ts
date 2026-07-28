@@ -117,7 +117,7 @@ export const priceHistory = sqliteTable("price_history", {
   itemId: text("item_id")
     .notNull()
     .references(() => items.id, { onDelete: "restrict" }),
-  price: integer("price").notNull(),
+  priceMc: integer("price_mc").notNull(),
   effectiveFrom: text("effective_from").notNull(),
   note: text("note"),
 });

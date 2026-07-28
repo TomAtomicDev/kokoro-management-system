@@ -64,6 +64,13 @@
       "when": 1785542400000,
       "tag": "0009_sale_price_mc_scale",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1785628800000,
+      "tag": "0010_price_history_mc_scale",
+      "breakpoints": true
     }
   ]
 }
