@@ -21,7 +21,7 @@ shipped two 1000× bugs (KOK-069; see ADR-017 for the full history).
 | Concept | Storage | Brand (`packages/shared`) | Column suffix | Example |
 |---------|---------|---------------------------|---------------|---------|
 | Money amount — totals, balances, line totals, transaction amounts | `INTEGER` centavos | `Centavos` | none | Bs 12.50 → `1250` |
-| **Any per-unit rate** — sale price, line unit price, `wac`, `replacement_cost`, cost snapshots, theoretical unit cost | `INTEGER` milli-centavos per **WHOLE** unit | `MilliCentavosPerUnit` | `_mc` | Bs 8.00 per unit → `8000000`; Bs 12.345/kg → `12345000` |
+| **Any per-unit rate** — sale price, line unit price, `wac`, `replacement_cost`, cost snapshots, theoretical unit cost | `INTEGER` milli-centavos per **WHOLE** unit | `MilliCentavosPerUnit` | `_mc` | Bs 8.00 per unit → `800000`; Bs 12.345/kg → `1234500` |
 | Quantity | `INTEGER` milli-units of the item's own unit | `MilliUnits` | none | 1.5 kg (unit=KG) → `1500` |
 | Percent / rate | `INTEGER` basis points | `BasisPoints` | none | 30% → `3000` |
 
@@ -42,6 +42,12 @@ Rules:
   assertions catch bad input.
 - Arithmetic happens on integers in `packages/shared/money.ts` / `qty.ts`; rounding half-up only
   when producing a final amount; proportional splits use largest-remainder allocation.
+
+> **Correction (found during KOK-070, 2026-07-28).** This section's `MilliCentavosPerUnit`
+> example originally showed `8000000`/`12345000` — 10× too large; `milli-` is ×1000, same as
+> `MilliUnits`, so Bs 8.00/unit is `800000` milli-centavos, not `8000000`. See ADR-017's
+> correction note for the full derivation. The `totalCentavos`/`rateFromTotal` formulas below
+> were never wrong, only the worked examples were.
 
 > **Transition state (2026-07-27 → KOK-071).** This section states the target adopted in
 > ADR-017. The DDL in §3 below still shows the **pre-migration-0007** columns — `REAL`,

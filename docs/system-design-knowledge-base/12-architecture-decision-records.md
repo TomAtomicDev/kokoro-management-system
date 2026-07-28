@@ -352,7 +352,7 @@ cost of fixing the representation is close to zero and will only ever rise.
 | Concept | Scale | Brand | Column suffix |
 |---|---|---|---|
 | Money amount (total, balance, line total) | integer **centavos** | `Centavos` | none |
-| **Any per-unit rate** (sale price, unit price, WAC, replacement cost, cost snapshot, theoretical unit cost) | integer **milli-centavos per WHOLE unit** (Bs 8.00/u → `8_000_000`) | `MilliCentavosPerUnit` | `_mc` |
+| **Any per-unit rate** (sale price, unit price, WAC, replacement cost, cost snapshot, theoretical unit cost) | integer **milli-centavos per WHOLE unit** (Bs 8.00/u → `800_000`) | `MilliCentavosPerUnit` | `_mc` |
 | Quantity | integer **milli-units** of the item's own unit | `MilliUnits` | none |
 | Percent / rate | integer **basis points** | `BasisPoints` | none |
 
@@ -371,7 +371,18 @@ cost of fixing the representation is close to zero and will only ever rise.
    Runtime `assertSafeInteger` guards stay — brands catch developer error, assertions catch
    bad input.
 5. **Column names carry `_mc`** so raw SQL, D1 console sessions and CSV exports are
-   self-describing. `8000000` is unreadable; `sale_price_mc = 8000000` is not.
+   self-describing. `800000` is unreadable; `sale_price_mc = 800000` is not.
+
+**Correction (found during KOK-070).** Every worked example above (and the two duplicates in
+Doc 04 §2 and Doc 13) originally read `8_000_000` for Bs 8.00/u and `12_345_000` for Bs 12.345/kg
+— 10× too large. `milli-` is literally ×1000 (matching `MilliUnits`, which is unambiguously
+×1000 in shipped code — see `qty.ts`'s `formatQty`, `÷ 1000`), so Bs 8.00 = 800 centavos ×
+1000 = `800_000` milli-centavos, not `8_000_000`. The stated formulas were never wrong —
+`totalCentavos(800_000, 1000)` (rate × qty ÷ 1e6, qty=1000 for one whole unit) already produces
+the correct `800` centavos — only the illustrative numbers were, evidently copy-pasted between
+the three docs without being checked against the formula. Fixed here and in Doc 04 §2 / Doc 13
+in the same PR (D-1); `packages/shared/src/money.test.ts` now property-tests
+`totalCentavos`/`rateFromTotal` against the corrected scale.
 
 Delivered by a new forward migration (KOK-071), not by editing applied migrations — the
 never-modify-applied-migrations guardrail holds even pre-production, and a fresh dev DB from

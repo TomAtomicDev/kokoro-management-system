@@ -11,6 +11,18 @@
 import { UNITS, type Unit } from "./enums";
 import { assertSafeInteger, groupThousands } from "./numeric";
 
+/**
+ * An integer number of milli-units of the item's own stored unit (INV-6,
+ * ADR-017): 1.5 kg (unit=KG) → `1500`; 12 units (unit=UNIT) → `12000`.
+ */
+export type MilliUnits = number & { readonly __brand: "MilliUnits" };
+
+/** Constructs a `MilliUnits` value, asserting it is a safe integer (INV-6). */
+export function toMilliUnits(value: number): MilliUnits {
+  assertSafeInteger(value, "milliUnits");
+  return value as MilliUnits;
+}
+
 /** Display abbreviation per stored unit. `UNIT` shows as lowercase `u`. */
 const UNIT_LABELS: Record<Unit, string> = {
   G: "g",

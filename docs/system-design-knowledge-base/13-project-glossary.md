@@ -71,7 +71,7 @@ term exactly**. When speaking with the owner, use Spanish. Enum literals per Doc
 | `SUPPLY_PURCHASE` | Compra de insumos |
 | `DEPOSIT_REFUND` | Devolución de anticipo |
 | centavos | Storage unit of money amounts — totals, balances, line totals: Bs 1,00 = 100 centavos (INV-6, ADR-017) |
-| milli-centavo per whole unit (`_mc`) | Storage unit of **every per-unit rate** — sale price, unit price, WAC, replacement cost, cost snapshots: Bs 8,00 per unit → `8000000`. One scale for all rates, so any two of them can be subtracted safely (ADR-017) |
+| milli-centavo per whole unit (`_mc`) | Storage unit of **every per-unit rate** — sale price, unit price, WAC, replacement cost, cost snapshots: Bs 8,00 per unit → `800000`. One scale for all rates, so any two of them can be subtracted safely (ADR-017) |
 | milli-unit | Storage unit of quantity: 1 kg → 1000 (unit `KG`) |
 | basis points (bp) | Storage unit of percentages and rates: 30% → `3000`, 100% → `10000` (INV-6) |
 
