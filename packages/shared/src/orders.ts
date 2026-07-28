@@ -38,10 +38,12 @@ import type { FinancialAccountDto } from "./finance.js";
 import {
   allocateLargestRemainder,
   type Centavos,
-  mulMoneyByQty,
-  roundHalfUpToInt,
+  type MilliCentavosPerUnit,
+  rateFromTotal,
   toCentavos,
+  totalCentavos,
 } from "./money.js";
+import { toMilliUnits } from "./qty.js";
 import type { SaleDto } from "./sales.js";
 
 /** `YYYY-MM-DD`, America/La_Paz local calendar date (Doc 04 §1, INV-3). */
@@ -343,7 +345,7 @@ export interface OrderLineAllocation {
   /** Centavos this line contributes to `agreedTotal`. */
   lineTotal: Centavos;
   /** Centavos per WHOLE unit, i.e. what `sale_lines.unit_price` will store. */
-  unitPrice: Centavos;
+  unitPriceMc: MilliCentavosPerUnit;
 }
 
 /**
@@ -362,12 +364,11 @@ export interface OrderLineAllocation {
  * error rather than silently misstating revenue:
  *  - pinned lines already exceed `agreedTotal`, or they fall short with no unpinned line to absorb
  *    the difference (the owner's own numbers don't add up); or
- *  - the per-unit prices cannot reproduce the split exactly — `Σ(qty × unitPrice)` must equal
+ *  - the per-unit rates cannot reproduce the split exactly — `Σ(qty × unitPriceMc)` must equal
  *    `agreedTotal` because Doc 04 §5 recomputes `sales.total` from exactly that expression. This is
  *    unreachable whenever every `qty` is 1000 (one whole unit — the DDL default and the normal
  *    case), where `unitPrice === lineTotal` identically; it can only bite on indivisible fractional
- *    quantities, e.g. Bs 1,00 split across a single 3-unit line, where no integer centavo per-unit
- *    price yields exactly 100.
+ *    quantities whose milli-centavo rate still rounds away from the agreed total.
  */
 export function allocateAgreedTotalToOrderLines(
   agreedTotal: Centavos,
@@ -401,13 +402,13 @@ export function allocateAgreedTotalToOrderLines(
 
   const allocations: OrderLineAllocation[] = lines.map((line, i) => {
     const lineTotal = toCentavos(lineTotals[i] ?? 0);
-    return { lineTotal, unitPrice: toCentavos(roundHalfUpToInt((lineTotal * 1000) / line.qty)) };
+    return { lineTotal, unitPriceMc: rateFromTotal(lineTotal, toMilliUnits(line.qty)) };
   });
 
   // Doc 04 §5's `sales.total = Σ(qty × unit_price)` is what the service will actually store, so the
   // reconstruction — not the intermediate `lineTotals` — is what has to equal `agreedTotal`.
   const reconstructed = allocations.reduce(
-    (sum, a, i) => sum + mulMoneyByQty(a.unitPrice, lines[i]?.qty ?? 0),
+    (sum, a, i) => sum + totalCentavos(a.unitPriceMc, toMilliUnits(lines[i]?.qty ?? 0)),
     0,
   );
   return reconstructed === agreedTotal ? allocations : null;

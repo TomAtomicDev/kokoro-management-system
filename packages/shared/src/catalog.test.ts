@@ -44,7 +44,7 @@ describe("createItemCommandSchema", () => {
       kind: "FINISHED",
       category: "BAKERY",
       unit: "UNIT",
-      salePrice: -100,
+      salePriceMc: -100,
     });
     expect(result.success).toBe(false);
   });

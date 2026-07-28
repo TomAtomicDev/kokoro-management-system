@@ -24,13 +24,15 @@ import type {
 } from "@kokoro/shared";
 import {
   formatMoney,
-  mulMoneyByQty,
   nowIso,
   PAYMENT_METHODS,
   type PaymentMethod,
   type PaymentStatus,
   recordSaleCommandSchema,
+  rateFromTotal,
   toBusinessDate,
+  toCentavos,
+  toMilliUnits,
   toMilliCentavosPerUnit,
   totalCentavos,
   WHOLE_UNIT_MILLI_UNITS,
@@ -104,7 +106,10 @@ export function saleToFormState(sale: SaleDto, accounts: FinancialAccountDto[]):
         ? sale.lines.map((line) => ({
             itemId: line.itemId,
             qty: formatIntAsDecimalInput(line.qty, 3),
-            amount: formatIntAsDecimalInput(line.unitPrice, 2),
+            amount: formatIntAsDecimalInput(
+              totalCentavos(line.unitPriceMc, WHOLE_UNIT_MILLI_UNITS),
+              2,
+            ),
           }))
         : [emptyLine()],
   };
@@ -195,8 +200,14 @@ export function SaleForm({ open, onOpenChange, accounts, sale }: SaleFormProps) 
       const prevItemId = lines[index]?.itemId ?? null;
       if (line.itemId && line.itemId !== prevItemId && line.amount.trim() === "") {
         const item = itemsById.get(line.itemId);
-        if (item?.salePrice != null) {
-          return { ...line, amount: formatIntAsDecimalInput(item.salePrice, 2) };
+        if (item?.salePriceMc != null) {
+          return {
+            ...line,
+            amount: formatIntAsDecimalInput(
+              totalCentavos(item.salePriceMc, WHOLE_UNIT_MILLI_UNITS),
+              2,
+            ),
+          };
         }
       }
       return line;
@@ -224,7 +235,10 @@ export function SaleForm({ open, onOpenChange, accounts, sale }: SaleFormProps) 
       const qty = parseDecimalToInt(line.qty, 3);
       const unitPrice = parseDecimalToInt(line.amount, 2);
       if (qty === null || qty <= 0 || unitPrice === null) continue;
-      sum += mulMoneyByQty(unitPrice, qty);
+      sum += totalCentavos(
+        rateFromTotal(toCentavos(unitPrice), WHOLE_UNIT_MILLI_UNITS),
+        toMilliUnits(qty),
+      );
     }
     return sum;
   }, [lines]);
@@ -236,7 +250,7 @@ export function SaleForm({ open, onOpenChange, accounts, sale }: SaleFormProps) 
       return;
     }
 
-    const parsedLines: { itemId: string; qty: number; unitPrice: number }[] = [];
+    const parsedLines: { itemId: string; qty: number; unitPriceMc: number }[] = [];
     for (const line of lines) {
       const qty = parseDecimalToInt(line.qty, 3);
       const unitPrice = parseDecimalToInt(line.amount, 2);
@@ -244,7 +258,11 @@ export function SaleForm({ open, onOpenChange, accounts, sale }: SaleFormProps) 
         setError(salesLabels.errors.invalidLine);
         return;
       }
-      parsedLines.push({ itemId: line.itemId, qty, unitPrice });
+      parsedLines.push({
+        itemId: line.itemId,
+        qty,
+        unitPriceMc: rateFromTotal(toCentavos(unitPrice), WHOLE_UNIT_MILLI_UNITS),
+      });
     }
 
     const commonFields = {
@@ -296,7 +314,12 @@ export function SaleForm({ open, onOpenChange, accounts, sale }: SaleFormProps) 
     const qty = parseDecimalToInt(line.qty, 3);
     const unitPrice = parseDecimalToInt(line.amount, 2);
     const subtotal =
-      qty !== null && qty > 0 && unitPrice !== null ? mulMoneyByQty(unitPrice, qty) : null;
+      qty !== null && qty > 0 && unitPrice !== null
+        ? totalCentavos(
+            rateFromTotal(toCentavos(unitPrice), WHOLE_UNIT_MILLI_UNITS),
+            toMilliUnits(qty),
+          )
+        : null;
 
     const onHand = onHandByItemId.get(item.id) ?? 0;
     const requested = qtyByItemId.get(item.id) ?? 0;
@@ -309,8 +332,8 @@ export function SaleForm({ open, onOpenChange, accounts, sale }: SaleFormProps) 
     const belowReplacementWarning =
       unitPrice !== null &&
       item.replacementCostMc > 0 &&
-      unitPrice <
-        totalCentavos(toMilliCentavosPerUnit(item.replacementCostMc), WHOLE_UNIT_MILLI_UNITS);
+      rateFromTotal(toCentavos(unitPrice), WHOLE_UNIT_MILLI_UNITS) <
+        toMilliCentavosPerUnit(item.replacementCostMc);
 
     return (
       <div className="flex flex-col gap-0.5 text-xs">

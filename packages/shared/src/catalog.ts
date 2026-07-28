@@ -9,12 +9,19 @@ import { z } from "zod";
 
 import type { ItemCategory, ItemKind, Unit } from "./enums.js";
 import { itemCategorySchema, itemKindSchema, unitSchema } from "./enums.js";
+import { type MilliCentavosPerUnit, toMilliCentavosPerUnit } from "./money.js";
 
 const itemNameSchema = z.string().trim().min(1, "El nombre es obligatorio.").max(200);
 const aliasSchema = z.string().trim().min(1, "El alias no puede estar vacÃƒÆ’Ã‚Â­o.").max(200);
 const notesSchema = z.string().trim().max(2000).nullable().optional();
 /** Centavos, matching money.ts's Centavos representation (INV-6). */
-const salePriceSchema = z.number().int().nonnegative().nullable().optional();
+const salePriceMcSchema = z
+  .number()
+  .int()
+  .nonnegative()
+  .transform(toMilliCentavosPerUnit)
+  .nullable()
+  .optional();
 /** Milli-units, matching qty.ts's representation (INV-6). */
 const minStockQtySchema = z.number().int().nonnegative().nullable().optional();
 
@@ -23,7 +30,7 @@ export const createItemCommandSchema = z.object({
   kind: itemKindSchema,
   category: itemCategorySchema,
   unit: unitSchema,
-  salePrice: salePriceSchema,
+  salePriceMc: salePriceMcSchema,
   minStockQty: minStockQtySchema,
   notes: notesSchema,
 });
@@ -35,7 +42,7 @@ export const updateItemCommandSchema = z.object({
   kind: itemKindSchema.optional(),
   category: itemCategorySchema.optional(),
   unit: unitSchema.optional(),
-  salePrice: salePriceSchema,
+  salePriceMc: salePriceMcSchema,
   minStockQty: minStockQtySchema,
   notes: notesSchema,
 });
@@ -103,7 +110,7 @@ export interface ItemDto {
   /** Derived (C-3), integer milli-centavos per WHOLE unit ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â read-only. */
   replacementCostMc: number;
   replacementCostUpdatedAt: string | null;
-  salePrice: number | null;
+  salePriceMc: MilliCentavosPerUnit | null;
   minStockQty: number | null;
   isActive: boolean;
   notes: string | null;

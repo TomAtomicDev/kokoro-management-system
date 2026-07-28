@@ -77,11 +77,13 @@ import {
   DEFAULT_DEPOSIT_PCT_BP,
   generateUuidV7,
   mulMoneyByBasisPoints,
-  mulMoneyByQty,
   nowIso,
   REPLAY_CONFIRMATION_REQUIRED,
   subMoney,
+  toCentavos,
   toMilliCentavosPerUnit,
+  toMilliUnits,
+  totalCentavos,
 } from "@kokoro/shared";
 import { eq } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
@@ -222,7 +224,7 @@ function toSaleDto(row: SaleRow, lineRows: readonly SaleLineRow[]): SaleDto {
       id: l.id,
       itemId: l.itemId,
       qty: l.qty,
-      unitPrice: l.unitPrice,
+      unitPriceMc: toMilliCentavosPerUnit(l.unitPriceMc),
       unitCostSnapshotMc: l.unitCostSnapshotMc,
     })),
     createdAt: row.createdAt,
@@ -657,7 +659,7 @@ async function buildDeliveryPlan(
       saleId,
       itemId,
       qty: line.qty,
-      unitPrice: allocation.unitPrice,
+      unitPriceMc: allocation.unitPriceMc,
       unitCostSnapshotMc,
     });
     movements.push({
@@ -680,7 +682,11 @@ async function buildDeliveryPlan(
   // allocation guarantees these agree; asserting it here is what makes that guarantee load-bearing
   // rather than assumed.
   const total = saleLineRows.reduce(
-    (sum, line) => addMoney(sum, mulMoneyByQty(line.unitPrice, line.qty)),
+    (sum, line) =>
+      addMoney(
+        toCentavos(sum),
+        totalCentavos(toMilliCentavosPerUnit(line.unitPriceMc), toMilliUnits(line.qty)),
+      ),
     0,
   );
   if (total !== agreedTotal) {

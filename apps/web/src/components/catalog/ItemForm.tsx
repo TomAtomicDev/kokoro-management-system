@@ -8,7 +8,10 @@ import {
   formatQty,
   ITEM_CATEGORIES,
   ITEM_KINDS,
+  rateFromTotal,
+  toCentavos,
   toMilliCentavosPerUnit,
+  type MilliCentavosPerUnit,
   totalCentavos,
   UNITS,
   WHOLE_UNIT_MILLI_UNITS,
@@ -49,7 +52,7 @@ export function itemFormValuesFromDto(item: {
   kind: ItemKind;
   category: ItemCategory;
   unit: Unit;
-  salePrice: number | null;
+  salePriceMc: MilliCentavosPerUnit | null;
   minStockQty: number | null;
   notes: string | null;
 }): ItemFormValues {
@@ -58,7 +61,13 @@ export function itemFormValuesFromDto(item: {
     kind: item.kind,
     category: item.category,
     unit: item.unit,
-    salePrice: item.salePrice === null ? "" : formatIntAsDecimalInput(item.salePrice, 2),
+    salePrice:
+      item.salePriceMc === null
+        ? ""
+        : formatIntAsDecimalInput(
+            totalCentavos(item.salePriceMc, WHOLE_UNIT_MILLI_UNITS),
+            2,
+          ),
     minStockQty: item.minStockQty === null ? "" : formatIntAsDecimalInput(item.minStockQty, 3),
     notes: item.notes ?? "",
   };
@@ -70,7 +79,7 @@ export interface ItemFormParsed {
   kind: ItemKind;
   category: ItemCategory;
   unit: Unit;
-  salePrice: number | null;
+  salePriceMc: MilliCentavosPerUnit | null;
   minStockQty: number | null;
   notes: string | null;
 }
@@ -80,11 +89,11 @@ export function parseItemFormValues(values: ItemFormValues): ItemFormParsed | nu
   const name = values.name.trim();
   if (name === "") return null;
 
-  let salePrice: number | null = null;
+  let salePriceMc: MilliCentavosPerUnit | null = null;
   if (values.salePrice.trim() !== "") {
     const parsed = parseDecimalToInt(values.salePrice, 2);
     if (parsed === null) return null;
-    salePrice = parsed;
+    salePriceMc = rateFromTotal(toCentavos(parsed), WHOLE_UNIT_MILLI_UNITS);
   }
 
   let minStockQty: number | null = null;
@@ -99,7 +108,7 @@ export function parseItemFormValues(values: ItemFormValues): ItemFormParsed | nu
     kind: values.kind,
     category: values.category,
     unit: values.unit,
-    salePrice,
+    salePriceMc,
     minStockQty,
     notes: values.notes.trim() === "" ? null : values.notes.trim(),
   };

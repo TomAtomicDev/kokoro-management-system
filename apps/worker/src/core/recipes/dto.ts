@@ -51,7 +51,7 @@ async function loadItemsById(db: Db, itemIds: readonly string[]): Promise<Map<st
  */
 function buildCostDto(
   basis: "wac" | "replacementCostMc",
-  outputItem: Pick<ItemRow, "salePrice">,
+  outputItem: Pick<ItemRow, "salePriceMc">,
   lineRows: readonly RecipeLineRow[],
   itemsById: ReadonlyMap<string, ItemRow>,
   expectedYieldQty: number,
@@ -68,7 +68,12 @@ function buildCostDto(
     return { qty: line.qty, unitCost };
   });
   const costPerOutputUnit = computeTheoreticalCostPerOutputUnit(lines, expectedYieldQty);
-  const margin = computeRecipeMargin(outputItem.salePrice, costPerOutputUnit);
+  const margin = computeRecipeMargin(
+    outputItem.salePriceMc === null
+      ? null
+      : toMilliCentavosPerUnit(outputItem.salePriceMc),
+    costPerOutputUnit,
+  );
   return { costPerOutputUnit, margin };
 }
 
@@ -83,8 +88,8 @@ export async function toRecipeDto(
   // Falls back to a `salePrice: null` stand-in rather than throwing: the recipe row itself is the
   // authoritative read here (getRecipe/listRecipes already resolved it), and an output item deleted
   // out from under a FK RESTRICT is unreachable Ã¢â‚¬â€ this mirrors buildCostDto's same defensive stance.
-  const outputItem: Pick<ItemRow, "salePrice"> = itemsById.get(row.outputItemId) ?? {
-    salePrice: null,
+  const outputItem: Pick<ItemRow, "salePriceMc"> = itemsById.get(row.outputItemId) ?? {
+    salePriceMc: null,
   };
 
   return {

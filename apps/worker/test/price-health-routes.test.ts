@@ -35,7 +35,7 @@ function authHeaders(auth: { cookie: string; csrf: string }) {
 
 interface PriceHealthRow {
   itemId: string;
-  salePrice: number | null;
+  salePriceMc: number | null;
   wac: number;
   replacementCostMc: number;
   marginWac: { amount: number; pctBasisPoints: number } | null;
@@ -62,7 +62,7 @@ describe("GET /api/price-health", () => {
         kind: "FINISHED",
         category: "BAKERY",
         unit: "UNIT",
-        salePrice: 10000, // Bs 100.00
+        salePriceMc: 10_000_000, // Bs 100.00
       }),
     }).then((r) => r.json() as Promise<{ id: string }>);
 

@@ -8,6 +8,8 @@
 // owns the threshold-to-color classification (apps/web/src/components/pricing/MarginBadge.tsx), so
 // no `belowMinMargin`-style flag is duplicated here.
 
+import type { MilliCentavosPerUnit } from "./money.js";
+
 export interface PriceMarginDto {
   /** Centavos (INV-6): `salePrice ÃƒÂ¢Ã‹â€ Ã¢â‚¬â„¢ cost`, already rounded to a whole-centavos amount (D-5). */
   amount: number;
@@ -19,7 +21,7 @@ export interface PriceHealthRowDto {
   itemId: string;
   name: string;
   /** Centavos per whole unit; `null` means no price set yet (nothing to alert on). */
-  salePrice: number | null;
+  salePriceMc: MilliCentavosPerUnit | null;
   /** Integer milli-centavos per WHOLE unit (ADR-017/KOK-071). */
   wacMc: number;
   /** Integer milli-centavos per WHOLE unit (ADR-017/KOK-071). */

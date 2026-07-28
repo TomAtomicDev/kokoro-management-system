@@ -17,6 +17,7 @@ import { z } from "zod";
 
 import type { ItemCategory, ItemKind, StockMovementType, Unit } from "./enums.js";
 import { itemKindSchema } from "./enums.js";
+import type { MilliCentavosPerUnit } from "./money.js";
 
 /** `YYYY-MM-DD`, America/La_Paz local calendar date (Doc 04 Ã‚Â§1, INV-3). */
 const businessDateSchema = z
@@ -56,7 +57,7 @@ export interface StockRowDto {
   /** Replacement cost, integer milli-centavos per WHOLE unit (ADR-017/KOK-071). */
   replacementCostMc: number;
   /** Centavos (INV-6). Null when the item has no set sale price yet. */
-  salePrice: number | null;
+  salePriceMc: MilliCentavosPerUnit | null;
   /** Milli-units (Doc 04 Ã‚Â§2). Null when no minimum stock threshold is configured for the item. */
   minStockQty: number | null;
   /** Milli-units (Doc 04 Ã‚Â§2). */

@@ -10,6 +10,8 @@ import {
   type ItemCategory,
   type ItemDto,
   type ItemKind,
+  totalCentavos,
+  WHOLE_UNIT_MILLI_UNITS,
 } from "@kokoro/shared";
 import { useState } from "react";
 
@@ -77,7 +79,10 @@ export function SettingsCatalogRoute() {
       id: "price",
       header: catalogLabels.columnPrice,
       numeric: true,
-      cell: (item) => (item.salePrice === null ? "—" : formatMoney(item.salePrice)),
+      cell: (item) =>
+        item.salePriceMc === null
+          ? "—"
+          : formatMoney(totalCentavos(item.salePriceMc, WHOLE_UNIT_MILLI_UNITS)),
     },
     {
       id: "minStock",

@@ -44,13 +44,15 @@ function assertSafeIntegerInput(value: number, label: string): void {
  * `computeRecipeMargin`'s identical precedent in core/recipes/theoretical-cost.ts).
  */
 export function computePriceMargin(
-  salePrice: number | null,
+  salePriceMc: MilliCentavosPerUnit | null,
   costMc: MilliCentavosPerUnit,
 ): PriceMarginDto | null {
-  if (salePrice === null || salePrice === 0) return null;
-  assertSafeIntegerInput(salePrice, "salePrice");
+  if (salePriceMc === null || salePriceMc === 0) return null;
+  assertSafeIntegerInput(salePriceMc, "salePriceMc");
+  const salePrice = totalCentavos(salePriceMc, WHOLE_UNIT_MILLI_UNITS);
+  if (salePrice === 0) return null;
   const costPerUnit = totalCentavos(costMc, WHOLE_UNIT_MILLI_UNITS);
-  const amount = subMoney(toCentavos(salePrice), costPerUnit);
+  const amount = subMoney(salePrice, costPerUnit);
   const pctBasisPoints = roundHalfUpToInt((amount * 10000) / salePrice);
   return { amount, pctBasisPoints };
 }
@@ -88,7 +90,7 @@ interface PriceHealthItemRow {
   wacMc: number;
   replacementCostMc: number;
   replacementCostUpdatedAt: string | null;
-  salePrice: number | null;
+  salePriceMc: number | null;
 }
 
 /**
@@ -109,7 +111,7 @@ export async function listPriceHealth(
       wacMc: true,
       replacementCostMc: true,
       replacementCostUpdatedAt: true,
-      salePrice: true,
+      salePriceMc: true,
     },
   });
 
@@ -138,13 +140,17 @@ export async function listPriceHealth(
     return {
       itemId: row.id,
       name: row.name,
-      salePrice: row.salePrice,
+      salePriceMc:
+        row.salePriceMc === null ? null : toMilliCentavosPerUnit(row.salePriceMc),
       wacMc: row.wacMc,
       replacementCostMc: row.replacementCostMc,
       replacementCostUpdatedAt: row.replacementCostUpdatedAt,
-      marginWac: computePriceMargin(row.salePrice, toMilliCentavosPerUnit(row.wacMc)),
+      marginWac: computePriceMargin(
+        row.salePriceMc === null ? null : toMilliCentavosPerUnit(row.salePriceMc),
+        toMilliCentavosPerUnit(row.wacMc),
+      ),
       marginReplacement: computePriceMargin(
-        row.salePrice,
+        row.salePriceMc === null ? null : toMilliCentavosPerUnit(row.salePriceMc),
         toMilliCentavosPerUnit(row.replacementCostMc),
       ),
       priceSuggested: computePriceSuggested(

@@ -23,6 +23,7 @@ import type {
   StockRowDto,
   Unit,
 } from "@kokoro/shared";
+import { toMilliCentavosPerUnit } from "@kokoro/shared";
 import { type SQL, sql } from "drizzle-orm";
 
 import type { Db } from "../../db/index.js";
@@ -38,7 +39,7 @@ interface StockViewRow {
   unit: Unit;
   wac_mc: number;
   replacement_cost_mc: number;
-  sale_price: number | null;
+  sale_price_mc: number | null;
   min_stock_qty: number | null;
   is_active: number;
   qty_on_hand: number;
@@ -74,7 +75,8 @@ function toStockRowDto(row: StockViewRow): StockRowDto {
     unit: row.unit,
     wacMc: row.wac_mc,
     replacementCostMc: row.replacement_cost_mc,
-    salePrice: row.sale_price,
+    salePriceMc:
+      row.sale_price_mc === null ? null : toMilliCentavosPerUnit(row.sale_price_mc),
     minStockQty: row.min_stock_qty,
     qtyOnHand: row.qty_on_hand,
     negativeSince: row.negative_since,

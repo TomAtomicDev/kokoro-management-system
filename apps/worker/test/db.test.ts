@@ -150,8 +150,8 @@ describe("migration 0001", () => {
     const now = "2026-07-14T10:00:00.000Z";
     await env.DB.prepare(
       `INSERT INTO items
-         (id, name, kind, category, unit, is_active, sale_price, wac_mc, replacement_cost_mc, created_at, updated_at)
-       VALUES ('item_price_health_test', 'Price health test cake', 'FINISHED', 'BAKERY', 'UNIT', 1, 5000, 1500000000, 1600, ?, ?)`,
+         (id, name, kind, category, unit, is_active, sale_price_mc, wac_mc, replacement_cost_mc, created_at, updated_at)
+       VALUES ('item_price_health_test', 'Price health test cake', 'FINISHED', 'BAKERY', 'UNIT', 1, 5000000, 1500000000, 1600, ?, ?)`,
     )
       .bind(now, now)
       .run();
@@ -163,7 +163,7 @@ describe("migration 0001", () => {
     expect(row).toEqual({
       item_id: "item_price_health_test",
       name: "Price health test cake",
-      sale_price: 5000,
+      sale_price_mc: 5000000,
       wac_mc: 1500000000,
       replacement_cost_mc: 1600,
       replacement_cost_updated_at: null,

@@ -82,11 +82,13 @@ import type {
 import {
   addMoney,
   generateUuidV7,
-  mulMoneyByQty,
   nowIso,
   REPLAY_CONFIRMATION_REQUIRED,
   subMoney,
+  toCentavos,
   toMilliCentavosPerUnit,
+  toMilliUnits,
+  totalCentavos,
 } from "@kokoro/shared";
 import { eq, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
@@ -121,7 +123,7 @@ function toSaleDto(row: SaleRow, lineRows: readonly SaleLineRow[]): SaleDto {
     id: l.id,
     itemId: l.itemId,
     qty: l.qty,
-    unitPrice: l.unitPrice,
+    unitPriceMc: toMilliCentavosPerUnit(l.unitPriceMc),
     unitCostSnapshotMc: l.unitCostSnapshotMc,
   }));
   return {
@@ -228,14 +230,16 @@ async function buildSaleCreateMovements(
 
     // Doc 04 §5: the per-line money total is qty (milli-units) × unit_price (centavos/whole unit),
     // rounded to whole centavos — mulMoneyByQty is exactly that. Summed into the sale total below.
-    lineTotals.push(mulMoneyByQty(line.unitPrice, line.qty));
+    lineTotals.push(
+      totalCentavos(toMilliCentavosPerUnit(line.unitPriceMc), toMilliUnits(line.qty)),
+    );
 
     saleLineRows.push({
       id: generateUuidV7(),
       saleId,
       itemId: line.itemId,
       qty: line.qty,
-      unitPrice: line.unitPrice,
+      unitPriceMc: line.unitPriceMc,
       unitCostSnapshotMc,
     });
 
@@ -741,13 +745,15 @@ async function buildSaleUpdateMutationInputs(
       // Unreachable: snapshotByItem was seeded from the same distinct itemIds as command.lines.
       throw validationError("Estado interno de venta inconsistente.", { itemId: line.itemId });
     }
-    lineTotals.push(mulMoneyByQty(line.unitPrice, line.qty));
+    lineTotals.push(
+      totalCentavos(toMilliCentavosPerUnit(line.unitPriceMc), toMilliUnits(line.qty)),
+    );
     return {
       id: generateUuidV7(),
       saleId: id,
       itemId: line.itemId,
       qty: line.qty,
-      unitPrice: line.unitPrice,
+      unitPriceMc: line.unitPriceMc,
       unitCostSnapshotMc,
     };
   });

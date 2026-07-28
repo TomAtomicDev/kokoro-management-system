@@ -1,4 +1,9 @@
-import { toMilliCentavosPerUnit } from "@kokoro/shared";
+import {
+  rateFromTotal,
+  toCentavos,
+  toMilliCentavosPerUnit,
+  WHOLE_UNIT_MILLI_UNITS,
+} from "@kokoro/shared";
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 
@@ -106,13 +111,19 @@ describe("computeTheoreticalCostPerOutputUnit (C-3b)", () => {
 
 describe("computeRecipeMargin (C-5, applied to a recipe's theoretical cost)", () => {
   it("computes positive and negative margins", () => {
-    expect(computeRecipeMargin(1000, 700)).toEqual({ amount: 300, pctBasisPoints: 3000 });
-    expect(computeRecipeMargin(500, 800)).toEqual({ amount: -300, pctBasisPoints: -6000 });
+    expect(computeRecipeMargin(toMilliCentavosPerUnit(1_000_000), 700)).toEqual({
+      amount: 300,
+      pctBasisPoints: 3000,
+    });
+    expect(computeRecipeMargin(toMilliCentavosPerUnit(500_000), 800)).toEqual({
+      amount: -300,
+      pctBasisPoints: -6000,
+    });
   });
 
   it("returns null without a positive sale price", () => {
     expect(computeRecipeMargin(null, 700)).toBeNull();
-    expect(computeRecipeMargin(0, 700)).toBeNull();
+    expect(computeRecipeMargin(toMilliCentavosPerUnit(0), 700)).toBeNull();
   });
 
   it("property: amount plus cost reconstructs sale price", () => {
@@ -121,7 +132,10 @@ describe("computeRecipeMargin (C-5, applied to a recipe's theoretical cost)", ()
         fc.integer({ min: 1, max: 100_000_000 }),
         fc.integer({ min: 0, max: 100_000_000 }),
         (salePrice, costPerOutputUnit) => {
-          const margin = computeRecipeMargin(salePrice, costPerOutputUnit);
+          const margin = computeRecipeMargin(
+            rateFromTotal(toCentavos(salePrice), WHOLE_UNIT_MILLI_UNITS),
+            costPerOutputUnit,
+          );
           expect((margin as { amount: number }).amount + costPerOutputUnit).toBe(salePrice);
         },
       ),

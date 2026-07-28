@@ -56,7 +56,7 @@ export async function bulkCreateItems(
     wacMc: toMilliCentavosPerUnit(0),
     replacementCostMc: 0,
     replacementCostUpdatedAt: null,
-    salePrice: item.salePrice ?? null,
+    salePriceMc: item.salePriceMc ?? null,
     minStockQty: item.minStockQty ?? null,
     isActive: 1,
     notes: item.notes ?? null,

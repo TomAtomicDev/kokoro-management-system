@@ -110,17 +110,6 @@ export function mulMoneyByBasisPoints(amount: Centavos, basisPoints: BasisPoints
 }
 
 /**
- * Multiply a per-unit price (centavos per whole unit) by a quantity expressed
- * in milli-units (see qty.ts), rounding half-up to whole centavos. e.g. a
- * price of Bs 8.00/unit for 1.5 units → mulMoneyByQty(800, 1500) → 1200.
- */
-export function mulMoneyByQty(unitPrice: Centavos, milliUnits: number): Centavos {
-  assertSafeInteger(unitPrice, "unitPrice");
-  assertSafeInteger(milliUnits, "milliUnits");
-  return roundHalfUpToInt((unitPrice * milliUnits) / 1000) as Centavos;
-}
-
-/**
  * The only two scale-conversion helpers in the repo (Doc 04 §2, ADR-017): the
  * sole place either a `/ 1_000_000` or `× 1_000_000` scale factor may appear
  * in a cost or price expression. A bare `1000` / `1e6` anywhere else in such

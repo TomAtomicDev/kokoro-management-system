@@ -27,6 +27,7 @@ import {
   type SaleChannel,
 } from "./enums.js";
 import type { FinancialAccountDto } from "./finance.js";
+import { type MilliCentavosPerUnit, toMilliCentavosPerUnit } from "./money.js";
 
 /** Milli-units of the item's own stored unit (Doc 04 §2), matching qty.ts's representation. Always
  * positive — a sale line removes stock, and the OUT sign is applied server-side, never sent. */
@@ -37,10 +38,11 @@ const qtySchema = z
 /** Centavos per WHOLE unit (INV-6), editable vs the catalog list price (Doc 04 §3.3). May be zero
  * (a giveaway line) but never negative. The per-line money total is `qty × unit_price` computed
  * server-side (Doc 04 §5), never sent by the caller. */
-const unitPriceSchema = z
+const unitPriceMcSchema = z
   .number()
   .int()
-  .nonnegative("El precio unitario debe ser un entero no negativo (centavos).");
+  .nonnegative("El precio unitario debe ser un entero no negativo (milicentavos por unidad).")
+  .transform(toMilliCentavosPerUnit);
 /** `YYYY-MM-DD`, America/La_Paz local calendar date (Doc 04 §1, INV-3). */
 const businessDateSchema = z
   .string()
@@ -53,7 +55,7 @@ const occurredAtSchema = z
 export const saleLineCommandSchema = z.object({
   itemId: z.string().min(1),
   qty: qtySchema,
-  unitPrice: unitPriceSchema,
+  unitPriceMc: unitPriceMcSchema,
 });
 export type SaleLineCommand = z.infer<typeof saleLineCommandSchema>;
 
@@ -176,7 +178,7 @@ export interface SaleLineDto {
   /** Milli-units (Doc 04 §2). */
   qty: number;
   /** Centavos per whole unit (INV-6). */
-  unitPrice: number;
+  unitPriceMc: MilliCentavosPerUnit;
   /** WAC frozen at sale time (Doc 04 §3.3): milli-centavos per WHOLE unit (ADR-017/KOK-071) — the
    * per-line margin forever. Never recomputed after the sale commits. */
   unitCostSnapshotMc: number;

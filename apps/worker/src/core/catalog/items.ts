@@ -10,7 +10,14 @@ import type {
   SetItemActiveCommand,
   UpdateItemCommand,
 } from "@kokoro/shared";
-import { generateUuidV7, nowIso, toBusinessDate, toMilliCentavosPerUnit } from "@kokoro/shared";
+import {
+  generateUuidV7,
+  nowIso,
+  toBusinessDate,
+  toMilliCentavosPerUnit,
+  totalCentavos,
+  WHOLE_UNIT_MILLI_UNITS,
+} from "@kokoro/shared";
 import { eq } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 
@@ -24,7 +31,12 @@ type Statement = BatchItem<"sqlite">;
 
 /** KOK-035, Doc 07 SC-12: "Actualizar precio" (and a price set at creation) writes `price_history`
  * in the same batch as the `items.sale_price` write (D-3) ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â never as a separate follow-up call. */
-function buildPriceHistoryInsert(db: Db, itemId: string, price: number, now: string) {
+function buildPriceHistoryInsert(
+  db: Db,
+  itemId: string,
+  price: number,
+  now: string,
+) {
   return db.insert(priceHistory).values({
     id: generateUuidV7(),
     itemId,
@@ -63,7 +75,7 @@ export async function createItem(
     wacMc: toMilliCentavosPerUnit(0),
     replacementCostMc: 0,
     replacementCostUpdatedAt: null,
-    salePrice: command.salePrice ?? null,
+    salePriceMc: command.salePriceMc ?? null,
     minStockQty: command.minStockQty ?? null,
     isActive: 1,
     notes: command.notes ?? null,
@@ -82,8 +94,16 @@ export async function createItem(
       after: row,
     }),
   ];
-  if (row.salePrice !== null) {
-    statements.push(buildPriceHistoryInsert(db, row.id, row.salePrice, now));
+  if (row.salePriceMc !== null) {
+    // Migration 0010 follows this slice: price_history.price still stores Centavos here.
+    statements.push(
+      buildPriceHistoryInsert(
+        db,
+        row.id,
+        totalCentavos(row.salePriceMc, WHOLE_UNIT_MILLI_UNITS),
+        now,
+      ),
+    );
   }
   await db.batch(statements as [Statement, ...Statement[]]);
 
@@ -115,7 +135,7 @@ export async function updateItem(
     ...(command.kind !== undefined ? { kind: command.kind } : {}),
     ...(command.category !== undefined ? { category: command.category } : {}),
     ...(command.unit !== undefined ? { unit: command.unit } : {}),
-    ...(command.salePrice !== undefined ? { salePrice: command.salePrice } : {}),
+    ...(command.salePriceMc !== undefined ? { salePriceMc: command.salePriceMc } : {}),
     ...(command.minStockQty !== undefined ? { minStockQty: command.minStockQty } : {}),
     ...(command.notes !== undefined ? { notes: command.notes } : {}),
     updatedAt: now,
@@ -137,11 +157,19 @@ export async function updateItem(
   // the same value, and not a price being cleared to null (price_history.price is NOT NULL; there
   // is no normative KB rule for logging a price removal, so this simply doesn't log one, D-1).
   if (
-    command.salePrice !== undefined &&
-    command.salePrice !== null &&
-    command.salePrice !== existingRow.salePrice
+    command.salePriceMc !== undefined &&
+    command.salePriceMc !== null &&
+    command.salePriceMc !== existingRow.salePriceMc
   ) {
-    statements.push(buildPriceHistoryInsert(db, command.id, command.salePrice, now));
+    // Migration 0010 follows this slice: price_history.price still stores Centavos here.
+    statements.push(
+      buildPriceHistoryInsert(
+        db,
+        command.id,
+        totalCentavos(command.salePriceMc, WHOLE_UNIT_MILLI_UNITS),
+        now,
+      ),
+    );
   }
   await db.batch(statements as [Statement, ...Statement[]]);
 

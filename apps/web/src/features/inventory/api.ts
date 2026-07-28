@@ -133,7 +133,7 @@ export function useWasteSummary(filters: ListWasteSummaryFilters = {}) {
 
 /** On-demand twin of the nightly `replacement-cost-refresh` Cron Trigger job (same server-side
  * planner, api/costing.ts's header) â€” invalidates the inventory root key since a refresh changes
- * `replacement_cost`, which `v_stock`'s `stock_value`/`replacementCostMc` columns read from. */
+ * `replacementCostMc`, which `v_stock`'s `stock_value`/`replacementCostMc` columns read from. */
 export function useRefreshReplacementCosts() {
   const invalidate = useInvalidateInventory();
   return useMutation({

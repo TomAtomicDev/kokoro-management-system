@@ -8,22 +8,30 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 
-import { type Centavos, mulMoneyByQty, toCentavos } from "./money.js";
+import {
+  type MilliCentavosPerUnit,
+  toCentavos,
+  totalCentavos,
+} from "./money.js";
 import { allocateAgreedTotalToOrderLines, orderLineCommandSchema } from "./orders.js";
+import { toMilliUnits } from "./qty.js";
 
 /** Σ(qty × unit_price) exactly as core/orders will compute the sale's stored total. */
 function reconstructTotal(
-  allocations: readonly { unitPrice: Centavos }[],
+  allocations: readonly { unitPriceMc: MilliCentavosPerUnit }[],
   lines: readonly { qty: number }[],
 ): number {
-  return allocations.reduce((sum, a, i) => sum + mulMoneyByQty(a.unitPrice, lines[i]?.qty ?? 0), 0);
+  return allocations.reduce(
+    (sum, a, i) => sum + totalCentavos(a.unitPriceMc, toMilliUnits(lines[i]?.qty ?? 0)),
+    0,
+  );
 }
 
 describe("allocateAgreedTotalToOrderLines", () => {
   it("prices a single whole-unit line at the agreed total", () => {
     const lines = [{ qty: 1000 }];
     expect(allocateAgreedTotalToOrderLines(toCentavos(35_000), lines)).toEqual([
-      { lineTotal: 35_000, unitPrice: 35_000 },
+      { lineTotal: 35_000, unitPriceMc: 35_000_000 },
     ]);
   });
 
@@ -31,8 +39,8 @@ describe("allocateAgreedTotalToOrderLines", () => {
     // Bs 300,00 across 1 + 2 units → 100,00 / 200,00.
     const lines = [{ qty: 1000 }, { qty: 2000 }];
     expect(allocateAgreedTotalToOrderLines(toCentavos(30_000), lines)).toEqual([
-      { lineTotal: 10_000, unitPrice: 10_000 },
-      { lineTotal: 20_000, unitPrice: 10_000 },
+      { lineTotal: 10_000, unitPriceMc: 10_000_000 },
+      { lineTotal: 20_000, unitPriceMc: 10_000_000 },
     ]);
   });
 
@@ -40,9 +48,9 @@ describe("allocateAgreedTotalToOrderLines", () => {
     const lines = [{ qty: 1000, lineTotal: 12_000 }, { qty: 1000 }, { qty: 1000 }];
     const out = allocateAgreedTotalToOrderLines(toCentavos(30_000), lines);
     expect(out).toEqual([
-      { lineTotal: 12_000, unitPrice: 12_000 },
-      { lineTotal: 9_000, unitPrice: 9_000 },
-      { lineTotal: 9_000, unitPrice: 9_000 },
+      { lineTotal: 12_000, unitPriceMc: 12_000_000 },
+      { lineTotal: 9_000, unitPriceMc: 9_000_000 },
+      { lineTotal: 9_000, unitPriceMc: 9_000_000 },
     ]);
   });
 
@@ -81,10 +89,12 @@ describe("allocateAgreedTotalToOrderLines", () => {
     expect(out?.map((a) => a.lineTotal)).toEqual([12_000, 12_000]);
   });
 
-  it("returns null when per-unit prices cannot reproduce the total exactly", () => {
-    // Bs 1,00 over a single 3-unit line: no integer centavo per-unit price yields exactly 100
-    // (33 → 99, 34 → 102). Refusing beats misstating the sale by a centavo.
-    expect(allocateAgreedTotalToOrderLines(toCentavos(100), [{ qty: 3000 }])).toBeNull();
+  it("uses milli-centavo rate precision to reproduce fractional per-unit prices", () => {
+    // Bs 1,00 over a 3-unit line was unrepresentable at whole-centavo rate precision.
+    // The `_mc` rate (33_333) reconstructs the agreed total exactly after half-up rounding.
+    expect(allocateAgreedTotalToOrderLines(toCentavos(100), [{ qty: 3000 }])).toEqual([
+      { lineTotal: 100, unitPriceMc: 33_333 },
+    ]);
   });
 
   it("returns null for a non-positive or non-integer qty", () => {
@@ -110,9 +120,9 @@ describe("allocateAgreedTotalToOrderLines", () => {
           expect(reconstructTotal(out, lines)).toBe(agreedTotal);
           for (const a of out) {
             expect(Number.isInteger(a.lineTotal)).toBe(true);
-            expect(Number.isInteger(a.unitPrice)).toBe(true);
+            expect(Number.isInteger(a.unitPriceMc)).toBe(true);
             expect(a.lineTotal).toBeGreaterThanOrEqual(0);
-            expect(a.unitPrice).toBeGreaterThanOrEqual(0);
+            expect(a.unitPriceMc).toBeGreaterThanOrEqual(0);
           }
         },
       ),

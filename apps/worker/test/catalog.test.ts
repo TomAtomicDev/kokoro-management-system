@@ -2,6 +2,7 @@
 // command -> assert event rows + audit_log entries + atomicity, run against real D1 via
 // @cloudflare/vitest-pool-workers (test/setup.ts applies migrations/0001_init.sql first).
 import { env } from "cloudflare:test";
+import { toMilliCentavosPerUnit } from "@kokoro/shared";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -17,6 +18,7 @@ import {
 import { createDb } from "../src/db/index.js";
 
 const ACTOR = "OWNER_WEB" as const;
+const mc = toMilliCentavosPerUnit;
 
 describe("createItem", () => {
   it("creates the row with wac/replacementCostMc defaulted to 0 and writes an audit_log entry", async () => {
@@ -257,7 +259,7 @@ describe("price_history (KOK-035, Doc 07 SC-12)", () => {
         kind: "FINISHED",
         category: "BAKERY",
         unit: "UNIT",
-        salePrice: 5000,
+        salePriceMc: mc(5_000_000),
       },
       ACTOR,
     );
@@ -293,12 +295,12 @@ describe("price_history (KOK-035, Doc 07 SC-12)", () => {
         kind: "FINISHED",
         category: "BAKERY",
         unit: "UNIT",
-        salePrice: 4000,
+        salePriceMc: mc(4_000_000),
       },
       ACTOR,
     );
 
-    await updateItem(db, { id: item.id, salePrice: 4500 }, ACTOR);
+    await updateItem(db, { id: item.id, salePriceMc: mc(4_500_000) }, ACTOR);
 
     const rows = await db.query.priceHistory.findMany({
       where: (t, { eq }) => eq(t.itemId, item.id),
@@ -310,11 +312,17 @@ describe("price_history (KOK-035, Doc 07 SC-12)", () => {
     const db = createDb(env.DB);
     const item = await createItem(
       db,
-      { name: "Brownie", kind: "FINISHED", category: "BAKERY", unit: "UNIT", salePrice: 1500 },
+      {
+        name: "Brownie",
+        kind: "FINISHED",
+        category: "BAKERY",
+        unit: "UNIT",
+        salePriceMc: mc(1_500_000),
+      },
       ACTOR,
     );
 
-    await updateItem(db, { id: item.id, salePrice: 1500 }, ACTOR);
+    await updateItem(db, { id: item.id, salePriceMc: mc(1_500_000) }, ACTOR);
 
     const rows = await db.query.priceHistory.findMany({
       where: (t, { eq }) => eq(t.itemId, item.id),
@@ -326,18 +334,24 @@ describe("price_history (KOK-035, Doc 07 SC-12)", () => {
     const db = createDb(env.DB);
     const item = await createItem(
       db,
-      { name: "Alfajor", kind: "FINISHED", category: "BAKERY", unit: "UNIT", salePrice: 800 },
+      {
+        name: "Alfajor",
+        kind: "FINISHED",
+        category: "BAKERY",
+        unit: "UNIT",
+        salePriceMc: mc(800_000),
+      },
       ACTOR,
     );
 
-    await updateItem(db, { id: item.id, salePrice: null }, ACTOR);
+    await updateItem(db, { id: item.id, salePriceMc: null }, ACTOR);
 
     const rows = await db.query.priceHistory.findMany({
       where: (t, { eq }) => eq(t.itemId, item.id),
     });
     expect(rows).toHaveLength(1); // only the creation-time row; the clear itself isn't logged
     const updated = await getItem(db, item.id);
-    expect(updated.salePrice).toBeNull();
+    expect(updated.salePriceMc).toBeNull();
   });
 });
 

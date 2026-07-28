@@ -21,7 +21,10 @@ const ACTOR = "OWNER_WEB" as const;
 /** A FINISHED item with a `wac`/`replacementCostMc`/`salePrice` set directly (createItem always
  * zeroes those two, per its own doc comment) so the cost/margin arithmetic below is hand-verifiable
  * against recipes-theoretical-cost.test.ts's own worked examples. */
-async function createOutputItem(db: ReturnType<typeof createDb>, salePrice: number | null = 8000) {
+async function createOutputItem(
+  db: ReturnType<typeof createDb>,
+  salePriceMc: number | null = 8_000_000,
+) {
   const item = await createItem(
     db,
     {
@@ -32,7 +35,7 @@ async function createOutputItem(db: ReturnType<typeof createDb>, salePrice: numb
     },
     ACTOR,
   );
-  await db.update(items).set({ salePrice }).where(eq(items.id, item.id));
+  await db.update(items).set({ salePriceMc }).where(eq(items.id, item.id));
   return item;
 }
 
@@ -60,7 +63,7 @@ async function createIngredientItem(
 describe("recordRecipe", () => {
   it("creates a recipe with lines and computes theoreticalCostWac/theoreticalCostReplacement/margin", async () => {
     const db = createDb(env.DB);
-    const output = await createOutputItem(db, 8000); // Bs 80.00 sale price
+    const output = await createOutputItem(db, 8_000_000); // Bs 80.00 sale price
     // Mirrors recipes-theoretical-cost.test.ts's "sums multiple lines and divides by yield" example:
     // WAC batch cost = 500*10 + 200*3 = 5600 -> /2000*1000 = 2800 centavos/unit.
     const flour = await createIngredientItem(db, 10, 12);
@@ -201,7 +204,7 @@ describe("recordRecipe", () => {
 describe("updateRecipe", () => {
   it("full-replaces lines and recomputes cost", async () => {
     const db = createDb(env.DB);
-    const output = await createOutputItem(db, 8000);
+    const output = await createOutputItem(db, 8_000_000);
     const flour = await createIngredientItem(db, 10, 10);
     const butter = await createIngredientItem(db, 20, 20);
 

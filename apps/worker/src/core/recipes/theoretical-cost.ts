@@ -109,14 +109,15 @@ export interface RecipeMargin {
  * (a percentage over zero is undefined, not "0%").
  */
 export function computeRecipeMargin(
-  salePrice: number | null,
+  salePriceMc: MilliCentavosPerUnit | null,
   costPerOutputUnit: number,
 ): RecipeMargin | null {
-  if (salePrice === null || salePrice === 0) return null;
-  assertSafeIntegerInput(salePrice, "salePrice");
+  if (salePriceMc === null || salePriceMc === 0) return null;
+  assertSafeIntegerInput(salePriceMc, "salePriceMc");
   assertSafeIntegerInput(costPerOutputUnit, "costPerOutputUnit");
 
-  const amount = subMoney(toCentavos(salePrice), toCentavos(costPerOutputUnit));
+  const salePrice = totalCentavos(salePriceMc, WHOLE_UNIT_MILLI_UNITS);
+  const amount = subMoney(salePrice, toCentavos(costPerOutputUnit));
   const pctBasisPoints = roundHalfUpToInt((amount * 10000) / salePrice);
   return { amount, pctBasisPoints };
 }

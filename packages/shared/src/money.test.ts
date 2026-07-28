@@ -5,7 +5,6 @@ import {
   allocateLargestRemainder,
   formatMoney,
   mulMoneyByBasisPoints,
-  mulMoneyByQty,
   rateFromTotal,
   roundHalfUpToInt,
   subMoney,
@@ -112,12 +111,6 @@ describe("arithmetic helpers", () => {
     expect(mulMoneyByBasisPoints(toCentavos(1000), toBasisPoints(3000))).toBe(300); // 30%
     expect(mulMoneyByBasisPoints(toCentavos(1255), toBasisPoints(3000))).toBe(377); // 376.5 → 377
     expect(mulMoneyByBasisPoints(toCentavos(1000), toBasisPoints(5000))).toBe(500); // default deposit 50%
-  });
-
-  it("multiplies unit price by milli-unit quantity", () => {
-    expect(mulMoneyByQty(toCentavos(800), 1500)).toBe(1200); // Bs 8.00 * 1.5 units
-    expect(mulMoneyByQty(toCentavos(333), 1000)).toBe(333); // exactly 1 unit
-    expect(mulMoneyByQty(toCentavos(100), 1500)).toBe(150); // 1.5 units of Bs 1.00
   });
 
   it("guards against non-integer inputs", () => {

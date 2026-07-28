@@ -39,7 +39,7 @@ export const items = sqliteTable(
     wacMc: integer("wac_mc").notNull().default(0),
     replacementCostMc: integer("replacement_cost_mc").notNull().default(0),
     replacementCostUpdatedAt: text("replacement_cost_updated_at"),
-    salePrice: integer("sale_price"),
+    salePriceMc: integer("sale_price_mc"),
     minStockQty: integer("min_stock_qty"),
     isActive: integer("is_active").notNull().default(1),
     notes: text("notes"),
@@ -330,7 +330,7 @@ export const saleLines = sqliteTable(
       .notNull()
       .references(() => items.id, { onDelete: "restrict" }),
     qty: integer("qty").notNull(),
-    unitPrice: integer("unit_price").notNull(),
+    unitPriceMc: integer("unit_price_mc").notNull(),
     unitCostSnapshotMc: integer("unit_cost_snapshot_mc").notNull(),
   },
   (t) => ({
