@@ -29,7 +29,7 @@ better correction ergonomics for a solo operator (ADR-009).
 | INV-3 | Every event has `occurred_at` (UTC) and `business_date` (America/La_Paz); reports group by `business_date`. |
 | INV-4 | AI may draft events; only explicit human confirmation commits a write. |
 | INV-5 | `item_stock.qty_on_hand` = Σ `stock_movements.qty` per item; account `balance` = opening + Σ transactions. Checked nightly. |
-| INV-6 | One scale per concept (Doc 04 §2, ADR-017): money amounts are integer centavos (BOB); **every per-unit rate** — sale price, unit price, WAC, replacement cost, cost snapshots — is integer milli-centavos per WHOLE unit (`_mc` columns); quantities are integer milli-units of the item's own unit; percentages are basis points. No `REAL` in the schema. Derived money is rounded half-up at the final step only, and the only scale conversions live in `packages/shared/money.ts`. |
+| INV-6 | One scale per concept (Doc 04 §2, ADR-017): money amounts are integer centavos (BOB); **every per-unit rate** — sale price, unit price, WAC, replacement cost, cost snapshots — is integer milli-centavos per WHOLE unit (`_mc` columns); quantities are integer milli-units of the item's own unit; percentages are basis points. No monetary value or per-unit rate uses `REAL`. Derived money is rounded half-up at the final step only, and the only scale conversions live in `packages/shared/money.ts`. |
 | INV-7 | A custom-order deposit is a liability (`customer_deposits`) from receipt until delivery or refund; it never appears as revenue before delivery. |
 | INV-8 | Stock MAY go negative (capture-first); negative stock raises a persistent reconciliation flag, never a blocking error. |
 | INV-9 | Derived rows always carry `source_event_type` + `source_event_id`; orphan derived rows are forbidden. |
@@ -121,7 +121,7 @@ Rules:
     a catalog FINISHED item before an order can be delivered** (Doc 04 §5) — free-text lines are a
     quoting convenience and must be resolved first (`resolveOrderLine`, KOK-034 — the one narrow
     exception to "no generic update order", see Doc 04 §5); delivery refuses (409) otherwise. `agreed_total`
-    is split across those lines by largest remainder so `Σ(qty × unit_price)` reproduces it exactly.
+    is split across those lines by largest remainder so `Σ(qty × unit_price_mc / 1e6)` reproduces it exactly.
   - Only the **balance** is new money: the deposit was already banked at confirm time, so
     `ORDER_BALANCE` is booked for `agreed_total − deposit_paid` (nothing when that is zero), and an
     ON_CREDIT balance shows in `v_receivables` net of the deposit — never the full agreed total.

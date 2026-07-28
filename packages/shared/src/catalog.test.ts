@@ -38,7 +38,7 @@ describe("createItemCommandSchema", () => {
     expect(result.success).toBe(false);
   });
 
-  it("rejects a negative salePrice", () => {
+  it("rejects a negative salePriceMc", () => {
     const result = createItemCommandSchema.safeParse({
       name: "Torta",
       kind: "FINISHED",

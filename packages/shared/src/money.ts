@@ -7,7 +7,7 @@
 // enough and a brand would only cost ergonomics. ADR-017 overturns that
 // decision: it shipped two real 1000×-scale bugs — `v_price_health`'s margin
 // columns were wrong by 1000× from migration 0001 until KOK-069, and
-// `SaleForm.tsx` still carries a hand-written `unitPrice / 1000` workaround —
+// The former `SaleForm.tsx` hand-written scale workaround showed
 // because nothing (not the column, not the name, not the TypeScript type)
 // distinguished a centavos-per-WHOLE-unit amount from a centavos-per-MILLI-unit
 // one. Brands make that class of bug a compile error: a bare number literal no

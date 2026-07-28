@@ -28,12 +28,12 @@ import {
   PAYMENT_METHODS,
   type PaymentMethod,
   type PaymentStatus,
-  recordSaleCommandSchema,
   rateFromTotal,
+  recordSaleCommandSchema,
   toBusinessDate,
   toCentavos,
-  toMilliUnits,
   toMilliCentavosPerUnit,
+  toMilliUnits,
   totalCentavos,
   WHOLE_UNIT_MILLI_UNITS,
 } from "@kokoro/shared";
@@ -68,7 +68,7 @@ interface SaleLineValue extends LineEditorLine {
   /** Milli-units decimal string (scale 3) â€” same convention as PurchaseForm's line qty. */
   qty: string;
   /** Unit price, centavos-per-WHOLE-unit decimal string (scale 2) â€” editable, prefilled from
-   * `item.salePrice` the moment an item is picked (SC-03). Reused as `LineEditor`'s generic
+   * `item.salePriceMc` the moment an item is picked (SC-03). Reused as `LineEditor`'s generic
    * `amount` slot; here it means "price per unit", not "line total" (purchases' meaning). */
   amount: string;
 }
@@ -190,7 +190,7 @@ export function SaleForm({ open, onOpenChange, accounts, sale }: SaleFormProps) 
   const disabled = isEditMode ? editReplay.isPending : createReplay.isPending;
   const isPaid = paymentStatus === "PAID";
 
-  /** Prefills a line's unit price from the item's catalog `salePrice` the moment the item changes
+  /** Prefills a line's unit price from the item's catalog `salePriceMc` the moment the item changes
    * and the price field is still blank â€” editable afterward, never overwritten again (same
    * "convenience default, not sticky" rule as ProductionRunForm's recipe-line prefill). LineEditor
    * itself only forwards `itemId` to its `onChange` (see LineEditor.tsx), so the lookup happens
@@ -325,10 +325,8 @@ export function SaleForm({ open, onOpenChange, accounts, sale }: SaleFormProps) 
     const requested = qtyByItemId.get(item.id) ?? 0;
     const negativeStockWarning = requested > 0 && onHand - requested < 0;
 
-    // unitPrice is centavos per WHOLE unit; item.replacementCostMc is centavos per MILLI-unit (same
-    // scale as item.wac, Doc 04 Â§2) â€” divide by 1000 for a like-for-like comparison, mirroring
-    // PurchaseForm's renderLineExtra which needs no such conversion because its own lineTotal/qty
-    // division already lands in centavos-per-milli-unit.
+    // Convert the decimal-input centavos to the same `_mc` rate scale as replacementCostMc before
+    // comparing; both stored rates are dimensionally identical (ADR-017).
     const belowReplacementWarning =
       unitPrice !== null &&
       item.replacementCostMc > 0 &&

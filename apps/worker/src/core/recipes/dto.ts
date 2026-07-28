@@ -6,11 +6,11 @@
 // items.wac/replacement_cost Ã¢â‚¬â€ that is C-3's job, KOK-029, and only for the default recipe).
 
 import {
-  toMilliCentavosPerUnit,
   type RecipeCostDto,
   type RecipeDto,
   type RecipeLineDto,
   type RecipeSettingsDto,
+  toMilliCentavosPerUnit,
 } from "@kokoro/shared";
 
 import type { Db } from "../../db/index.js";
@@ -41,13 +41,9 @@ async function loadItemsById(db: Db, itemIds: readonly string[]): Promise<Map<st
  * Builds one RecipeCostDto on the given basis (`wac` or `replacementCostMc`, C-3b) Ã¢â‚¬â€ the pure math
  * lives entirely in theoretical-cost.ts; this only picks which item column feeds it.
  *
- * KOK-071 (ADR-017) vertical 1 moved `items.wac` to `items.wac_mc` (integer milli-centavos per
- * WHOLE unit); `items.replacement_cost` and `items.sale_price` are NOT migrated yet (later
- * verticals). `computeTheoreticalCostPerOutputUnit`'s output must stay directly comparable to
- * `salePrice` (fed straight into `computeRecipeMargin`'s subtraction below), so its scale can't
- * flip until `salePrice` also does Ã¢â‚¬â€ both will move together when that vertical lands. Until
- * then, the WAC basis converts `wacMc` back down to the old centavos-per-milli-unit convention
- * this function still expects, the inverse of the same Ãƒâ€”1,000,000 factor migration 0007 applied.
+ * KOK-071 (ADR-017) puts `wacMc`, `replacementCostMc`, and `salePriceMc` on the same integer
+ * milli-centavos-per-whole-unit scale. `computeRecipeMargin` performs the sanctioned
+ * conversion to a final whole-unit Centavos amount before subtraction.
  */
 function buildCostDto(
   basis: "wac" | "replacementCostMc",
@@ -69,23 +65,21 @@ function buildCostDto(
   });
   const costPerOutputUnit = computeTheoreticalCostPerOutputUnit(lines, expectedYieldQty);
   const margin = computeRecipeMargin(
-    outputItem.salePriceMc === null
-      ? null
-      : toMilliCentavosPerUnit(outputItem.salePriceMc),
+    outputItem.salePriceMc === null ? null : toMilliCentavosPerUnit(outputItem.salePriceMc),
     costPerOutputUnit,
   );
   return { costPerOutputUnit, margin };
 }
 
 /** Assembles a RecipeDto, including both LIVE theoretical-cost valuations (C-3b). Async because it
- * loads the output item + every line item's current wac/replacementCostMc/salePrice. */
+ * loads the output item + every line item's current wacMc/replacementCostMc/salePriceMc. */
 export async function toRecipeDto(
   db: Db,
   row: RecipeRow,
   lineRows: readonly RecipeLineRow[],
 ): Promise<RecipeDto> {
   const itemsById = await loadItemsById(db, [row.outputItemId, ...lineRows.map((l) => l.itemId)]);
-  // Falls back to a `salePrice: null` stand-in rather than throwing: the recipe row itself is the
+  // Falls back to a `salePriceMc: null` stand-in rather than throwing: the recipe row itself is the
   // authoritative read here (getRecipe/listRecipes already resolved it), and an output item deleted
   // out from under a FK RESTRICT is unreachable Ã¢â‚¬â€ this mirrors buildCostDto's same defensive stance.
   const outputItem: Pick<ItemRow, "salePriceMc"> = itemsById.get(row.outputItemId) ?? {

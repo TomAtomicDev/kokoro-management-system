@@ -1,15 +1,11 @@
-// core/costing ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â C-5 margin math + price-suggestion (KOK-035, Doc 03 Ãƒâ€šÃ‚Â§4 C-5, Doc 07 SC-12) and the
-// read query that assembles SC-12's table (`listPriceHealth`).
+// core/costing — C-5 margin math + price suggestion (KOK-035, Doc 03 §4 C-5,
+// Doc 07 SC-12) and the read query that assembles SC-12's table.
 //
-// `v_price_health` (migrations/0001_init.sql) is NOT used here: it originally had `margin_wac_bp`/
-// `margin_repl_bp`/`margin_repl_pct` columns computing `sale_price ÃƒÂ¢Ã‹â€ Ã¢â‚¬â„¢ wac` directly in SQL, but
-// `sale_price` is centavos per WHOLE unit while `items.wac`/`items.replacement_cost` are centavos
-// per MILLI-unit (core/costing/wac.ts's header; confirmed by SaleForm.tsx's `unitPrice / 1000 <
-// item.replacementCostMc` below-replacement-cost check) ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â a ~1000x unit mismatch that would make
-// every FINISHED item look like it has a ~100% margin. Those three columns were removed (KOK-069,
-// migration 0006, Doc 04 Ãƒâ€šÃ‚Â§4) rather than fixed in SQL, since this file already computes margins
-// correctly in application code and nothing else consumed them. `v_price_health` still supplies
-// nothing this function needs beyond `items` itself, so this queries `items` directly.
+// KOK-069 removed v_price_health's SQL margin columns after they mixed the legacy
+// centavos-per-whole-unit sale_price with per-milli-unit REAL costs. KOK-071 now stores
+// sale_price_mc, wac_mc, and replacement_cost_mc on one MilliCentavosPerUnit scale.
+// This module still computes margins in application code through totalCentavos; the view
+// supplies no additional data, so listPriceHealth queries items directly.
 //
 // Same "plain, synchronous, DB-free" convention as wac.ts/replacement-cost.ts for the pure math ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â
 // `computePriceMargin`/`computePriceSuggested` take no `Db` and are directly usable by fast-check
@@ -20,7 +16,6 @@ import {
   type MilliCentavosPerUnit,
   roundHalfUpToInt,
   subMoney,
-  toCentavos,
   toMilliCentavosPerUnit,
   totalCentavos,
   WHOLE_UNIT_MILLI_UNITS,
@@ -39,7 +34,7 @@ function assertSafeIntegerInput(value: number, label: string): void {
 /**
  * C-5: `margin = price ÃƒÂ¢Ã‹â€ Ã¢â‚¬â„¢ cost`, and `margin / price` as basis points. The rate is converted to a
  * whole-unit centavo amount by the sanctioned `totalCentavos` helper before subtracting
- * from `salePrice` (already per-whole-unit centavos). Returns `null` when there is nothing
+ * from the `_mc` sale-price rate after the same sanctioned conversion. Returns `null` when there is nothing
  * meaningful to compare against: no sale price set yet, or a sale price of exactly zero (mirrors
  * `computeRecipeMargin`'s identical precedent in core/recipes/theoretical-cost.ts).
  */
@@ -140,8 +135,7 @@ export async function listPriceHealth(
     return {
       itemId: row.id,
       name: row.name,
-      salePriceMc:
-        row.salePriceMc === null ? null : toMilliCentavosPerUnit(row.salePriceMc),
+      salePriceMc: row.salePriceMc === null ? null : toMilliCentavosPerUnit(row.salePriceMc),
       wacMc: row.wacMc,
       replacementCostMc: row.replacementCostMc,
       replacementCostUpdatedAt: row.replacementCostUpdatedAt,
