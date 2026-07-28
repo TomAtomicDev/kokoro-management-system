@@ -13,13 +13,19 @@
 //   - a sale FREEZES its unit_cost_snapshot_mc at the item's current WAC but NEVER moves that WAC
 //     (C-6 spirit / R-4). A "helpful" items.wac_mc write on the sale path is exactly the bug guarded here.
 //   - negative stock is ALLOWED (INV-8): overselling flags item_stock, it does not throw.
-//   - sales.total is server-recomputed as Σ(qty × unit_price); the command has no `total` field.
+//   - sales.total is server-recomputed as Σ(qty × unit_price_mc); the command has no `total` field.
 //
 // Storage is isolated per test FILE (mirrors exits.test.ts): the beforeEach clears sales / sale_lines
 // / their movements / sale + purchase transactions / audit rows and resets both accounts to 0. Items
 // get unique names per test (items.name is UNIQUE) so seeded rows never collide.
 import { env } from "cloudflare:test";
-import { addMoney, generateUuidV7, mulMoneyByQty } from "@kokoro/shared";
+import {
+  addMoney,
+  generateUuidV7,
+  toMilliCentavosPerUnit,
+  toMilliUnits,
+  totalCentavos,
+} from "@kokoro/shared";
 import { eq, inArray } from "drizzle-orm";
 import fc from "fast-check";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -119,7 +125,7 @@ describe("recordSale — PAID (UC-03)", () => {
         occurredAt: NOW,
         businessDate: BUSINESS_DATE,
         notes: "Venta mostrador",
-        lines: [{ itemId: item.id, qty: 200, unitPrice: 1000 }], // 0.2 units × Bs 10 = Bs 2.00
+        lines: [{ itemId: item.id, qty: 200, unitPriceMc: 1_000_000 }], // 0.2 units × Bs 10 = Bs 2.00
       },
       ACTOR,
     );
@@ -138,7 +144,7 @@ describe("recordSale — PAID (UC-03)", () => {
       expect.objectContaining({
         itemId: item.id,
         qty: 200,
-        unitPrice: 1000,
+        unitPriceMc: 1_000_000,
         unitCostSnapshotMc: 6_000_000,
       }),
     ]);
@@ -198,7 +204,7 @@ describe("recordSale — PAID (UC-03)", () => {
     expect(auditRow).toMatchObject({ actor: ACTOR, entityType: "sales" });
   });
 
-  it("recomputes total as Σ(qty × unit_price) across multiple lines, ignoring any notion of a client total", async () => {
+  it("recomputes total as Σ(qty × unit_price_mc) across multiple lines, ignoring any notion of a client total", async () => {
     const db = createDb(env.DB);
     const itemA = await seedStockedFinishedItem(db, "Sale — multiline A", 10_000, 20_000); // wac 2
     const itemB = await seedStockedFinishedItem(db, "Sale — multiline B", 10_000, 50_000); // wac 5
@@ -212,14 +218,17 @@ describe("recordSale — PAID (UC-03)", () => {
         occurredAt: NOW,
         businessDate: BUSINESS_DATE,
         lines: [
-          { itemId: itemA.id, qty: 1500, unitPrice: 800 }, // round(800*1500/1000) = 1200
-          { itemId: itemB.id, qty: 250, unitPrice: 333 }, // round(333*250/1000) = 83 (83.25 → 83)
+          { itemId: itemA.id, qty: 1500, unitPriceMc: 800_000 }, // round(800*1500/1000) = 1200
+          { itemId: itemB.id, qty: 250, unitPriceMc: 333_000 }, // round(333*250/1000) = 83 (83.25 → 83)
         ],
       },
       ACTOR,
     );
 
-    const expectedTotal = addMoney(mulMoneyByQty(800, 1500), mulMoneyByQty(333, 250));
+    const expectedTotal = addMoney(
+      totalCentavos(toMilliCentavosPerUnit(800_000), toMilliUnits(1500)),
+      totalCentavos(toMilliCentavosPerUnit(333_000), toMilliUnits(250)),
+    );
     expect(expectedTotal).toBe(1283);
     expect(result.sale.total).toBe(1283);
     expect(result.sale.lines).toHaveLength(2);
@@ -243,7 +252,7 @@ describe("recordSale — PAID (UC-03)", () => {
           accountId: "acc_does_not_exist",
           occurredAt: NOW,
           businessDate: BUSINESS_DATE,
-          lines: [{ itemId: item.id, qty: 100, unitPrice: 500 }],
+          lines: [{ itemId: item.id, qty: 100, unitPriceMc: 500_000 }],
         },
         ACTOR,
       ),
@@ -271,7 +280,7 @@ describe("recordSale — ON_CREDIT (UC-03, receivable)", () => {
         paymentStatus: "ON_CREDIT",
         occurredAt: NOW,
         businessDate: BUSINESS_DATE,
-        lines: [{ itemId: item.id, qty: 300, unitPrice: 2000 }], // total 600
+        lines: [{ itemId: item.id, qty: 300, unitPriceMc: 2_000_000 }], // total 600
       },
       ACTOR,
     );
@@ -335,7 +344,7 @@ describe("recordSale — validation & INV-8", () => {
           accountId: "acc_cash",
           occurredAt: NOW,
           businessDate: BUSINESS_DATE,
-          lines: [{ itemId: raw.id, qty: 100, unitPrice: 500 }],
+          lines: [{ itemId: raw.id, qty: 100, unitPriceMc: 500_000 }],
         },
         ACTOR,
       ),
@@ -351,7 +360,7 @@ describe("recordSale — validation & INV-8", () => {
           paymentStatus: "ON_CREDIT",
           occurredAt: NOW,
           businessDate: BUSINESS_DATE,
-          lines: [{ itemId: "item_does_not_exist", qty: 100, unitPrice: 500 }],
+          lines: [{ itemId: "item_does_not_exist", qty: 100, unitPriceMc: 500_000 }],
         },
         ACTOR,
       ),
@@ -370,7 +379,7 @@ describe("recordSale — validation & INV-8", () => {
         accountId: "acc_cash",
         occurredAt: NOW,
         businessDate: BUSINESS_DATE,
-        lines: [{ itemId: item.id, qty: 800, unitPrice: 1000 }], // more than the 500 on hand
+        lines: [{ itemId: item.id, qty: 800, unitPriceMc: 1_000_000 }], // more than the 500 on hand
       },
       ACTOR,
     );
@@ -398,8 +407,8 @@ describe("recordSale — multi-line same item (one batch, netted stock)", () => 
         occurredAt: NOW,
         businessDate: BUSINESS_DATE,
         lines: [
-          { itemId: item.id, qty: 300, unitPrice: 1000 }, // 300
-          { itemId: item.id, qty: 500, unitPrice: 1200 }, // 600
+          { itemId: item.id, qty: 300, unitPriceMc: 1_000_000 }, // 300
+          { itemId: item.id, qty: 500, unitPriceMc: 1_200_000 }, // 600
         ],
       },
       ACTOR,
@@ -434,7 +443,7 @@ describe("reads: getSale / listSales", () => {
         accountId: "acc_cash",
         occurredAt: NOW,
         businessDate: BUSINESS_DATE,
-        lines: [{ itemId: item.id, qty: 100, unitPrice: 500 }],
+        lines: [{ itemId: item.id, qty: 100, unitPriceMc: 500_000 }],
       },
       ACTOR,
     );
@@ -463,7 +472,7 @@ describe("reads: getSale / listSales", () => {
         accountId: "acc_cash",
         occurredAt: "2026-07-14T10:00:00.000Z",
         businessDate: "2026-07-14",
-        lines: [{ itemId: item.id, qty: 100, unitPrice: 500 }],
+        lines: [{ itemId: item.id, qty: 100, unitPriceMc: 500_000 }],
       },
       ACTOR,
     );
@@ -475,7 +484,7 @@ describe("reads: getSale / listSales", () => {
         customerId,
         occurredAt: "2026-07-16T10:00:00.000Z",
         businessDate: "2026-07-16",
-        lines: [{ itemId: item.id, qty: 100, unitPrice: 500 }],
+        lines: [{ itemId: item.id, qty: 100, unitPriceMc: 500_000 }],
       },
       ACTOR,
     );
@@ -506,7 +515,7 @@ describe("collectPayment (UC-04, KOK-031)", () => {
         paymentStatus: "ON_CREDIT",
         occurredAt: NOW,
         businessDate: BUSINESS_DATE,
-        lines: [{ itemId: item.id, qty: 300, unitPrice: 2000 }], // total 600
+        lines: [{ itemId: item.id, qty: 300, unitPriceMc: 2_000_000 }], // total 600
       },
       ACTOR,
     );
@@ -574,7 +583,7 @@ describe("collectPayment (UC-04, KOK-031)", () => {
         accountId: "acc_cash",
         occurredAt: NOW,
         businessDate: BUSINESS_DATE,
-        lines: [{ itemId: item.id, qty: 100, unitPrice: 500 }],
+        lines: [{ itemId: item.id, qty: 100, unitPriceMc: 500_000 }],
       },
       ACTOR,
     );
@@ -620,7 +629,7 @@ describe("collectPayment (UC-04, KOK-031)", () => {
         paymentStatus: "ON_CREDIT",
         occurredAt: NOW,
         businessDate: BUSINESS_DATE,
-        lines: [{ itemId: item.id, qty: 100, unitPrice: 500 }],
+        lines: [{ itemId: item.id, qty: 100, unitPriceMc: 500_000 }],
       },
       ACTOR,
     );
@@ -654,7 +663,7 @@ describe("collectPayment (UC-04, KOK-031)", () => {
         paymentStatus: "ON_CREDIT",
         occurredAt: NOW,
         businessDate: BUSINESS_DATE,
-        lines: [{ itemId: item.id, qty: 100, unitPrice: 0 }],
+        lines: [{ itemId: item.id, qty: 100, unitPriceMc: 0 }],
       },
       ACTOR,
     );
@@ -694,7 +703,7 @@ describe("listReceivables (v_receivables, KOK-031)", () => {
         paymentStatus: "ON_CREDIT",
         occurredAt: NOW,
         businessDate: BUSINESS_DATE,
-        lines: [{ itemId: item.id, qty: 100, unitPrice: 500 }],
+        lines: [{ itemId: item.id, qty: 100, unitPriceMc: 500_000 }],
       },
       ACTOR,
     );
@@ -706,7 +715,7 @@ describe("listReceivables (v_receivables, KOK-031)", () => {
         accountId: "acc_cash",
         occurredAt: NOW,
         businessDate: BUSINESS_DATE,
-        lines: [{ itemId: item.id, qty: 100, unitPrice: 500 }],
+        lines: [{ itemId: item.id, qty: 100, unitPriceMc: 500_000 }],
       },
       ACTOR,
     );
@@ -726,7 +735,7 @@ describe("listReceivables (v_receivables, KOK-031)", () => {
         paymentStatus: "ON_CREDIT",
         occurredAt: NOW,
         businessDate: BUSINESS_DATE,
-        lines: [{ itemId: item.id, qty: 100, unitPrice: 500 }],
+        lines: [{ itemId: item.id, qty: 100, unitPriceMc: 500_000 }],
       },
       ACTOR,
     );
@@ -810,7 +819,7 @@ describe("recordSale — backdated capture: INV-11 replay guard (R-2/R-5, ADR-01
     await expect(
       recordSale(
         db,
-        { ...BACKDATED_SALE, lines: [{ itemId: item.id, qty: 8_000, unitPrice: 1000 }] },
+        { ...BACKDATED_SALE, lines: [{ itemId: item.id, qty: 8_000, unitPriceMc: 1_000_000 }] },
         ACTOR,
       ),
     ).rejects.toMatchObject({
@@ -844,7 +853,7 @@ describe("recordSale — backdated capture: INV-11 replay guard (R-2/R-5, ADR-01
       {
         ...BACKDATED_SALE,
         confirm: true,
-        lines: [{ itemId: item.id, qty: 8_000, unitPrice: 1000 }],
+        lines: [{ itemId: item.id, qty: 8_000, unitPriceMc: 1_000_000 }],
       },
       ACTOR,
     );
@@ -885,7 +894,7 @@ describe("updateSale (R-1, KOK-064)", () => {
         paymentStatus: "ON_CREDIT",
         occurredAt: NOW,
         businessDate: BUSINESS_DATE,
-        lines: [{ itemId: item.id, qty: 300, unitPrice: 2000 }],
+        lines: [{ itemId: item.id, qty: 300, unitPriceMc: 2_000_000 }],
       },
       ACTOR,
     );
@@ -903,7 +912,7 @@ describe("updateSale (R-1, KOK-064)", () => {
         notes: "Nota agregada",
         occurredAt: NOW,
         businessDate: BUSINESS_DATE,
-        lines: [{ itemId: item.id, qty: 300, unitPrice: 2000 }],
+        lines: [{ itemId: item.id, qty: 300, unitPriceMc: 2_000_000 }],
       },
       ACTOR,
     );
@@ -937,7 +946,7 @@ describe("updateSale (R-1, KOK-064)", () => {
         accountId: "acc_cash",
         occurredAt: NOW,
         businessDate: BUSINESS_DATE,
-        lines: [{ itemId: item.id, qty: 300, unitPrice: 2000 }], // total 600
+        lines: [{ itemId: item.id, qty: 300, unitPriceMc: 2_000_000 }], // total 600
       },
       ACTOR,
     );
@@ -951,7 +960,7 @@ describe("updateSale (R-1, KOK-064)", () => {
         accountId: "acc_cash",
         occurredAt: NOW,
         businessDate: BUSINESS_DATE,
-        lines: [{ itemId: item.id, qty: 500, unitPrice: 2000 }], // total 1000
+        lines: [{ itemId: item.id, qty: 500, unitPriceMc: 2_000_000 }], // total 1000
       },
       ACTOR,
     );
@@ -981,7 +990,7 @@ describe("updateSale (R-1, KOK-064)", () => {
         accountId: "acc_cash",
         occurredAt: NOW,
         businessDate: BUSINESS_DATE,
-        lines: [{ itemId: item.id, qty: 100, unitPrice: 2000 }], // total 200
+        lines: [{ itemId: item.id, qty: 100, unitPriceMc: 2_000_000 }], // total 200
       },
       ACTOR,
     );
@@ -996,7 +1005,7 @@ describe("updateSale (R-1, KOK-064)", () => {
         accountId: "acc_bank",
         occurredAt: NOW,
         businessDate: BUSINESS_DATE,
-        lines: [{ itemId: item.id, qty: 100, unitPrice: 2000 }],
+        lines: [{ itemId: item.id, qty: 100, unitPriceMc: 2_000_000 }],
       },
       ACTOR,
     );
@@ -1016,7 +1025,7 @@ describe("updateSale (R-1, KOK-064)", () => {
         paymentStatus: "ON_CREDIT",
         occurredAt: NOW,
         businessDate: BUSINESS_DATE,
-        lines: [{ itemId: item.id, qty: 100, unitPrice: 2000 }],
+        lines: [{ itemId: item.id, qty: 100, unitPriceMc: 2_000_000 }],
       },
       ACTOR,
     );
@@ -1041,7 +1050,7 @@ describe("updateSale (R-1, KOK-064)", () => {
           occurredAt: NOW,
           businessDate: BUSINESS_DATE,
           notes: "intento de edición",
-          lines: [{ itemId: item.id, qty: 100, unitPrice: 2000 }],
+          lines: [{ itemId: item.id, qty: 100, unitPriceMc: 2_000_000 }],
         },
         ACTOR,
       ),
@@ -1069,7 +1078,7 @@ describe("updateSale (R-1, KOK-064)", () => {
           paymentStatus: "ON_CREDIT",
           occurredAt: NOW,
           businessDate: BUSINESS_DATE,
-          lines: [{ itemId: "irrelevant", qty: 1, unitPrice: 1 }],
+          lines: [{ itemId: "irrelevant", qty: 1, unitPriceMc: 1_000 }],
         },
         ACTOR,
       ),
@@ -1090,7 +1099,7 @@ describe("deleteSale (R-3, D-8, KOK-064)", () => {
         accountId: "acc_cash",
         occurredAt: NOW,
         businessDate: BUSINESS_DATE,
-        lines: [{ itemId: item.id, qty: 300, unitPrice: 2000 }], // total 600
+        lines: [{ itemId: item.id, qty: 300, unitPriceMc: 2_000_000 }], // total 600
       },
       ACTOR,
     );
@@ -1128,7 +1137,7 @@ describe("deleteSale (R-3, D-8, KOK-064)", () => {
         paymentStatus: "ON_CREDIT",
         occurredAt: NOW,
         businessDate: BUSINESS_DATE,
-        lines: [{ itemId: item.id, qty: 100, unitPrice: 2000 }],
+        lines: [{ itemId: item.id, qty: 100, unitPriceMc: 2_000_000 }],
       },
       ACTOR,
     );
@@ -1175,7 +1184,7 @@ describe("restoreSale (Doc 06 principle 6 — 'Deshacer', KOK-064)", () => {
         accountId: "acc_cash",
         occurredAt: NOW,
         businessDate: BUSINESS_DATE,
-        lines: [{ itemId: item.id, qty: 300, unitPrice: 2000 }],
+        lines: [{ itemId: item.id, qty: 300, unitPriceMc: 2_000_000 }],
       },
       ACTOR,
     );
@@ -1236,7 +1245,7 @@ describe("restoreSale (Doc 06 principle 6 — 'Deshacer', KOK-064)", () => {
         paymentStatus: "ON_CREDIT",
         occurredAt: NOW,
         businessDate: BUSINESS_DATE,
-        lines: [{ itemId: item.id, qty: 100, unitPrice: 2000 }],
+        lines: [{ itemId: item.id, qty: 100, unitPriceMc: 2_000_000 }],
       },
       ACTOR,
     );
@@ -1281,7 +1290,7 @@ describe("previewSaleImpact (dry run: identical planner to the mutations, no wri
       paymentStatus: "ON_CREDIT" as const,
       occurredAt: "2026-07-10T12:00:00.000Z",
       businessDate: "2026-07-10",
-      lines: [{ itemId: item.id, qty: 5_000, unitPrice: 1000 }],
+      lines: [{ itemId: item.id, qty: 5_000, unitPriceMc: 1_000_000 }],
     };
 
     const impact = await previewSaleImpact(db, { op: "create", command });
@@ -1307,7 +1316,7 @@ describe("previewSaleImpact (dry run: identical planner to the mutations, no wri
         paymentStatus: "ON_CREDIT",
         occurredAt: NOW,
         businessDate: BUSINESS_DATE,
-        lines: [{ itemId: item.id, qty: 100, unitPrice: 2000 }],
+        lines: [{ itemId: item.id, qty: 100, unitPriceMc: 2_000_000 }],
       },
       ACTOR,
     );
@@ -1316,7 +1325,7 @@ describe("previewSaleImpact (dry run: identical planner to the mutations, no wri
       paymentStatus: "ON_CREDIT" as const,
       occurredAt: NOW,
       businessDate: BUSINESS_DATE,
-      lines: [{ itemId: item.id, qty: 200, unitPrice: 2000 }],
+      lines: [{ itemId: item.id, qty: 200, unitPriceMc: 2_000_000 }],
     };
 
     const impact = await previewSaleImpact(db, { op: "update", id: created.sale.id, command });
@@ -1336,7 +1345,7 @@ describe("property: collectPayment credits the account by exactly the sale's tot
 
     const lineArb = fc.record({
       qty: fc.integer({ min: 1, max: 5000 }),
-      unitPrice: fc.integer({ min: 0, max: 50_000 }),
+      unitPriceMc: fc.integer({ min: 0, max: 50_000_000 }),
     });
 
     await fc.assert(
@@ -1350,7 +1359,7 @@ describe("property: collectPayment credits the account by exactly the sale's tot
             paymentStatus: "ON_CREDIT",
             occurredAt: NOW,
             businessDate: BUSINESS_DATE,
-            lines: lines.map((l) => ({ itemId: item.id, qty: l.qty, unitPrice: l.unitPrice })),
+            lines: lines.map((l) => ({ itemId: item.id, qty: l.qty, unitPriceMc: l.unitPriceMc })),
           },
           ACTOR,
         );
@@ -1391,8 +1400,8 @@ describe("batch atomicity (INV-1)", () => {
            VALUES ('sale_atomicity_test', ?, ?, 'CATALOG', 0, 'ON_CREDIT', ?, ?)`,
         ).bind(NOW, BUSINESS_DATE, NOW, NOW),
         env.DB.prepare(
-          `INSERT INTO sale_lines (id, sale_id, item_id, qty, unit_price, unit_cost_snapshot_mc)
-           VALUES ('sale_line_atomicity_test', 'sale_atomicity_test', ?, 0, 500, 0)`,
+          `INSERT INTO sale_lines (id, sale_id, item_id, qty, unit_price_mc, unit_cost_snapshot_mc)
+           VALUES ('sale_line_atomicity_test', 'sale_atomicity_test', ?, 0, 500000, 0)`,
         ).bind(item.id),
       ]),
     ).rejects.toThrow();
@@ -1408,13 +1417,13 @@ describe("batch atomicity (INV-1)", () => {
 // Property test (Doc 11 §2, mandatory for money/stock math per D-5/CLAUDE.md).
 // ---------------------------------------------------------------------------
 
-describe("property: sale total = Σ round(qty × unit_price) and on-hand nets every line's qty", () => {
+describe("property: sale total = Σ round(qty × unit_price_mc) and on-hand nets every line's qty", () => {
   it("∀ multi-line sales against a fixed item: stored total equals the independent Σ, no centavo lost", async () => {
     const db = createDb(env.DB);
 
     const lineArb = fc.record({
       qty: fc.integer({ min: 1, max: 5000 }),
-      unitPrice: fc.integer({ min: 0, max: 50_000 }),
+      unitPriceMc: fc.integer({ min: 0, max: 50_000_000 }),
     });
 
     await fc.assert(
@@ -1428,12 +1437,16 @@ describe("property: sale total = Σ round(qty × unit_price) and on-hand nets ev
             paymentStatus: "ON_CREDIT",
             occurredAt: NOW,
             businessDate: BUSINESS_DATE,
-            lines: lines.map((l) => ({ itemId: item.id, qty: l.qty, unitPrice: l.unitPrice })),
+            lines: lines.map((l) => ({ itemId: item.id, qty: l.qty, unitPriceMc: l.unitPriceMc })),
           },
           ACTOR,
         );
 
-        const expectedTotal = addMoney(...lines.map((l) => mulMoneyByQty(l.unitPrice, l.qty)));
+        const expectedTotal = addMoney(
+          ...lines.map((l) =>
+            totalCentavos(toMilliCentavosPerUnit(l.unitPriceMc), toMilliUnits(l.qty)),
+          ),
+        );
         expect(result.sale.total).toBe(expectedTotal);
 
         const expectedOnHand = -lines.reduce((sum, l) => sum + l.qty, 0);

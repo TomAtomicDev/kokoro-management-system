@@ -25,7 +25,13 @@
 // sales service factory when KOK-030 ships and delete this notice.
 // ============================================================================================
 import { env } from "cloudflare:test";
-import { generateUuidV7, toBusinessDate } from "@kokoro/shared";
+import {
+  generateUuidV7,
+  toBusinessDate,
+  toMilliCentavosPerUnit,
+  toMilliUnits,
+  totalCentavos,
+} from "@kokoro/shared";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 
@@ -70,7 +76,7 @@ async function seedSale(
     occurredAt: string;
     businessDate: string;
     qty: number;
-    unitPrice: number;
+    unitPriceMc: number;
     unitCostSnapshotMc: number;
   },
 ): Promise<{ saleId: string; saleLineId: string }> {
@@ -83,7 +89,10 @@ async function seedSale(
     occurredAt: params.occurredAt,
     businessDate: params.businessDate,
     channel: "CATALOG",
-    total: params.qty * params.unitPrice,
+    total: totalCentavos(
+      toMilliCentavosPerUnit(params.unitPriceMc),
+      toMilliUnits(params.qty),
+    ),
     paymentStatus: "PAID",
     paidAt: params.occurredAt,
     paymentMethod: "CASH",
@@ -97,7 +106,7 @@ async function seedSale(
     saleId,
     itemId: params.itemId,
     qty: params.qty,
-    unitPrice: params.unitPrice,
+    unitPriceMc: params.unitPriceMc,
     unitCostSnapshotMc: params.unitCostSnapshotMc,
   });
 
@@ -247,7 +256,7 @@ async function seedScenario(db: TestDb, suffix: string) {
     occurredAt: "2026-07-11T12:00:00.000Z",
     businessDate: "2026-07-11",
     qty: 2_000,
-    unitPrice: 15,
+    unitPriceMc: 15_000_000,
     unitCostSnapshotMc: FROZEN_SNAPSHOT,
   });
 

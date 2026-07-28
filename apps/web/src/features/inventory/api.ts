@@ -2,7 +2,7 @@
 // reads/write). Same shape as features/finance/api.ts and features/purchases/api.ts: plain
 // useQuery with filters folded into the query key, and a mutation whose onSuccess invalidates the
 // "inventory" root key (stock/kardex/exits/waste-summary all move together when an exit is
-// recorded — INV-5 style consistency — so one shared root key is invalidated rather than four
+// recorded â€” INV-5 style consistency â€” so one shared root key is invalidated rather than four
 // separate ones, mirroring purchasing's single PURCHASES_ROOT_KEY precedent).
 
 import type {
@@ -66,7 +66,7 @@ function kardexFiltersToQueryString(itemId: string, filters: KardexFilters): str
   return `?${params.toString()}`;
 }
 
-/** `enabled: !!itemId` — the drawer only fetches once an item is selected (SC-08's row -> Kardex
+/** `enabled: !!itemId` â€” the drawer only fetches once an item is selected (SC-08's row -> Kardex
  * drawer interaction is always scoped to one item; `itemId` is required server-side). */
 export function useKardex(itemId: string | null, filters: KardexFilters = {}) {
   return useQuery({
@@ -100,7 +100,7 @@ export function useStockExits(filters: ListStockExitsFilters = {}) {
   });
 }
 
-/** `enabled: !!id` — mirrors `usePurchase`'s / `useCount`'s precedent: the detail drawer only
+/** `enabled: !!id` â€” mirrors `usePurchase`'s / `useCount`'s precedent: the detail drawer only
  * fetches once an exit is selected. GET /inventory/exits/:id returns the bare `StockExitDto`
  * (not wrapped in `{ exit }`), same as the record/update mutations' `.exit` is unwrapped here. */
 export function useStockExit(id: string | undefined) {
@@ -129,11 +129,11 @@ export function useWasteSummary(filters: ListWasteSummaryFilters = {}) {
   });
 }
 
-// --- On-demand replacement-cost refresh (KOK-029, Doc 03 §4 C-3) -----------------------------
+// --- On-demand replacement-cost refresh (KOK-029, Doc 03 Â§4 C-3) -----------------------------
 
 /** On-demand twin of the nightly `replacement-cost-refresh` Cron Trigger job (same server-side
- * planner, api/costing.ts's header) — invalidates the inventory root key since a refresh changes
- * `replacement_cost`, which `v_stock`'s `stock_value`/`replacementCost` columns read from. */
+ * planner, api/costing.ts's header) â€” invalidates the inventory root key since a refresh changes
+ * `replacementCostMc`, which `v_stock`'s `stock_value`/`replacementCostMc` columns read from. */
 export function useRefreshReplacementCosts() {
   const invalidate = useInvalidateInventory();
   return useMutation({
@@ -191,7 +191,7 @@ export function useRestoreStockExit(id: string) {
   });
 }
 
-/** Dry-run preview (no write, so no cache to invalidate) — mirrors
+/** Dry-run preview (no write, so no cache to invalidate) â€” mirrors
  * usePreviewPurchaseImpact's precedent (features/purchases/api.ts). */
 export function usePreviewStockExitImpact() {
   return useMutation({
@@ -220,7 +220,7 @@ export function useCounts(filters: ListCountsFilters = {}) {
   });
 }
 
-/** `enabled: !!countId` — mirrors `useKardex`'s pattern: the detail drawer only fetches once a
+/** `enabled: !!countId` â€” mirrors `useKardex`'s pattern: the detail drawer only fetches once a
  * count is selected. */
 export function useCount(countId: string | null) {
   return useQuery({

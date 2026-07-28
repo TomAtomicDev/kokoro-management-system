@@ -11,7 +11,13 @@ import type {
   ItemDto,
   UpdateSaleResult,
 } from "@kokoro/shared";
-import { formatMoney, formatQty, mulMoneyByQty } from "@kokoro/shared";
+import {
+  formatMoney,
+  formatQty,
+  toMilliUnits,
+  totalCentavos,
+  WHOLE_UNIT_MILLI_UNITS,
+} from "@kokoro/shared";
 import { useEffect, useMemo, useState } from "react";
 
 import { DetailDrawer } from "@/components/data-table/DetailDrawer";
@@ -199,7 +205,7 @@ export function SaleDetailDrawer({ saleId, open, onOpenChange, accounts }: SaleD
               <ul className="flex flex-col gap-2">
                 {sale.lines.map((line) => {
                   const item = itemById.get(line.itemId);
-                  const subtotal = mulMoneyByQty(line.unitPrice, line.qty);
+                  const subtotal = totalCentavos(line.unitPriceMc, toMilliUnits(line.qty));
                   return (
                     <li
                       key={line.id}
@@ -213,7 +219,9 @@ export function SaleDetailDrawer({ saleId, open, onOpenChange, accounts }: SaleD
                       </div>
                       <div className="flex items-center justify-between text-muted-foreground text-xs">
                         <span>{item ? formatQty(line.qty, item.unit) : line.qty}</span>
-                        <span className="numeric-cell">{formatMoney(line.unitPrice)}</span>
+                        <span className="numeric-cell">
+                          {formatMoney(totalCentavos(line.unitPriceMc, WHOLE_UNIT_MILLI_UNITS))}
+                        </span>
                       </div>
                     </li>
                   );

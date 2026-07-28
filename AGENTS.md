@@ -29,18 +29,7 @@ These constraints are non-negotiable. Every code change must respect them.
 
 ## Playbook: Adding a New Event Type
 
-Follow these 10 steps; skip only if the KB says the event already exists.
-
-1. Read Doc 03 (business rules + invariants) and Doc 04 (tables) for the event.
-2. `packages/shared`: add Command/Update DTO Zod schemas + result types.
-3. `db/schema.ts` + migration (if new tables/columns) — update Doc 04 (D-6).
-4. `core/<module>/`: service with `record`, `update`, `delete` producing one batch (D-3): event rows + derived `stock_movements`/`financial_transactions` + `item_stock`/balance deltas + `audit_log` row.
-5. Unit tests for costing/derivation logic (pure parts) + integration test for the batch (Doc 11 templates).
-6. `api/`: thin routes + TanStack Query hooks in `web/src/features/<module>/`.
-7. `web/`: `EventForm` + table columns + drawer wiring (reuse Doc 06 components).
-8. `assistant/tools/`: `draft_<event>` tool (imports the same schema, D-4) + capture few-shot example if utterance shape is new + eval fixtures (D-7).
-9. `telegram/`: confirmation-card renderer for the event type (template in `telegram/cards.ts`).
-10. Update Doc 07 if a screen changed; add glossary terms if new vocabulary appeared.
+See the `add-event-type` skill for the 10-step playbook.
 
 ## Guardrails for AI Agents
 
@@ -63,15 +52,7 @@ For local UI verification against the dev server (before staging), use the `veri
 
 ## Where Things Live
 
-See the root `README.md` for the full monorepo directory tree and workspace dependency rules. Key points:
-
-- **`docs/system-design-knowledge-base/`** — authoritative source for all business rules, data model, API design, and architectural decisions.
-- **`packages/shared`** — Zod schemas, domain types, enums, money/qty utilities, i18n Spanish strings. No dependency on `apps/*`.
-- **`apps/worker/src/`** — Cloudflare Worker (Hono). Routes (`api/`), domain services (`core/`), AI assistant (`assistant/`), Telegram bot (`telegram/`), jobs (`jobs/`), database (`db/`).
-- **`apps/web/src/`** — React SPA. Routes, features (one per domain), components, lib utilities.
-- **`tools/mcp-server/`** — dev-only MCP wrapper for the assistant tool registry.
-
-**Workspace rule:** `core/` is called by `api/`, `telegram/`, `assistant/`, and `jobs/`, but `core/` never imports from any of them. All writes to business tables go through `core/` services.
+See root `README.md` for the monorepo layout and workspace dependency rule.
 
 ## graphify
 

@@ -29,7 +29,7 @@ better correction ergonomics for a solo operator (ADR-009).
 | INV-3 | Every event has `occurred_at` (UTC) and `business_date` (America/La_Paz); reports group by `business_date`. |
 | INV-4 | AI may draft events; only explicit human confirmation commits a write. |
 | INV-5 | `item_stock.qty_on_hand` = Σ `stock_movements.qty` per item; account `balance` = opening + Σ transactions. Checked nightly. |
-| INV-6 | One scale per concept (Doc 04 §2, ADR-017): money amounts are integer centavos (BOB); **every per-unit rate** — sale price, unit price, WAC, replacement cost, cost snapshots — is integer milli-centavos per WHOLE unit (`_mc` columns); quantities are integer milli-units of the item's own unit; percentages are basis points. No `REAL` in the schema. Derived money is rounded half-up at the final step only, and the only scale conversions live in `packages/shared/money.ts`. |
+| INV-6 | One scale per concept (Doc 04 §2, ADR-017): money amounts are integer centavos (BOB); **every per-unit rate** — sale price, unit price, WAC, replacement cost, cost snapshots — is integer milli-centavos per WHOLE unit (`_mc` columns); quantities are integer milli-units of the item's own unit; percentages are basis points. No monetary value or per-unit rate uses `REAL`. Derived money is rounded half-up at the final step only, and the only scale conversions live in `packages/shared/money.ts`. |
 | INV-7 | A custom-order deposit is a liability (`customer_deposits`) from receipt until delivery or refund; it never appears as revenue before delivery. |
 | INV-8 | Stock MAY go negative (capture-first); negative stock raises a persistent reconciliation flag, never a blocking error. |
 | INV-9 | Derived rows always carry `source_event_type` + `source_event_id`; orphan derived rows are forbidden. |
@@ -69,7 +69,13 @@ better correction ergonomics for a solo operator (ADR-009).
   C-5's `margin_replacement` and its price-health alert would otherwise drift optimistic. Soft
   -deleted purchases (R-3) do not count. For SEMI_FINISHED/FINISHED,
   `replacement_cost = Σ(default-recipe line qty × ingredient replacement_cost) / expected_yield`,
-  recomputed by the nightly job and on demand; cached with timestamp.
+  recomputed by the nightly job and on demand; cached with timestamp. The cached column is an
+  INTEGER `replacement_cost_mc` (milli-centavos per whole unit) like every other stored rate, and
+  because an ingredient's `replacement_cost_mc` may itself be a SEMI_FINISHED item's cached value
+  (a multi-level BOM), the formula rounds half-up **once per level**. That quantization is bounded
+  and deliberate — ≤ 0.5 mc (Bs 0.000005/unit) per level, dominated by the leaf raw material's own
+  quantization, which is unavoidable; see ADR-017's KOK-071 vertical-2 amendment for the
+  measurements and for why no float exception is carved out for this column.
 - **C-3b Recipe theoretical cost (KOK-025 KB amendment)**: the Recipes screen (SC-06) previews a
   recipe's cost per output unit at both valuations, generalizing C-3's replacement-cost formula
   (which is defined there only for the *default* recipe feeding the cached column) to ANY recipe
@@ -115,7 +121,7 @@ Rules:
     a catalog FINISHED item before an order can be delivered** (Doc 04 §5) — free-text lines are a
     quoting convenience and must be resolved first (`resolveOrderLine`, KOK-034 — the one narrow
     exception to "no generic update order", see Doc 04 §5); delivery refuses (409) otherwise. `agreed_total`
-    is split across those lines by largest remainder so `Σ(qty × unit_price)` reproduces it exactly.
+    is split across those lines by largest remainder so `Σ(qty × unit_price_mc / 1e6)` reproduces it exactly.
   - Only the **balance** is new money: the deposit was already banked at confirm time, so
     `ORDER_BALANCE` is booked for `agreed_total − deposit_paid` (nothing when that is zero), and an
     ON_CREDIT balance shows in `v_receivables` net of the deposit — never the full agreed total.

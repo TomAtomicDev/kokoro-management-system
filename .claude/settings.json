@@ -5,7 +5,8 @@
       "Skill(playwright-cli)",
       "Skill(run)",
       "Bash(git:*)",
-      "Bash(pnpm:*)"
+      "Bash(pnpm:*)",
+      "Bash(cd:*)"
     ]
   },
   "enabledPlugins": {

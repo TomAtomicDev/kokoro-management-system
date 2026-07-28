@@ -1,17 +1,23 @@
 // SC-08 Stock tab table: `v_stock` rows, pre-sorted server-side (negative-first, then low-stock,
-// then by name — see packages/shared/src/inventory-views.ts) so no client-side re-sort is needed.
+// then by name â€” see packages/shared/src/inventory-views.ts) so no client-side re-sort is needed.
 // Row click opens the Kardex drawer for that item.
 //
-// wac/replacementCost display: KOK-071 (ADR-017) migrated `wac` to the integer milli-centavos-
-// per-WHOLE-unit scale (`wacMc`, ÷1000 to display as centavos) — `replacementCost` is not migrated
-// yet and stays the pre-migration REAL centavos-per-MILLI-unit scale (`×1000` to display), the
+// wac/replacementCostMc display: KOK-071 (ADR-017) migrated `wac` to the integer milli-centavos-
+// per-WHOLE-unit scale (`wacMc`, Ã·1000 to display as centavos) â€” `replacementCostMc` is not migrated
+// yet and stays the pre-migration REAL centavos-per-MILLI-unit scale (`Ã—1000` to display), the
 // same scale ItemForm.tsx still displays via `formatMoney(Math.round(value * 1000))`. The two
-// columns therefore use different formatters below until replacementCost's own KOK-071 vertical
-// lands. `stockValue` itself is already a plain INTEGER centavos column (Doc 04 §3.4
+// columns therefore use different formatters below until replacementCostMc's own KOK-071 vertical
+// lands. `stockValue` itself is already a plain INTEGER centavos column (Doc 04 Â§3.4
 // `stock_value INTEGER`), so it needs no such conversion.
 
 import type { StockRowDto } from "@kokoro/shared";
-import { formatMoney, formatQty } from "@kokoro/shared";
+import {
+  formatMoney,
+  formatQty,
+  toMilliCentavosPerUnit,
+  totalCentavos,
+  WHOLE_UNIT_MILLI_UNITS,
+} from "@kokoro/shared";
 import { CalcTrace } from "@/components/common/CalcTrace";
 import { EventTable, type EventTableColumn } from "@/components/data-table/EventTable";
 import { Badge } from "@/components/ui/badge";
@@ -24,14 +30,9 @@ export interface StockTableProps {
   onRowClick?: (row: StockRowDto) => void;
 }
 
-/** Doc 04 §2: `replacementCost` is still REAL centavos-per-milli-unit (not migrated yet). */
-function formatUnitCost(perMilliUnitCentavos: number, unit: StockRowDto["unit"]): string {
-  return `${formatMoney(Math.round(perMilliUnitCentavos * 1000))} / ${inventoryLabels.unitAbbrev[unit]}`;
-}
-
-/** ADR-017/KOK-071: `wacMc` is integer milli-centavos per WHOLE unit. */
-function formatUnitCostMc(wacMc: number, unit: StockRowDto["unit"]): string {
-  return `${formatMoney(Math.round(wacMc / 1000))} / ${inventoryLabels.unitAbbrev[unit]}`;
+/** ADR-017/KOK-071: both rates are integer milli-centavos per WHOLE unit. */
+function formatUnitCostMc(rateMc: number, unit: StockRowDto["unit"]): string {
+  return `${formatMoney(totalCentavos(toMilliCentavosPerUnit(rateMc), WHOLE_UNIT_MILLI_UNITS))} / ${inventoryLabels.unitAbbrev[unit]}`;
 }
 
 export function StockTable({ rows, loading, onRowClick }: StockTableProps) {
@@ -79,7 +80,7 @@ export function StockTable({ rows, loading, onRowClick }: StockTableProps) {
       id: "minStock",
       header: inventoryLabels.columnMinStock,
       numeric: true,
-      cell: (row) => (row.minStockQty === null ? "—" : formatQty(row.minStockQty, row.unit)),
+      cell: (row) => (row.minStockQty === null ? "â€”" : formatQty(row.minStockQty, row.unit)),
     },
     {
       id: "wac",
@@ -88,10 +89,10 @@ export function StockTable({ rows, loading, onRowClick }: StockTableProps) {
       cell: (row) => formatUnitCostMc(row.wacMc, row.unit),
     },
     {
-      id: "replacementCost",
+      id: "replacementCostMc",
       header: inventoryLabels.columnReplacementCost,
       numeric: true,
-      cell: (row) => formatUnitCost(row.replacementCost, row.unit),
+      cell: (row) => formatUnitCostMc(row.replacementCostMc, row.unit),
     },
     {
       id: "stockValue",

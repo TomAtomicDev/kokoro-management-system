@@ -1,8 +1,8 @@
-// Integration tests for core/costing's C-3 replacement-cost refresh (KOK-029, Doc 03 §4,
-// Doc 11 §3 template): seed real state via core/ service factories (createItem, recordRecipe —
+// Integration tests for core/costing's C-3 replacement-cost refresh (KOK-029, Doc 03 Ãƒâ€šÃ‚Â§4,
+// Doc 11 Ãƒâ€šÃ‚Â§3 template): seed real state via core/ service factories (createItem, recordRecipe ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â
 // the same seams recipes.test.ts uses), run planReplacementCostRefresh / runReplacementCostRefresh
 // against real D1 (test/setup.ts applies migrations/0001_init.sql first), then assert
-// items.replacement_cost / replacement_cost_updated_at, dependency order across a multi-level BOM,
+// items.replacement_cost_mc / replacement_cost_mc_updated_at, dependency order across a multi-level BOM,
 // the no-default-recipe skip path, and the job's job_runs ok=1/ok=0 bookkeeping.
 import { env } from "cloudflare:test";
 import type { RecordRecipeCommand } from "@kokoro/shared";
@@ -24,15 +24,15 @@ type Statement = BatchItem<"sqlite">;
 async function seedItem(
   db: TestDb,
   kind: "RAW_MATERIAL" | "SEMI_FINISHED" | "FINISHED",
-  replacementCost = 0,
+  replacementCostMc = 0,
 ) {
   const item = await createItem(
     db,
     { name: `Item ${crypto.randomUUID()}`, kind, category: "INGREDIENT", unit: "KG" },
     ACTOR,
   );
-  if (replacementCost !== 0) {
-    await db.update(items).set({ replacementCost }).where(eq(items.id, item.id));
+  if (replacementCostMc !== 0) {
+    await db.update(items).set({ replacementCostMc }).where(eq(items.id, item.id));
   }
   return item;
 }
@@ -82,14 +82,14 @@ describe("planReplacementCostRefresh (C-3, SEMI_FINISHED/FINISHED)", () => {
 
     const updated = await readItem(db, masa.id);
     // 500 * 12 / 1000 = 6 centavos/milli-unit.
-    expect(updated.replacementCost).toBe(6);
+    expect(updated.replacementCostMc).toBe(6);
     expect(updated.replacementCostUpdatedAt).not.toBeNull();
   });
 
   it("propagates through a multi-level BOM in dependency order (RAW_MATERIAL -> SEMI_FINISHED -> FINISHED) within one run", async () => {
     const db = createDb(env.DB);
     const flour = await seedItem(db, "RAW_MATERIAL", 12);
-    const masa = await seedItem(db, "SEMI_FINISHED"); // starts at 0 — must refresh BEFORE pan reads it
+    const masa = await seedItem(db, "SEMI_FINISHED"); // starts at 0 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â must refresh BEFORE pan reads it
     const pan = await seedItem(db, "FINISHED");
     await seedDefaultRecipe(db, masa.id, 1000, [{ itemId: flour.id, qty: 500 }]);
     await seedDefaultRecipe(db, pan.id, 500, [{ itemId: masa.id, qty: 500 }]);
@@ -103,13 +103,13 @@ describe("planReplacementCostRefresh (C-3, SEMI_FINISHED/FINISHED)", () => {
 
     const updatedMasa = await readItem(db, masa.id);
     const updatedPan = await readItem(db, pan.id);
-    // masa: 500*12/1000 = 6. pan: 500*6/500 = 6 — uses masa's FRESHLY computed value, not its
+    // masa: 500*12/1000 = 6. pan: 500*6/500 = 6 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â uses masa's FRESHLY computed value, not its
     // stale pre-run 0, which is exactly what the dependency-order requirement above proves.
-    expect(updatedMasa.replacementCost).toBe(6);
-    expect(updatedPan.replacementCost).toBe(6);
+    expect(updatedMasa.replacementCostMc).toBe(6);
+    expect(updatedPan.replacementCostMc).toBe(6);
   });
 
-  it("skips an active SEMI_FINISHED/FINISHED item with no active default recipe, leaving replacement_cost untouched", async () => {
+  it("skips an active SEMI_FINISHED/FINISHED item with no active default recipe, leaving replacement_cost_mc untouched", async () => {
     const db = createDb(env.DB);
     const orphan = await seedItem(db, "FINISHED", 999);
 
@@ -118,10 +118,10 @@ describe("planReplacementCostRefresh (C-3, SEMI_FINISHED/FINISHED)", () => {
     expect(plan.refreshedItemIds).not.toContain(orphan.id);
 
     const row = await readItem(db, orphan.id);
-    expect(row.replacementCost).toBe(999);
+    expect(row.replacementCostMc).toBe(999);
   });
 
-  it("never refreshes RAW_MATERIAL items — C-3's other branch (last purchase unit cost) owns them", async () => {
+  it("never refreshes RAW_MATERIAL items ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â C-3's other branch (last purchase unit cost) owns them", async () => {
     const db = createDb(env.DB);
     const flour = await seedItem(db, "RAW_MATERIAL", 12);
 
@@ -152,15 +152,15 @@ describe("runReplacementCostRefresh (the nightly Cron Trigger job)", () => {
     expect(detail.refreshedItemIds).toContain(masa.id);
 
     const updated = await readItem(db, masa.id);
-    expect(updated.replacementCost).toBe(10);
+    expect(updated.replacementCostMc).toBe(10);
   });
 
   it("writes an ok=0 job_runs row instead of throwing when the recipe book has a cycle", async () => {
     const db = createDb(env.DB);
     const x = await seedItem(db, "SEMI_FINISHED");
     const y = await seedItem(db, "SEMI_FINISHED");
-    // x's default recipe consumes y, and y's default recipe consumes x — a cycle the recipe rules
-    // (Doc 03 §4) forbid in principle but nothing in the schema itself prevents.
+    // x's default recipe consumes y, and y's default recipe consumes x ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â a cycle the recipe rules
+    // (Doc 03 Ãƒâ€šÃ‚Â§4) forbid in principle but nothing in the schema itself prevents.
     await seedDefaultRecipe(db, x.id, 1000, [{ itemId: y.id, qty: 500 }]);
     await seedDefaultRecipe(db, y.id, 1000, [{ itemId: x.id, qty: 500 }]);
 

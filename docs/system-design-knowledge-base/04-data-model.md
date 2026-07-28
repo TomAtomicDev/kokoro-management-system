@@ -27,7 +27,7 @@ shipped two 1000× bugs (KOK-069; see ADR-017 for the full history).
 
 Rules:
 
-- **`REAL` does not appear in the schema.** Milli-centavos carry three decimal digits below the
+- **`REAL` does not appear in money or per-unit-rate columns.** Milli-centavos carry three decimal digits below the
   centavo — more precision than the domain needs, and deterministic, so WAC replay (ADR-016) is
   reproducible.
 - **The denominator of every rate is the whole unit**, never the milli-unit, so
@@ -49,13 +49,6 @@ Rules:
 > correction note for the full derivation. The `totalCentavos`/`rateFromTotal` formulas below
 > were never wrong, only the worked examples were.
 
-> **Transition state (2026-07-27 → KOK-071).** This section states the target adopted in
-> ADR-017. The DDL in §3 below still shows the **pre-migration-0007** columns — `REAL`,
-> per-milli-unit costs, un-suffixed names — because it must keep mirroring `db/schema.ts` 1:1
-> while the migration is pending. KOK-071 rewrites §3's affected columns in the same PR as the
-> migration (D-6); until it merges, §3 is what the database holds and §2 is what it is becoming.
-> Do not build new columns against §3's old scales.
-
 ## 3. Schema (DDL)
 
 ### 3.1 Catalog
@@ -68,10 +61,10 @@ CREATE TABLE items (
   category TEXT NOT NULL CHECK (category IN
     ('INGREDIENT','PACKAGING','LABEL','BAKERY','DAIRY','OTHER')),
   unit TEXT NOT NULL CHECK (unit IN ('G','KG','ML','L','UNIT')),
-  wac REAL NOT NULL DEFAULT 0,                   -- weighted avg cost, centavos per milli-unit (derived, C-1)
-  replacement_cost REAL NOT NULL DEFAULT 0,      -- centavos per milli-unit (derived, C-3)
+  wac_mc INTEGER NOT NULL DEFAULT 0,             -- weighted avg cost, milli-centavos per whole unit (derived, C-1)
+  replacement_cost_mc INTEGER NOT NULL DEFAULT 0,-- milli-centavos per whole unit (derived, C-3)
   replacement_cost_updated_at TEXT,
-  sale_price INTEGER,                            -- centavos per unit; NULL unless sellable (FINISHED)
+  sale_price_mc INTEGER,                         -- milli-centavos per whole unit; NULL unless sellable (FINISHED)
   min_stock_qty INTEGER,                         -- milli-units; NULL = no alert
   is_active INTEGER NOT NULL DEFAULT 1,
   notes TEXT,
@@ -109,7 +102,7 @@ CREATE TABLE recipe_lines (
 CREATE TABLE price_history (                     -- price stability analysis (G2)
   id TEXT PRIMARY KEY,
   item_id TEXT NOT NULL REFERENCES items(id),
-  price INTEGER NOT NULL,                        -- centavos (→ price_mc, KOK-071)
+  price_mc INTEGER NOT NULL,                     -- milli-centavos per whole unit
   effective_from TEXT NOT NULL,                  -- business_date
   note TEXT
 );
@@ -118,10 +111,7 @@ CREATE TABLE price_history (                     -- price stability analysis (G2
 CREATE TABLE replacement_cost_history (
   id TEXT PRIMARY KEY,
   item_id TEXT NOT NULL REFERENCES items(id),
-  replacement_cost REAL NOT NULL,                -- same representation as items.replacement_cost
-                                                 -- at creation time; rescaled to
-                                                 -- replacement_cost_mc INTEGER by KOK-071 if this
-                                                 -- lands before migration 0007 (it should)
+  replacement_cost_mc INTEGER NOT NULL,          -- milli-centavos per whole unit
   observed_at TEXT NOT NULL,                     -- ISO-8601 UTC, = items.replacement_cost_updated_at
   business_date TEXT NOT NULL,
   source TEXT NOT NULL CHECK (source IN ('PURCHASE','NIGHTLY','MANUAL'))
@@ -206,7 +196,7 @@ CREATE TABLE production_consumptions (           -- ACTUAL consumption (recipe i
   production_run_id TEXT NOT NULL REFERENCES production_runs(id) ON DELETE CASCADE,
   item_id TEXT NOT NULL REFERENCES items(id),
   qty INTEGER NOT NULL CHECK (qty > 0),          -- milli-units
-  unit_cost_snapshot REAL NOT NULL               -- WAC at commit (audit of C-4)
+  unit_cost_snapshot_mc INTEGER NOT NULL         -- WAC at commit, milli-centavos per whole unit
 );
 
 CREATE TABLE customers (
@@ -237,8 +227,8 @@ CREATE TABLE sale_lines (
   sale_id TEXT NOT NULL REFERENCES sales(id) ON DELETE CASCADE,
   item_id TEXT NOT NULL REFERENCES items(id),    -- FINISHED only (service-enforced)
   qty INTEGER NOT NULL CHECK (qty > 0),
-  unit_price INTEGER NOT NULL,                   -- centavos (editable vs list price)
-  unit_cost_snapshot REAL NOT NULL               -- WAC at sale → per-line margin forever
+  unit_price_mc INTEGER NOT NULL,                -- milli-centavos per whole unit (editable vs list price)
+  unit_cost_snapshot_mc INTEGER NOT NULL         -- WAC at sale → per-line margin forever
 );
 
 CREATE TABLE custom_orders (
@@ -274,7 +264,7 @@ CREATE TABLE stock_exits (                       -- non-commercial exits (UC-09)
   qty INTEGER NOT NULL CHECK (qty > 0),
   reason TEXT NOT NULL CHECK (reason IN
     ('WASTE','SELF_CONSUMPTION','GIFT_SAMPLE','SPOILAGE','OTHER')),
-  unit_cost_snapshot REAL NOT NULL,              -- WAC at exit (C-6)
+  unit_cost_snapshot_mc INTEGER NOT NULL,        -- WAC at exit, milli-centavos per whole unit (C-6)
   session_id TEXT REFERENCES sessions(id),
   notes TEXT, deleted_at TEXT,
   created_at TEXT NOT NULL, updated_at TEXT NOT NULL
@@ -308,8 +298,8 @@ CREATE TABLE stock_movements (                   -- THE KARDEX (system-owned, IN
   type TEXT NOT NULL CHECK (type IN
     ('PURCHASE_IN','PRODUCTION_IN','PRODUCTION_OUT','SALE_OUT','EXIT_OUT','ADJUST')),
   qty INTEGER NOT NULL,                          -- signed milli-units (+in / −out)
-  unit_cost REAL NOT NULL,                       -- centavos per milli-unit at movement time
-  total_cost INTEGER NOT NULL,                   -- centavos, signed (qty × unit_cost rounded)
+  unit_cost_mc INTEGER NOT NULL,                 -- milli-centavos per whole unit at movement time
+  total_cost INTEGER NOT NULL,                   -- centavos, signed via totalCentavos(unit_cost_mc, qty)
   source_event_type TEXT NOT NULL,               -- 'purchase'|'production_run'|'sale'|'stock_exit'|'inventory_count'
   source_event_id TEXT NOT NULL,
   created_at TEXT NOT NULL
@@ -445,9 +435,9 @@ CREATE TABLE pending_drafts (                    -- one active AI draft per Tele
 
 | View | Definition (essence) |
 |------|----------------------|
-| `v_stock` | items ⨝ item_stock + `stock_value = qty_on_hand × wac`, low-stock flag |
+| `v_stock` | items ⨝ item_stock + `stock_value = round(qty_on_hand × wac_mc / 1e6)`, low-stock flag |
 | `v_kardex` | stock_movements ⨝ items, ordered, with running balance via window function |
-| `v_price_health` | FINISHED items: id, name, sale_price, wac, replacement_cost, replacement_cost_updated_at. Raw columns only — margins are computed in `core/costing/price-health.ts` (KOK-035), not in this view; a prior version had `margin_wac_bp`/`margin_repl_bp`/`margin_repl_pct` columns with a sale_price (per-whole-unit) vs wac/replacement_cost (per-milli-unit) scaling bug (~1000x), removed with zero consumers in migration 0006 (KOK-069) rather than fixed in SQL, since the correct C-5 math already lives in application code |
+| `v_price_health` | FINISHED items: id, name, sale_price_mc, wac_mc, replacement_cost_mc, replacement_cost_updated_at. Raw columns only — margins are computed in `core/costing/price-health.ts` (KOK-035), not in this view; the former SQL margin columns were removed in migration 0006 because they mixed per-whole-unit prices with per-milli-unit costs. |
 | `v_receivables` | sales WHERE payment_status='ON_CREDIT' AND deleted_at IS NULL, aged; `total` = **uncollected remainder**, i.e. `sales.total − custom_orders.deposit_paid` for a CUSTOM_ORDER sale (KOK-033, migration 0005) and plain `sales.total` otherwise |
 | `v_liability` | current customer_deposits (see §3.4) |
 | `v_cashflow_daily` | financial_transactions grouped by business_date × category |
@@ -465,7 +455,7 @@ error is invisible. Views stay for row-shaping and joins; they do no margin arit
 
 - Sale lines only reference `kind='FINISHED'` items; recipe output must not be RAW_MATERIAL;
   production consumption items must not be FINISHED **unless** flagged rework (v1: forbidden).
-- `purchases.total = Σ purchase_lines.line_total`; `sales.total = Σ qty×unit_price` (recomputed
+- `purchases.total = Σ purchase_lines.line_total`; `sales.total = Σ qty×unit_price_mc / 1e6` (recomputed
   server-side, client values ignored).
 - `custom_orders` transitions only along the state machine (O-1…O-3). There is no generic
   "update order" command and no soft-delete/restore pair: `CANCELLED` is the terminal
@@ -483,7 +473,7 @@ error is invisible. Views stay for row-shaping and joins; they do no margin arit
   a free-text line before delivery without a general-purpose line editor.
 - `agreed_total` is split across the delivered sale's lines by the largest-remainder method
   (`allocateAgreedTotalToOrderLines`): lines carrying an explicit `line_total` are pinned, the rest
-  share what is left weighted by `qty`, and `Σ(qty × unit_price)` must reproduce `agreed_total` to
+  share what is left weighted by `qty`, and `Σ(qty × unit_price_mc / 1e6)` must reproduce `agreed_total` to
   the centavo (D-5) — otherwise the delivery is refused rather than rounded.
 - The sale created by a delivery is owned by its order: `core/sales`' update/delete refuse
   (409 CONFLICT) for any `channel='CUSTOM_ORDER'` sale, since editing it would desynchronize

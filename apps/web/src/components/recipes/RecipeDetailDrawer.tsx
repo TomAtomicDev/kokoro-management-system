@@ -1,6 +1,6 @@
-// Detail drawer for a single recipe (Doc 06 §4 DetailDrawer contract). Mirrors
+// Detail drawer for a single recipe (Doc 06 Â§4 DetailDrawer contract). Mirrors
 // PurchaseDetailDrawer.tsx's structure, but simpler: no replay-confirmation dance, and
-// deactivate/reactivate is a plain `Switch` toggle over `useSetRecipeActive` — same precedent as
+// deactivate/reactivate is a plain `Switch` toggle over `useSetRecipeActive` â€” same precedent as
 // ItemDetailDrawer.tsx's own active toggle (recipes.ts's header comment: "recipes deactivate the
 // same way items do").
 
@@ -43,18 +43,18 @@ export function RecipeDetailDrawer({ recipeId, open, onOpenChange }: RecipeDetai
   const settings = recipeQuery.data?.settings;
   const outputItem = recipe ? itemById.get(recipe.outputItemId) : undefined;
 
-  /** CalcTrace inputs for the cost panel below — mirrors RecipeForm.tsx's identical helper: one
-   * row per ingredient line's contribution (qty × unit cost on `basis`) plus the expected yield. */
-  function buildCostTraceInputs(basis: "wac" | "replacementCost"): CalcTraceInput[] {
+  /** CalcTrace inputs for the cost panel below â€” mirrors RecipeForm.tsx's identical helper: one
+   * row per ingredient line's contribution (qty Ã— unit cost on `basis`) plus the expected yield. */
+  function buildCostTraceInputs(basis: "wac" | "replacementCostMc"): CalcTraceInput[] {
     if (!recipe) return [];
     return [
       ...recipe.lines.map((line): CalcTraceInput => {
         const item = itemById.get(line.itemId);
-        // KOK-071 vertical 1: wacMc is milli-centavos per WHOLE unit; replacementCost is not
+        // KOK-071 vertical 1: wacMc is milli-centavos per WHOLE unit; replacementCostMc is not
         // migrated yet, so the wac basis converts back down to the old centavos-per-milli-unit
         // convention this function still expects (mirrors core/recipes/dto.ts's buildCostDto).
         const unitCost =
-          basis === "wac" ? (item ? item.wacMc / 1_000_000 : 0) : (item?.replacementCost ?? 0);
+          basis === "wac" ? (item ? item.wacMc / 1_000_000 : 0) : (item?.replacementCostMc ?? 0);
         const contribution = roundHalfUpToInt(line.qty * unitCost);
         return { label: item?.name ?? line.itemId, value: formatMoney(contribution) };
       }),
@@ -79,7 +79,7 @@ export function RecipeDetailDrawer({ recipeId, open, onOpenChange }: RecipeDetai
         footer={
           recipe ? (
             <span>
-              Creado {new Date(recipe.createdAt).toLocaleDateString("es-BO")} · Actualizado{" "}
+              Creado {new Date(recipe.createdAt).toLocaleDateString("es-BO")} Â· Actualizado{" "}
               {new Date(recipe.updatedAt).toLocaleDateString("es-BO")}
             </span>
           ) : undefined
@@ -154,7 +154,7 @@ export function RecipeDetailDrawer({ recipeId, open, onOpenChange }: RecipeDetai
                   {recipesLabels.costReplacementLabel}
                   <CalcTrace
                     formula={recipesLabels.costFormula}
-                    inputs={buildCostTraceInputs("replacementCost")}
+                    inputs={buildCostTraceInputs("replacementCostMc")}
                   />
                 </span>
                 <span className="numeric-cell font-semibold text-foreground text-lg">

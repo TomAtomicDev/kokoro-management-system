@@ -17,6 +17,11 @@
 //     place, which is what releases the liability (see core/orders' header).
 import { env } from "cloudflare:test";
 import type { CustomOrderStatus } from "@kokoro/shared";
+import {
+  toMilliCentavosPerUnit,
+  toMilliUnits,
+  totalCentavos,
+} from "@kokoro/shared";
 import { eq, inArray, sql } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 
@@ -534,12 +539,15 @@ describe("deliverOrder (UC-07, O-2)", () => {
       paymentStatus: "PAID",
     });
     expect(result.sale.lines).toHaveLength(1);
-    expect(result.sale.lines[0]).toMatchObject({ itemId, qty: 1000, unitPrice: 30_000 });
+    expect(result.sale.lines[0]).toMatchObject({ itemId, qty: 1000, unitPriceMc: 30_000_000 });
     // WAC frozen at sale time (C-6): the seeded item's WAC is 6_000_000 milli-centavos per whole
     // unit (KOK-071/ADR-017; recordPurchase's rateFromTotal(60000, 10000) = 6_000_000 exactly).
     expect(result.sale.lines[0]?.unitCostSnapshotMc).toBe(6_000_000);
     expect(result.sale.total).toBe(
-      (result.sale.lines[0]?.unitPrice ?? 0) * ((result.sale.lines[0]?.qty ?? 0) / 1000),
+      totalCentavos(
+        toMilliCentavosPerUnit(result.sale.lines[0]?.unitPriceMc ?? 0),
+        toMilliUnits(result.sale.lines[0]?.qty ?? 0),
+      ),
     );
 
     expect(result.order).toMatchObject({ status: "DELIVERED", saleId: result.sale.id });
@@ -708,8 +716,20 @@ describe("deliverOrder (UC-07, O-2)", () => {
     );
 
     expect(sale.total).toBe(1_000);
-    expect(sale.lines.map((l) => l.unitPrice).sort((a, b) => b - a)).toEqual([334, 333, 333]);
-    expect(sale.lines.reduce((sum, l) => sum + l.unitPrice, 0)).toBe(1_000);
+    expect(sale.lines.map((l) => l.unitPriceMc).sort((a, b) => b - a)).toEqual([
+      334_000, 333_000, 333_000,
+    ]);
+    expect(
+      sale.lines.reduce(
+        (sum, line) =>
+          sum +
+          totalCentavos(
+            toMilliCentavosPerUnit(line.unitPriceMc),
+            toMilliUnits(line.qty),
+          ),
+        0,
+      ),
+    ).toBe(1_000);
   });
 
   it("REFUSES to deliver while any line is not linked to a catalog item (the O-2 / Doc 04 §5 rule)", async () => {
@@ -795,7 +815,7 @@ describe("deliverOrder (UC-07, O-2)", () => {
     ).rejects.toMatchObject({ code: "CONFLICT" });
   });
 
-  it("refuses a delivery whose agreed total cannot be expressed as exact per-unit prices", async () => {
+  it("uses milli-centavo rates to deliver a formerly indivisible agreed total", async () => {
     const db = createDb(env.DB);
     const customer = await seedCustomer(db);
     const item = await seedStockedItem(db);
@@ -825,14 +845,14 @@ describe("deliverOrder (UC-07, O-2)", () => {
     await startOrderProduction(db, order.id, ACTOR);
     await markOrderReady(db, order.id, ACTOR);
 
-    await expect(
-      deliverOrder(
-        db,
-        order.id,
-        { occurredAt: NOW, businessDate: BUSINESS_DATE, balancePaymentStatus: "ON_CREDIT" },
-        ACTOR,
-      ),
-    ).rejects.toMatchObject({ code: "VALIDATION" });
+    const result = await deliverOrder(
+      db,
+      order.id,
+      { occurredAt: NOW, businessDate: BUSINESS_DATE, balancePaymentStatus: "ON_CREDIT" },
+      ACTOR,
+    );
+    expect(result.sale.total).toBe(100);
+    expect(result.sale.lines[0]?.unitPriceMc).toBe(33_333);
   });
 
   it("protects the order-owned sale from being edited or deleted through core/sales", async () => {
@@ -853,7 +873,7 @@ describe("deliverOrder (UC-07, O-2)", () => {
           paymentStatus: "ON_CREDIT",
           occurredAt: NOW,
           businessDate: BUSINESS_DATE,
-          lines: [{ itemId: sale.lines[0]?.itemId ?? "", qty: 1000, unitPrice: 1 }],
+          lines: [{ itemId: sale.lines[0]?.itemId ?? "", qty: 1000, unitPriceMc: 1_000_000 }],
         },
         ACTOR,
       ),

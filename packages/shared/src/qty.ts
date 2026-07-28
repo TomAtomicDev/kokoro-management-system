@@ -17,6 +17,9 @@ import { assertSafeInteger, groupThousands } from "./numeric";
  */
 export type MilliUnits = number & { readonly __brand: "MilliUnits" };
 
+/** One whole stored unit, expressed in milli-units. Keep the scale literal in this module. */
+export const WHOLE_UNIT_MILLI_UNITS = 1000 as MilliUnits;
+
 /** Constructs a `MilliUnits` value, asserting it is a safe integer (INV-6). */
 export function toMilliUnits(value: number): MilliUnits {
   assertSafeInteger(value, "milliUnits");

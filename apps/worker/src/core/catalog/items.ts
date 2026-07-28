@@ -1,4 +1,4 @@
-// Item CRUD (KOK-011, Doc 04 §3.1, Doc 07 SC-15). Every mutation is its own db.batch() (D-3):
+// Item CRUD (KOK-011, Doc 04 Ãƒâ€šÃ‚Â§3.1, Doc 07 SC-15). Every mutation is its own db.batch() (D-3):
 // the row write + its audit_log entry, executed together so a failure leaves nothing persisted.
 
 import type {
@@ -7,6 +7,7 @@ import type {
   ItemDto,
   ListItemsFilters,
   ListItemsResult,
+  MilliCentavosPerUnit,
   SetItemActiveCommand,
   UpdateItemCommand,
 } from "@kokoro/shared";
@@ -23,18 +24,23 @@ import { fetchAliasesForItem, fetchAliasesForItems, toItemDto } from "./dto.js";
 type Statement = BatchItem<"sqlite">;
 
 /** KOK-035, Doc 07 SC-12: "Actualizar precio" (and a price set at creation) writes `price_history`
- * in the same batch as the `items.sale_price` write (D-3) — never as a separate follow-up call. */
-function buildPriceHistoryInsert(db: Db, itemId: string, price: number, now: string) {
+ * in the same batch as the `items.sale_price` write (D-3) ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â never as a separate follow-up call. */
+function buildPriceHistoryInsert(
+  db: Db,
+  itemId: string,
+  priceMc: MilliCentavosPerUnit,
+  now: string,
+) {
   return db.insert(priceHistory).values({
     id: generateUuidV7(),
     itemId,
-    price,
+    priceMc,
     effectiveFrom: toBusinessDate(now),
     note: null,
   });
 }
 
-// Exported for core/catalog/bulk-import.ts's per-item duplicate check (KOK-020) — same query,
+// Exported for core/catalog/bulk-import.ts's per-item duplicate check (KOK-020) ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â same query,
 // reused rather than re-declared, so the two duplicate-name checks never drift apart.
 export async function findItemRowByName(db: Db, name: string, excludeId?: string) {
   return db.query.items.findFirst({
@@ -50,7 +56,7 @@ export async function createItem(
 ): Promise<ItemDto> {
   const duplicate = await findItemRowByName(db, command.name);
   if (duplicate) {
-    throw conflict(`Ya existe un ítem llamado "${command.name}".`, { field: "name" });
+    throw conflict(`Ya existe un ÃƒÆ’Ã‚Â­tem llamado "${command.name}".`, { field: "name" });
   }
 
   const now = nowIso();
@@ -61,9 +67,9 @@ export async function createItem(
     category: command.category,
     unit: command.unit,
     wacMc: toMilliCentavosPerUnit(0),
-    replacementCost: 0,
+    replacementCostMc: 0,
     replacementCostUpdatedAt: null,
-    salePrice: command.salePrice ?? null,
+    salePriceMc: command.salePriceMc ?? null,
     minStockQty: command.minStockQty ?? null,
     isActive: 1,
     notes: command.notes ?? null,
@@ -82,8 +88,8 @@ export async function createItem(
       after: row,
     }),
   ];
-  if (row.salePrice !== null) {
-    statements.push(buildPriceHistoryInsert(db, row.id, row.salePrice, now));
+  if (row.salePriceMc !== null) {
+    statements.push(buildPriceHistoryInsert(db, row.id, row.salePriceMc, now));
   }
   await db.batch(statements as [Statement, ...Statement[]]);
 
@@ -99,13 +105,13 @@ export async function updateItem(
     where: (t, { eq: eqOp }) => eqOp(t.id, command.id),
   });
   if (!existingRow) {
-    throw notFound("No se encontró el ítem.", { id: command.id });
+    throw notFound("No se encontrÃƒÆ’Ã‚Â³ el ÃƒÆ’Ã‚Â­tem.", { id: command.id });
   }
 
   if (command.name !== undefined && command.name !== existingRow.name) {
     const duplicate = await findItemRowByName(db, command.name, command.id);
     if (duplicate) {
-      throw conflict(`Ya existe un ítem llamado "${command.name}".`, { field: "name" });
+      throw conflict(`Ya existe un ÃƒÆ’Ã‚Â­tem llamado "${command.name}".`, { field: "name" });
     }
   }
 
@@ -115,7 +121,7 @@ export async function updateItem(
     ...(command.kind !== undefined ? { kind: command.kind } : {}),
     ...(command.category !== undefined ? { category: command.category } : {}),
     ...(command.unit !== undefined ? { unit: command.unit } : {}),
-    ...(command.salePrice !== undefined ? { salePrice: command.salePrice } : {}),
+    ...(command.salePriceMc !== undefined ? { salePriceMc: command.salePriceMc } : {}),
     ...(command.minStockQty !== undefined ? { minStockQty: command.minStockQty } : {}),
     ...(command.notes !== undefined ? { notes: command.notes } : {}),
     updatedAt: now,
@@ -133,15 +139,15 @@ export async function updateItem(
       after: updatedRow,
     }),
   ];
-  // Doc 07 SC-12: only a genuine price CHANGE gets a price_history row — not a no-op resubmit of
+  // Doc 07 SC-12: only a genuine price CHANGE gets a price_history row ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â not a no-op resubmit of
   // the same value, and not a price being cleared to null (price_history.price is NOT NULL; there
   // is no normative KB rule for logging a price removal, so this simply doesn't log one, D-1).
   if (
-    command.salePrice !== undefined &&
-    command.salePrice !== null &&
-    command.salePrice !== existingRow.salePrice
+    command.salePriceMc !== undefined &&
+    command.salePriceMc !== null &&
+    command.salePriceMc !== existingRow.salePriceMc
   ) {
-    statements.push(buildPriceHistoryInsert(db, command.id, command.salePrice, now));
+    statements.push(buildPriceHistoryInsert(db, command.id, command.salePriceMc, now));
   }
   await db.batch(statements as [Statement, ...Statement[]]);
 
@@ -158,7 +164,7 @@ export async function setItemActive(
     where: (t, { eq: eqOp }) => eqOp(t.id, command.id),
   });
   if (!existingRow) {
-    throw notFound("No se encontró el ítem.", { id: command.id });
+    throw notFound("No se encontrÃƒÆ’Ã‚Â³ el ÃƒÆ’Ã‚Â­tem.", { id: command.id });
   }
 
   const now = nowIso();
@@ -186,7 +192,7 @@ export async function getItem(db: Db, id: string): Promise<ItemDto> {
     where: (t, { eq: eqOp }) => eqOp(t.id, id),
   });
   if (!row) {
-    throw notFound("No se encontró el ítem.", { id });
+    throw notFound("No se encontrÃƒÆ’Ã‚Â³ el ÃƒÆ’Ã‚Â­tem.", { id });
   }
   const aliases = await fetchAliasesForItem(db, id);
   return toItemDto(row, aliases);

@@ -1,8 +1,8 @@
 // Dialog for UC-01 "recordPurchase" (Doc 07 SC-07). Per-line unit-cost preview against the item's
-// stored replacement cost is this screen's "inflation signal" — a purchase priced meaningfully
+// stored replacement cost is this screen's "inflation signal" â€” a purchase priced meaningfully
 // above what the item last cost to replace gets flagged inline as the line is entered, before the
 // purchase is even submitted. Validated with the exact same `recordPurchaseCommandSchema` the API
-// route parses with (D-4). No session picker — Sessions (KOK-027/Phase 2) doesn't exist yet; the
+// route parses with (D-4). No session picker â€” Sessions (KOK-027/Phase 2) doesn't exist yet; the
 // schema's optional `sessionId` is simply never set from this form.
 
 import type {
@@ -14,7 +14,18 @@ import type {
   UpdatePurchaseCommand,
   UpdatePurchaseResult,
 } from "@kokoro/shared";
-import { formatMoney, nowIso, recordPurchaseCommandSchema, toBusinessDate } from "@kokoro/shared";
+import {
+  formatMoney,
+  nowIso,
+  rateFromTotal,
+  recordPurchaseCommandSchema,
+  toBusinessDate,
+  toCentavos,
+  toMilliCentavosPerUnit,
+  toMilliUnits,
+  totalCentavos,
+  WHOLE_UNIT_MILLI_UNITS,
+} from "@kokoro/shared";
 import { type ChangeEvent, useEffect, useMemo, useState } from "react";
 
 import { LineEditor, type LineEditorLine } from "@/components/line-editor/LineEditor";
@@ -42,7 +53,7 @@ export interface PurchaseFormProps {
   /** Present -> edit mode: prefill from this purchase and submit via `useUpdatePurchase`. Absent ->
    * create mode, submits via `useRecordPurchase`. Both branches are wrapped in
    * `useReplayConfirmableMutation` (KOK-065 closed the create-path dead end left by KOK-024) so a
-   * genuinely backdated purchase — new or edited — gets the same R-5 confirmation dance. */
+   * genuinely backdated purchase â€” new or edited â€” gets the same R-5 confirmation dance. */
   purchase?: PurchaseDto;
 }
 
@@ -69,7 +80,7 @@ interface PurchaseFormState {
 
 /**
  * Maps a fetched `PurchaseDto` (KOK-024 Phase G edit mode) to the form's editable local state.
- * Pure and framework-free on purpose — same rationale as `extractReplayConfirmation` /
+ * Pure and framework-free on purpose â€” same rationale as `extractReplayConfirmation` /
  * `runConfirmableMutation` (useReplayConfirmableMutation.ts's header): this workspace has neither
  * jsdom nor @testing-library/react, so a plain exported function is what stays unit-testable
  * without rendering the component.
@@ -93,7 +104,7 @@ export function purchaseToFormState(purchase: PurchaseDto): PurchaseFormState {
 }
 
 /** How far above the item's stored replacement cost counts as "meaningfully higher" for the
- * inflation signal, past ordinary rounding/price noise. Judgment call — 2 percentage points. */
+ * inflation signal, past ordinary rounding/price noise. Judgment call â€” 2 percentage points. */
 const INFLATION_SIGNAL_THRESHOLD = 0.02;
 
 export function PurchaseForm({ open, onOpenChange, accounts, purchase }: PurchaseFormProps) {
@@ -114,7 +125,7 @@ export function PurchaseForm({ open, onOpenChange, accounts, purchase }: Purchas
     (command) => createMutation.mutateAsync(command),
     { onSuccess: () => onOpenChange(false) },
   );
-  // Called unconditionally (rules of hooks) even in create mode — `purchase?.id` is only "" then,
+  // Called unconditionally (rules of hooks) even in create mode â€” `purchase?.id` is only "" then,
   // and the mutation is never actually invoked unless `isEditMode` is true (see handleSubmit).
   const updateMutation = useUpdatePurchase(purchase?.id ?? "");
   const editReplay = useReplayConfirmableMutation<UpdatePurchaseCommand, UpdatePurchaseResult>(
@@ -130,7 +141,7 @@ export function PurchaseForm({ open, onOpenChange, accounts, purchase }: Purchas
     return map;
   }, [itemsQuery.data]);
 
-  // Reset only on the open transition (or a switch to a different purchase while open) —
+  // Reset only on the open transition (or a switch to a different purchase while open) â€”
   // `purchase?.id` stands in for `purchase` itself so a background refetch of the SAME purchase
   // (e.g. window refocus) never clobbers in-progress edits; `accounts` is deliberately excluded
   // the same way it always was.
@@ -203,7 +214,7 @@ export function PurchaseForm({ open, onOpenChange, accounts, purchase }: Purchas
       accountId,
       receiptPhotoKey: photoKey ?? undefined,
       notes: notes.trim() === "" ? undefined : notes.trim(),
-      // Edit mode keeps the purchase's original instant — there's no UI field to change it, and
+      // Edit mode keeps the purchase's original instant â€” there's no UI field to change it, and
       // an edit re-stamping `occurredAt` to "now" would rewrite when the purchase actually
       // happened every time the owner fixes a typo. Create mode is unchanged: "now" is the moment
       // the purchase is first recorded.
@@ -225,7 +236,7 @@ export function PurchaseForm({ open, onOpenChange, accounts, purchase }: Purchas
   }
 
   /** Combines client-side validation errors (`error` state) with a genuine (non-confirmation)
-   * failure surfaced by `editReplay`/`createReplay` — the confirmation case is captured into
+   * failure surfaced by `editReplay`/`createReplay` â€” the confirmation case is captured into
    * their own `pendingConfirmation` instead and never reaches here (see
    * useReplayConfirmableMutation.ts's header). */
   const activeReplay = isEditMode ? editReplay : createReplay;
@@ -245,31 +256,34 @@ export function PurchaseForm({ open, onOpenChange, accounts, purchase }: Purchas
     const lineTotal = parseDecimalToInt(line.amount, 2);
     if (qty === null || qty <= 0 || lineTotal === null) {
       return (
-        <span className="text-subtle-foreground text-xs">{purchasesLabels.unitCostLabel}: —</span>
+        <span className="text-subtle-foreground text-xs">{purchasesLabels.unitCostLabel}: â€”</span>
       );
     }
 
-    // Centavos-per-milli-unit — the SAME scale item.replacementCost is stored in (Doc 04 §2), so
-    // no ×1000 conversion is needed to compare the two; ×1000 is only applied when formatting a
+    // Centavos-per-milli-unit â€” the SAME scale item.replacementCostMc is stored in (Doc 04 Â§2), so
+    // no Ã—1000 conversion is needed to compare the two; Ã—1000 is only applied when formatting a
     // money-per-whole-unit figure for display (mirrors ItemForm's derived-cost block).
-    const unitCost = lineTotal / qty;
+    const unitCost = rateFromTotal(toCentavos(lineTotal), toMilliUnits(qty));
     const abbrev = purchasesLabels.unitAbbrev[item.unit];
     const isHigher =
-      item.replacementCost > 0 &&
-      unitCost > item.replacementCost * (1 + INFLATION_SIGNAL_THRESHOLD);
+      item.replacementCostMc > 0 &&
+      unitCost > item.replacementCostMc * (1 + INFLATION_SIGNAL_THRESHOLD);
 
     return (
       <div className="flex flex-col gap-0.5 text-xs">
         <span className="text-muted-foreground">
           {purchasesLabels.unitCostLabel}:{" "}
           <span className="numeric-cell font-medium text-foreground">
-            {formatMoney(Math.round(unitCost * 1000))} / {abbrev}
+            {formatMoney(totalCentavos(unitCost, WHOLE_UNIT_MILLI_UNITS))} / {abbrev}
           </span>
         </span>
-        {item.replacementCost > 0 ? (
+        {item.replacementCostMc > 0 ? (
           <span className={cn(isHigher ? "font-medium text-warning" : "text-muted-foreground")}>
             {purchasesLabels.vsReplacementCost}:{" "}
-            {formatMoney(Math.round(item.replacementCost * 1000))} / {abbrev}
+            {formatMoney(
+              totalCentavos(toMilliCentavosPerUnit(item.replacementCostMc), WHOLE_UNIT_MILLI_UNITS),
+            )}{" "}
+            / {abbrev}
           </span>
         ) : null}
       </div>

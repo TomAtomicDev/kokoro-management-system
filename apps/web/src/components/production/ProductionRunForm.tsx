@@ -2,9 +2,9 @@
 // (Dialog wrapper, local form state, reset-on-open, useReplayConfirmableMutation for edit mode)
 // crossed with RecipeForm.tsx's "recipe-as-template" line prefill and theoretical-cost panel
 // (here rendered live from client-side arithmetic, not gated on a saved server response, since the
-// whole point of this preview is to update as the owner types — no round-trip needed for a sum of
+// whole point of this preview is to update as the owner types â€” no round-trip needed for a sum of
 // numbers already on the client). Validated with the exact same `recordProductionRunCommandSchema`
-// the API route parses with (D-4). No session/custom-order picker — Sessions (KOK-027) and custom
+// the API route parses with (D-4). No session/custom-order picker â€” Sessions (KOK-027) and custom
 // orders (KOK-033) don't exist yet; the schema's optional `sessionId`/`customOrderId` are simply
 // never set from this form, same precedent as PurchaseForm's `sessionId` omission.
 
@@ -51,7 +51,7 @@ export interface ProductionRunFormProps {
 
 interface ProductionLineValue extends LineEditorLine {
   itemId: string | null;
-  /** Milli-units decimal string (scale 3) — same convention as PurchaseForm/RecipeForm's line qty. */
+  /** Milli-units decimal string (scale 3) â€” same convention as PurchaseForm/RecipeForm's line qty. */
   qty: string;
 }
 
@@ -61,7 +61,7 @@ function emptyLine(): ProductionLineValue {
 
 interface ProductionRunFormState {
   recipeId: string;
-  /** REAL decimal string (e.g. "2.5") — `batches` is not milli-scaled (production-runs.ts's
+  /** REAL decimal string (e.g. "2.5") â€” `batches` is not milli-scaled (production-runs.ts's
    * `batchesSchema`: `z.number().positive()`, no `.int()`), so `parseBatches` below is used
    * instead of `parseDecimalToInt`. */
   batches: string;
@@ -73,7 +73,7 @@ interface ProductionRunFormState {
   lines: ProductionLineValue[];
 }
 
-/** Mirrors PurchaseForm's `purchaseToFormState` — pure and framework-free so it stays testable
+/** Mirrors PurchaseForm's `purchaseToFormState` â€” pure and framework-free so it stays testable
  * without rendering the component (this workspace has neither jsdom nor @testing-library/react). */
 export function productionRunToFormState(productionRun: ProductionRunDto): ProductionRunFormState {
   return {
@@ -96,7 +96,7 @@ export function productionRunToFormState(productionRun: ProductionRunDto): Produ
 
 /** Parses a decimal string (Bolivian input accepts either "," or "." as the separator) into a
  * plain positive JS number. Unlike `parseDecimalToInt` (money/qty milli-unit scale), `batches` is
- * a REAL multiplier stored as-is — no integer scaling applies here. */
+ * a REAL multiplier stored as-is â€” no integer scaling applies here. */
 function parseBatches(input: string): number | null {
   const trimmed = input.trim().replace(",", ".");
   if (trimmed === "") return null;
@@ -118,7 +118,7 @@ export function ProductionRunForm({ open, onOpenChange, productionRun }: Product
   const [error, setError] = useState<string | null>(null);
 
   const createMutation = useRecordProductionRun();
-  // Called unconditionally (rules of hooks) even in create mode — `productionRun?.id` is only ""
+  // Called unconditionally (rules of hooks) even in create mode â€” `productionRun?.id` is only ""
   // then, and the mutation is never actually invoked unless `isEditMode` is true (see handleSubmit).
   const updateMutation = useUpdateProductionRun(productionRun?.id ?? "");
   const editReplay = useReplayConfirmableMutation<
@@ -144,7 +144,7 @@ export function ProductionRunForm({ open, onOpenChange, productionRun }: Product
   const selectedRecipe = recipeId ? (recipesById.get(recipeId) ?? null) : null;
   const outputItem = selectedRecipe ? (itemsById.get(selectedRecipe.outputItemId) ?? null) : null;
 
-  // Reset only on the open transition (or a switch to a different run while open) — mirrors
+  // Reset only on the open transition (or a switch to a different run while open) â€” mirrors
   // PurchaseForm's `purchase?.id` precedent so a background refetch of the SAME run never clobbers
   // in-progress edits.
   // biome-ignore lint/correctness/useExhaustiveDependencies: see comment above.
@@ -174,7 +174,7 @@ export function ProductionRunForm({ open, onOpenChange, productionRun }: Product
 
   const disabled = isEditMode ? editReplay.isPending : createMutation.isPending;
 
-  /** Recipe → line prefill (UI convenience default, not a validated number — the user edits freely
+  /** Recipe â†’ line prefill (UI convenience default, not a validated number â€” the user edits freely
    * afterward). Only re-derives on recipe SELECTION, never on a later `batches` edit: the simplest
    * defensible rule is "changing batches afterward does not silently overwrite lines the user may
    * have already touched" (CLAUDE.md's guardrail: when uncertain, leave the doubt in a comment). */
@@ -243,7 +243,7 @@ export function ProductionRunForm({ open, onOpenChange, productionRun }: Product
       actualOutputQty: actualOutputQtyValue,
       indirectCost: indirectCostValue,
       notes: notes.trim() === "" ? undefined : notes.trim(),
-      // Edit mode keeps the run's original instant — same precedent as PurchaseForm's occurredAt
+      // Edit mode keeps the run's original instant â€” same precedent as PurchaseForm's occurredAt
       // handling (no UI field to change it; an edit shouldn't re-stamp when it actually happened).
       occurredAt: productionRun ? productionRun.occurredAt : nowIso(),
       businessDate,
@@ -268,7 +268,7 @@ export function ProductionRunForm({ open, onOpenChange, productionRun }: Product
   }
 
   /** Combines client-side validation errors (`error` state) with a genuine (non-confirmation)
-   * failure surfaced by `editReplay` — mirrors PurchaseForm's identical `displayError`. */
+   * failure surfaced by `editReplay` â€” mirrors PurchaseForm's identical `displayError`. */
   const displayError =
     error ??
     (isEditMode && editReplay.error
@@ -284,15 +284,15 @@ export function ProductionRunForm({ open, onOpenChange, productionRun }: Product
     if (qty === null || qty <= 0) {
       return (
         <span className="text-subtle-foreground text-xs">
-          {productionLabels.lineContribution}: —
+          {productionLabels.lineContribution}: â€”
         </span>
       );
     }
-    // qty is milli-units, item.wacMc is milli-centavos per WHOLE unit (ADR-017/KOK-071) — so
-    // qty × wacMc / 1,000,000 is the line's contribution in whole centavos (the same formula
+    // qty is milli-units, item.wacMc is milli-centavos per WHOLE unit (ADR-017/KOK-071) â€” so
+    // qty Ã— wacMc / 1,000,000 is the line's contribution in whole centavos (the same formula
     // `totalCentavos` uses server-side). Production consumption values at WAC (C-6), unlike
-    // purchases' replacement-cost comparison — mirrors RecipeForm.tsx's `renderLineExtra` but
-    // sources `item.wacMc` instead of `item.replacementCost`.
+    // purchases' replacement-cost comparison â€” mirrors RecipeForm.tsx's `renderLineExtra` but
+    // sources `item.wacMc` instead of `item.replacementCostMc`.
     const contribution = roundHalfUpToInt((qty * item.wacMc) / 1_000_000);
     return (
       <span className="text-muted-foreground text-xs">
@@ -304,7 +304,7 @@ export function ProductionRunForm({ open, onOpenChange, productionRun }: Product
     );
   }
 
-  // --- Live cost preview (pure client computation, shown always — no server round-trip needed) --
+  // --- Live cost preview (pure client computation, shown always â€” no server round-trip needed) --
 
   const directCostPreview = useMemo(() => {
     let sum = 0;
@@ -320,15 +320,15 @@ export function ProductionRunForm({ open, onOpenChange, productionRun }: Product
   const indirectCostPreview = parseDecimalToInt(indirectCost, 2) ?? 0;
   const totalCostPreview = directCostPreview + indirectCostPreview;
   const actualOutputQtyPreview = parseDecimalToInt(actualOutputQty, 3);
-  // outputUnitCostPreviewMc: milli-centavos per WHOLE unit (ADR-017/KOK-071) — the same
-  // rateFromTotal formula the server uses (totalCostPreview × 1,000,000 / actualOutputQtyPreview).
+  // outputUnitCostPreviewMc: milli-centavos per WHOLE unit (ADR-017/KOK-071) â€” the same
+  // rateFromTotal formula the server uses (totalCostPreview Ã— 1,000,000 / actualOutputQtyPreview).
   const outputUnitCostPreviewMc =
     actualOutputQtyPreview !== null && actualOutputQtyPreview > 0
       ? roundHalfUpToInt((totalCostPreview * 1_000_000) / actualOutputQtyPreview)
       : null;
 
-  // CalcTrace inputs for the cost panel below — one row per consumption line's contribution
-  // (qty × item.wacMc, same basis directCostPreview itself sums) for the direct-cost trace, and
+  // CalcTrace inputs for the cost panel below â€” one row per consumption line's contribution
+  // (qty Ã— item.wacMc, same basis directCostPreview itself sums) for the direct-cost trace, and
   // the two/three numbers each downstream figure folds together for the total/unit traces.
   const directCostTraceInputs: CalcTraceInput[] = lines.flatMap((line) => {
     const item = line.itemId ? itemsById.get(line.itemId) : undefined;
@@ -349,7 +349,7 @@ export function ProductionRunForm({ open, onOpenChange, productionRun }: Product
       value:
         actualOutputQtyPreview !== null && outputItem
           ? formatQty(actualOutputQtyPreview, outputItem.unit)
-          : "—",
+          : "â€”",
     },
   ];
 
@@ -525,7 +525,7 @@ export function ProductionRunForm({ open, onOpenChange, productionRun }: Product
               <span className="numeric-cell text-foreground text-sm">
                 {outputUnitCostPreviewMc !== null
                   ? formatMoney(Math.round(outputUnitCostPreviewMc / 1000))
-                  : "—"}
+                  : "â€”"}
               </span>
             </div>
           </div>

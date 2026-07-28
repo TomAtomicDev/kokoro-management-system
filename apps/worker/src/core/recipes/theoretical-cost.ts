@@ -1,17 +1,24 @@
-// core/recipes — pure theoretical-cost math (KOK-025, Doc 03 §4 C-3b — a KOK-025 KB amendment
+// core/recipes â€” pure theoretical-cost math (KOK-025, Doc 03 Â§4 C-3b â€” a KOK-025 KB amendment
 // generalizing C-3's replacement-cost formula to a WAC basis and to any recipe, not only the
 // default). Every function here is plain, synchronous, DB-free (same convention as
 // core/costing/wac.ts), so it is directly usable by both the recipe service and fast-check property
-// tests (Doc 11 §2) without a D1 binding.
+// tests (Doc 11 Â§2) without a D1 binding.
 //
-// Rounding discipline (D-5, INV-6): the running total inside `computeTheoreticalCostPerOutputUnit`
-// is a raw, UNROUNDED float (centavos-per-milli-unit, the same convention `items.wac` /
-// `items.replacement_cost` already use, per core/costing/wac.ts's header) — it is only rounded to a
-// whole-centavos integer once, at the very end, when it becomes a genuine money amount comparable to
-// `items.sale_price`. `computeRecipeMargin`'s subtraction runs on already-rounded integers via
-// money.ts's own helpers, never on the raw intermediate.
+// Rounding discipline (D-5, INV-6): line costs are integer MilliCentavosPerUnit values on the
+// `_mc` grid. The recipe total is rounded half-up to that same integer grid once before
+// `totalCentavos` converts it to a whole-unit centavo display value; it is therefore directly
+// comparable to `items.sale_price`. `computeRecipeMargin`'s subtraction runs on already-rounded
+// integers via money.ts's own helpers.
 
-import { roundHalfUpToInt, subMoney } from "@kokoro/shared";
+import {
+  type MilliCentavosPerUnit,
+  roundHalfUpToInt,
+  subMoney,
+  toCentavos,
+  toMilliCentavosPerUnit,
+  totalCentavos,
+  WHOLE_UNIT_MILLI_UNITS,
+} from "@kokoro/shared";
 
 import { validationError } from "../errors.js";
 
@@ -27,27 +34,27 @@ function assertSafeIntegerInput(value: number, label: string): void {
 
 function assertFiniteNonNegative(value: number, label: string): void {
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
-    throw validationError(`${label} debe ser un número finito no negativo.`, { [label]: value });
+    throw validationError(`${label} debe ser un nÃºmero finito no negativo.`, { [label]: value });
   }
 }
 
-/** One recipe line's costing input. `unitCost` is centavos PER MILLI-UNIT (the same convention as
- * `items.wac` / `items.replacement_cost`, NOT the whole-unit convention `money.ts`'s
- * `mulMoneyByQty` expects) — pass the ingredient's `wac` for the WAC valuation or its
- * `replacementCost` for the replacement-cost valuation (C-3b). */
+/** One recipe line's costing input. `unitCost` is integer milli-centavos per WHOLE unit (the
+ * `MilliCentavosPerUnit` convention used by `items.wac_mc` / `items.replacement_cost_mc`) â€” pass
+ * the ingredient's `wacMc` for the WAC valuation or its `replacementCostMc` for the
+ * replacement-cost valuation (C-3b). */
 export interface RecipeCostLine {
-  /** Milli-units (Doc 04 §2). Must be a positive safe integer — a zero/negative line is not a
+  /** Milli-units (Doc 04 Â§2). Must be a positive safe integer â€” a zero/negative line is not a
    * valid recipe line (the Zod command schema already enforces this on write; this function
    * re-asserts it defensively rather than trusting the caller). */
   qty: number;
-  /** Centavos per milli-unit — a float, never itself rounded (mirrors `items.wac`'s convention). */
-  unitCost: number;
+  /** Integer milli-centavos per whole unit; must be a non-negative safe integer. */
+  unitCost: MilliCentavosPerUnit;
 }
 
 /**
- * C-3b: `theoretical_cost = Σ(line qty × ingredient unit cost) / expected_yield`, expressed as
- * centavos per WHOLE output unit (rounded half-up — the only rounding step in this function,
- * D-5). `expectedYieldQty` is milli-units of the output item (Doc 04 §2) and MUST be strictly
+ * C-3b: `theoretical_cost = Î£(line qty Ã— ingredient unit cost) / expected_yield`, expressed as
+ * centavos per WHOLE output unit (rounded half-up â€” the only rounding step in this function,
+ * D-5). `expectedYieldQty` is milli-units of the output item (Doc 04 Â§2) and MUST be strictly
  * positive: a recipe with zero expected yield can't price anything (division by zero is refused
  * as a precondition, not caught after the fact).
  */
@@ -62,25 +69,34 @@ export function computeTheoreticalCostPerOutputUnit(
     });
   }
 
-  let totalRawCentavos = 0; // centavos for one full batch, unrounded intermediate (C-3b).
+  let totalMcMilliUnits = 0;
   for (const line of lines) {
     assertSafeIntegerInput(line.qty, "qty");
     if (line.qty <= 0) {
-      throw validationError("La cantidad de la línea debe ser un entero positivo.", {
+      throw validationError("La cantidad de la lÃ­nea debe ser un entero positivo.", {
         qty: line.qty,
       });
     }
     assertFiniteNonNegative(line.unitCost, "unitCost");
-    totalRawCentavos += line.qty * line.unitCost;
+    assertSafeIntegerInput(line.unitCost, "unitCost");
+    if (line.unitCost < 0) {
+      throw validationError("El costo unitario debe ser un entero no negativo.", {
+        unitCost: line.unitCost,
+      });
+    }
+    totalMcMilliUnits += line.qty * line.unitCost;
   }
 
-  // totalRawCentavos / expectedYieldQty = centavos per milli-unit of OUTPUT (same convention as
-  // items.wac); × 1000 milli-units/unit converts to centavos per WHOLE output unit.
-  return roundHalfUpToInt((totalRawCentavos / expectedYieldQty) * 1000);
+  // The rounded rate is milli-centavos per WHOLE output unit; totalCentavos converts the
+  // milli-centavo/milli-unit product back to centavos for one whole output unit.
+  return totalCentavos(
+    toMilliCentavosPerUnit(roundHalfUpToInt(totalMcMilliUnits / expectedYieldQty)),
+    WHOLE_UNIT_MILLI_UNITS,
+  );
 }
 
 export interface RecipeMargin {
-  /** Centavos (INV-6): `salePrice − costPerOutputUnit`. */
+  /** Centavos (INV-6): `salePrice âˆ’ costPerOutputUnit`. */
   amount: number;
   /** Basis points (INV-6): `amount / salePrice`, rounded half-up. */
   pctBasisPoints: number;
@@ -88,19 +104,20 @@ export interface RecipeMargin {
 
 /**
  * C-5, applied to a recipe's theoretical cost instead of `items.wac`/`items.replacement_cost`
- * directly (those only reflect the DEFAULT recipe, per C-3 — see C-3b). Returns `null` when there
+ * directly (those only reflect the DEFAULT recipe, per C-3 â€” see C-3b). Returns `null` when there
  * is nothing meaningful to compare against: no sale price set yet, or a sale price of exactly zero
  * (a percentage over zero is undefined, not "0%").
  */
 export function computeRecipeMargin(
-  salePrice: number | null,
+  salePriceMc: MilliCentavosPerUnit | null,
   costPerOutputUnit: number,
 ): RecipeMargin | null {
-  if (salePrice === null || salePrice === 0) return null;
-  assertSafeIntegerInput(salePrice, "salePrice");
+  if (salePriceMc === null || salePriceMc === 0) return null;
+  assertSafeIntegerInput(salePriceMc, "salePriceMc");
   assertSafeIntegerInput(costPerOutputUnit, "costPerOutputUnit");
 
-  const amount = subMoney(salePrice, costPerOutputUnit);
+  const salePrice = totalCentavos(salePriceMc, WHOLE_UNIT_MILLI_UNITS);
+  const amount = subMoney(salePrice, toCentavos(costPerOutputUnit));
   const pctBasisPoints = roundHalfUpToInt((amount * 10000) / salePrice);
   return { amount, pctBasisPoints };
 }

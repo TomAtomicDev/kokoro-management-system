@@ -1,9 +1,21 @@
-// Shared field set for creating/editing an Item — used by both the full Catalog screen
+// Shared field set for creating/editing an Item Ã¢â‚¬â€ used by both the full Catalog screen
 // (create/edit drawer) and ItemPicker's inline-create dialog, so the two flows can never drift.
 // Plain controlled React state, no react-hook-form (D-10).
 
 import type { ItemCategory, ItemKind, Unit } from "@kokoro/shared";
-import { formatMoney, formatQty, ITEM_CATEGORIES, ITEM_KINDS, UNITS } from "@kokoro/shared";
+import {
+  formatMoney,
+  formatQty,
+  ITEM_CATEGORIES,
+  ITEM_KINDS,
+  rateFromTotal,
+  toCentavos,
+  toMilliCentavosPerUnit,
+  type MilliCentavosPerUnit,
+  totalCentavos,
+  UNITS,
+  WHOLE_UNIT_MILLI_UNITS,
+} from "@kokoro/shared";
 import { type ReactNode, useId } from "react";
 
 import { Input } from "@/components/ui/input";
@@ -16,9 +28,9 @@ export interface ItemFormValues {
   kind: ItemKind;
   category: ItemCategory;
   unit: Unit;
-  /** Decimal string in Bs, e.g. "12.50" — empty string means "no price set". */
+  /** Decimal string in Bs, e.g. "12.50" Ã¢â‚¬â€ empty string means "no price set". */
   salePrice: string;
-  /** Decimal string in the item's own unit, e.g. "1.5" — empty string means "no alert". */
+  /** Decimal string in the item's own unit, e.g. "1.5" Ã¢â‚¬â€ empty string means "no alert". */
   minStockQty: string;
   notes: string;
 }
@@ -40,7 +52,7 @@ export function itemFormValuesFromDto(item: {
   kind: ItemKind;
   category: ItemCategory;
   unit: Unit;
-  salePrice: number | null;
+  salePriceMc: MilliCentavosPerUnit | null;
   minStockQty: number | null;
   notes: string | null;
 }): ItemFormValues {
@@ -49,7 +61,13 @@ export function itemFormValuesFromDto(item: {
     kind: item.kind,
     category: item.category,
     unit: item.unit,
-    salePrice: item.salePrice === null ? "" : formatIntAsDecimalInput(item.salePrice, 2),
+    salePrice:
+      item.salePriceMc === null
+        ? ""
+        : formatIntAsDecimalInput(
+            totalCentavos(item.salePriceMc, WHOLE_UNIT_MILLI_UNITS),
+            2,
+          ),
     minStockQty: item.minStockQty === null ? "" : formatIntAsDecimalInput(item.minStockQty, 3),
     notes: item.notes ?? "",
   };
@@ -61,7 +79,7 @@ export interface ItemFormParsed {
   kind: ItemKind;
   category: ItemCategory;
   unit: Unit;
-  salePrice: number | null;
+  salePriceMc: MilliCentavosPerUnit | null;
   minStockQty: number | null;
   notes: string | null;
 }
@@ -71,11 +89,11 @@ export function parseItemFormValues(values: ItemFormValues): ItemFormParsed | nu
   const name = values.name.trim();
   if (name === "") return null;
 
-  let salePrice: number | null = null;
+  let salePriceMc: MilliCentavosPerUnit | null = null;
   if (values.salePrice.trim() !== "") {
     const parsed = parseDecimalToInt(values.salePrice, 2);
     if (parsed === null) return null;
-    salePrice = parsed;
+    salePriceMc = rateFromTotal(toCentavos(parsed), WHOLE_UNIT_MILLI_UNITS);
   }
 
   let minStockQty: number | null = null;
@@ -90,7 +108,7 @@ export function parseItemFormValues(values: ItemFormValues): ItemFormParsed | nu
     kind: values.kind,
     category: values.category,
     unit: values.unit,
-    salePrice,
+    salePriceMc,
     minStockQty,
     notes: values.notes.trim() === "" ? null : values.notes.trim(),
   };
@@ -122,12 +140,12 @@ export interface ItemFormProps {
   values: ItemFormValues;
   onChange: (values: ItemFormValues) => void;
   /**
-   * Shown as a read-only "calculado" block — never editable (Doc 03 C-1/C-3). `wacMc` comes off
-   * ItemDto as integer milli-centavos-per-WHOLE-unit (ADR-017/KOK-071, ÷1000 to display).
-   * `replacementCost` is not migrated yet and stays REAL centavos-PER-MILLI-UNIT (Doc 04 §2, ×1000
+   * Shown as a read-only "calculado" block Ã¢â‚¬â€ never editable (Doc 03 C-1/C-3). `wacMc` comes off
+   * ItemDto as integer milli-centavos-per-WHOLE-unit (ADR-017/KOK-071, ÃƒÂ·1000 to display).
+   * `replacementCostMc` is not migrated yet and stays REAL centavos-PER-MILLI-UNIT (Doc 04 Ã‚Â§2, Ãƒâ€”1000
    * to display) until its own KOK-071 vertical lands.
    */
-  derived?: { wacMc: number; replacementCost: number; replacementCostUpdatedAt: string | null };
+  derived?: { wacMc: number; replacementCostMc: number; replacementCostUpdatedAt: string | null };
   disabled?: boolean;
 }
 
@@ -238,16 +256,25 @@ export function ItemForm({ values, onChange, derived, disabled }: ItemFormProps)
               {catalogLabels.wac} <span className="text-xs">({catalogLabels.calculated})</span>
             </span>
             <span className="numeric-cell font-medium">
-              {formatMoney(Math.round(derived.wacMc / 1000))} / {UNIT_ABBREV[values.unit]}
+              {formatMoney(
+                totalCentavos(toMilliCentavosPerUnit(derived.wacMc), WHOLE_UNIT_MILLI_UNITS),
+              )}{" "}
+              / {UNIT_ABBREV[values.unit]}
             </span>
           </div>
           <div className="flex items-center justify-between">
             <span className="text-muted-foreground">
-              {catalogLabels.replacementCost}{" "}
+              {catalogLabels.replacementCostMc}{" "}
               <span className="text-xs">({catalogLabels.calculated})</span>
             </span>
             <span className="numeric-cell font-medium">
-              {formatMoney(Math.round(derived.replacementCost * 1000))} / {UNIT_ABBREV[values.unit]}
+              {formatMoney(
+                totalCentavos(
+                  toMilliCentavosPerUnit(derived.replacementCostMc),
+                  WHOLE_UNIT_MILLI_UNITS,
+                ),
+              )}{" "}
+              / {UNIT_ABBREV[values.unit]}
             </span>
           </div>
         </div>

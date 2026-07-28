@@ -17,7 +17,10 @@
 // asserting on the full table.
 
 import { env } from "cloudflare:test";
-import { toMilliCentavosPerUnit } from "@kokoro/shared";
+import {
+  type MilliCentavosPerUnit,
+  toMilliCentavosPerUnit,
+} from "@kokoro/shared";
 import { eq } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -45,7 +48,7 @@ async function seedItem(
     kind: "RAW_MATERIAL" | "SEMI_FINISHED" | "FINISHED";
     category: "INGREDIENT" | "PACKAGING" | "LABEL" | "BAKERY" | "DAIRY" | "OTHER";
     unit: "G" | "KG" | "ML" | "L" | "UNIT";
-    salePrice: number | null;
+    salePriceMc: MilliCentavosPerUnit | null;
     minStockQty: number | null;
   }> = {},
 ) {
@@ -56,7 +59,7 @@ async function seedItem(
       kind: overrides.kind ?? "RAW_MATERIAL",
       category: overrides.category ?? "INGREDIENT",
       unit: overrides.unit ?? "KG",
-      salePrice: overrides.salePrice,
+      salePriceMc: overrides.salePriceMc,
       minStockQty: overrides.minStockQty,
     },
     ACTOR,
@@ -84,7 +87,7 @@ describe("listStock (Doc 04 §4 v_stock, SC-08)", () => {
       kind: "RAW_MATERIAL",
       category: "DAIRY",
       unit: "KG",
-      salePrice: 500,
+      salePriceMc: toMilliCentavosPerUnit(500_000),
     });
 
     await recordPurchase(
@@ -107,7 +110,7 @@ describe("listStock (Doc 04 §4 v_stock, SC-08)", () => {
       category: "DAIRY",
       unit: "KG",
       wacMc: 2_000_000,
-      salePrice: 500,
+      salePriceMc: toMilliCentavosPerUnit(500_000),
       minStockQty: null,
       qtyOnHand: 5000,
       negativeSince: null,

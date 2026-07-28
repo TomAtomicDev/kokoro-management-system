@@ -1,4 +1,4 @@
-// Integration tests for core/recipes (KOK-025), following the Doc 11 §3 template: seed -> execute
+// Integration tests for core/recipes (KOK-025), following the Doc 11 Â§3 template: seed -> execute
 // command -> assert event rows + audit_log entries + atomicity, run against real D1 via
 // @cloudflare/vitest-pool-workers (test/setup.ts applies migrations/0001_init.sql first).
 import { env } from "cloudflare:test";
@@ -18,10 +18,13 @@ import { items } from "../src/db/schema.js";
 
 const ACTOR = "OWNER_WEB" as const;
 
-/** A FINISHED item with a `wac`/`replacementCost`/`salePrice` set directly (createItem always
+/** A FINISHED item with a `wac`/`replacementCostMc`/`salePrice` set directly (createItem always
  * zeroes those two, per its own doc comment) so the cost/margin arithmetic below is hand-verifiable
  * against recipes-theoretical-cost.test.ts's own worked examples. */
-async function createOutputItem(db: ReturnType<typeof createDb>, salePrice: number | null = 8000) {
+async function createOutputItem(
+  db: ReturnType<typeof createDb>,
+  salePriceMc: number | null = 8_000_000,
+) {
   const item = await createItem(
     db,
     {
@@ -32,14 +35,14 @@ async function createOutputItem(db: ReturnType<typeof createDb>, salePrice: numb
     },
     ACTOR,
   );
-  await db.update(items).set({ salePrice }).where(eq(items.id, item.id));
+  await db.update(items).set({ salePriceMc }).where(eq(items.id, item.id));
   return item;
 }
 
 async function createIngredientItem(
   db: ReturnType<typeof createDb>,
   wac: number,
-  replacementCost: number,
+  replacementCostMc: number,
   kind: "RAW_MATERIAL" | "SEMI_FINISHED" = "RAW_MATERIAL",
 ) {
   const item = await createItem(
@@ -48,11 +51,11 @@ async function createIngredientItem(
     ACTOR,
   );
   // `wac` is stated at the old centavos-per-milli-unit scale for readability, matching
-  // `replacementCost` (not migrated yet) — core/recipes/dto.ts's buildCostDto bridges `wacMc` back
-  // down by the same ×1,000,000 factor before combining them, so this is exact, not an approximation.
+  // `replacementCostMc` (not migrated yet) â€” core/recipes/dto.ts's buildCostDto bridges `wacMc` back
+  // down by the same Ã—1,000,000 factor before combining them, so this is exact, not an approximation.
   await db
     .update(items)
-    .set({ wacMc: wac * 1_000_000, replacementCost })
+    .set({ wacMc: wac * 1_000_000, replacementCostMc: replacementCostMc * 1_000_000 })
     .where(eq(items.id, item.id));
   return item;
 }
@@ -60,7 +63,7 @@ async function createIngredientItem(
 describe("recordRecipe", () => {
   it("creates a recipe with lines and computes theoreticalCostWac/theoreticalCostReplacement/margin", async () => {
     const db = createDb(env.DB);
-    const output = await createOutputItem(db, 8000); // Bs 80.00 sale price
+    const output = await createOutputItem(db, 8_000_000); // Bs 80.00 sale price
     // Mirrors recipes-theoretical-cost.test.ts's "sums multiple lines and divides by yield" example:
     // WAC batch cost = 500*10 + 200*3 = 5600 -> /2000*1000 = 2800 centavos/unit.
     const flour = await createIngredientItem(db, 10, 12);
@@ -116,7 +119,7 @@ describe("recordRecipe", () => {
       recordRecipe(
         db,
         {
-          name: "Receta inválida",
+          name: "Receta invÃ¡lida",
           outputItemId: rawOutput.id,
           expectedYieldQty: 1000,
           estLaborMin: null,
@@ -142,7 +145,7 @@ describe("recordRecipe", () => {
       recordRecipe(
         db,
         {
-          name: "Receta inválida",
+          name: "Receta invÃ¡lida",
           outputItemId: output.id,
           expectedYieldQty: 1000,
           estLaborMin: null,
@@ -190,7 +193,7 @@ describe("recordRecipe", () => {
     );
     expect(second.recipe.isDefault).toBe(true);
 
-    // Direct row read (not just the returned DTO) — the whole point of the clear-other-defaults guard.
+    // Direct row read (not just the returned DTO) â€” the whole point of the clear-other-defaults guard.
     const firstRow = await db.query.recipes.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.id, first.recipe.id),
     });
@@ -201,7 +204,7 @@ describe("recordRecipe", () => {
 describe("updateRecipe", () => {
   it("full-replaces lines and recomputes cost", async () => {
     const db = createDb(env.DB);
-    const output = await createOutputItem(db, 8000);
+    const output = await createOutputItem(db, 8_000_000);
     const flour = await createIngredientItem(db, 10, 10);
     const butter = await createIngredientItem(db, 20, 20);
 
@@ -330,7 +333,7 @@ describe("setRecipeActive", () => {
       ACTOR,
     );
     // A is now the default. Deactivate it WITHOUT touching isDefault (setRecipeActive never
-    // changes isDefault on its own) — its stored isDefault stays 1 while isActive goes to 0.
+    // changes isDefault on its own) â€” its stored isDefault stays 1 while isActive goes to 0.
     await setRecipeActive(db, { id: recipeA.recipe.id, isActive: false }, ACTOR);
     const aRowAfterDeactivate = await db.query.recipes.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.id, recipeA.recipe.id),
@@ -353,7 +356,7 @@ describe("setRecipeActive", () => {
     );
     expect(recipeB.recipe.isDefault).toBe(true);
 
-    // Reactivating A — which still thinks it's the default — must clear B, not collide with it.
+    // Reactivating A â€” which still thinks it's the default â€” must clear B, not collide with it.
     const reactivatedA = await setRecipeActive(
       db,
       { id: recipeA.recipe.id, isActive: true },
@@ -441,7 +444,7 @@ describe("listRecipes", () => {
     expect(onlyActive.recipes.map((r) => r.id)).toContain(recipeA.recipe.id);
     expect(onlyActive.recipes.map((r) => r.id)).not.toContain(recipeB.recipe.id);
 
-    // Scoped by outputItemId too (not isActive alone) — the D1 test DB persists across `it()`
+    // Scoped by outputItemId too (not isActive alone) â€” the D1 test DB persists across `it()`
     // blocks in this file, so an unscoped isActive:false query would also pick up inactive recipes
     // left over by earlier tests in this file.
     const onlyInactive = await listRecipes(db, { outputItemId: outputB.id, isActive: false });

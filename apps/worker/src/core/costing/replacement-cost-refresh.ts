@@ -1,24 +1,24 @@
-// core/costing — C-3 replacement-cost refresh planner for SEMI_FINISHED/FINISHED items (KOK-029,
-// Doc 03 §4, Doc 02 §4.4). `planReplacementCostRefresh` is "build, don't execute" (D-2, mirrors
+// core/costing ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â C-3 replacement-cost refresh planner for SEMI_FINISHED/FINISHED items (KOK-029,
+// Doc 03 Ãƒâ€šÃ‚Â§4, Doc 02 Ãƒâ€šÃ‚Â§4.4). `planReplacementCostRefresh` is "build, don't execute" (D-2, mirrors
 // core/jobs.ts and core/purchasing's preview/mutation split): it only READS and returns
 // statements, never calling `db.batch()` itself. Two callers share it so they can never compute a
-// different answer —
-//   - jobs/replacement-cost-refresh.ts, the nightly Cron Trigger job (Doc 02 §4.4): batches the
+// different answer ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â
+//   - jobs/replacement-cost-refresh.ts, the nightly Cron Trigger job (Doc 02 Ãƒâ€šÃ‚Â§4.4): batches the
 //     plan's statements together with its own `job_runs` row itself (daily-snapshot.ts's
 //     precedent for why that needs to stay one job-owned batch)
 //   - api/costing.ts, the on-demand recompute endpoint: calls this file's OTHER export,
-//     `applyReplacementCostRefresh`, which plans AND executes — routes never call `db.batch()`
+//     `applyReplacementCostRefresh`, which plans AND executes ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â routes never call `db.batch()`
 //     directly (D-2), so the execution step lives here instead of in the route.
 //
-// DEPENDENCY ORDER (a KB gap this task closes — flagged per CLAUDE.md "put doubt in the PR
-// description" since Doc 03 §4 states the per-item formula but not the iteration order for nested
+// DEPENDENCY ORDER (a KB gap this task closes ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â flagged per CLAUDE.md "put doubt in the PR
+// description" since Doc 03 Ãƒâ€šÃ‚Â§4 states the per-item formula but not the iteration order for nested
 // BOMs). C-3 recomputes an item from its DEFAULT recipe's ingredients' CURRENT replacement_cost,
 // and an ingredient can itself be a SEMI_FINISHED item being refreshed in this very run (a
-// multi-level BOM: raw material -> semi-finished -> finished). Visiting items in dependency order —
-// every ingredient refreshed before anything made FROM it — lets a nested chain settle fully
+// multi-level BOM: raw material -> semi-finished -> finished). Visiting items in dependency order ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â
+// every ingredient refreshed before anything made FROM it ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â lets a nested chain settle fully
 // within one run instead of needing a second night to propagate. This reuses
 // `topoOrderAffectedItems` (core/costing/dependency-graph.ts), the exact ordering primitive
-// KOK-024 built for this same "cost flows through nested BOMs" problem on the WAC-replay side —
+// KOK-024 built for this same "cost flows through nested BOMs" problem on the WAC-replay side ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â
 // judgment call: reuse the already-tested primitive rather than hand-roll a second topological
 // sort, so the two correction paths can never disagree on what "dependency order" means.
 
@@ -30,21 +30,23 @@ import type { Db } from "../../db/index.js";
 import { items } from "../../db/schema.js";
 import type { RecipeEdge } from "./dependency-graph.js";
 import { topoOrderAffectedItems } from "./dependency-graph.js";
+import { toMilliCentavosPerUnit, type MilliCentavosPerUnit } from "@kokoro/shared";
+
 import { computeItemReplacementCost, type ReplacementCostLine } from "./replacement-cost.js";
 
 type Statement = BatchItem<"sqlite">;
 
 export interface ReplacementCostRefreshPlan {
-  /** One `items` UPDATE per refreshed item — empty when nothing had a computable default recipe. */
+  /** One `items` UPDATE per refreshed item ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â empty when nothing had a computable default recipe. */
   statements: Statement[];
   /** Items whose `replacement_cost` this plan recomputed, in the order they were computed
-   * (dependency order — ingredients before what's made from them). */
+   * (dependency order ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â ingredients before what's made from them). */
   refreshedItemIds: string[];
-  /** Active SEMI_FINISHED/FINISHED items with NO active default recipe — C-3's formula has no
+  /** Active SEMI_FINISHED/FINISHED items with NO active default recipe ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â C-3's formula has no
    * candidate to name for them, so they are left untouched rather than silently guessed at. */
   skippedItemIds: string[];
   /** The single instant stamped onto every refreshed item's `replacement_cost_updated_at` in
-   * `statements` — returned so a caller (jobs/, api/) can report the exact value it wrote instead
+   * `statements` ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â returned so a caller (jobs/, api/) can report the exact value it wrote instead
    * of taking a second, slightly-later `nowIso()` reading of its own. */
   refreshedAt: string;
 }
@@ -62,7 +64,7 @@ interface DefaultRecipeInfo {
 export async function planReplacementCostRefresh(db: Db): Promise<ReplacementCostRefreshPlan> {
   // Every item, regardless of kind/active status: an ingredient cost must be resolvable even when
   // the ingredient itself is RAW_MATERIAL (never refreshed here, C-3's other branch owns it,
-  // core/purchasing/index.ts) or a deactivated item a recipe still references (Doc 04 §3.1 — items
+  // core/purchasing/index.ts) or a deactivated item a recipe still references (Doc 04 Ãƒâ€šÃ‚Â§3.1 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â items
   // are soft-toggled, never deleted, so an old recipe line's FK always resolves).
   const allItemRows = await db.query.items.findMany();
 
@@ -84,7 +86,7 @@ export async function planReplacementCostRefresh(db: Db): Promise<ReplacementCos
   }
 
   // Recipes.uxDefault (db/schema.ts) is a partial unique index on (outputItemId) WHERE
-  // isDefault=1 AND isActive=1 — at most one row per output item, so this map is safely 1:1.
+  // isDefault=1 AND isActive=1 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â at most one row per output item, so this map is safely 1:1.
   const recipeByOutputItemId = new Map<string, DefaultRecipeInfo>();
   for (const recipe of defaultRecipeRows) {
     recipeByOutputItemId.set(recipe.outputItemId, {
@@ -94,7 +96,7 @@ export async function planReplacementCostRefresh(db: Db): Promise<ReplacementCos
   }
 
   // Edges point ingredient -> output (the direction cost flows), built ONLY from default-recipe
-  // lines — so every edge target necessarily has an entry in recipeByOutputItemId (it is that very
+  // lines ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â so every edge target necessarily has an entry in recipeByOutputItemId (it is that very
   // recipe's own output), which is what makes the `recipe` lookup below unreachable-but-defensive
   // rather than a real gap.
   const edges: RecipeEdge[] = [];
@@ -118,7 +120,9 @@ export async function planReplacementCostRefresh(db: Db): Promise<ReplacementCos
 
   const order = topoOrderAffectedItems(edges, seedItemIds);
 
-  const liveCost = new Map<string, number>(allItemRows.map((row) => [row.id, row.replacementCost]));
+  const liveCost = new Map<string, MilliCentavosPerUnit>(
+    allItemRows.map((row) => [row.id, toMilliCentavosPerUnit(row.replacementCostMc)]),
+  );
   const statements: Statement[] = [];
   const refreshedItemIds: string[] = [];
   const now = nowIso();
@@ -133,7 +137,7 @@ export async function planReplacementCostRefresh(db: Db): Promise<ReplacementCos
 
     const lines: ReplacementCostLine[] = recipe.lines.map((line) => ({
       qty: line.qty,
-      unitCost: liveCost.get(line.itemId) ?? 0,
+      unitCost: liveCost.get(line.itemId) ?? toMilliCentavosPerUnit(0),
     }));
     const newReplacementCost = computeItemReplacementCost(lines, recipe.expectedYieldQty);
     liveCost.set(itemId, newReplacementCost);
@@ -142,7 +146,7 @@ export async function planReplacementCostRefresh(db: Db): Promise<ReplacementCos
     statements.push(
       db
         .update(items)
-        .set({ replacementCost: newReplacementCost, replacementCostUpdatedAt: now, updatedAt: now })
+        .set({ replacementCostMc: newReplacementCost, replacementCostUpdatedAt: now, updatedAt: now })
         .where(eq(items.id, itemId)),
     );
   }
@@ -152,7 +156,7 @@ export async function planReplacementCostRefresh(db: Db): Promise<ReplacementCos
 
 /**
  * Plans AND executes the refresh in one atomic `db.batch()` (D-2/D-3): the on-demand endpoint's
- * own function, since api/ routes never call `db.batch()` directly — every other route delegates
+ * own function, since api/ routes never call `db.batch()` directly ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â every other route delegates
  * that call to a `core/` function (e.g. `core/catalog/items.ts`'s `createItem`), and this mirrors
  * that same convention rather than being the one route file that batches statements itself.
  * jobs/replacement-cost-refresh.ts does NOT use this: it needs its own `job_runs` row inside the

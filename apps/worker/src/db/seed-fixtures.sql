@@ -7,18 +7,18 @@
 -- 0001_init.sql uses 'acc_bank'/'acc_cash': fixture rows are hand-authored, not app-generated,
 -- and stable slugs make test/demo assertions readable. Timestamps are a fixed baseline date.
 
-INSERT INTO items (id, name, kind, category, unit, wac, replacement_cost, sale_price, min_stock_qty, is_active, notes, created_at, updated_at) VALUES
-  ('item_masa_madre',   'Masa madre',              'SEMI_FINISHED', 'BAKERY',    'G',    8.0,   8.0,   NULL, 200000, 1, NULL, '2026-07-01T08:00:00.000Z', '2026-07-01T08:00:00.000Z'),
-  ('item_harina',       'Harina',                  'RAW_MATERIAL',  'INGREDIENT','KG',   12.0,  12.0,  NULL, 10000,  1, NULL, '2026-07-01T08:00:00.000Z', '2026-07-01T08:00:00.000Z'),
-  ('item_leche',        'Leche',                   'RAW_MATERIAL',  'DAIRY',     'L',    8.0,   8.0,   NULL, 5000,   1, NULL, '2026-07-01T08:00:00.000Z', '2026-07-01T08:00:00.000Z'),
-  ('item_kefir',        'Kéfir',                   'RAW_MATERIAL',  'DAIRY',     'L',    10.0,  10.0,  NULL, 2000,   1, NULL, '2026-07-01T08:00:00.000Z', '2026-07-01T08:00:00.000Z'),
-  ('item_pan_masa_madre','Pan de masa madre',      'FINISHED',      'BAKERY',    'UNIT', 0,     0,     2500, 5000,   1, NULL, '2026-07-01T08:00:00.000Z', '2026-07-01T08:00:00.000Z'),
-  ('item_rollos_canela', 'Rollos de canela',       'FINISHED',      'BAKERY',    'UNIT', 0,     0,     1800, 5000,   1, NULL, '2026-07-01T08:00:00.000Z', '2026-07-01T08:00:00.000Z'),
-  ('item_cunapes',       'Cuñapés',                'FINISHED',      'BAKERY',    'UNIT', 0,     0,     1200, 5000,   1, NULL, '2026-07-01T08:00:00.000Z', '2026-07-01T08:00:00.000Z'),
-  ('item_queso_kefir',   'Queso crema de kéfir',   'FINISHED',      'DAIRY',     'UNIT', 0,     0,     3000, 3000,   1, NULL, '2026-07-01T08:00:00.000Z', '2026-07-01T08:00:00.000Z'),
-  ('item_ghee',          'Ghee',                   'FINISHED',      'DAIRY',     'ML',   0,     0,     4500, 3000,   1, NULL, '2026-07-01T08:00:00.000Z', '2026-07-01T08:00:00.000Z'),
-  ('item_cajas',         'Cajas',                  'RAW_MATERIAL',  'PACKAGING', 'UNIT', 2.5,   2.5,   NULL, 20000,  1, NULL, '2026-07-01T08:00:00.000Z', '2026-07-01T08:00:00.000Z'),
-  ('item_etiquetas',     'Etiquetas',               'RAW_MATERIAL',  'LABEL',     'UNIT', 0.5,   0.5,   NULL, 50000,  1, NULL, '2026-07-01T08:00:00.000Z', '2026-07-01T08:00:00.000Z');
+INSERT INTO items (id, name, kind, category, unit, wac_mc, replacement_cost_mc, sale_price_mc, min_stock_qty, is_active, notes, created_at, updated_at) VALUES
+  ('item_masa_madre',   'Masa madre',              'SEMI_FINISHED', 'BAKERY',    'G',    8000000, 8000000, NULL, 200000, 1, NULL, '2026-07-01T08:00:00.000Z', '2026-07-01T08:00:00.000Z'),
+  ('item_harina',       'Harina',                  'RAW_MATERIAL',  'INGREDIENT','KG',   12000000, 12000000, NULL, 10000,  1, NULL, '2026-07-01T08:00:00.000Z', '2026-07-01T08:00:00.000Z'),
+  ('item_leche',        'Leche',                   'RAW_MATERIAL',  'DAIRY',     'L',    8000000, 8000000, NULL, 5000,   1, NULL, '2026-07-01T08:00:00.000Z', '2026-07-01T08:00:00.000Z'),
+  ('item_kefir',        'Kéfir',                   'RAW_MATERIAL',  'DAIRY',     'L',    10000000, 10000000, NULL, 2000,   1, NULL, '2026-07-01T08:00:00.000Z', '2026-07-01T08:00:00.000Z'),
+  ('item_pan_masa_madre','Pan de masa madre',      'FINISHED',      'BAKERY',    'UNIT', 0, 0, 2500000, 5000,   1, NULL, '2026-07-01T08:00:00.000Z', '2026-07-01T08:00:00.000Z'),
+  ('item_rollos_canela', 'Rollos de canela',       'FINISHED',      'BAKERY',    'UNIT', 0, 0, 1800000, 5000,   1, NULL, '2026-07-01T08:00:00.000Z', '2026-07-01T08:00:00.000Z'),
+  ('item_cunapes',       'Cuñapés',                'FINISHED',      'BAKERY',    'UNIT', 0, 0, 1200000, 5000,   1, NULL, '2026-07-01T08:00:00.000Z', '2026-07-01T08:00:00.000Z'),
+  ('item_queso_kefir',   'Queso crema de kéfir',   'FINISHED',      'DAIRY',     'UNIT', 0, 0, 3000000, 3000,   1, NULL, '2026-07-01T08:00:00.000Z', '2026-07-01T08:00:00.000Z'),
+  ('item_ghee',          'Ghee',                   'FINISHED',      'DAIRY',     'ML',   0, 0, 4500000, 3000,   1, NULL, '2026-07-01T08:00:00.000Z', '2026-07-01T08:00:00.000Z'),
+  ('item_cajas',         'Cajas',                  'RAW_MATERIAL',  'PACKAGING', 'UNIT', 2500000, 2500000, NULL, 20000,  1, NULL, '2026-07-01T08:00:00.000Z', '2026-07-01T08:00:00.000Z'),
+  ('item_etiquetas',     'Etiquetas',               'RAW_MATERIAL',  'LABEL',     'UNIT', 500000, 500000, NULL, 50000,  1, NULL, '2026-07-01T08:00:00.000Z', '2026-07-01T08:00:00.000Z');
 
 INSERT INTO item_aliases (id, item_id, alias) VALUES
   ('alias_harina_flour',  'item_harina', 'flour'),

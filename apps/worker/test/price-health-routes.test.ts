@@ -35,9 +35,9 @@ function authHeaders(auth: { cookie: string; csrf: string }) {
 
 interface PriceHealthRow {
   itemId: string;
-  salePrice: number | null;
+  salePriceMc: number | null;
   wac: number;
-  replacementCost: number;
+  replacementCostMc: number;
   marginWac: { amount: number; pctBasisPoints: number } | null;
   marginReplacement: { amount: number; pctBasisPoints: number } | null;
   priceSuggested: number | null;
@@ -62,17 +62,17 @@ describe("GET /api/price-health", () => {
         kind: "FINISHED",
         category: "BAKERY",
         unit: "UNIT",
-        salePrice: 10000, // Bs 100.00
+        salePriceMc: 10_000_000, // Bs 100.00
       }),
     }).then((r) => r.json() as Promise<{ id: string }>);
 
-    // wac/replacementCost are system-derived (never settable via the API) — set directly, same
+    // wac/replacementCostMc are system-derived (never settable via the API) â€” set directly, same
     // pattern costing-routes.test.ts uses for its precondition setup. KOK-071: wacMc is
     // milli-centavos per WHOLE unit; 5_000_000 here reproduces the old wac=5-per-milli-unit
-    // example via price-health.ts's own bridge (÷1,000,000) — replacementCost is not migrated yet.
+    // example via price-health.ts's own bridge (Ã·1,000,000) â€” replacementCostMc is not migrated yet.
     await db
       .update(items)
-      .set({ wacMc: 5_000_000, replacementCost: 7 })
+      .set({ wacMc: 5_000_000, replacementCostMc: 7_000_000 })
       .where(eq(items.id, cake.id));
 
     const rawMaterial = await SELF.fetch("https://example.com/api/items", {
@@ -92,14 +92,14 @@ describe("GET /api/price-health", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { rows: PriceHealthRow[]; minMarginPct: number };
 
-    expect(body.minMarginPct).toBe(3000); // seeded default (Doc 04 §7)
+    expect(body.minMarginPct).toBe(3000); // seeded default (Doc 04 Â§7)
     expect(body.rows.map((r) => r.itemId)).not.toContain(rawMaterial.id); // FINISHED-only
 
     const row = body.rows.find((r) => r.itemId === cake.id);
     expect(row).toBeDefined();
     // wac=5/milli-unit -> 5000/unit; margin = 10000-5000=5000, 50% -> 5000bp.
     expect(row?.marginWac).toEqual({ amount: 5000, pctBasisPoints: 5000 });
-    // replacementCost=7/milli-unit -> 7000/unit; margin = 3000, 30% -> 3000bp.
+    // replacementCostMc=7/milli-unit -> 7000/unit; margin = 3000, 30% -> 3000bp.
     expect(row?.marginReplacement).toEqual({ amount: 3000, pctBasisPoints: 3000 });
     // price_suggested = 7000 / (1 - 0.30) = 10000.
     expect(row?.priceSuggested).toBe(10000);
@@ -128,7 +128,7 @@ describe("GET /api/price-health", () => {
     expect(row).toBeDefined();
     expect(row?.marginWac).toBeNull();
     expect(row?.marginReplacement).toBeNull();
-    expect(row?.priceSuggested).toBeNull(); // replacementCost defaults to 0 (C-3 hasn't run yet)
+    expect(row?.priceSuggested).toBeNull(); // replacementCostMc defaults to 0 (C-3 hasn't run yet)
     expect(row?.lastPriceChangeAt).toBeNull();
   });
 });

@@ -1,5 +1,5 @@
-// SC-08 · Inventory — /inventory. Header + a hand-rolled tab switcher (Stock / Salidas / Conteos,
-// no tabs primitive exists in components/ui yet and none is added for this — same "hand-rolled
+// SC-08 Â· Inventory â€” /inventory. Header + a hand-rolled tab switcher (Stock / Salidas / Conteos,
+// no tabs primitive exists in components/ui yet and none is added for this â€” same "hand-rolled
 // now, upgrade later if a second consumer justifies a dependency" call as EventTable's header
 // comment). Stock (KOK-017 frontend), Salidas (KOK-018 frontend), and Conteos (KOK-019 frontend)
 // all have real content.
@@ -92,7 +92,7 @@ export function InventoryRoute() {
     refreshReplacementCostsMutation.mutate(undefined, {
       onSuccess: (result) => {
         toast.show({
-          message: inventoryLabels.replacementCostRefreshSuccess(result.refreshedItemIds.length),
+          message: inventoryLabels.replacementCostMcRefreshSuccess(result.refreshedItemIds.length),
         });
       },
       onError: (err) => {

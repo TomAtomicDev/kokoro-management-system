@@ -1,7 +1,8 @@
-// Integration tests for core/catalog (KOK-011), following the Doc 11 §3 template: seed -> execute
+// Integration tests for core/catalog (KOK-011), following the Doc 11 Â§3 template: seed -> execute
 // command -> assert event rows + audit_log entries + atomicity, run against real D1 via
 // @cloudflare/vitest-pool-workers (test/setup.ts applies migrations/0001_init.sql first).
 import { env } from "cloudflare:test";
+import { toMilliCentavosPerUnit } from "@kokoro/shared";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -17,9 +18,10 @@ import {
 import { createDb } from "../src/db/index.js";
 
 const ACTOR = "OWNER_WEB" as const;
+const mc = toMilliCentavosPerUnit;
 
 describe("createItem", () => {
-  it("creates the row with wac/replacementCost defaulted to 0 and writes an audit_log entry", async () => {
+  it("creates the row with wac/replacementCostMc defaulted to 0 and writes an audit_log entry", async () => {
     const db = createDb(env.DB);
     const item = await createItem(
       db,
@@ -29,7 +31,7 @@ describe("createItem", () => {
 
     expect(item.name).toBe("Harina 000");
     expect(item.wacMc).toBe(0);
-    expect(item.replacementCost).toBe(0);
+    expect(item.replacementCostMc).toBe(0);
     expect(item.isActive).toBe(true);
     expect(item.aliases).toEqual([]);
 
@@ -46,14 +48,14 @@ describe("createItem", () => {
     const db = createDb(env.DB);
     await createItem(
       db,
-      { name: "Azúcar blanca", kind: "RAW_MATERIAL", category: "INGREDIENT", unit: "KG" },
+      { name: "AzÃºcar blanca", kind: "RAW_MATERIAL", category: "INGREDIENT", unit: "KG" },
       ACTOR,
     );
 
     await expect(
       createItem(
         db,
-        { name: "Azúcar blanca", kind: "RAW_MATERIAL", category: "INGREDIENT", unit: "KG" },
+        { name: "AzÃºcar blanca", kind: "RAW_MATERIAL", category: "INGREDIENT", unit: "KG" },
         ACTOR,
       ),
     ).rejects.toMatchObject({ code: "CONFLICT" });
@@ -163,7 +165,7 @@ describe("listItems", () => {
     await addItemAlias(db, { itemId: flour.id, alias: "wholemeal" }, ACTOR);
     const box = await createItem(
       db,
-      { name: "Caja de cartón", kind: "RAW_MATERIAL", category: "PACKAGING", unit: "UNIT" },
+      { name: "Caja de cartÃ³n", kind: "RAW_MATERIAL", category: "PACKAGING", unit: "UNIT" },
       ACTOR,
     );
     await setItemActive(db, { id: box.id, isActive: false }, ACTOR);
@@ -257,7 +259,7 @@ describe("price_history (KOK-035, Doc 07 SC-12)", () => {
         kind: "FINISHED",
         category: "BAKERY",
         unit: "UNIT",
-        salePrice: 5000,
+        salePriceMc: mc(5_000_000),
       },
       ACTOR,
     );
@@ -266,7 +268,7 @@ describe("price_history (KOK-035, Doc 07 SC-12)", () => {
       where: (t, { eq }) => eq(t.itemId, item.id),
     });
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ price: 5000, note: null });
+    expect(rows[0]).toMatchObject({ priceMc: 5_000_000, note: null });
     expect(rows[0]?.effectiveFrom).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 
@@ -274,7 +276,7 @@ describe("price_history (KOK-035, Doc 07 SC-12)", () => {
     const db = createDb(env.DB);
     const item = await createItem(
       db,
-      { name: "Sin precio aún", kind: "FINISHED", category: "BAKERY", unit: "UNIT" },
+      { name: "Sin precio aÃºn", kind: "FINISHED", category: "BAKERY", unit: "UNIT" },
       ACTOR,
     );
 
@@ -293,28 +295,34 @@ describe("price_history (KOK-035, Doc 07 SC-12)", () => {
         kind: "FINISHED",
         category: "BAKERY",
         unit: "UNIT",
-        salePrice: 4000,
+        salePriceMc: mc(4_000_000),
       },
       ACTOR,
     );
 
-    await updateItem(db, { id: item.id, salePrice: 4500 }, ACTOR);
+    await updateItem(db, { id: item.id, salePriceMc: mc(4_500_000) }, ACTOR);
 
     const rows = await db.query.priceHistory.findMany({
       where: (t, { eq }) => eq(t.itemId, item.id),
     });
-    expect(rows.map((r) => r.price).sort((a, b) => a - b)).toEqual([4000, 4500]);
+    expect(rows.map((r) => r.priceMc).sort((a, b) => a - b)).toEqual([4_000_000, 4_500_000]);
   });
 
   it("does not log a no-op resubmit of the same sale price", async () => {
     const db = createDb(env.DB);
     const item = await createItem(
       db,
-      { name: "Brownie", kind: "FINISHED", category: "BAKERY", unit: "UNIT", salePrice: 1500 },
+      {
+        name: "Brownie",
+        kind: "FINISHED",
+        category: "BAKERY",
+        unit: "UNIT",
+        salePriceMc: mc(1_500_000),
+      },
       ACTOR,
     );
 
-    await updateItem(db, { id: item.id, salePrice: 1500 }, ACTOR);
+    await updateItem(db, { id: item.id, salePriceMc: mc(1_500_000) }, ACTOR);
 
     const rows = await db.query.priceHistory.findMany({
       where: (t, { eq }) => eq(t.itemId, item.id),
@@ -326,18 +334,24 @@ describe("price_history (KOK-035, Doc 07 SC-12)", () => {
     const db = createDb(env.DB);
     const item = await createItem(
       db,
-      { name: "Alfajor", kind: "FINISHED", category: "BAKERY", unit: "UNIT", salePrice: 800 },
+      {
+        name: "Alfajor",
+        kind: "FINISHED",
+        category: "BAKERY",
+        unit: "UNIT",
+        salePriceMc: mc(800_000),
+      },
       ACTOR,
     );
 
-    await updateItem(db, { id: item.id, salePrice: null }, ACTOR);
+    await updateItem(db, { id: item.id, salePriceMc: null }, ACTOR);
 
     const rows = await db.query.priceHistory.findMany({
       where: (t, { eq }) => eq(t.itemId, item.id),
     });
     expect(rows).toHaveLength(1); // only the creation-time row; the clear itself isn't logged
     const updated = await getItem(db, item.id);
-    expect(updated.salePrice).toBeNull();
+    expect(updated.salePriceMc).toBeNull();
   });
 });
 
@@ -365,7 +379,7 @@ describe("batch atomicity (INV-1)", () => {
   it("the same guarantee holds for an item insert paired with a rejected audit_log insert", async () => {
     // Mirrors the exact statement pair createItem() builds (item insert + audit_log insert), but
     // with the audit insert violating audit_log's actor CHECK constraint, to prove the item
-    // insert ahead of it never lands either — the real D1 batch, not a mock.
+    // insert ahead of it never lands either â€” the real D1 batch, not a mock.
     await expect(
       env.DB.batch([
         env.DB.prepare(

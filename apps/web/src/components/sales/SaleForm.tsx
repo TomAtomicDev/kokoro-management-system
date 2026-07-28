@@ -1,13 +1,13 @@
 // Dialog for UC-03 "recordSale" (Doc 07 SC-03) + UC-18 edit (KOK-064). Mirrors PurchaseForm.tsx's
 // structure (Dialog wrapper, local form state, reset-on-open, edit-mode prefill, both branches
-// wrapped in useReplayConfirmableMutation so a genuinely backdated sale — new or edited — gets the
+// wrapped in useReplayConfirmableMutation so a genuinely backdated sale â€” new or edited â€” gets the
 // R-5 confirmation dance, KOK-065's pattern reused rather than re-derived). No receipt photo (sales
 // never had one). Adds what purchases doesn't need: a paymentStatus toggle that conditionally
 // requires method+account (mirrors `recordSaleCommandSchema`'s discriminated union, D-4), and
 // two per-line warnings (stock-negative amber, INV-8; below-replacement-cost red, C-5).
 //
 // `updateSaleCommandSchema` is a bare alias of `recordSaleCommandSchema` (packages/shared/src/
-// sales.ts) — like PurchaseForm, this parses both branches with the ONE schema import.
+// sales.ts) â€” like PurchaseForm, this parses both branches with the ONE schema import.
 //
 // `customerId` is optional and wired via CustomerPicker now that customers CRUD (KOK-032) has
 // shipped. Still no session picker: no SessionPicker component exists anywhere in this codebase
@@ -24,13 +24,18 @@ import type {
 } from "@kokoro/shared";
 import {
   formatMoney,
-  mulMoneyByQty,
   nowIso,
   PAYMENT_METHODS,
   type PaymentMethod,
   type PaymentStatus,
+  rateFromTotal,
   recordSaleCommandSchema,
   toBusinessDate,
+  toCentavos,
+  toMilliCentavosPerUnit,
+  toMilliUnits,
+  totalCentavos,
+  WHOLE_UNIT_MILLI_UNITS,
 } from "@kokoro/shared";
 import { useEffect, useMemo, useState } from "react";
 
@@ -60,10 +65,10 @@ export interface SaleFormProps {
 
 interface SaleLineValue extends LineEditorLine {
   itemId: string | null;
-  /** Milli-units decimal string (scale 3) — same convention as PurchaseForm's line qty. */
+  /** Milli-units decimal string (scale 3) â€” same convention as PurchaseForm's line qty. */
   qty: string;
-  /** Unit price, centavos-per-WHOLE-unit decimal string (scale 2) — editable, prefilled from
-   * `item.salePrice` the moment an item is picked (SC-03). Reused as `LineEditor`'s generic
+  /** Unit price, centavos-per-WHOLE-unit decimal string (scale 2) â€” editable, prefilled from
+   * `item.salePriceMc` the moment an item is picked (SC-03). Reused as `LineEditor`'s generic
    * `amount` slot; here it means "price per unit", not "line total" (purchases' meaning). */
   amount: string;
 }
@@ -84,7 +89,7 @@ interface SaleFormState {
 
 /**
  * Maps a fetched `SaleDto` (KOK-064 edit mode) to the form's editable local state. Pure and
- * framework-free on purpose — same rationale as `purchaseToFormState` (PurchaseForm.tsx): this
+ * framework-free on purpose â€” same rationale as `purchaseToFormState` (PurchaseForm.tsx): this
  * workspace has neither jsdom nor @testing-library/react, so a plain exported function is what
  * stays unit-testable without rendering the component.
  */
@@ -101,7 +106,10 @@ export function saleToFormState(sale: SaleDto, accounts: FinancialAccountDto[]):
         ? sale.lines.map((line) => ({
             itemId: line.itemId,
             qty: formatIntAsDecimalInput(line.qty, 3),
-            amount: formatIntAsDecimalInput(line.unitPrice, 2),
+            amount: formatIntAsDecimalInput(
+              totalCentavos(line.unitPriceMc, WHOLE_UNIT_MILLI_UNITS),
+              2,
+            ),
           }))
         : [emptyLine()],
   };
@@ -126,7 +134,7 @@ export function SaleForm({ open, onOpenChange, accounts, sale }: SaleFormProps) 
     (command) => createMutation.mutateAsync(command),
     { onSuccess: () => onOpenChange(false) },
   );
-  // Called unconditionally (rules of hooks) even in create mode — `sale?.id` is only "" then, and
+  // Called unconditionally (rules of hooks) even in create mode â€” `sale?.id` is only "" then, and
   // the mutation is never actually invoked unless `isEditMode` is true (see handleSubmit).
   const updateMutation = useUpdateSale(sale?.id ?? "");
   const editReplay = useReplayConfirmableMutation<UpdateSaleCommand, UpdateSaleResult>(
@@ -141,7 +149,7 @@ export function SaleForm({ open, onOpenChange, accounts, sale }: SaleFormProps) 
     return map;
   }, [itemsQuery.data]);
 
-  // Current on-hand qty per item (v_stock, INV-5) — used for the amber "stock would go negative"
+  // Current on-hand qty per item (v_stock, INV-5) â€” used for the amber "stock would go negative"
   // warning below. Unfiltered (all kinds): fine to fetch the whole table at this app's scale, same
   // precedent as PurchaseForm's unfiltered useItemsQuery for its own line lookups.
   const stockQuery = useStock();
@@ -151,7 +159,7 @@ export function SaleForm({ open, onOpenChange, accounts, sale }: SaleFormProps) 
     return map;
   }, [stockQuery.data]);
 
-  // Reset only on the open transition (or a switch to a different sale while open) — `sale?.id`
+  // Reset only on the open transition (or a switch to a different sale while open) â€” `sale?.id`
   // stands in for `sale` itself so a background refetch of the SAME sale never clobbers
   // in-progress edits, mirroring PurchaseForm's identical precedent.
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset-on-open precedent, see above.
@@ -182,8 +190,8 @@ export function SaleForm({ open, onOpenChange, accounts, sale }: SaleFormProps) 
   const disabled = isEditMode ? editReplay.isPending : createReplay.isPending;
   const isPaid = paymentStatus === "PAID";
 
-  /** Prefills a line's unit price from the item's catalog `salePrice` the moment the item changes
-   * and the price field is still blank — editable afterward, never overwritten again (same
+  /** Prefills a line's unit price from the item's catalog `salePriceMc` the moment the item changes
+   * and the price field is still blank â€” editable afterward, never overwritten again (same
    * "convenience default, not sticky" rule as ProductionRunForm's recipe-line prefill). LineEditor
    * itself only forwards `itemId` to its `onChange` (see LineEditor.tsx), so the lookup happens
    * here, against the previous line at the same index, rather than inside LineEditor. */
@@ -192,8 +200,14 @@ export function SaleForm({ open, onOpenChange, accounts, sale }: SaleFormProps) 
       const prevItemId = lines[index]?.itemId ?? null;
       if (line.itemId && line.itemId !== prevItemId && line.amount.trim() === "") {
         const item = itemsById.get(line.itemId);
-        if (item?.salePrice != null) {
-          return { ...line, amount: formatIntAsDecimalInput(item.salePrice, 2) };
+        if (item?.salePriceMc != null) {
+          return {
+            ...line,
+            amount: formatIntAsDecimalInput(
+              totalCentavos(item.salePriceMc, WHOLE_UNIT_MILLI_UNITS),
+              2,
+            ),
+          };
         }
       }
       return line;
@@ -202,7 +216,7 @@ export function SaleForm({ open, onOpenChange, accounts, sale }: SaleFormProps) 
   }
 
   // Aggregate requested qty per item across ALL lines (a sale can list the same FINISHED item
-  // twice) — INV-8's negative-stock check is about the item's post-sale balance, not any one line
+  // twice) â€” INV-8's negative-stock check is about the item's post-sale balance, not any one line
   // in isolation.
   const qtyByItemId = useMemo(() => {
     const map = new Map<string, number>();
@@ -221,7 +235,10 @@ export function SaleForm({ open, onOpenChange, accounts, sale }: SaleFormProps) 
       const qty = parseDecimalToInt(line.qty, 3);
       const unitPrice = parseDecimalToInt(line.amount, 2);
       if (qty === null || qty <= 0 || unitPrice === null) continue;
-      sum += mulMoneyByQty(unitPrice, qty);
+      sum += totalCentavos(
+        rateFromTotal(toCentavos(unitPrice), WHOLE_UNIT_MILLI_UNITS),
+        toMilliUnits(qty),
+      );
     }
     return sum;
   }, [lines]);
@@ -233,7 +250,7 @@ export function SaleForm({ open, onOpenChange, accounts, sale }: SaleFormProps) 
       return;
     }
 
-    const parsedLines: { itemId: string; qty: number; unitPrice: number }[] = [];
+    const parsedLines: { itemId: string; qty: number; unitPriceMc: number }[] = [];
     for (const line of lines) {
       const qty = parseDecimalToInt(line.qty, 3);
       const unitPrice = parseDecimalToInt(line.amount, 2);
@@ -241,13 +258,17 @@ export function SaleForm({ open, onOpenChange, accounts, sale }: SaleFormProps) 
         setError(salesLabels.errors.invalidLine);
         return;
       }
-      parsedLines.push({ itemId: line.itemId, qty, unitPrice });
+      parsedLines.push({
+        itemId: line.itemId,
+        qty,
+        unitPriceMc: rateFromTotal(toCentavos(unitPrice), WHOLE_UNIT_MILLI_UNITS),
+      });
     }
 
     const commonFields = {
       customerId: customerId ?? undefined,
       notes: notes.trim() === "" ? undefined : notes.trim(),
-      // Edit mode keeps the sale's original instant — there's no UI field to change it, and an
+      // Edit mode keeps the sale's original instant â€” there's no UI field to change it, and an
       // edit re-stamping `occurredAt` to "now" would rewrite when the sale actually happened every
       // time the owner fixes an unrelated typo (mirrors PurchaseForm's identical precedent).
       occurredAt: sale ? sale.occurredAt : nowIso(),
@@ -274,7 +295,7 @@ export function SaleForm({ open, onOpenChange, accounts, sale }: SaleFormProps) 
   }
 
   /** Combines client-side validation errors (`error` state) with a genuine (non-confirmation)
-   * failure surfaced by `editReplay`/`createReplay` — the confirmation case is captured into
+   * failure surfaced by `editReplay`/`createReplay` â€” the confirmation case is captured into
    * their own `pendingConfirmation` instead and never reaches here (see
    * useReplayConfirmableMutation.ts's header). */
   const activeReplay = isEditMode ? editReplay : createReplay;
@@ -293,25 +314,31 @@ export function SaleForm({ open, onOpenChange, accounts, sale }: SaleFormProps) 
     const qty = parseDecimalToInt(line.qty, 3);
     const unitPrice = parseDecimalToInt(line.amount, 2);
     const subtotal =
-      qty !== null && qty > 0 && unitPrice !== null ? mulMoneyByQty(unitPrice, qty) : null;
+      qty !== null && qty > 0 && unitPrice !== null
+        ? totalCentavos(
+            rateFromTotal(toCentavos(unitPrice), WHOLE_UNIT_MILLI_UNITS),
+            toMilliUnits(qty),
+          )
+        : null;
 
     const onHand = onHandByItemId.get(item.id) ?? 0;
     const requested = qtyByItemId.get(item.id) ?? 0;
     const negativeStockWarning = requested > 0 && onHand - requested < 0;
 
-    // unitPrice is centavos per WHOLE unit; item.replacementCost is centavos per MILLI-unit (same
-    // scale as item.wac, Doc 04 §2) — divide by 1000 for a like-for-like comparison, mirroring
-    // PurchaseForm's renderLineExtra which needs no such conversion because its own lineTotal/qty
-    // division already lands in centavos-per-milli-unit.
+    // Convert the decimal-input centavos to the same `_mc` rate scale as replacementCostMc before
+    // comparing; both stored rates are dimensionally identical (ADR-017).
     const belowReplacementWarning =
-      unitPrice !== null && item.replacementCost > 0 && unitPrice / 1000 < item.replacementCost;
+      unitPrice !== null &&
+      item.replacementCostMc > 0 &&
+      rateFromTotal(toCentavos(unitPrice), WHOLE_UNIT_MILLI_UNITS) <
+        toMilliCentavosPerUnit(item.replacementCostMc);
 
     return (
       <div className="flex flex-col gap-0.5 text-xs">
         <span className="text-muted-foreground">
           {salesLabels.lineSubtotal}:{" "}
           <span className="numeric-cell font-medium text-foreground">
-            {subtotal !== null ? formatMoney(subtotal) : "—"}
+            {subtotal !== null ? formatMoney(subtotal) : "â€”"}
           </span>
         </span>
         {negativeStockWarning ? (
