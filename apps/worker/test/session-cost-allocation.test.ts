@@ -123,10 +123,11 @@ async function runRow(db: TestDb, id: string) {
   return row;
 }
 
+/** Returns `items.wac_mc` (KOK-071/ADR-017: milli-centavos per WHOLE unit). */
 async function itemWac(db: TestDb, id: string): Promise<number> {
   const row = await db.query.items.findFirst({ where: (t, { eq: eqOp }) => eqOp(t.id, id) });
   if (!row) throw new Error(`item ${id} not found`);
-  return row.wac;
+  return row.wacMc;
 }
 
 async function productionInMovement(db: TestDb, runId: string) {
@@ -183,7 +184,8 @@ describe("planSessionCostAllocation via updateSession (KOK-028, S-3)", () => {
     );
     expect(productionRun.directCost).toBe(100_000);
     expect(productionRun.allocatedSessionCost).toBe(0);
-    expect(await itemWac(db, output.id)).toBe(100);
+    // First-ever entry: outputUnitCostMc = rateFromTotal(100_000, 1000) = 100_000_000 exactly.
+    expect(await itemWac(db, output.id)).toBe(100_000_000);
 
     await closeSession(db, session.id, [
       { label: "Gas", amount: 100_000, isEstimate: false, accountId: "acc_bank" },
@@ -194,9 +196,10 @@ describe("planSessionCostAllocation via updateSession (KOK-028, S-3)", () => {
     expect(updatedRun.directCost).toBe(100_000);
     expect(updatedRun.totalCost).toBe(200_000);
 
-    expect(await itemWac(db, output.id)).toBe(200);
+    // Reallocation raises totalCost to 200_000 -> rateFromTotal(200_000, 1000) = 200_000_000.
+    expect(await itemWac(db, output.id)).toBe(200_000_000);
     const movement = await productionInMovement(db, productionRun.id);
-    expect(movement?.unitCost).toBe(200);
+    expect(movement?.unitCostMc).toBe(200_000_000);
 
     // Nothing downstream of this run's output — no costing_adjustments row should exist.
     const adjustments = await db.query.costingAdjustments.findMany({});
@@ -418,7 +421,8 @@ describe("planSessionCostAllocation via updateSession (KOK-028, S-3)", () => {
       },
       ACTOR,
     );
-    expect(await itemWac(db, output.id)).toBe(100); // output WAC before any reallocation
+    // First-ever entry: outputUnitCostMc = rateFromTotal(100_000, 1000) = 100_000_000 exactly.
+    expect(await itemWac(db, output.id)).toBe(100_000_000); // output WAC before any reallocation
 
     // A stock exit AFTER the run freezes its unit_cost_snapshot at the CURRENT wac (C-6) — this is
     // the "already-recorded downstream consumer" R-5 normally gates a plain edit behind.
@@ -433,7 +437,7 @@ describe("planSessionCostAllocation via updateSession (KOK-028, S-3)", () => {
       },
       ACTOR,
     );
-    expect(exit.unitCostSnapshot).toBe(100);
+    expect(exit.unitCostSnapshotMc).toBe(100_000_000);
 
     // No `confirm` field exists on this command at all (packages/shared/src/sessions.ts) — if the
     // allocation enforced planCostingReplay's confirmationRequired gate the way a plain production
@@ -448,8 +452,10 @@ describe("planSessionCostAllocation via updateSession (KOK-028, S-3)", () => {
     expect(updatedRun.allocatedSessionCost).toBe(100_000);
     expect(updatedRun.totalCost).toBe(200_000);
 
-    // Replayed kardex: PRODUCTION_IN qty 1000 @ 200 -> wac 200; EXIT_OUT never moves wac.
-    expect(await itemWac(db, output.id)).toBe(200);
+    // Replayed kardex: PRODUCTION_IN qty 1000 @ 200_000_000 -> wac 200_000_000; EXIT_OUT never
+    // moves wac. Reallocation raises totalCost to 200_000 -> rateFromTotal(200_000, 1000) =
+    // 200_000_000.
+    expect(await itemWac(db, output.id)).toBe(200_000_000);
 
     const adjustments = await db.query.costingAdjustments.findMany({
       where: (t, { eq: eqOp }) => eqOp(t.itemId, output.id),
@@ -459,7 +465,10 @@ describe("planSessionCostAllocation via updateSession (KOK-028, S-3)", () => {
     expect(adjustment).toMatchObject({
       triggerEventType: "session",
       triggerEventId: session.id,
-      costDelta: -50_000, // (frozen 100 - replayed wacBefore 200) * 500
+      // cost_delta (Centavos) is unaffected by KOK-071 — it's computed as
+      // (frozenMc - replayedMc) * qty / 1_000_000, and the mc-scale ×1,000,000 cancels back out:
+      // (100_000_000 - 200_000_000) * 500 / 1_000_000 = -50_000.
+      costDelta: -50_000,
     });
     expect(JSON.parse(adjustment?.affectedStockExitIds ?? "[]")).toEqual([exit.id]);
     expect(JSON.parse(adjustment?.affectedSaleLineIds ?? "[]")).toEqual([]);

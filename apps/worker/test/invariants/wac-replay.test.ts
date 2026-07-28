@@ -17,11 +17,14 @@
 // `items.wac` / `item_stock.qty_on_hand` exactly as the old `recordPurchase` read them) and asserts
 // the committed value DIFFERS from it. Without that inequality the test would pass against the old
 // un-guarded service and prove nothing.
+
 import { env } from "cloudflare:test";
+import { toMilliCentavosPerUnit } from "@kokoro/shared";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { createItem } from "../../src/core/catalog/index.js";
+import type { ReplayMovement } from "../../src/core/costing/wac.js";
 import { applyWacEntry, recomputeWacFromMovements } from "../../src/core/costing/wac.js";
 import { recordExit } from "../../src/core/inventory/exits.js";
 import { recordPurchase } from "../../src/core/purchasing/index.js";
@@ -38,6 +41,8 @@ import {
 } from "../../src/db/schema.js";
 
 const ACTOR = "OWNER_WEB" as const;
+// KOK-071 (ADR-017): brand alias, local to this file for readability — see costing.test.ts.
+const mc = toMilliCentavosPerUnit;
 
 type TestDb = ReturnType<typeof createDb>;
 
@@ -78,7 +83,7 @@ async function readStoredState(
   const stock = await db.query.itemStock.findFirst({
     where: (t, { eq: eqOp }) => eqOp(t.itemId, itemId),
   });
-  return { wac: item?.wac ?? 0, onHand: stock?.qtyOnHand ?? 0 };
+  return { wac: item?.wacMc ?? 0, onHand: stock?.qtyOnHand ?? 0 };
 }
 
 /** The item's committed kardex in canonical order — the same `(occurred_at, created_at)` sort key
@@ -89,6 +94,20 @@ async function readKardex(db: TestDb, itemId: string) {
     where: (t, { eq: eqOp }) => eqOp(t.itemId, itemId),
     orderBy: (t, { asc }) => [asc(t.occurredAt), asc(t.createdAt)],
   });
+}
+
+/** DB rows carry a plain `number` for `unit_cost_mc`; `recomputeWacFromMovements` wants the branded
+ * `MilliCentavosPerUnit` (KOK-071). Values read back from a real committed movement are already
+ * valid non-negative integers (written by the real service), so re-branding here is a safe cast,
+ * not a new validation. */
+function toReplayMovements(
+  rows: readonly { type: string; qty: number; unitCostMc: number }[],
+): ReplayMovement[] {
+  return rows.map((r) => ({
+    type: r.type as ReplayMovement["type"],
+    qty: r.qty,
+    unitCostMc: mc(r.unitCostMc),
+  }));
 }
 
 // Storage is isolated per test FILE, not per test (same note as purchasing.test.ts) — this restores
@@ -134,6 +153,11 @@ describe("INV-11/R-2 — same-item backdated insert lands the full-kardex WAC", 
    *
    * B froze `unit_cost_snapshot` 2 but the replay says it consumed at 6, so
    * cost_delta = (2 − 6) × 8 000 = −32 000 centavos and R-5 demands `confirm: true`.
+   *
+   * KOK-071 (ADR-017): every wac/unit-cost number above is stated at the pre-migration scale for
+   * readability; the ACTUAL stored/asserted values below are each ×1,000,000 (integer
+   * MilliCentavosPerUnit). `cost_delta` is unaffected — it is a Centavos total, and replay.ts
+   * divides the mc-scale intermediate back down by the same 1,000,000 before rounding it.
    */
   it("commits the chronologically-correct WAC, and NOT what naive C-1 threading would have written", async () => {
     const db = createDb(env.DB);
@@ -155,13 +179,17 @@ describe("INV-11/R-2 — same-item backdated insert lands the full-kardex WAC", 
     // Captured BEFORE the backdated purchase: these are precisely the two values the un-guarded
     // `recordPurchase` read out of the cache to thread C-1 with.
     const stored = await readStoredState(db, item.id);
-    expect(stored.wac).toBeCloseTo(2, 9);
+    expect(stored.wac).toBe(2_000_000);
     expect(stored.onHand).toBe(2_000);
 
     // The value the OLD code would have committed. Computed here, from the real pre-state, rather
-    // than hard-coded — so it stays honest if the seed numbers above are ever changed.
-    const naiveThreadedWac = applyWacEntry(stored.wac, stored.onHand, 10_000, 10);
-    expect(naiveThreadedWac).toBeCloseTo(104_000 / 12_000, 9);
+    // than hard-coded — so it stays honest if the seed numbers above are ever changed. entryUnitCost
+    // (10 old-scale) is likewise stated at the new scale, 10_000_000, to match what the real
+    // service would have fed applyWacEntry with.
+    const naiveThreadedWac = applyWacEntry(mc(stored.wac), stored.onHand, 10_000, mc(10_000_000));
+    // (2 000·2 000 000 + 10 000·10 000 000) / 12 000 = 104 000 000 000/12 000 = 8 666 666.67 ->
+    // roundHalfUpToInt -> 8 666 667.
+    expect(naiveThreadedWac).toBe(8_666_667);
 
     await purchase(db, item.id, "2026-07-05", "10:00", 10_000, 10, true);
 
@@ -176,13 +204,13 @@ describe("INV-11/R-2 — same-item backdated insert lands the full-kardex WAC", 
 
     // (1) R-2: the stored cache equals a from-zero recompute over the committed kardex in
     //     chronological order. This is the invariant the nightly INV-5 job also audits.
-    expect(after?.wac).toBeCloseTo(recomputeWacFromMovements(kardex), 9);
-    expect(after?.wac).toBeCloseTo(6, 9);
+    expect(after?.wacMc).toBe(recomputeWacFromMovements(toReplayMovements(kardex)));
+    expect(after?.wacMc).toBe(6_000_000);
 
     // (2) THE load-bearing assertion. Without this the test would pass against the pre-guard
-    //     `recordPurchase`, which committed 8.6667 — a green test that cannot fail is worse than
-    //     no test. `not.toBeCloseTo` fails when the values agree to 9 decimals.
-    expect(after?.wac).not.toBeCloseTo(naiveThreadedWac, 9);
+    //     `recordPurchase`, which committed 8 666 667 — a green test that cannot fail is worse
+    //     than no test. Both sides are now exact integers (KOK-071), so plain inequality suffices.
+    expect(after?.wacMc).not.toBe(naiveThreadedWac);
   });
 
   it("books the correction forward (R-4) instead of rewriting the exit's frozen snapshot", async () => {
@@ -201,7 +229,7 @@ describe("INV-11/R-2 — same-item backdated insert lands the full-kardex WAC", 
       },
       ACTOR,
     );
-    expect(exit.exit.unitCostSnapshot).toBeCloseTo(2, 9);
+    expect(exit.exit.unitCostSnapshotMc).toBe(2_000_000);
 
     const result = await purchase(db, item.id, "2026-07-05", "10:00", 10_000, 10, true);
 
@@ -223,7 +251,7 @@ describe("INV-11/R-2 — same-item backdated insert lands the full-kardex WAC", 
     const exitRow = await db.query.stockExits.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.id, exit.exit.id),
     });
-    expect(exitRow?.unitCostSnapshot).toBe(2);
+    expect(exitRow?.unitCostSnapshotMc).toBe(2_000_000);
   });
 });
 
@@ -246,8 +274,9 @@ describe("INV-11 fast path — a same-day capture must NOT trigger a replay", ()
     await purchase(db, item.id, "2026-07-10", "10:00", 10_000, 2);
 
     const stored = await readStoredState(db, item.id);
-    const naiveThreadedWac = applyWacEntry(stored.wac, stored.onHand, 10_000, 4);
-    expect(naiveThreadedWac).toBeCloseTo(3, 9);
+    const naiveThreadedWac = applyWacEntry(mc(stored.wac), stored.onHand, 10_000, mc(4_000_000));
+    // (10 000·2 000 000 + 10 000·4 000 000)/20 000 = 3 000 000 exactly (KOK-071: integer, exact).
+    expect(naiveThreadedWac).toBe(3_000_000);
 
     // No `confirm` flag: a same-day purchase must never be refused by R-5 in the first place.
     await purchase(db, item.id, "2026-07-10", "14:00", 10_000, 4);
@@ -256,9 +285,11 @@ describe("INV-11 fast path — a same-day capture must NOT trigger a replay", ()
       where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
     });
     // Behaviour matches the pre-guard path exactly.
-    expect(after?.wac).toBeCloseTo(naiveThreadedWac, 9);
+    expect(after?.wacMc).toBe(naiveThreadedWac);
     // ...and is still the full-kardex answer, because on this path the two coincide.
-    expect(after?.wac).toBeCloseTo(recomputeWacFromMovements(await readKardex(db, item.id)), 9);
+    expect(after?.wacMc).toBe(
+      recomputeWacFromMovements(toReplayMovements(await readKardex(db, item.id))),
+    );
 
     // The observable proof that no replay ran. `costing_adjustments` alone is not enough (a replay
     // with a zero delta plans no adjustment row either), so the `costing_replay` audit row — which
@@ -282,7 +313,7 @@ describe("INV-11 fast path — a same-day capture must NOT trigger a replay", ()
     const after = await db.query.items.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
     });
-    expect(after?.wac).toBeCloseTo(7, 9);
+    expect(after?.wacMc).toBe(7_000_000);
     expect(
       await db.select().from(auditLog).where(eq(auditLog.action, "costing_replay")),
     ).toHaveLength(0);

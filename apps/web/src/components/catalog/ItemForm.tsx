@@ -122,11 +122,12 @@ export interface ItemFormProps {
   values: ItemFormValues;
   onChange: (values: ItemFormValues) => void;
   /**
-   * Shown as a read-only "calculado" block — never editable (Doc 03 C-1/C-3). `wac` and
-   * `replacementCost` come off ItemDto as REAL centavos-PER-MILLI-UNIT (Doc 04 §2), so they are
-   * scaled ×1000 here to show the money-per-whole-unit figure a human reads ("Bs 12,00 / kg").
+   * Shown as a read-only "calculado" block — never editable (Doc 03 C-1/C-3). `wacMc` comes off
+   * ItemDto as integer milli-centavos-per-WHOLE-unit (ADR-017/KOK-071, ÷1000 to display).
+   * `replacementCost` is not migrated yet and stays REAL centavos-PER-MILLI-UNIT (Doc 04 §2, ×1000
+   * to display) until its own KOK-071 vertical lands.
    */
-  derived?: { wac: number; replacementCost: number; replacementCostUpdatedAt: string | null };
+  derived?: { wacMc: number; replacementCost: number; replacementCostUpdatedAt: string | null };
   disabled?: boolean;
 }
 
@@ -237,7 +238,7 @@ export function ItemForm({ values, onChange, derived, disabled }: ItemFormProps)
               {catalogLabels.wac} <span className="text-xs">({catalogLabels.calculated})</span>
             </span>
             <span className="numeric-cell font-medium">
-              {formatMoney(Math.round(derived.wac * 1000))} / {UNIT_ABBREV[values.unit]}
+              {formatMoney(Math.round(derived.wacMc / 1000))} / {UNIT_ABBREV[values.unit]}
             </span>
           </div>
           <div className="flex items-center justify-between">

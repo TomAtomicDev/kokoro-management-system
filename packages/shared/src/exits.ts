@@ -133,8 +133,9 @@ export interface StockExitDto {
   /** Milli-units (Doc 04 §2), always positive — matches `stock_exits.qty`'s own CHECK. */
   qty: number;
   reason: StockExitReason;
-  /** Centavos per milli-unit (Doc 04 §3.4), the item's WAC snapshotted at exit time (C-6). */
-  unitCostSnapshot: number;
+  /** Milli-centavos per WHOLE unit (Doc 04 §3.4, ADR-017/KOK-071), the item's WAC snapshotted at
+   * exit time (C-6). */
+  unitCostSnapshotMc: number;
   sessionId: string | null;
   notes: string | null;
   createdAt: string;

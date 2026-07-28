@@ -36,7 +36,7 @@ interface StockViewRow {
   kind: ItemKind;
   category: ItemCategory;
   unit: Unit;
-  wac: number;
+  wac_mc: number;
   replacement_cost: number;
   sale_price: number | null;
   min_stock_qty: number | null;
@@ -57,7 +57,7 @@ interface KardexViewRow {
   unit: Unit;
   type: StockMovementType;
   qty: number;
-  unit_cost: number;
+  unit_cost_mc: number;
   total_cost: number;
   source_event_type: string;
   source_event_id: string;
@@ -72,7 +72,7 @@ function toStockRowDto(row: StockViewRow): StockRowDto {
     kind: row.kind,
     category: row.category,
     unit: row.unit,
-    wac: row.wac,
+    wacMc: row.wac_mc,
     replacementCost: row.replacement_cost,
     salePrice: row.sale_price,
     minStockQty: row.min_stock_qty,
@@ -114,7 +114,7 @@ function toKardexRowDto(row: KardexViewRow): KardexRowDto {
     unit: row.unit,
     type: row.type,
     qty: row.qty,
-    unitCost: row.unit_cost,
+    unitCostMc: row.unit_cost_mc,
     totalCost: row.total_cost,
     sourceEventType: row.source_event_type,
     sourceEventId: row.source_event_id,

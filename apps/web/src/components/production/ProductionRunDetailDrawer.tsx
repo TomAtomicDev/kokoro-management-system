@@ -201,7 +201,7 @@ export function ProductionRunDetailDrawer({
                   {productionLabels.detailUnitCost}
                 </span>
                 <span className="numeric-cell font-semibold text-foreground">
-                  {formatMoney(productionRun.outputUnitCost)}
+                  {formatMoney(Math.round(productionRun.outputUnitCostMc / 1000))}
                 </span>
               </div>
             </div>
@@ -228,7 +228,7 @@ export function ProductionRunDetailDrawer({
                         <div className="flex items-center justify-end text-muted-foreground text-xs">
                           <span className="numeric-cell">
                             {productionLabels.unitCostLabel}:{" "}
-                            {formatMoney(line.unitCostSnapshot * 1000)} /{" "}
+                            {formatMoney(Math.round(line.unitCostSnapshotMc / 1000))} /{" "}
                             {productionLabels.unitAbbrev[item.unit]}
                           </span>
                         </div>

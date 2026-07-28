@@ -82,7 +82,8 @@ export function ProductionRunsTable({
       id: "unitCost",
       header: productionLabels.columnUnitCost,
       numeric: true,
-      cell: (row) => formatMoney(row.outputUnitCost),
+      // outputUnitCostMc is milli-centavos per WHOLE unit (ADR-017/KOK-071); /1000 for centavos.
+      cell: (row) => formatMoney(Math.round(row.outputUnitCostMc / 1000)),
     },
     {
       id: "session",

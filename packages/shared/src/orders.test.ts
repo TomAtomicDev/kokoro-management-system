@@ -8,12 +8,12 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 
-import { mulMoneyByQty } from "./money.js";
+import { type Centavos, mulMoneyByQty, toCentavos } from "./money.js";
 import { allocateAgreedTotalToOrderLines, orderLineCommandSchema } from "./orders.js";
 
 /** Σ(qty × unit_price) exactly as core/orders will compute the sale's stored total. */
 function reconstructTotal(
-  allocations: readonly { unitPrice: number }[],
+  allocations: readonly { unitPrice: Centavos }[],
   lines: readonly { qty: number }[],
 ): number {
   return allocations.reduce((sum, a, i) => sum + mulMoneyByQty(a.unitPrice, lines[i]?.qty ?? 0), 0);
@@ -22,7 +22,7 @@ function reconstructTotal(
 describe("allocateAgreedTotalToOrderLines", () => {
   it("prices a single whole-unit line at the agreed total", () => {
     const lines = [{ qty: 1000 }];
-    expect(allocateAgreedTotalToOrderLines(35_000, lines)).toEqual([
+    expect(allocateAgreedTotalToOrderLines(toCentavos(35_000), lines)).toEqual([
       { lineTotal: 35_000, unitPrice: 35_000 },
     ]);
   });
@@ -30,7 +30,7 @@ describe("allocateAgreedTotalToOrderLines", () => {
   it("splits across whole-unit lines weighted by qty", () => {
     // Bs 300,00 across 1 + 2 units → 100,00 / 200,00.
     const lines = [{ qty: 1000 }, { qty: 2000 }];
-    expect(allocateAgreedTotalToOrderLines(30_000, lines)).toEqual([
+    expect(allocateAgreedTotalToOrderLines(toCentavos(30_000), lines)).toEqual([
       { lineTotal: 10_000, unitPrice: 10_000 },
       { lineTotal: 20_000, unitPrice: 10_000 },
     ]);
@@ -38,7 +38,7 @@ describe("allocateAgreedTotalToOrderLines", () => {
 
   it("pins lines that carry an explicit lineTotal and splits only the remainder", () => {
     const lines = [{ qty: 1000, lineTotal: 12_000 }, { qty: 1000 }, { qty: 1000 }];
-    const out = allocateAgreedTotalToOrderLines(30_000, lines);
+    const out = allocateAgreedTotalToOrderLines(toCentavos(30_000), lines);
     expect(out).toEqual([
       { lineTotal: 12_000, unitPrice: 12_000 },
       { lineTotal: 9_000, unitPrice: 9_000 },
@@ -49,22 +49,24 @@ describe("allocateAgreedTotalToOrderLines", () => {
   it("gives the odd centavo to the largest remainder, never dropping it", () => {
     // Bs 10,00 across three equal lines: 334 + 333 + 333 = 1000, exactly.
     const lines = [{ qty: 1000 }, { qty: 1000 }, { qty: 1000 }];
-    const out = allocateAgreedTotalToOrderLines(1000, lines);
+    const out = allocateAgreedTotalToOrderLines(toCentavos(1000), lines);
     expect(out?.map((a) => a.lineTotal)).toEqual([334, 333, 333]);
     expect(out?.reduce((s, a) => s + a.lineTotal, 0)).toBe(1000);
   });
 
   it("returns null when there are no lines at all (nothing to price)", () => {
-    expect(allocateAgreedTotalToOrderLines(10_000, [])).toBeNull();
+    expect(allocateAgreedTotalToOrderLines(toCentavos(10_000), [])).toBeNull();
   });
 
   it("returns null when pinned lines exceed the agreed total", () => {
-    expect(allocateAgreedTotalToOrderLines(10_000, [{ qty: 1000, lineTotal: 12_000 }])).toBeNull();
+    expect(
+      allocateAgreedTotalToOrderLines(toCentavos(10_000), [{ qty: 1000, lineTotal: 12_000 }]),
+    ).toBeNull();
   });
 
   it("returns null when every line is pinned but the pins do not add up", () => {
     expect(
-      allocateAgreedTotalToOrderLines(30_000, [
+      allocateAgreedTotalToOrderLines(toCentavos(30_000), [
         { qty: 1000, lineTotal: 12_000 },
         { qty: 1000, lineTotal: 12_000 },
       ]),
@@ -72,7 +74,7 @@ describe("allocateAgreedTotalToOrderLines", () => {
   });
 
   it("accepts fully-pinned lines that DO add up exactly", () => {
-    const out = allocateAgreedTotalToOrderLines(24_000, [
+    const out = allocateAgreedTotalToOrderLines(toCentavos(24_000), [
       { qty: 1000, lineTotal: 12_000 },
       { qty: 1000, lineTotal: 12_000 },
     ]);
@@ -82,13 +84,13 @@ describe("allocateAgreedTotalToOrderLines", () => {
   it("returns null when per-unit prices cannot reproduce the total exactly", () => {
     // Bs 1,00 over a single 3-unit line: no integer centavo per-unit price yields exactly 100
     // (33 → 99, 34 → 102). Refusing beats misstating the sale by a centavo.
-    expect(allocateAgreedTotalToOrderLines(100, [{ qty: 3000 }])).toBeNull();
+    expect(allocateAgreedTotalToOrderLines(toCentavos(100), [{ qty: 3000 }])).toBeNull();
   });
 
   it("returns null for a non-positive or non-integer qty", () => {
-    expect(allocateAgreedTotalToOrderLines(1000, [{ qty: 0 }])).toBeNull();
-    expect(allocateAgreedTotalToOrderLines(1000, [{ qty: -1000 }])).toBeNull();
-    expect(allocateAgreedTotalToOrderLines(1000, [{ qty: 1500.5 }])).toBeNull();
+    expect(allocateAgreedTotalToOrderLines(toCentavos(1000), [{ qty: 0 }])).toBeNull();
+    expect(allocateAgreedTotalToOrderLines(toCentavos(1000), [{ qty: -1000 }])).toBeNull();
+    expect(allocateAgreedTotalToOrderLines(toCentavos(1000), [{ qty: 1500.5 }])).toBeNull();
   });
 
   it("property: single-unit lines ALWAYS allocate, and Σ(qty × unitPrice) === agreedTotal", () => {
@@ -101,7 +103,7 @@ describe("allocateAgreedTotalToOrderLines", () => {
           // overwhelming majority of custom orders take. Here `unitPrice === lineTotal`
           // identically, so the reconstruction can never drift and the helper never refuses.
           const lines = Array.from({ length: lineCount }, () => ({ qty: 1000 }));
-          const out = allocateAgreedTotalToOrderLines(agreedTotal, lines);
+          const out = allocateAgreedTotalToOrderLines(toCentavos(agreedTotal), lines);
           expect(out).not.toBeNull();
           if (out === null) return;
           // The invariant that matters (Doc 11 §2): not one centavo invented or lost.
@@ -128,7 +130,7 @@ describe("allocateAgreedTotalToOrderLines", () => {
             { qty: 1000, lineTotal: pinned },
             ...Array.from({ length: unpinnedCount }, () => ({ qty: 1000 })),
           ];
-          const out = allocateAgreedTotalToOrderLines(pinned + residual, lines);
+          const out = allocateAgreedTotalToOrderLines(toCentavos(pinned + residual), lines);
           expect(out).not.toBeNull();
           if (out === null) return;
           // Rule 1: a hand-priced line keeps exactly the price the owner typed.
@@ -149,7 +151,7 @@ describe("allocateAgreedTotalToOrderLines", () => {
           // of N — some agreed totals are genuinely unrepresentable (Bs 1,00 over 3 units). The
           // helper must then refuse rather than round the customer's price.
           const lines = unitCounts.map((units) => ({ qty: units * 1000 }));
-          const out = allocateAgreedTotalToOrderLines(agreedTotal, lines);
+          const out = allocateAgreedTotalToOrderLines(toCentavos(agreedTotal), lines);
           if (out === null) return;
           expect(reconstructTotal(out, lines)).toBe(agreedTotal);
         },
@@ -164,7 +166,7 @@ describe("allocateAgreedTotalToOrderLines", () => {
         fc.array(fc.integer({ min: 1, max: 9_000 }), { minLength: 1, maxLength: 12 }),
         (agreedTotal, qtys) => {
           const lines = qtys.map((qty) => ({ qty }));
-          const out = allocateAgreedTotalToOrderLines(agreedTotal, lines);
+          const out = allocateAgreedTotalToOrderLines(toCentavos(agreedTotal), lines);
           // Fractional quantities MAY be unrepresentable — but never silently wrong: the helper
           // either refuses (null) or reproduces the agreed total to the centavo.
           if (out === null) return;

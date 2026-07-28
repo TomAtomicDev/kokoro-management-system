@@ -177,9 +177,9 @@ export interface SaleLineDto {
   qty: number;
   /** Centavos per whole unit (INV-6). */
   unitPrice: number;
-  /** WAC frozen at sale time (Doc 04 §3.3): centavos per milli-unit, a deliberate REAL — the
+  /** WAC frozen at sale time (Doc 04 §3.3): milli-centavos per WHOLE unit (ADR-017/KOK-071) — the
    * per-line margin forever. Never recomputed after the sale commits. */
-  unitCostSnapshot: number;
+  unitCostSnapshotMc: number;
 }
 
 export interface SaleDto {

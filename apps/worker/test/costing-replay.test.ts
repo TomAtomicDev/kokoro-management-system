@@ -15,7 +15,7 @@
 // — the `beforeEach` restores the per-test guarantee. Items get a unique name per test
 // (items.name is UNIQUE), so they never need resetting.
 import { env } from "cloudflare:test";
-import { generateUuidV7, toBusinessDate } from "@kokoro/shared";
+import { generateUuidV7, toBusinessDate, toMilliCentavosPerUnit } from "@kokoro/shared";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 
@@ -35,6 +35,8 @@ import {
 } from "../src/db/schema.js";
 
 const ACTOR = "OWNER_WEB" as const;
+// KOK-071 (ADR-017): brand alias, local to this file for readability — see costing.test.ts.
+const mc = toMilliCentavosPerUnit;
 
 type TestDb = ReturnType<typeof createDb>;
 
@@ -63,7 +65,9 @@ async function seedPurchase(
 }
 
 /** The pending change under test: one brand-new backdated purchase line, expressed as the
- * post-commit movement set the caller is about to hand `buildReplaceMovementsForSourceStatements`. */
+ * post-commit movement set the caller is about to hand `buildReplaceMovementsForSourceStatements`.
+ * `unitCost` is stated at the old centavos-per-milli-unit scale for readability, matching
+ * `seedPurchase`'s convention, and converted to the real `unitCostMc` (KOK-071, ×1,000,000) here. */
 function backdatedPurchaseChange(
   itemId: string,
   purchaseId: string,
@@ -82,7 +86,7 @@ function backdatedPurchaseChange(
         businessDate,
         type: "PURCHASE_IN",
         qty,
-        unitCost,
+        unitCostMc: mc(unitCost * 1_000_000),
         sourceEventType: "purchase",
         sourceEventId: purchaseId,
       },
@@ -201,6 +205,14 @@ describe("planCostingReplay — backdated change (R-2/R-4)", () => {
    * cost_delta = Σ (frozen − replayed) × |qty| = (2 − 6) × 8 000 = −32 000 centavos.
    * Negative, per Doc 04 §3.4's sign convention: the goods really cost more than was booked, so
    * accumulated margin FELL.
+   *
+   * KOK-071 (ADR-017): wac/unit-cost numbers above are stated at the pre-migration scale for
+   * readability; stored/asserted values are each ×1,000,000 (integer MilliCentavosPerUnit).
+   * `cost_delta` is unaffected — it is a Centavos total, and replay.ts divides the mc-scale
+   * intermediate back down by the same 1,000,000 before rounding it. `before.wacMc` = 3 666 667,
+   * not the naive 44 000 000 000/12 000 = 3 666 666.67 scaled up — every purchase-line rate along
+   * the way (2 000 000, 4 000 000) was already an exact integer, so the single rounding step is
+   * the last division, same as the pre-migration float's only source of a repeating fraction.
    */
   it("replays a single item's kardex, corrects the WAC, and books the cost delta forward", async () => {
     const db = createDb(env.DB);
@@ -223,7 +235,7 @@ describe("planCostingReplay — backdated change (R-2/R-4)", () => {
     const before = await db.query.items.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
     });
-    expect(before?.wac).toBeCloseTo(44_000 / 12_000, 9);
+    expect(before?.wacMc).toBe(3_666_667);
 
     const purchaseId = generateUuidV7();
     const plan = await planCostingReplay(db, {
@@ -431,6 +443,6 @@ describe("planCostingReplay — R-4: frozen snapshots are read, never written", 
     // The frozen snapshot itself is still exactly what the exit recorded at the time.
     const exitRows = await db.select().from(stockExits);
     expect(exitRows).toHaveLength(1);
-    expect(exitRows[0]?.unitCostSnapshot).toBe(2);
+    expect(exitRows[0]?.unitCostSnapshotMc).toBe(2_000_000);
   });
 });

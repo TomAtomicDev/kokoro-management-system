@@ -18,7 +18,7 @@ function exit(overrides: Partial<StockExitDto> = {}): StockExitDto {
     itemId: "item-1",
     qty: 1500,
     reason: "WASTE",
-    unitCostSnapshot: 200,
+    unitCostSnapshotMc: 200_000_000,
     sessionId: null,
     notes: "Se cayó al piso",
     createdAt: "2026-07-01T12:00:00.000Z",

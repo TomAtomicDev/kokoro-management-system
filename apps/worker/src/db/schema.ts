@@ -36,7 +36,7 @@ export const items = sqliteTable(
       enum: ["INGREDIENT", "PACKAGING", "LABEL", "BAKERY", "DAIRY", "OTHER"],
     }).notNull(),
     unit: text("unit", { enum: ["G", "KG", "ML", "L", "UNIT"] }).notNull(),
-    wac: real("wac").notNull().default(0),
+    wacMc: integer("wac_mc").notNull().default(0),
     replacementCost: real("replacement_cost").notNull().default(0),
     replacementCostUpdatedAt: text("replacement_cost_updated_at"),
     salePrice: integer("sale_price"),
@@ -260,7 +260,7 @@ export const productionConsumptions = sqliteTable(
       .notNull()
       .references(() => items.id, { onDelete: "restrict" }),
     qty: integer("qty").notNull(),
-    unitCostSnapshot: real("unit_cost_snapshot").notNull(),
+    unitCostSnapshotMc: integer("unit_cost_snapshot_mc").notNull(),
   },
   (t) => ({
     qtyCheck: check("production_consumptions_qty_check", sql`${t.qty} > 0`),
@@ -331,7 +331,7 @@ export const saleLines = sqliteTable(
       .references(() => items.id, { onDelete: "restrict" }),
     qty: integer("qty").notNull(),
     unitPrice: integer("unit_price").notNull(),
-    unitCostSnapshot: real("unit_cost_snapshot").notNull(),
+    unitCostSnapshotMc: integer("unit_cost_snapshot_mc").notNull(),
   },
   (t) => ({
     qtyCheck: check("sale_lines_qty_check", sql`${t.qty} > 0`),
@@ -403,7 +403,7 @@ export const stockExits = sqliteTable(
     reason: text("reason", {
       enum: ["WASTE", "SELF_CONSUMPTION", "GIFT_SAMPLE", "SPOILAGE", "OTHER"],
     }).notNull(),
-    unitCostSnapshot: real("unit_cost_snapshot").notNull(),
+    unitCostSnapshotMc: integer("unit_cost_snapshot_mc").notNull(),
     sessionId: text("session_id").references(() => sessions.id, { onDelete: "restrict" }),
     notes: text("notes"),
     deletedAt: text("deleted_at"),
@@ -474,7 +474,7 @@ export const stockMovements = sqliteTable(
       enum: ["PURCHASE_IN", "PRODUCTION_IN", "PRODUCTION_OUT", "SALE_OUT", "EXIT_OUT", "ADJUST"],
     }).notNull(),
     qty: integer("qty").notNull(),
-    unitCost: real("unit_cost").notNull(),
+    unitCostMc: integer("unit_cost_mc").notNull(),
     totalCost: integer("total_cost").notNull(),
     sourceEventType: text("source_event_type").notNull(),
     sourceEventId: text("source_event_id").notNull(),

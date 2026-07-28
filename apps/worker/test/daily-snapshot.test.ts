@@ -50,7 +50,7 @@ async function seedItem(db: TestDb, name: string) {
  * movement of 1000 @ 200 -> true wac 200), so R-2's >1% drift threshold is tripped. */
 async function seedDriftedItem(db: TestDb, name: string) {
   const item = await seedItem(db, name);
-  await db.update(items).set({ wac: 100 }).where(eq(items.id, item.id));
+  await db.update(items).set({ wacMc: 100_000_000 }).where(eq(items.id, item.id));
   await db.insert(stockMovements).values({
     id: generateUuidV7(),
     occurredAt: "2026-07-01T10:00:00.000Z",
@@ -58,7 +58,7 @@ async function seedDriftedItem(db: TestDb, name: string) {
     itemId: item.id,
     type: "PURCHASE_IN",
     qty: 1000,
-    unitCost: 200,
+    unitCostMc: 200_000_000,
     totalCost: 200000,
     sourceEventType: "test_fixture",
     sourceEventId: "fixture_drift",
@@ -172,7 +172,7 @@ describe("runDailySnapshot (KOK-021)", () => {
     const updatedItem = await db.query.items.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
     });
-    expect(updatedItem?.wac).toBe(100);
+    expect(updatedItem?.wacMc).toBe(100_000_000);
 
     const repairAuditRows = await db.query.auditLog.findMany({
       where: (t, { and, eq: eqOp }) =>
@@ -193,8 +193,8 @@ describe("runDailySnapshot (KOK-021)", () => {
     // a bug this test needs to control for.
     expect(detail.wacDrift).toContainEqual({
       itemId: item.id,
-      current: 100,
-      recomputed: 200,
+      current: 100_000_000,
+      recomputed: 200_000_000,
       driftRatio: 1,
     });
   });

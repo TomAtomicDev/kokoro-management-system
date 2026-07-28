@@ -68,6 +68,7 @@ import type {
   ListReceivablesResult,
   ListSalesFilters,
   ListSalesResult,
+  MilliCentavosPerUnit,
   ReceivableDto,
   RecordSaleCommand,
   RecordSaleResult,
@@ -85,6 +86,7 @@ import {
   nowIso,
   REPLAY_CONFIRMATION_REQUIRED,
   subMoney,
+  toMilliCentavosPerUnit,
 } from "@kokoro/shared";
 import { eq, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
@@ -120,7 +122,7 @@ function toSaleDto(row: SaleRow, lineRows: readonly SaleLineRow[]): SaleDto {
     itemId: l.itemId,
     qty: l.qty,
     unitPrice: l.unitPrice,
-    unitCostSnapshot: l.unitCostSnapshot,
+    unitCostSnapshotMc: l.unitCostSnapshotMc,
   }));
   return {
     id: row.id,
@@ -152,8 +154,8 @@ function toSaleDto(row: SaleRow, lineRows: readonly SaleLineRow[]): SaleDto {
 async function resolveLineSnapshots(
   db: Db,
   command: RecordSaleCommand,
-): Promise<Map<string, number>> {
-  const snapshotByItem = new Map<string, number>();
+): Promise<Map<string, MilliCentavosPerUnit>> {
+  const snapshotByItem = new Map<string, MilliCentavosPerUnit>();
   for (const itemId of new Set(command.lines.map((l) => l.itemId))) {
     const itemRow = await db.query.items.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.id, itemId),
@@ -168,8 +170,8 @@ async function resolveLineSnapshots(
       });
     }
     // C-6: value at the item's CURRENT WAC, snapshotted onto the sale line's own
-    // unit_cost_snapshot — never recomputed via applyWacEntry (that is only for entries).
-    snapshotByItem.set(itemId, snapshotUnitCost(itemRow.wac));
+    // unit_cost_snapshot_mc — never recomputed via applyWacEntry (that is only for entries).
+    snapshotByItem.set(itemId, snapshotUnitCost(toMilliCentavosPerUnit(itemRow.wacMc)));
   }
   return snapshotByItem;
 }
@@ -218,8 +220,8 @@ async function buildSaleCreateMovements(
   const saleLineRows: SaleLineRow[] = [];
   const lineTotals: number[] = [];
   for (const line of command.lines) {
-    const unitCostSnapshot = snapshotByItem.get(line.itemId);
-    if (unitCostSnapshot === undefined) {
+    const unitCostSnapshotMc = snapshotByItem.get(line.itemId);
+    if (unitCostSnapshotMc === undefined) {
       // Unreachable: snapshotByItem was seeded from the same distinct itemIds as command.lines.
       throw validationError("Estado interno de venta inconsistente.", { itemId: line.itemId });
     }
@@ -234,7 +236,7 @@ async function buildSaleCreateMovements(
       itemId: line.itemId,
       qty: line.qty,
       unitPrice: line.unitPrice,
-      unitCostSnapshot,
+      unitCostSnapshotMc,
     });
 
     movements.push({
@@ -245,7 +247,7 @@ async function buildSaleCreateMovements(
       // sale_lines.qty is stored POSITIVE (its own CHECK); the OUT sign convention is applied only
       // here, at the movements boundary — identically to core/inventory/exits.ts.
       qty: -line.qty,
-      unitCost: unitCostSnapshot,
+      unitCostMc: unitCostSnapshotMc,
       sourceEventType: "sale",
       sourceEventId: saleId,
     });
@@ -490,7 +492,7 @@ function buildSaleOutMovementsFromLines(
     type: "SALE_OUT",
     // Positive on the event row, negative in the kardex — same convention as recordSale.
     qty: -line.qty,
-    unitCost: line.unitCostSnapshot,
+    unitCostMc: toMilliCentavosPerUnit(line.unitCostSnapshotMc),
     sourceEventType: "sale",
     sourceEventId: saleId,
   }));
@@ -507,9 +509,9 @@ function movementKey(m: {
   businessDate: string;
   type: string;
   qty: number;
-  unitCost: number;
+  unitCostMc: number;
 }): string {
-  return [m.itemId, m.occurredAt, m.businessDate, m.type, m.qty, m.unitCost].join("|");
+  return [m.itemId, m.occurredAt, m.businessDate, m.type, m.qty, m.unitCostMc].join("|");
 }
 
 /** True when `newMovements` describes exactly the kardex rows that already exist for this sale —
@@ -523,7 +525,7 @@ function movementSetsEqual(
     businessDate: string;
     type: string;
     qty: number;
-    unitCost: number;
+    unitCostMc: number;
   }[],
   newMovements: readonly StockMovementInput[],
 ): boolean {
@@ -734,8 +736,8 @@ async function buildSaleUpdateMutationInputs(
   const isPaid = command.paymentStatus === "PAID";
   const lineTotals: number[] = [];
   const newLines: SaleLineRow[] = command.lines.map((line) => {
-    const unitCostSnapshot = snapshotByItem.get(line.itemId);
-    if (unitCostSnapshot === undefined) {
+    const unitCostSnapshotMc = snapshotByItem.get(line.itemId);
+    if (unitCostSnapshotMc === undefined) {
       // Unreachable: snapshotByItem was seeded from the same distinct itemIds as command.lines.
       throw validationError("Estado interno de venta inconsistente.", { itemId: line.itemId });
     }
@@ -746,7 +748,7 @@ async function buildSaleUpdateMutationInputs(
       itemId: line.itemId,
       qty: line.qty,
       unitPrice: line.unitPrice,
-      unitCostSnapshot,
+      unitCostSnapshotMc,
     };
   });
   const total = addMoney(...lineTotals);

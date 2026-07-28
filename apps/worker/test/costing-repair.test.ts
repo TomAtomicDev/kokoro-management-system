@@ -5,7 +5,7 @@
 //
 // detectWacDrift is DETECTION ONLY (KOK-024/ADR-016 demoted the nightly job from repair to
 // backstop auditor — see core/costing/repair.ts's header) — it never writes anything, so these
-// tests assert `items.wac` stays exactly as seeded and no `costing_repair` audit row appears,
+// tests assert `items.wac_mc` stays exactly as seeded and no `costing_repair` audit row appears,
 // alongside the returned `WacDrift` shape.
 import { env } from "cloudflare:test";
 import { generateUuidV7 } from "@kokoro/shared";
@@ -21,13 +21,13 @@ const ACTOR = "OWNER_WEB" as const;
 
 type TestDb = ReturnType<typeof createDb>;
 
-async function seedItem(db: TestDb, name: string, wac: number) {
+async function seedItem(db: TestDb, name: string, wacMc: number) {
   const item = await createItem(
     db,
     { name, kind: "RAW_MATERIAL", category: "INGREDIENT", unit: "KG" },
     ACTOR,
   );
-  await db.update(items).set({ wac }).where(eq(items.id, item.id));
+  await db.update(items).set({ wacMc }).where(eq(items.id, item.id));
   return item;
 }
 
@@ -37,7 +37,7 @@ async function seedMovement(
     itemId: string;
     type: "PURCHASE_IN" | "PRODUCTION_IN" | "PRODUCTION_OUT" | "SALE_OUT" | "EXIT_OUT" | "ADJUST";
     qty: number;
-    unitCost: number;
+    unitCostMc: number;
     occurredAt: string;
     createdAt?: string;
   },
@@ -49,8 +49,10 @@ async function seedMovement(
     itemId: opts.itemId,
     type: opts.type,
     qty: opts.qty,
-    unitCost: opts.unitCost,
-    totalCost: Math.round(opts.qty * opts.unitCost),
+    unitCostMc: opts.unitCostMc,
+    // totalCost (Centavos) = totalCentavos(unitCostMc, qty), KOK-071 — unlike unitCostMc, this
+    // column is NOT migrated, so it still needs the /1,000,000 back down to a money total.
+    totalCost: Math.round((opts.qty * opts.unitCostMc) / 1_000_000),
     sourceEventType: "test_fixture",
     sourceEventId: "fixture_1",
     createdAt: opts.createdAt ?? opts.occurredAt,
@@ -60,8 +62,9 @@ async function seedMovement(
 describe("getCurrentWac", () => {
   it("returns the item's live wac", async () => {
     const db = createDb(env.DB);
-    const item = await seedItem(db, "Get current wac item", 123.45);
-    await expect(getCurrentWac(db, item.id)).resolves.toBeCloseTo(123.45, 9);
+    // KOK-071: wacMc is an integer; 123_450_000 mirrors the old 123.45 example (×1,000,000).
+    const item = await seedItem(db, "Get current wac item", 123_450_000);
+    await expect(getCurrentWac(db, item.id)).resolves.toBe(123_450_000);
   });
 
   it("throws NOT_FOUND for a nonexistent item", async () => {
@@ -75,25 +78,32 @@ describe("getCurrentWac", () => {
 describe("detectWacDrift (R-2 backstop)", () => {
   it("detects >1% drift and reports it WITHOUT writing anything", async () => {
     const db = createDb(env.DB);
-    // Seed with a deliberately-wrong wac (100) that disagrees with what the kardex implies.
-    const item = await seedItem(db, "Drifted item", 100);
+    // Seed with a deliberately-wrong wac (100, KOK-071 scale: 100_000_000) that disagrees with
+    // what the kardex implies.
+    const item = await seedItem(db, "Drifted item", 100_000_000);
 
-    // True kardex: single purchase of 1000 @ 200 -> correct wac = 200. 100 vs 200 is 50% drift.
+    // True kardex: single purchase of 1000 @ 200 -> correct wac = 200 (200_000_000 at the new
+    // scale). 100 vs 200 is 50% drift either way — the ratio is scale-invariant.
     await seedMovement(db, {
       itemId: item.id,
       type: "PURCHASE_IN",
       qty: 1000,
-      unitCost: 200,
+      unitCostMc: 200_000_000,
       occurredAt: "2026-07-01T10:00:00.000Z",
     });
 
     const drift = await detectWacDrift(db, item.id);
-    expect(drift).toEqual({ itemId: item.id, current: 100, recomputed: 200, driftRatio: 1 });
+    expect(drift).toEqual({
+      itemId: item.id,
+      current: 100_000_000,
+      recomputed: 200_000_000,
+      driftRatio: 1,
+    });
 
     // Detection only: the stored wac is untouched, and no costing_repair audit row was written
     // (createItem itself writes its own 'create' audit row for this item, so filter to the
     // 'costing_repair' action specifically rather than asserting on entityId alone).
-    expect(await getCurrentWac(db, item.id)).toBe(100);
+    expect(await getCurrentWac(db, item.id)).toBe(100_000_000);
     const auditRows = await db.query.auditLog.findMany({
       where: (t, { and, eq }) => and(eq(t.entityId, item.id), eq(t.action, "costing_repair")),
     });
@@ -102,19 +112,19 @@ describe("detectWacDrift (R-2 backstop)", () => {
 
   it("returns null when the stored wac already matches the recomputed value (within 1%)", async () => {
     const db = createDb(env.DB);
-    const item = await seedItem(db, "Correct wac item", 200);
+    const item = await seedItem(db, "Correct wac item", 200_000_000);
 
     await seedMovement(db, {
       itemId: item.id,
       type: "PURCHASE_IN",
       qty: 1000,
-      unitCost: 200,
+      unitCostMc: 200_000_000,
       occurredAt: "2026-07-01T10:00:00.000Z",
     });
 
     const drift = await detectWacDrift(db, item.id);
     expect(drift).toBeNull();
-    expect(await getCurrentWac(db, item.id)).toBe(200);
+    expect(await getCurrentWac(db, item.id)).toBe(200_000_000);
   });
 
   it("replays movements ordered by occurred_at (with created_at tiebreak), not insertion order", async () => {
@@ -127,21 +137,23 @@ describe("detectWacDrift (R-2 backstop)", () => {
       itemId: item.id,
       type: "PURCHASE_IN",
       qty: 1000,
-      unitCost: 300,
+      unitCostMc: 300_000_000,
       occurredAt: "2026-07-02T10:00:00.000Z", // later in time
     });
     await seedMovement(db, {
       itemId: item.id,
       type: "PURCHASE_IN",
       qty: 1000,
-      unitCost: 100,
+      unitCostMc: 100_000_000,
       occurredAt: "2026-07-01T10:00:00.000Z", // earlier in time
     });
 
     // Correct chronological replay: onHand=0,wac=0 -> purchase(100) -> wac=100, onHand=1000
-    //  -> purchase(300): (1000*100 + 1000*300)/2000 = 200. Seeded wac (0) vs 200 is >1% drift.
+    //  -> purchase(300): (1000*100 + 1000*300)/2000 = 200 (KOK-071 scale: 200_000_000, exact —
+    //  every input here is already an exact multiple of 1,000,000, so no rounding remainder).
+    // Seeded wac (0) vs 200_000_000 is >1% drift.
     const drift = await detectWacDrift(db, item.id);
-    expect(drift?.recomputed).toBe(200);
+    expect(drift?.recomputed).toBe(200_000_000);
   });
 
   it("throws NOT_FOUND for a nonexistent item", async () => {

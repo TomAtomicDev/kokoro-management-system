@@ -135,7 +135,7 @@ export function ItemDetailDrawer({ itemId, open, onOpenChange }: ItemDetailDrawe
             onChange={setValues}
             disabled={updateMutation.isPending}
             derived={{
-              wac: item.wac,
+              wacMc: item.wacMc,
               replacementCost: item.replacementCost,
               replacementCostUpdatedAt: item.replacementCostUpdatedAt,
             }}

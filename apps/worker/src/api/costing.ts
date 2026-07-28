@@ -8,7 +8,7 @@
 // "Recalcular" click can never disagree with what tonight's job would have computed for the same
 // catalog state.
 //
-// No `audit_log` row: `replacement_cost` is a derived/cached column (C-3, like `items.wac`), not a
+// No `audit_log` row: `replacement_cost` is a derived/cached column (C-3, like `items.wac_mc`), not a
 // directly user-edited fact — the nightly job's own bookkeeping is `job_runs`, scoped to Cron
 // Trigger runs (Doc 04 §3.5), which an HTTP-triggered recompute is not; this route's response body
 // is itself the record of what changed, mirroring `previewPurchaseImpact`'s "compute and report,

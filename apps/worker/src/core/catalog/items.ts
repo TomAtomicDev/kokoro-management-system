@@ -10,7 +10,7 @@ import type {
   SetItemActiveCommand,
   UpdateItemCommand,
 } from "@kokoro/shared";
-import { generateUuidV7, nowIso, toBusinessDate } from "@kokoro/shared";
+import { generateUuidV7, nowIso, toBusinessDate, toMilliCentavosPerUnit } from "@kokoro/shared";
 import { eq } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 
@@ -60,7 +60,7 @@ export async function createItem(
     kind: command.kind,
     category: command.category,
     unit: command.unit,
-    wac: 0,
+    wacMc: toMilliCentavosPerUnit(0),
     replacementCost: 0,
     replacementCostUpdatedAt: null,
     salePrice: command.salePrice ?? null,

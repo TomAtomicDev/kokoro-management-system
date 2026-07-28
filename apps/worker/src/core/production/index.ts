@@ -13,7 +13,7 @@
 //     below)
 //   - the `audit_log` row (core/audit's buildAuditLogInsert)
 //   - (mirrors purchasing's KOK-024 R-2/R-5 machinery) whatever `planCostingReplay` returns when
-//     this run is BACKDATED — the corrected `items.wac` for every item whose kardex it re-weights,
+//     this run is BACKDATED — the corrected `items.wac_mc` for every item whose kardex it re-weights,
 //     the `costing_adjustments` row booking the difference forward (R-4), the
 //     `item_stock.negative_since` fix, and its own audit row. Empty on the ordinary same-day
 //     capture.
@@ -29,14 +29,15 @@
 // used verbatim by BOTH the create and the update paths so they can never drift apart from each
 // other or from core/costing/replay.ts's `applyProductionCostCorrections` — the function that
 // re-derives this same run's cost later when a REPLAY moves one of its inputs' WAC):
-//   direct = Σ (consumption line's qty × its unitCostSnapshot), summed as RAW floats and rounded
-//            HALF-UP to an integer exactly ONCE, at the point `direct_cost` is produced (INV-6:
-//            "rounded half-up at the final step only" — never per-line)
+//   direct = Σ totalCentavos(consumption line's unitCostSnapshotMc, qty) (ADR-017/KOK-071: each
+//            line rounds to a proper Centavos amount via the one sanctioned rate->total helper,
+//            summed exactly — INV-6)
 //   total  = direct_cost + indirect_cost + allocated_session_cost (0 on create — that column is
 //            owned exclusively by KOK-028's shared-cost-allocation job, never by this module; an
 //            EDIT preserves whatever KOK-028 already wrote rather than resetting it to 0)
-//   outputUnitCostPerMilliUnit (fed into the PRODUCTION_IN movement's `unitCost`, never rounded —
-//            same float-centavos-per-milli-unit convention as `items.wac`) = total_cost / actual_output_qty
+//   outputUnitCostMc (fed into the PRODUCTION_IN movement's `unitCostMc`) =
+//            rateFromTotal(total_cost, actual_output_qty) — the one sanctioned total->rate helper,
+//            same milli-centavos-per-WHOLE-unit convention as `items.wac_mc`.
 //   outputUnitCost (the DTO's per-WHOLE-unit figure, comparable to `items.salePrice`) =
 //            roundHalfUpToInt(total_cost × 1000 / actual_output_qty) — mirrors
 //            `RecipeCostDto.costPerOutputUnit`'s convention (recipes.ts).
@@ -60,10 +61,12 @@
 
 import type {
   AuditActor,
+  Centavos,
   DeleteProductionRunCommand,
   DeleteProductionRunResult,
   ListProductionRunsFilters,
   ListProductionRunsResult,
+  MilliCentavosPerUnit,
   ProductionLineDto,
   ProductionRunDto,
   ProductionRunImpactRequest,
@@ -74,11 +77,16 @@ import type {
   UpdateProductionRunResult,
 } from "@kokoro/shared";
 import {
+  addMoney,
   allocateLargestRemainder,
   generateUuidV7,
   nowIso,
   REPLAY_CONFIRMATION_REQUIRED,
-  roundHalfUpToInt,
+  rateFromTotal,
+  toCentavos,
+  toMilliCentavosPerUnit,
+  toMilliUnits,
+  totalCentavos,
 } from "@kokoro/shared";
 import { eq } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
@@ -111,7 +119,7 @@ function toProductionRunDto(
     id: c.id,
     itemId: c.itemId,
     qty: c.qty,
-    unitCostSnapshot: c.unitCostSnapshot,
+    unitCostSnapshotMc: c.unitCostSnapshotMc,
   }));
   return {
     id: row.id,
@@ -128,8 +136,9 @@ function toProductionRunDto(
     directCost: row.directCost,
     totalCost: row.totalCost,
     // Derived/read-only (Doc 04 §3.3 has no such column) — always recomputed from the two stored
-    // columns, never cached, so it can never drift from them.
-    outputUnitCost: roundHalfUpToInt((row.totalCost * 1000) / row.actualOutputQty),
+    // columns, never cached, so it can never drift from them. ADR-017/KOK-071: the one sanctioned
+    // total->rate conversion (`rateFromTotal`), not a bare `×1000`.
+    outputUnitCostMc: rateFromTotal(toCentavos(row.totalCost), toMilliUnits(row.actualOutputQty)),
     notes: row.notes,
     lines,
     createdAt: row.createdAt,
@@ -186,25 +195,32 @@ async function validateProductionConsumptionItemKinds(
  * this module's header for the full rounding-point rationale (INV-6).
  */
 function computeProductionCosts(
-  consumptions: readonly { qty: number; unitCostSnapshot: number }[],
+  consumptions: readonly { qty: number; unitCostSnapshotMc: MilliCentavosPerUnit }[],
   indirectCost: number,
   allocatedSessionCost: number,
   actualOutputQty: number,
 ): {
-  directCost: number;
-  totalCost: number;
-  outputUnitCostPerMilliUnit: number;
-  outputUnitCost: number;
+  directCost: Centavos;
+  totalCost: Centavos;
+  outputUnitCostMc: MilliCentavosPerUnit;
 } {
-  let directRaw = 0;
-  for (const c of consumptions) {
-    directRaw += c.qty * c.unitCostSnapshot;
-  }
-  const directCost = roundHalfUpToInt(directRaw);
-  const totalCost = directCost + indirectCost + allocatedSessionCost;
-  const outputUnitCostPerMilliUnit = totalCost / actualOutputQty;
-  const outputUnitCost = roundHalfUpToInt((totalCost * 1000) / actualOutputQty);
-  return { directCost, totalCost, outputUnitCostPerMilliUnit, outputUnitCost };
+  // Each consumption's contribution is rounded to a proper Centavos amount via `totalCentavos`
+  // (ADR-017/KOK-071) and summed exactly — no bare scale literal, and every line is independently
+  // an honest money amount (unlike the pre-migration float sum, which stayed unrounded until this
+  // one aggregate step because `unit_cost_snapshot` was itself a REAL).
+  const directCost: Centavos =
+    consumptions.length === 0
+      ? toCentavos(0)
+      : addMoney(
+          ...consumptions.map((c) => totalCentavos(c.unitCostSnapshotMc, toMilliUnits(c.qty))),
+        );
+  const totalCost = addMoney(
+    directCost,
+    toCentavos(indirectCost),
+    toCentavos(allocatedSessionCost),
+  );
+  const outputUnitCostMc = rateFromTotal(totalCost, toMilliUnits(actualOutputQty));
+  return { directCost, totalCost, outputUnitCostMc };
 }
 
 /** Turns a run's post-state consumption rows + output into its kardex movements: N PRODUCTION_OUT
@@ -218,7 +234,7 @@ function buildProductionMovementsFromConsumptions(
   consumptions: readonly ProductionConsumptionRow[],
   outputItemId: string,
   actualOutputQty: number,
-  outputUnitCostPerMilliUnit: number,
+  outputUnitCostMc: MilliCentavosPerUnit,
   occurredAt: string,
   businessDate: string,
 ): StockMovementInput[] {
@@ -228,7 +244,7 @@ function buildProductionMovementsFromConsumptions(
     businessDate,
     type: "PRODUCTION_OUT",
     qty: -c.qty,
-    unitCost: c.unitCostSnapshot,
+    unitCostMc: toMilliCentavosPerUnit(c.unitCostSnapshotMc),
     sourceEventType: "production_run",
     sourceEventId: runId,
   }));
@@ -238,7 +254,7 @@ function buildProductionMovementsFromConsumptions(
     businessDate,
     type: "PRODUCTION_IN",
     qty: actualOutputQty,
-    unitCost: outputUnitCostPerMilliUnit,
+    unitCostMc: outputUnitCostMc,
     sourceEventType: "production_run",
     sourceEventId: runId,
   });
@@ -260,7 +276,7 @@ async function buildProductionRunCreateInputs(
   now: string;
   movements: StockMovementInput[];
   consumptionRows: ProductionConsumptionRow[];
-  newOutputWac: number;
+  newOutputWacMc: MilliCentavosPerUnit;
   runRow: ProductionRunRow;
 }> {
   // Defensive re-check (D-2) — mirrors recordProductionRunCommandSchema's `.min(1)` on `lines`.
@@ -275,23 +291,26 @@ async function buildProductionRunCreateInputs(
   const now = nowIso();
 
   // C-6: each consumption line is valued at its item's CURRENT WAC, snapshotted onto
-  // production_consumptions.unit_cost_snapshot — never via applyWacEntry (that is reserved for the
-  // single OUTPUT entry below).
+  // production_consumptions.unit_cost_snapshot_mc — never via applyWacEntry (that is reserved for
+  // the single OUTPUT entry below).
   const consumptionRows: ProductionConsumptionRow[] = [];
   for (const line of command.lines) {
-    const unitCostSnapshot = snapshotUnitCost(await getCurrentWac(db, line.itemId));
+    const unitCostSnapshotMc = snapshotUnitCost(await getCurrentWac(db, line.itemId));
     consumptionRows.push({
       id: generateUuidV7(),
       productionRunId: runId,
       itemId: line.itemId,
       qty: line.qty,
-      unitCostSnapshot,
+      unitCostSnapshotMc,
     });
   }
 
   const indirectCost = command.indirectCost ?? 0;
-  const { directCost, totalCost, outputUnitCostPerMilliUnit } = computeProductionCosts(
-    consumptionRows,
+  const { directCost, totalCost, outputUnitCostMc } = computeProductionCosts(
+    consumptionRows.map((c) => ({
+      qty: c.qty,
+      unitCostSnapshotMc: toMilliCentavosPerUnit(c.unitCostSnapshotMc),
+    })),
     indirectCost,
     // allocatedSessionCost: always 0 at create time — `production_runs.allocated_session_cost`'s
     // own schema default, owned exclusively by KOK-028 (this module's header).
@@ -299,8 +318,9 @@ async function buildProductionRunCreateInputs(
     command.actualOutputQty,
   );
 
-  // Seed the OUTPUT item's C-1 threading state from its currently-stored wac/on-hand (defaulting
-  // on-hand to 0 when no item_stock row exists yet), exactly as purchasing seeds ItemPurchaseState.
+  // Seed the OUTPUT item's C-1 threading state from its currently-stored wac_mc/on-hand
+  // (defaulting on-hand to 0 when no item_stock row exists yet), exactly as purchasing seeds
+  // ItemPurchaseState.
   const outputItemRow = await db.query.items.findFirst({
     where: (t, { eq: eqOp }) => eqOp(t.id, recipe.outputItemId),
   });
@@ -310,11 +330,11 @@ async function buildProductionRunCreateInputs(
   const outputStockRow = await db.query.itemStock.findFirst({
     where: (t, { eq: eqOp }) => eqOp(t.itemId, recipe.outputItemId),
   });
-  const newOutputWac = applyWacEntry(
-    outputItemRow.wac,
+  const newOutputWacMc = applyWacEntry(
+    toMilliCentavosPerUnit(outputItemRow.wacMc),
     outputStockRow?.qtyOnHand ?? 0,
     command.actualOutputQty,
-    outputUnitCostPerMilliUnit,
+    outputUnitCostMc,
   );
 
   const movements = buildProductionMovementsFromConsumptions(
@@ -322,7 +342,7 @@ async function buildProductionRunCreateInputs(
     consumptionRows,
     recipe.outputItemId,
     command.actualOutputQty,
-    outputUnitCostPerMilliUnit,
+    outputUnitCostMc,
     command.occurredAt,
     command.businessDate,
   );
@@ -347,7 +367,7 @@ async function buildProductionRunCreateInputs(
     updatedAt: now,
   };
 
-  return { runId, now, movements, consumptionRows, newOutputWac, runRow };
+  return { runId, now, movements, consumptionRows, newOutputWacMc, runRow };
 }
 
 /** UC-02: record a production run in one atomic batch (D-3). See this module's header for the full
@@ -395,7 +415,7 @@ export async function recordProductionRun(
     : [
         db
           .update(items)
-          .set({ wac: built.newOutputWac, updatedAt: built.now })
+          .set({ wacMc: built.newOutputWacMc, updatedAt: built.now })
           .where(eq(items.id, built.runRow.outputItemId)),
       ];
 
@@ -446,8 +466,8 @@ function compareKardexRows(a: ProjectedKardexRow, b: ProjectedKardexRow): number
 }
 
 /**
- * The post-state `items.wac` for ONE item (always the output item, on either side of an edit — see
- * the call site), computed by replaying its PROJECTED kardex — mirrors purchasing.ts's
+ * The post-state `items.wac_mc` for ONE item (always the output item, on either side of an edit —
+ * see the call site), computed by replaying its PROJECTED kardex — mirrors purchasing.ts's
  * `computeProjectedWac` precisely (same "C-1 is not invertible, an edit/delete must replay the
  * item's full history" reasoning), filtered on `sourceEventType === "production_run"` instead of
  * `"purchase"`.
@@ -458,7 +478,7 @@ async function computeProjectedOutputWac(
   runId: string,
   newMovements: readonly StockMovementInput[],
   pendingCreatedAt: string,
-): Promise<number> {
+): Promise<MilliCentavosPerUnit> {
   const existingRows = await db.query.stockMovements.findMany({
     where: (t, { eq: eqOp }) => eqOp(t.itemId, itemId),
   });
@@ -470,7 +490,7 @@ async function computeProjectedOutputWac(
       createdAt: row.createdAt,
       type: row.type,
       qty: row.qty,
-      unitCost: row.unitCost,
+      unitCostMc: toMilliCentavosPerUnit(row.unitCostMc),
     }));
 
   for (const movement of newMovements) {
@@ -480,12 +500,12 @@ async function computeProjectedOutputWac(
       createdAt: pendingCreatedAt,
       type: movement.type,
       qty: movement.qty,
-      unitCost: movement.unitCost,
+      unitCostMc: movement.unitCostMc,
     });
   }
 
   projected.sort(compareKardexRows);
-  return replayWacFrom({ onHand: 0, wac: 0 }, projected).wac;
+  return replayWacFrom({ onHand: 0, wac: toMilliCentavosPerUnit(0) }, projected).wac;
 }
 
 /** Canonical identity of one kardex row, identical shape to purchasing.ts's `movementKey` (private,
@@ -496,9 +516,9 @@ function movementKey(m: {
   businessDate: string;
   type: string;
   qty: number;
-  unitCost: number;
+  unitCostMc: number;
 }): string {
-  return [m.itemId, m.occurredAt, m.businessDate, m.type, m.qty, m.unitCost].join("|");
+  return [m.itemId, m.occurredAt, m.businessDate, m.type, m.qty, m.unitCostMc].join("|");
 }
 
 /** True when `newMovements` describes exactly the kardex rows that already exist for this run —
@@ -511,7 +531,7 @@ function movementSetsEqual(
     businessDate: string;
     type: string;
     qty: number;
-    unitCost: number;
+    unitCostMc: number;
   }[],
   newMovements: readonly StockMovementInput[],
 ): boolean {
@@ -645,9 +665,15 @@ async function commitProductionRunMutation(db: Db, plan: ProductionRunMutationPl
   const itemUpdateStatements: Statement[] = [];
   for (const itemId of touchedItemIds) {
     if (replayOwnedItemIds.has(itemId)) continue;
-    const wac = await computeProjectedOutputWac(db, itemId, runId, newMovements, pendingCreatedAt);
+    const wacMc = await computeProjectedOutputWac(
+      db,
+      itemId,
+      runId,
+      newMovements,
+      pendingCreatedAt,
+    );
     itemUpdateStatements.push(
-      db.update(items).set({ wac, updatedAt: now }).where(eq(items.id, itemId)),
+      db.update(items).set({ wacMc, updatedAt: now }).where(eq(items.id, itemId)),
     );
   }
 
@@ -752,7 +778,7 @@ async function buildProductionRunUpdateInputs(
   // extended from that file's single-line case to N lines — "the one policy call this file makes",
   // stated here for the same reason exits.ts states its own): a line whose item MATCHES an existing
   // consumption line (matched by itemId, first-available-first-matched) keeps that line's FROZEN
-  // unitCostSnapshot regardless of a qty/date change — R-4's spirit arriving through the edit door,
+  // unitCostSnapshotMc regardless of a qty/date change — R-4's spirit arriving through the edit door,
   // exactly as exits.ts's header describes. A line for an item that was not in the run before (or
   // an extra occurrence beyond what already existed) snapshots fresh at that item's CURRENT WAC
   // (C-6) — there is no old snapshot to preserve for it.
@@ -760,27 +786,32 @@ async function buildProductionRunUpdateInputs(
   const newConsumptions: ProductionConsumptionRow[] = [];
   for (const line of command.lines) {
     const matchIndex = unmatchedExisting.findIndex((c) => c.itemId === line.itemId);
-    let unitCostSnapshot: number;
+    let unitCostSnapshotMc: MilliCentavosPerUnit;
     if (matchIndex >= 0) {
       const [matched] = unmatchedExisting.splice(matchIndex, 1);
       // matched is defined: matchIndex came from findIndex >= 0 on this same array.
-      unitCostSnapshot =
-        matched?.unitCostSnapshot ?? snapshotUnitCost(await getCurrentWac(db, line.itemId));
+      unitCostSnapshotMc =
+        matched === undefined
+          ? snapshotUnitCost(await getCurrentWac(db, line.itemId))
+          : toMilliCentavosPerUnit(matched.unitCostSnapshotMc);
     } else {
-      unitCostSnapshot = snapshotUnitCost(await getCurrentWac(db, line.itemId));
+      unitCostSnapshotMc = snapshotUnitCost(await getCurrentWac(db, line.itemId));
     }
     newConsumptions.push({
       id: generateUuidV7(),
       productionRunId: id,
       itemId: line.itemId,
       qty: line.qty,
-      unitCostSnapshot,
+      unitCostSnapshotMc,
     });
   }
 
   const indirectCost = command.indirectCost ?? 0;
-  const { directCost, totalCost, outputUnitCostPerMilliUnit } = computeProductionCosts(
-    newConsumptions,
+  const { directCost, totalCost, outputUnitCostMc } = computeProductionCosts(
+    newConsumptions.map((c) => ({
+      qty: c.qty,
+      unitCostSnapshotMc: toMilliCentavosPerUnit(c.unitCostSnapshotMc),
+    })),
     indirectCost,
     // Preserved, never reset: this module does not own allocated_session_cost (this module's
     // header) — an edit must not destroy whatever KOK-028's job already wrote.
@@ -811,7 +842,7 @@ async function buildProductionRunUpdateInputs(
     newConsumptions,
     newRow.outputItemId,
     newRow.actualOutputQty,
-    outputUnitCostPerMilliUnit,
+    outputUnitCostMc,
     newRow.occurredAt,
     newRow.businessDate,
   );
@@ -946,13 +977,16 @@ export async function restoreProductionRun(
 
   const now = nowIso();
   const newRow: ProductionRunRow = { ...existing, deletedAt: null, updatedAt: now };
-  const outputUnitCostPerMilliUnit = existing.totalCost / existing.actualOutputQty;
+  const outputUnitCostMc = rateFromTotal(
+    toCentavos(existing.totalCost),
+    toMilliUnits(existing.actualOutputQty),
+  );
   const newMovements = buildProductionMovementsFromConsumptions(
     id,
     existingConsumptions,
     existing.outputItemId,
     existing.actualOutputQty,
-    outputUnitCostPerMilliUnit,
+    outputUnitCostMc,
     newRow.occurredAt,
     newRow.businessDate,
   );
@@ -1033,7 +1067,7 @@ async function computeProjectedItemWacAcrossRuns(
   excludedRunIds: ReadonlySet<string>,
   newMovementsByRun: ReadonlyMap<string, readonly StockMovementInput[]>,
   pendingCreatedAt: string,
-): Promise<number> {
+): Promise<MilliCentavosPerUnit> {
   const existingRows = await db.query.stockMovements.findMany({
     where: (t, { eq: eqOp }) => eqOp(t.itemId, itemId),
   });
@@ -1047,7 +1081,7 @@ async function computeProjectedItemWacAcrossRuns(
       createdAt: row.createdAt,
       type: row.type,
       qty: row.qty,
-      unitCost: row.unitCost,
+      unitCostMc: toMilliCentavosPerUnit(row.unitCostMc),
     }));
 
   for (const movements of newMovementsByRun.values()) {
@@ -1058,13 +1092,13 @@ async function computeProjectedItemWacAcrossRuns(
         createdAt: pendingCreatedAt,
         type: movement.type,
         qty: movement.qty,
-        unitCost: movement.unitCost,
+        unitCostMc: movement.unitCostMc,
       });
     }
   }
 
   projected.sort(compareKardexRows);
-  return replayWacFrom({ onHand: 0, wac: 0 }, projected).wac;
+  return replayWacFrom({ onHand: 0, wac: toMilliCentavosPerUnit(0) }, projected).wac;
 }
 
 /**
@@ -1133,13 +1167,16 @@ export async function planSessionCostAllocation(
   const newMovementsByRun = new Map<string, StockMovementInput[]>();
   for (const { run, newTotalCost } of changed) {
     const consumptions = consumptionsByRun.get(run.id) ?? [];
-    const outputUnitCostPerMilliUnit = newTotalCost / run.actualOutputQty;
+    const outputUnitCostMc = rateFromTotal(
+      toCentavos(newTotalCost),
+      toMilliUnits(run.actualOutputQty),
+    );
     const newMovements = buildProductionMovementsFromConsumptions(
       run.id,
       consumptions,
       run.outputItemId,
       run.actualOutputQty,
-      outputUnitCostPerMilliUnit,
+      outputUnitCostMc,
       run.occurredAt,
       run.businessDate,
     );
@@ -1191,14 +1228,14 @@ export async function planSessionCostAllocation(
 
   for (const itemId of touchedOutputItemIds) {
     if (replayOwnedItemIds.has(itemId)) continue;
-    const wac = await computeProjectedItemWacAcrossRuns(
+    const wacMc = await computeProjectedItemWacAcrossRuns(
       db,
       itemId,
       changedRunIdSet,
       newMovementsByRun,
       now,
     );
-    statements.push(db.update(items).set({ wac, updatedAt: now }).where(eq(items.id, itemId)));
+    statements.push(db.update(items).set({ wacMc, updatedAt: now }).where(eq(items.id, itemId)));
   }
 
   // LAST, after the movement-replacement statements — see replay.ts's own ordering note.

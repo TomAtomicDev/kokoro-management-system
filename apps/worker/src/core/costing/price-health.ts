@@ -81,7 +81,7 @@ export function computePriceSuggested(
 interface PriceHealthItemRow {
   id: string;
   name: string;
-  wac: number;
+  wacMc: number;
   replacementCost: number;
   replacementCostUpdatedAt: string | null;
   salePrice: number | null;
@@ -102,7 +102,7 @@ export async function listPriceHealth(
     columns: {
       id: true,
       name: true,
-      wac: true,
+      wacMc: true,
       replacementCost: true,
       replacementCostUpdatedAt: true,
       salePrice: true,
@@ -130,18 +130,27 @@ export async function listPriceHealth(
   const minMarginPctRaw = await getSetting(db, "min_margin_pct");
   const minMarginPct = Number(minMarginPctRaw ?? 0);
 
-  const rows: PriceHealthRowDto[] = itemRows.map((row) => ({
-    itemId: row.id,
-    name: row.name,
-    salePrice: row.salePrice,
-    wac: row.wac,
-    replacementCost: row.replacementCost,
-    replacementCostUpdatedAt: row.replacementCostUpdatedAt,
-    marginWac: computePriceMargin(row.salePrice, row.wac),
-    marginReplacement: computePriceMargin(row.salePrice, row.replacementCost),
-    priceSuggested: computePriceSuggested(row.replacementCost, minMarginPct),
-    lastPriceChangeAt: lastChangeByItemId.get(row.id) ?? null,
-  }));
+  const rows: PriceHealthRowDto[] = itemRows.map((row) => {
+    // KOK-071 (ADR-017) vertical 1 moved `items.wac` to `items.wac_mc` (integer milli-centavos per
+    // WHOLE unit); `items.replacement_cost`/`items.sale_price` are not migrated yet (later
+    // verticals), and `PriceHealthRowDto.wac`/`computePriceMargin` still expect the old
+    // centavos-per-milli-unit scale to stay comparable to those unmigrated fields. This divides
+    // `wacMc` back down by the same ×1,000,000 factor migration 0007 applied — both this bridge
+    // and the DTO's scale will flip together once `sale_price`/`replacement_cost` migrate.
+    const wac = row.wacMc / 1_000_000;
+    return {
+      itemId: row.id,
+      name: row.name,
+      salePrice: row.salePrice,
+      wac,
+      replacementCost: row.replacementCost,
+      replacementCostUpdatedAt: row.replacementCostUpdatedAt,
+      marginWac: computePriceMargin(row.salePrice, wac),
+      marginReplacement: computePriceMargin(row.salePrice, row.replacementCost),
+      priceSuggested: computePriceSuggested(row.replacementCost, minMarginPct),
+      lastPriceChangeAt: lastChangeByItemId.get(row.id) ?? null,
+    };
+  });
 
   return { rows, minMarginPct };
 }

@@ -59,6 +59,7 @@ import type {
   DeliverOrderResult,
   ListOrdersFilters,
   ListOrdersResult,
+  MilliCentavosPerUnit,
   OrderDto,
   OrderImpactRequest,
   OrderLineDto,
@@ -80,6 +81,7 @@ import {
   nowIso,
   REPLAY_CONFIRMATION_REQUIRED,
   subMoney,
+  toMilliCentavosPerUnit,
 } from "@kokoro/shared";
 import { eq } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
@@ -221,7 +223,7 @@ function toSaleDto(row: SaleRow, lineRows: readonly SaleLineRow[]): SaleDto {
       itemId: l.itemId,
       qty: l.qty,
       unitPrice: l.unitPrice,
-      unitCostSnapshot: l.unitCostSnapshot,
+      unitCostSnapshotMc: l.unitCostSnapshotMc,
     })),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
@@ -272,8 +274,8 @@ async function readOrderDto(db: Db, id: string): Promise<OrderDto> {
 async function resolveItemSnapshots(
   db: Db,
   itemIds: readonly string[],
-): Promise<Map<string, number>> {
-  const snapshotByItem = new Map<string, number>();
+): Promise<Map<string, MilliCentavosPerUnit>> {
+  const snapshotByItem = new Map<string, MilliCentavosPerUnit>();
   for (const itemId of new Set(itemIds)) {
     const itemRow = await db.query.items.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.id, itemId),
@@ -289,7 +291,7 @@ async function resolveItemSnapshots(
     }
     // C-6: value at the item's CURRENT WAC; a sale never moves WAC, so one lookup per item is
     // enough however many lines reference it.
-    snapshotByItem.set(itemId, snapshotUnitCost(itemRow.wac));
+    snapshotByItem.set(itemId, snapshotUnitCost(toMilliCentavosPerUnit(itemRow.wacMc)));
   }
   return snapshotByItem;
 }
@@ -646,8 +648,8 @@ async function buildDeliveryPlan(
         lineId: line.id,
       });
     }
-    const unitCostSnapshot = snapshotByItem.get(itemId);
-    if (unitCostSnapshot === undefined) {
+    const unitCostSnapshotMc = snapshotByItem.get(itemId);
+    if (unitCostSnapshotMc === undefined) {
       throw validationError("Estado inconsistente al preparar la entrega.", { id, itemId });
     }
     saleLineRows.push({
@@ -656,7 +658,7 @@ async function buildDeliveryPlan(
       itemId,
       qty: line.qty,
       unitPrice: allocation.unitPrice,
-      unitCostSnapshot,
+      unitCostSnapshotMc,
     });
     movements.push({
       itemId,
@@ -666,7 +668,7 @@ async function buildDeliveryPlan(
       // sale_lines.qty is stored POSITIVE; the OUT sign is applied only at the movements boundary,
       // identically to core/sales and core/inventory/exits.
       qty: -line.qty,
-      unitCost: unitCostSnapshot,
+      unitCostMc: unitCostSnapshotMc,
       // 'sale', NOT 'custom_order': stock-wise this IS a sale, and `costing_adjustments`'
       // trigger_event_type admits `sale` (migration 0004) so a backdated delivery replays like one.
       sourceEventType: "sale",

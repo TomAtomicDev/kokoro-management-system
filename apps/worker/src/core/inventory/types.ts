@@ -7,7 +7,7 @@
 // buildStockMovementStatements / buildReplaceMovementsForSourceStatements. Duplicating a schema
 // here would create a second source of truth for a shape with no caller yet to validate against.
 
-import type { StockMovementType } from "@kokoro/shared";
+import type { MilliCentavosPerUnit, StockMovementType } from "@kokoro/shared";
 
 export interface StockMovementInput {
   itemId: string;
@@ -23,10 +23,10 @@ export interface StockMovementInput {
    */
   qty: number;
   /**
-   * Centavos per milli-unit at movement time (Doc 04 §3.4) — the one deliberately-float column
-   * (Doc 04 §2). `total_cost` is derived from this internally; it is NOT a caller input.
+   * Milli-centavos per WHOLE unit at movement time (Doc 04 §3.4, ADR-017/KOK-071). `total_cost`
+   * is derived from this internally; it is NOT a caller input.
    */
-  unitCost: number;
+  unitCostMc: MilliCentavosPerUnit;
   /** e.g. 'purchase' | 'production_run' | 'sale' | 'stock_exit' | 'inventory_count' — free text, no FK by design (INV-9). */
   sourceEventType: string;
   sourceEventId: string;

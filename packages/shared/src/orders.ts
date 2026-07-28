@@ -40,6 +40,7 @@ import {
   type Centavos,
   mulMoneyByQty,
   roundHalfUpToInt,
+  toCentavos,
 } from "./money.js";
 import type { SaleDto } from "./sales.js";
 
@@ -387,7 +388,7 @@ export function allocateAgreedTotalToOrderLines(
   // the difference, and silently inflating a hand-priced line would misstate it.
   if (unpinnedIndexes.length === 0 && pinnedSum !== agreedTotal) return null;
 
-  const residual = agreedTotal - pinnedSum;
+  const residual = toCentavos(agreedTotal - pinnedSum);
   const shares = allocateLargestRemainder(
     residual,
     unpinnedIndexes.map((i) => lines[i]?.qty ?? 0),
@@ -398,9 +399,9 @@ export function allocateAgreedTotalToOrderLines(
     lineTotals[lineIndex] = shares[shareIndex] ?? 0;
   });
 
-  const allocations = lines.map((line, i) => {
-    const lineTotal = lineTotals[i] ?? 0;
-    return { lineTotal, unitPrice: roundHalfUpToInt((lineTotal * 1000) / line.qty) };
+  const allocations: OrderLineAllocation[] = lines.map((line, i) => {
+    const lineTotal = toCentavos(lineTotals[i] ?? 0);
+    return { lineTotal, unitPrice: toCentavos(roundHalfUpToInt((lineTotal * 1000) / line.qty)) };
   });
 
   // Doc 04 §5's `sales.total = Σ(qty × unit_price)` is what the service will actually store, so the

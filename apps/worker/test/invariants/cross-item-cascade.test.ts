@@ -34,7 +34,7 @@
 // assertions are about the replay, not about how the fixtures got there.
 // ============================================================================================
 import { env } from "cloudflare:test";
-import { generateUuidV7 } from "@kokoro/shared";
+import { generateUuidV7, toMilliCentavosPerUnit } from "@kokoro/shared";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 
@@ -59,6 +59,8 @@ import {
 } from "../../src/db/schema.js";
 
 const ACTOR = "OWNER_WEB" as const;
+// KOK-071 (ADR-017): brand alias, local to this file for readability — see costing.test.ts.
+const mc = toMilliCentavosPerUnit;
 
 type TestDb = ReturnType<typeof createDb>;
 
@@ -77,6 +79,12 @@ async function seedItem(db: TestDb, name: string, kind: "RAW_MATERIAL" | "SEMI_F
  * never disagree with itself: `total / actualOutputQty` with `indirect` and `allocatedSessionCost`
  * both zero (deliberately — a non-zero overhead would add a constant to every expected number below
  * and obscure which part of the cascade a regression broke).
+ *
+ * KOK-071 (ADR-017): `consumedUnitCost` is stated at the old centavos-per-milli-unit scale for
+ * readability (matching every other seed helper in this test suite); `directCost`/`totalCost`
+ * (Centavos, NOT migrated) are computed from it exactly as before, and only the two `_mc` columns
+ * (`unit_cost_snapshot_mc`, `unit_cost_mc`) get the ×1,000,000 conversion. The returned
+ * `outputUnitCostMc` is at the new scale, ready to seed `items.wac_mc` directly.
  */
 async function seedProductionRun(
   db: TestDb,
@@ -90,11 +98,13 @@ async function seedProductionRun(
     consumedUnitCost: number;
     outputQty: number;
   },
-): Promise<{ runId: string; outputUnitCost: number }> {
+): Promise<{ runId: string; outputUnitCostMc: number }> {
   const runId = generateUuidV7();
   const now = new Date().toISOString();
   const directCost = params.consumedQty * params.consumedUnitCost;
   const outputUnitCost = directCost / params.outputQty;
+  const consumedUnitCostMc = params.consumedUnitCost * 1_000_000;
+  const outputUnitCostMc = outputUnitCost * 1_000_000;
 
   await db.insert(productionRuns).values({
     id: runId,
@@ -117,7 +127,7 @@ async function seedProductionRun(
     productionRunId: runId,
     itemId: params.rawItemId,
     qty: params.consumedQty,
-    unitCostSnapshot: params.consumedUnitCost,
+    unitCostSnapshotMc: consumedUnitCostMc,
   });
 
   // The kardex pair. Signs follow Doc 04 §3.4 (OUT negative, IN positive), matching what
@@ -130,7 +140,7 @@ async function seedProductionRun(
       itemId: params.rawItemId,
       type: "PRODUCTION_OUT",
       qty: -params.consumedQty,
-      unitCost: params.consumedUnitCost,
+      unitCostMc: consumedUnitCostMc,
       totalCost: -directCost,
       sourceEventType: "production_run",
       sourceEventId: runId,
@@ -143,7 +153,7 @@ async function seedProductionRun(
       itemId: params.outputItemId,
       type: "PRODUCTION_IN",
       qty: params.outputQty,
-      unitCost: outputUnitCost,
+      unitCostMc: outputUnitCostMc,
       totalCost: directCost,
       sourceEventType: "production_run",
       sourceEventId: runId,
@@ -151,7 +161,7 @@ async function seedProductionRun(
     },
   ]);
 
-  return { runId, outputUnitCost };
+  return { runId, outputUnitCostMc };
 }
 
 /** DIRECT-INSERT FIXTURE. An ACTIVE recipe turning `rawItemId` into `outputItemId` — `is_active`
@@ -190,11 +200,11 @@ async function seedRecipe(
 async function setDerivedState(
   db: TestDb,
   itemId: string,
-  wac: number,
+  wacMc: number,
   qtyOnHand: number,
 ): Promise<void> {
   const now = new Date().toISOString();
-  await db.update(items).set({ wac, updatedAt: now }).where(eq(items.id, itemId));
+  await db.update(items).set({ wacMc, updatedAt: now }).where(eq(items.id, itemId));
   await db.insert(itemStock).values({ itemId, qtyOnHand, negativeSince: null, updatedAt: now });
 }
 
@@ -256,6 +266,11 @@ beforeEach(async () => {
  * `replayedConsumptionCost` would still be empty when S is reached, the PRODUCTION_IN would keep
  * its stored unit cost of 10, and S.wac would land back on 10 — a silent no-op. The 30 is
  * unreachable without raw-before-semi ordering.
+ *
+ * KOK-071 (ADR-017): every wac/unit-cost number above is stated at the pre-migration scale for
+ * readability; the actual stored/asserted values are each ×1,000,000 (integer
+ * MilliCentavosPerUnit) — every step here is an exact multiple (2, 6, 10, 30), so none of the
+ * assertions below pick up a rounding remainder.
  */
 const RAW_PURCHASE_DAY = "2026-07-10";
 const PRODUCTION_DAY = "2026-07-12";
@@ -287,9 +302,9 @@ async function seedCascadeScenario(db: TestDb, suffix: string) {
     consumedUnitCost: 2,
     outputQty: 1_000,
   });
-  expect(run.outputUnitCost).toBeCloseTo(10, 9);
+  expect(run.outputUnitCostMc).toBe(10_000_000);
 
-  await setDerivedState(db, semi.id, run.outputUnitCost, 1_000);
+  await setDerivedState(db, semi.id, run.outputUnitCostMc, 1_000);
 
   return { raw, semi, run };
 }
@@ -309,7 +324,7 @@ describe("R-2 recipe cascade — a raw-material correction moves the semi-finish
     const semiBefore = await db.query.items.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.id, semi.id),
     });
-    expect(semiBefore?.wac).toBeCloseTo(10, 9);
+    expect(semiBefore?.wacMc).toBe(10_000_000);
 
     await recordPurchase(
       db,
@@ -338,15 +353,15 @@ describe("R-2 recipe cascade — a raw-material correction moves the semi-finish
     });
 
     // The direct correction on the item that was actually purchased.
-    expect(rawAfter?.wac).toBeCloseTo(6, 9);
+    expect(rawAfter?.wacMc).toBe(6_000_000);
 
     // THE cascade assertion: the semi-finished item was never purchased, never touched by the
     // command, and has no kardex row of its own after the backdated point — yet its WAC moved,
     // purely as a consequence of its INPUT's cost being corrected. 30 = (5 000 × 6) / 1 000.
-    expect(semiAfter?.wac).toBeCloseTo(30, 9);
+    expect(semiAfter?.wacMc).toBe(30_000_000);
     // Explicitly NOT the stale stored value — the failure mode here is a silent no-op, so pinning
     // "it changed" matters as much as pinning what it changed to.
-    expect(semiAfter?.wac).not.toBeCloseTo(10, 9);
+    expect(semiAfter?.wacMc).not.toBe(10_000_000);
   });
 
   it("replays items in dependency order: the raw material before the semi-finished item", async () => {
@@ -374,7 +389,9 @@ describe("R-2 recipe cascade — a raw-material correction moves the semi-finish
               businessDate: BACKDATED_RAW_PURCHASE.businessDate,
               type: "PURCHASE_IN",
               qty: BACKDATED_RAW_PURCHASE.qty,
-              unitCost: BACKDATED_RAW_PURCHASE.lineTotal / BACKDATED_RAW_PURCHASE.qty,
+              unitCostMc: mc(
+                (BACKDATED_RAW_PURCHASE.lineTotal / BACKDATED_RAW_PURCHASE.qty) * 1_000_000,
+              ),
               sourceEventType: "purchase",
               sourceEventId: purchaseId,
             },

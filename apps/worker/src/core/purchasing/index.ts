@@ -15,7 +15,7 @@
 //     are always null), per Doc 04 §5's rule that purchase-sourced transactions carry their source
 //   - the `audit_log` row (core/audit's buildAuditLogInsert)
 //   - (KOK-024) whatever `planCostingReplay` returns when this purchase is BACKDATED — the
-//     corrected `items.wac` for every item whose kardex it re-weights, the `costing_adjustments`
+//     corrected `items.wac_mc` for every item whose kardex it re-weights, the `costing_adjustments`
 //     row booking the difference forward (R-4), the `item_stock.negative_since` fix, and its own
 //     audit row. Empty on the ordinary same-day capture, which is the overwhelmingly common case.
 
@@ -25,6 +25,7 @@ import type {
   DeletePurchaseResult,
   ListPurchasesFilters,
   ListPurchasesResult,
+  MilliCentavosPerUnit,
   PurchaseDto,
   PurchaseImpactRequest,
   PurchaseLineDto,
@@ -40,6 +41,7 @@ import {
   nowIso,
   REPLAY_CONFIRMATION_REQUIRED,
   subMoney,
+  toMilliCentavosPerUnit,
 } from "@kokoro/shared";
 import { and, eq, gt, isNull, ne } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
@@ -75,19 +77,20 @@ type ItemRow = typeof items.$inferSelect;
  * line for the same item (e.g. two batches of flour on one invoice) applies C-1 against the
  * FIRST line's effect, not the pre-purchase snapshot twice — see this module's header and Doc 10
  * KOK-016's "sequencing multi-line same-item purchases" note. Seeded ONCE per distinct item from
- * its currently-stored `items.wac` / `item_stock.qty_on_hand` (defaulting on-hand to 0 when no
+ * its currently-stored `items.wac_mc` / `item_stock.qty_on_hand` (defaulting on-hand to 0 when no
  * `item_stock` row exists yet, i.e. a brand-new item's first-ever movement) — this is NOT a full
  * kardex replay (that's `recomputeWacFromMovements`, R-2, a different call site); it only threads
  * this purchase's own lines forward from the current live state.
  */
 interface ItemPurchaseState {
-  wac: number;
+  wacMc: MilliCentavosPerUnit;
   onHand: number;
   kind: ItemRow["kind"];
   /** Unit cost of the LAST line processed so far for this item. Overwritten on every line that
    * touches this item, so after the full pass it holds the last line's value regardless of how
    * many lines (or their position among other items' lines) touched this item — C-3: "for
-   * RAW_MATERIAL, replacement_cost = last purchase unit cost". */
+   * RAW_MATERIAL, replacement_cost = last purchase unit cost". Still the pre-KOK-071 scale
+   * (centavos per milli-unit) — `items.replacement_cost` is not migrated until a later vertical. */
   lastUnitCost: number;
 }
 
@@ -184,7 +187,7 @@ async function buildPurchaseCreateMovements(db: Db, command: RecordPurchaseComma
       where: (t, { eq: eqOp }) => eqOp(t.itemId, itemId),
     });
     itemStates.set(itemId, {
-      wac: itemRow.wac,
+      wacMc: toMilliCentavosPerUnit(itemRow.wacMc),
       onHand: stockRow?.qtyOnHand ?? 0,
       kind: itemRow.kind,
       lastUnitCost: 0,
@@ -203,10 +206,14 @@ async function buildPurchaseCreateMovements(db: Db, command: RecordPurchaseComma
       throw validationError("Estado interno de compra inconsistente.", { itemId: line.itemId });
     }
 
-    const unitCost = computePurchaseLineUnitCost(line.lineTotal, line.qty);
-    state.wac = applyWacEntry(state.wac, state.onHand, line.qty, unitCost);
+    const unitCostMc = computePurchaseLineUnitCost(line.lineTotal, line.qty);
+    state.wacMc = applyWacEntry(state.wacMc, state.onHand, line.qty, unitCostMc);
     state.onHand += line.qty;
-    state.lastUnitCost = unitCost;
+    // C-3's `replacement_cost` (`items.replacement_cost`, not migrated until a later KOK-071
+    // vertical) still expects the pre-migration centavos-per-milli-unit scale, so this is computed
+    // separately from `unitCostMc` above rather than derived from it (the two columns' scales
+    // diverge until replacement_cost's own vertical lands).
+    state.lastUnitCost = line.lineTotal / line.qty;
 
     movements.push({
       itemId: line.itemId,
@@ -214,7 +221,7 @@ async function buildPurchaseCreateMovements(db: Db, command: RecordPurchaseComma
       businessDate: command.businessDate,
       type: "PURCHASE_IN",
       qty: line.qty,
-      unitCost,
+      unitCostMc,
       sourceEventType: "purchase",
       sourceEventId: purchaseId,
     });
@@ -263,7 +270,7 @@ export async function recordPurchase(
   // ---- INV-11 / R-2 ordering guard (ADR-016 §1) --------------------------------------------
   // A purchase is not exempt from the replay just because it is a CREATE: recording today's
   // production and only then backdating last week's flour invoice is an ordinary Tuesday, and the
-  // C-1 threading above — which reads `items.wac` / `item_stock.qty_on_hand` at their CURRENT
+  // C-1 threading above — which reads `items.wac_mc` / `item_stock.qty_on_hand` at their CURRENT
   // value — is simply wrong for it. Planned BEFORE the batch is assembled so the R-5 refusal below
   // can happen before a single write.
   const plan = await planCostingReplay(db, {
@@ -318,7 +325,7 @@ export async function recordPurchase(
   for (const [itemId, state] of itemStates) {
     const values: Partial<typeof items.$inferInsert> = {};
     if (!replayOwnedItemIds.has(itemId)) {
-      values.wac = state.wac;
+      values.wacMc = state.wacMc;
     }
     if (state.kind === "RAW_MATERIAL" && !replacementCostSupersededItemIds.has(itemId)) {
       values.replacementCost = state.lastUnitCost;
@@ -428,12 +435,12 @@ function compareKardexRows(a: ProjectedKardexRow, b: ProjectedKardexRow): number
 }
 
 /**
- * The post-state `items.wac` for ONE item, computed by replaying its PROJECTED kardex — the rows
+ * The post-state `items.wac_mc` for ONE item, computed by replaying its PROJECTED kardex — the rows
  * that will exist once this purchase's movements are replaced by `newMovements`.
  *
  * WHY A FULL REPLAY AND NOT `recordPurchase`'s INCREMENTAL THREADING. C-1 is a weighted average
  * folded forward one entry at a time; it is NOT INVERTIBLE. `recordPurchase` can thread from the
- * currently-stored `items.wac` because a create only ever ADDS an entry to the end. An edit or a
+ * currently-stored `items.wac_mc` because a create only ever ADDS an entry to the end. An edit or a
  * delete REMOVES the entries this purchase previously contributed, and there is no arithmetic that
  * backs a specific entry out of a weighted average — the stored WAC simply does not carry enough
  * information. Undoing it requires the history, so this reads the history.
@@ -451,7 +458,7 @@ async function computeProjectedWac(
   purchaseId: string,
   newMovements: readonly StockMovementInput[],
   pendingCreatedAt: string,
-): Promise<number> {
+): Promise<MilliCentavosPerUnit> {
   const existingRows = await db.query.stockMovements.findMany({
     where: (t, { eq: eqOp }) => eqOp(t.itemId, itemId),
   });
@@ -465,7 +472,7 @@ async function computeProjectedWac(
       createdAt: row.createdAt,
       type: row.type,
       qty: row.qty,
-      unitCost: row.unitCost,
+      unitCostMc: toMilliCentavosPerUnit(row.unitCostMc),
     }));
 
   for (const movement of newMovements) {
@@ -478,16 +485,20 @@ async function computeProjectedWac(
       createdAt: pendingCreatedAt,
       type: movement.type,
       qty: movement.qty,
-      unitCost: movement.unitCost,
+      unitCostMc: movement.unitCostMc,
     });
   }
 
   projected.sort(compareKardexRows);
-  return replayWacFrom({ onHand: 0, wac: 0 }, projected).wac;
+  return replayWacFrom({ onHand: 0, wac: toMilliCentavosPerUnit(0) }, projected).wac;
 }
 
 /** A purchase line's C-3 candidate: its unit cost, plus the `(business_date, created_at)` point that
- * decides which candidate is "last". */
+ * decides which candidate is "last". `unitCost` is the pre-KOK-071 centavos-per-milli-unit scale
+ * (`items.replacement_cost` is not migrated until a later vertical) — computed here via a plain
+ * `lineTotal / qty` division rather than `computePurchaseLineUnitCost` (which now returns the
+ * `MilliCentavosPerUnit` scale `items.wac_mc` uses), since the two columns' scales diverge until
+ * replacement_cost's own vertical lands. */
 interface ReplacementCostCandidate {
   businessDate: string;
   createdAt: string;
@@ -540,7 +551,7 @@ async function findLatestOtherPurchaseLineForItem(
   return {
     businessDate: last.businessDate,
     createdAt: last.createdAt,
-    unitCost: computePurchaseLineUnitCost(last.lineTotal, last.qty),
+    unitCost: last.lineTotal / last.qty,
   };
 }
 
@@ -582,9 +593,9 @@ function movementKey(m: {
   businessDate: string;
   type: string;
   qty: number;
-  unitCost: number;
+  unitCostMc: number;
 }): string {
-  return [m.itemId, m.occurredAt, m.businessDate, m.type, m.qty, m.unitCost].join("|");
+  return [m.itemId, m.occurredAt, m.businessDate, m.type, m.qty, m.unitCostMc].join("|");
 }
 
 /** True when `newMovements` describes exactly the kardex rows that already exist for this event —
@@ -597,7 +608,7 @@ function movementSetsEqual(
     businessDate: string;
     type: string;
     qty: number;
-    unitCost: number;
+    unitCostMc: number;
   }[],
   newMovements: readonly StockMovementInput[],
 ): boolean {
@@ -780,7 +791,7 @@ async function commitPurchaseMutation(db: Db, plan: PurchaseMutationPlan): Promi
 
     const values: Partial<typeof items.$inferInsert> = {};
     if (!replayOwnedItemIds.has(itemId)) {
-      values.wac = await computeProjectedWac(
+      values.wacMc = await computeProjectedWac(
         db,
         itemId,
         purchaseId,
@@ -806,7 +817,7 @@ async function commitPurchaseMutation(db: Db, plan: PurchaseMutationPlan): Promi
           : {
               businessDate: newRow.businessDate,
               createdAt: newRow.createdAt,
-              unitCost: computePurchaseLineUnitCost(ownLast.lineTotal, ownLast.qty),
+              unitCost: ownLast.lineTotal / ownLast.qty,
             };
       const replacementCost = await computeReplacementCost(db, itemId, purchaseId, own);
       if (replacementCost !== itemRow.replacementCost) {
@@ -949,7 +960,7 @@ function buildPurchaseInMovementsFromLines(
     businessDate,
     type: "PURCHASE_IN",
     qty: line.qty,
-    unitCost: computePurchaseLineUnitCost(line.lineTotal, line.qty),
+    unitCostMc: computePurchaseLineUnitCost(line.lineTotal, line.qty),
     sourceEventType: "purchase",
     sourceEventId: purchaseId,
   }));

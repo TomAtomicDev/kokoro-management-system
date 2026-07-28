@@ -15,7 +15,9 @@
 // rows never collide across tests in this file; storage is isolated per FILE, not per test, so
 // listStock's "no filters" assertions always scope down to just-created itemIds rather than
 // asserting on the full table.
+
 import { env } from "cloudflare:test";
+import { toMilliCentavosPerUnit } from "@kokoro/shared";
 import { eq } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -104,12 +106,12 @@ describe("listStock (Doc 04 §4 v_stock, SC-08)", () => {
       kind: "RAW_MATERIAL",
       category: "DAIRY",
       unit: "KG",
-      wac: 2,
+      wacMc: 2_000_000,
       salePrice: 500,
       minStockQty: null,
       qtyOnHand: 5000,
       negativeSince: null,
-      stockValue: 10000, // round(5000 * 2)
+      stockValue: 10000, // round(5000 * 2_000_000 / 1_000_000), KOK-071
       isLowStock: false,
     });
   });
@@ -168,7 +170,7 @@ describe("listStock (Doc 04 §4 v_stock, SC-08)", () => {
           businessDate: "2026-07-16",
           type: "EXIT_OUT",
           qty: -1000,
-          unitCost: 0,
+          unitCostMc: toMilliCentavosPerUnit(0),
           sourceEventType: "test_exit",
           sourceEventId: "exit_negative_stock_test",
         },
@@ -399,7 +401,7 @@ describe("getStockConsistencyMismatches (INV-5 nightly sentinel, KOK-021)", () =
     );
 
     // Deliberately corrupt item_stock directly (test-only fixture, mirrors
-    // test/costing-repair.test.ts's direct items.wac corruption) so it disagrees with the ledger's
+    // test/costing-repair.test.ts's direct items.wac_mc corruption) so it disagrees with the ledger's
     // true SUM(qty) of 1000 — no core/ command produces this state, it simulates an earlier
     // atomicity bug this sentinel exists to catch.
     await db.update(itemStock).set({ qtyOnHand: 9999 }).where(eq(itemStock.itemId, item.id));

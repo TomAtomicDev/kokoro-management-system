@@ -71,7 +71,7 @@ async function seedSale(
     businessDate: string;
     qty: number;
     unitPrice: number;
-    unitCostSnapshot: number;
+    unitCostSnapshotMc: number;
   },
 ): Promise<{ saleId: string; saleLineId: string }> {
   const saleId = generateUuidV7();
@@ -98,7 +98,7 @@ async function seedSale(
     itemId: params.itemId,
     qty: params.qty,
     unitPrice: params.unitPrice,
-    unitCostSnapshot: params.unitCostSnapshot,
+    unitCostSnapshotMc: params.unitCostSnapshotMc,
   });
 
   await db.insert(stockMovements).values({
@@ -108,8 +108,9 @@ async function seedSale(
     itemId: params.itemId,
     type: "SALE_OUT",
     qty: -params.qty,
-    unitCost: params.unitCostSnapshot,
-    totalCost: -Math.round(params.qty * params.unitCostSnapshot),
+    unitCostMc: params.unitCostSnapshotMc,
+    // totalCost (Centavos) is NOT migrated (KOK-071) — divide the mc-scale rate back down.
+    totalCost: -Math.round((params.qty * params.unitCostSnapshotMc) / 1_000_000),
     sourceEventType: "sale",
     sourceEventId: saleId,
     createdAt: now,
@@ -133,8 +134,8 @@ async function readFrozenSnapshots(
   const exitRows = await db.select().from(stockExits);
   const lineRows = await db.select().from(saleLines);
   return {
-    exits: Object.fromEntries(exitRows.map((row) => [row.id, row.unitCostSnapshot])),
-    saleLines: Object.fromEntries(lineRows.map((row) => [row.id, row.unitCostSnapshot])),
+    exits: Object.fromEntries(exitRows.map((row) => [row.id, row.unitCostSnapshotMc])),
+    saleLines: Object.fromEntries(lineRows.map((row) => [row.id, row.unitCostSnapshotMc])),
   };
 }
 
@@ -196,10 +197,16 @@ beforeEach(async () => {
  * cost_delta = −12 000 + −8 000 = −20 000 centavos, hand-computed here and NOT read back from the
  * implementation. Negative per Doc 04 §3.4: the goods really cost more than was booked, so
  * accumulated margin fell.
+ *
+ * KOK-071 (ADR-017): wac/unit-cost numbers above are stated at the pre-migration scale for
+ * readability; `EXPECTED_REPLAYED_WAC`/`FROZEN_SNAPSHOT` below are each ×1,000,000 (integer
+ * MilliCentavosPerUnit) — every purchase-line rate along the way (2, 4, 10) was an exact multiple,
+ * so 5.2 scales to an exact 5_200_000, no rounding remainder. `cost_delta` is unaffected — it is a
+ * Centavos total, and replay.ts divides the mc-scale intermediate back down by the same 1,000,000.
  */
 const EXPECTED_COST_DELTA = -20_000;
-const EXPECTED_REPLAYED_WAC = 5.2;
-const FROZEN_SNAPSHOT = 2;
+const EXPECTED_REPLAYED_WAC = 5_200_000;
+const FROZEN_SNAPSHOT = 2_000_000;
 
 const BACKDATED_PURCHASE = {
   occurredAt: "2026-07-10T12:00:00.000Z",
@@ -233,7 +240,7 @@ async function seedScenario(db: TestDb, suffix: string) {
     },
     ACTOR,
   );
-  expect(exit.exit.unitCostSnapshot).toBe(FROZEN_SNAPSHOT);
+  expect(exit.exit.unitCostSnapshotMc).toBe(FROZEN_SNAPSHOT);
 
   const sale = await seedSale(db, {
     itemId: item.id,
@@ -241,7 +248,7 @@ async function seedScenario(db: TestDb, suffix: string) {
     businessDate: "2026-07-11",
     qty: 2_000,
     unitPrice: 15,
-    unitCostSnapshot: FROZEN_SNAPSHOT,
+    unitCostSnapshotMc: FROZEN_SNAPSHOT,
   });
 
   await recordPurchase(
@@ -287,8 +294,8 @@ describe("R-4 — frozen cost snapshots survive a replay byte-identically", () =
     const itemRow = await db.query.items.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
     });
-    expect(itemRow?.wac).toBeCloseTo(EXPECTED_REPLAYED_WAC, 9);
-    expect(itemRow?.wac).not.toBeCloseTo(FROZEN_SNAPSHOT, 9);
+    expect(itemRow?.wacMc).toBe(EXPECTED_REPLAYED_WAC);
+    expect(itemRow?.wacMc).not.toBe(FROZEN_SNAPSHOT);
 
     const after = await readFrozenSnapshots(db);
     // Byte-identical: same row ids, same values, nothing added or removed.
@@ -372,7 +379,7 @@ describe("R-5 — the confirmation gate refuses BEFORE writing anything", () => 
     const itemRow = await db.query.items.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
     });
-    expect(itemRow?.wac).toBeCloseTo(EXPECTED_REPLAYED_WAC, 9);
+    expect(itemRow?.wacMc).toBe(EXPECTED_REPLAYED_WAC);
     expect(
       await db.select().from(costingAdjustments).where(eq(costingAdjustments.itemId, item.id)),
     ).toHaveLength(1);

@@ -51,11 +51,10 @@ export function ExitsTable({ rows, items, loading, onRowClick }: ExitsTableProps
       id: "valuedCost",
       header: inventoryLabels.exitsColumnValuedCost,
       numeric: true,
-      // unitCostSnapshot is centavos-per-milli-unit (Doc 04 §3.4) and qty is milli-units, so their
-      // direct product is already centavos — no ×1000 conversion, unlike a per-whole-unit DISPLAY
-      // price. This mirrors core/inventory/movements.ts's `total_cost = qty × unit_cost` formula
-      // for `stock_movements` exactly (see that file's comment on the INSERT builder).
-      cell: (row) => formatMoney(Math.round(row.qty * row.unitCostSnapshot)),
+      // unitCostSnapshotMc is milli-centavos-per-WHOLE-unit (ADR-017/KOK-071) and qty is
+      // milli-units, so qty × unitCostSnapshotMc / 1,000,000 is the centavos total — the same
+      // `totalCentavos` formula core/inventory/movements.ts's `total_cost` uses server-side.
+      cell: (row) => formatMoney(Math.round((row.qty * row.unitCostSnapshotMc) / 1_000_000)),
     },
   ];
 

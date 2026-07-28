@@ -2,14 +2,12 @@
 // then by name — see packages/shared/src/inventory-views.ts) so no client-side re-sort is needed.
 // Row click opens the Kardex drawer for that item.
 //
-// wac/replacementCost display: Doc 04 §2 stores both as REAL **centavos per MILLI-unit**
-// (`docs/system-design-knowledge-base/04-data-model.md` line 39-40), the same scale ItemForm.tsx
-// already displays via `formatMoney(Math.round(value * 1000))` + a "/ unit" suffix. The comment on
-// `StockRowDto.wac` in inventory-views.ts says "centavos per whole unit", but that reads as a doc
-// slip against Doc 04 (the SQL view's `stock_value = ROUND(qty_on_hand_milli * wac)` only produces
-// a correct centavos total if `wac` is per-milli-unit) — per D-1 the KB (Doc 04) is the tie-breaker,
-// so this table follows Doc 04's scale and ItemForm's existing display precedent rather than the
-// StockRowDto comment. `stockValue` itself is already a plain INTEGER centavos column (Doc 04 §3.4
+// wac/replacementCost display: KOK-071 (ADR-017) migrated `wac` to the integer milli-centavos-
+// per-WHOLE-unit scale (`wacMc`, ÷1000 to display as centavos) — `replacementCost` is not migrated
+// yet and stays the pre-migration REAL centavos-per-MILLI-unit scale (`×1000` to display), the
+// same scale ItemForm.tsx still displays via `formatMoney(Math.round(value * 1000))`. The two
+// columns therefore use different formatters below until replacementCost's own KOK-071 vertical
+// lands. `stockValue` itself is already a plain INTEGER centavos column (Doc 04 §3.4
 // `stock_value INTEGER`), so it needs no such conversion.
 
 import type { StockRowDto } from "@kokoro/shared";
@@ -26,9 +24,14 @@ export interface StockTableProps {
   onRowClick?: (row: StockRowDto) => void;
 }
 
-/** Doc 04 §2: wac/replacementCost are REAL centavos-per-milli-unit; display per whole unit. */
+/** Doc 04 §2: `replacementCost` is still REAL centavos-per-milli-unit (not migrated yet). */
 function formatUnitCost(perMilliUnitCentavos: number, unit: StockRowDto["unit"]): string {
   return `${formatMoney(Math.round(perMilliUnitCentavos * 1000))} / ${inventoryLabels.unitAbbrev[unit]}`;
+}
+
+/** ADR-017/KOK-071: `wacMc` is integer milli-centavos per WHOLE unit. */
+function formatUnitCostMc(wacMc: number, unit: StockRowDto["unit"]): string {
+  return `${formatMoney(Math.round(wacMc / 1000))} / ${inventoryLabels.unitAbbrev[unit]}`;
 }
 
 export function StockTable({ rows, loading, onRowClick }: StockTableProps) {
@@ -82,7 +85,7 @@ export function StockTable({ rows, loading, onRowClick }: StockTableProps) {
       id: "wac",
       header: inventoryLabels.columnWac,
       numeric: true,
-      cell: (row) => formatUnitCost(row.wac, row.unit),
+      cell: (row) => formatUnitCostMc(row.wacMc, row.unit),
     },
     {
       id: "replacementCost",
@@ -101,7 +104,7 @@ export function StockTable({ rows, loading, onRowClick }: StockTableProps) {
             formula={inventoryLabels.stockValueFormula}
             inputs={[
               { label: inventoryLabels.columnOnHand, value: formatQty(row.qtyOnHand, row.unit) },
-              { label: inventoryLabels.columnWac, value: formatUnitCost(row.wac, row.unit) },
+              { label: inventoryLabels.columnWac, value: formatUnitCostMc(row.wacMc, row.unit) },
             ]}
           />
         </div>
