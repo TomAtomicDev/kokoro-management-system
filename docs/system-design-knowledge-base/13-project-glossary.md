@@ -18,11 +18,17 @@ term exactly**. When speaking with the owner, use Spanish. Enum literals per Doc
 | Kardex / stock movement | Kárdex / Movimiento | System-derived, user-immutable ledger of stock entries/exits; source of truth for stock (INV-5). |
 | Stock on hand | Stock / Existencias | Current quantity = Σ kardex; may be negative (INV-8). |
 | WAC (weighted average cost) | Costo promedio | Item valuation cost, updated on entries (C-1). |
+| Unit cost snapshot | Costo unitario congelado | The item's WAC frozen onto an event line at the moment it was recorded (`sale_lines`, `stock_exits`, `production_consumptions`). It is what that unit **actually cost her**, and it is never rewritten by a later cost replay (R-4) — corrections book forward as costing adjustments instead. The dated series of these snapshots is the system's only real per-item cost history. |
 | Cost replay | Recálculo de costo | The synchronous, forward-only recomputation of WAC/cost triggered by a backdated create/edit/delete/restore (R-2, INV-11, ADR-016); never rewrites an already-frozen snapshot (R-4). |
 | Costing adjustment | Ajuste de costo | The persisted `costing_adjustments` row a cost replay books, per affected item, when its `cost_delta` is nonzero — the forward-dated correction R-4 uses instead of rewriting history. |
 | Replacement cost | Costo de reposición | What it costs **today** to re-acquire/re-produce one unit (C-3); the inflation-honest cost. |
+| Margin at WAC | Margen histórico | `price − WAC`; what the sale earned against what the stock actually cost. Backward-looking and always the friendlier number — never show it without the margin at replacement beside it (C-5). |
 | Margin at replacement | Margen real | `price − replacement_cost`; the anti-decapitalization metric (C-5). |
+| Decapitalization | Descapitalización | Selling at a price that covers the historical cost but not today's replacement cost, so each sale shrinks what the business can buy back. Nominally profitable, actually shrinking — the failure mode G2 exists to prevent. |
 | Price health | Salud de precios | Report comparing prices vs both costs, with threshold alerts (SC-12). |
+| Money at risk | Dinero en riesgo | An item's recent sales volume × the gap between its current margin at replacement and the target margin — the margin shortfall expressed in Bs rather than as a percentage (KOK-074). Ranks *which price to raise first*; a wide gap on something she sells twice a month matters less than a narrow one on the daily seller. |
+| Price staleness | Antigüedad del precio | Days since an item's last `price_history` row, read against days since its replacement cost last moved (KOK-075). Under inflation the stale price, not the mispriced one, is the usual cause of decapitalization. |
+| Input cost index | Canasta de insumos | Weighted purchase cost of the top raw materials by spend, indexed to 100 at a baseline month and built only from prices actually paid (KOK-078). The system's inflation measure; used to deflate nominal figures into real ones. |
 | Purchase | Compra | Acquisition event of raw materials/packaging; updates stock, WAC, replacement cost, and cash. |
 | Sale | Venta | Sale of FINISHED items; channel `CATALOG` (Modality 1) or `CUSTOM_ORDER` (Modality 2). |
 | Custom order | Pedido | Modality-2 made-to-order job with deposit, delivery date/place, lifecycle O-1…O-5. |
@@ -40,6 +46,10 @@ term exactly**. When speaking with the owner, use Spanish. Enum literals per Doc
 | Transfer | Transferencia | Paired movement between accounts (no P&L effect). |
 | Owner withdrawal | Retiro personal | Money taken by the owner; expense category `OWNER_WITHDRAWAL`, excluded from operating costs in profit analysis, reported separately. |
 | Operating expense | Gasto operativo | Business expense not tied to inventory (fuel, minor consumables, fees). |
+| COGS (cost of goods sold) | Costo de lo vendido | Σ (`unit_cost_snapshot` × qty) over the sale lines of a period — what the goods *sold* in that period cost, valued at the WAC frozen at each sale. **Not the same as purchases**: buying flour converts cash into inventory and is not an expense; it becomes COGS only when the bread made from it is sold. Any profit figure computed from purchases instead of COGS will print a fake loss in every week she restocks. |
+| Contribution (gross margin) | Contribución / Margen bruto | Revenue − COGS, before operating expenses. The numerator of session Bs/h (S-4) and of the per-product ranking in SC-13. |
+| Operating profit | Ganancia operativa | Revenue − COGS − operating expenses, excluding owner withdrawals (which are a distribution of profit, not a cost of making it). The numerator of the monthly owner Bs/h headline (G3, S-4). |
+| Net position | Posición neta | `stock value + bank + cash + receivables − customer deposits` — what the business is actually worth to her at a moment, with money held for undelivered orders excluded because it is not hers yet (ADR-012). Reported nominally and deflated by the input cost index (KOK-080); under inflation the nominal line can rise while the real one falls. |
 | Business date | Fecha | Local date (America/La_Paz) an event belongs to for reporting (INV-3). |
 | Event | Evento | Any user-recorded business fact (purchase, production, sale, order action, exit, count, financial movement, session). |
 | Draft | Borrador | AI-proposed event awaiting human confirmation (INV-4). |
@@ -60,8 +70,10 @@ term exactly**. When speaking with the owner, use Spanish. Enum literals per Doc
 | `DEBT_COLLECTION` | Cobro de deuda |
 | `SUPPLY_PURCHASE` | Compra de insumos |
 | `DEPOSIT_REFUND` | Devolución de anticipo |
-| centavos | Storage unit of money: Bs 1,00 = 100 centavos (INV-6) |
+| centavos | Storage unit of money amounts — totals, balances, line totals: Bs 1,00 = 100 centavos (INV-6, ADR-017) |
+| milli-centavo per whole unit (`_mc`) | Storage unit of **every per-unit rate** — sale price, unit price, WAC, replacement cost, cost snapshots: Bs 8,00 per unit → `8000000`. One scale for all rates, so any two of them can be subtracted safely (ADR-017) |
 | milli-unit | Storage unit of quantity: 1 kg → 1000 (unit `KG`) |
+| basis points (bp) | Storage unit of percentages and rates: 30% → `3000`, 100% → `10000` (INV-6) |
 
 ## Product domain (fixture catalog vocabulary)
 

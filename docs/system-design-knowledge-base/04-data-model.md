@@ -12,17 +12,43 @@ authoritative schema; Drizzle definitions in `apps/worker/src/db/schema.ts` MUST
 - Soft delete: business-event tables carry `deleted_at TEXT NULL`; queries filter it by default.
 - All FKs declared with `ON DELETE RESTRICT` unless noted (D1 enforces FKs; keep `PRAGMA foreign_keys=ON` semantics via wrangler default).
 
-## 2. Numeric representation (INV-6)
+## 2. Numeric representation (INV-6, ADR-017)
 
-| Concept | Storage | Example |
-|---------|---------|---------|
-| Money (BOB) | `INTEGER` centavos | Bs 12.50 → `1250` |
-| Quantity | `INTEGER` milli-units of the item's unit | 1.5 kg (unit=KG) → `1500` |
-| Percent / rates | `INTEGER` basis points | 30% → `3000` |
-| Unit costs (derived, needs precision) | `INTEGER` micro-centavos per milli-unit is overkill → store as `REAL` **only** in cached/derived columns (`wac`, `replacement_cost`), documented per column; all persisted transaction amounts remain INTEGER |
+Four scales, one per concept. **No concept has two scales** — that rule is the whole point, and
+it exists because the previous model had two different denominators for "a per-unit price" and
+shipped two 1000× bugs (KOK-069; see ADR-017 for the full history).
 
-Rule: arithmetic happens on integers/exact decimals in `packages/shared/money.ts`; rounding
-half-up only when producing a final money amount.
+| Concept | Storage | Brand (`packages/shared`) | Column suffix | Example |
+|---------|---------|---------------------------|---------------|---------|
+| Money amount — totals, balances, line totals, transaction amounts | `INTEGER` centavos | `Centavos` | none | Bs 12.50 → `1250` |
+| **Any per-unit rate** — sale price, line unit price, `wac`, `replacement_cost`, cost snapshots, theoretical unit cost | `INTEGER` milli-centavos per **WHOLE** unit | `MilliCentavosPerUnit` | `_mc` | Bs 8.00 per unit → `8000000`; Bs 12.345/kg → `12345000` |
+| Quantity | `INTEGER` milli-units of the item's own unit | `MilliUnits` | none | 1.5 kg (unit=KG) → `1500` |
+| Percent / rate | `INTEGER` basis points | `BasisPoints` | none | 30% → `3000` |
+
+Rules:
+
+- **`REAL` does not appear in the schema.** Milli-centavos carry three decimal digits below the
+  centavo — more precision than the domain needs, and deterministic, so WAC replay (ADR-016) is
+  reproducible.
+- **The denominator of every rate is the whole unit**, never the milli-unit, so
+  `sale_price_mc − replacement_cost_mc` is always dimensionally valid.
+- **Two conversion helpers only**, both in `packages/shared/money.ts`, and they are the only
+  place a scale factor is written anywhere in the repo:
+  `totalCentavos(rate, qty)` = `roundHalfUp(rate × qty / 1e6)` and
+  `rateFromTotal(total, qty)` = `roundHalfUp(total × 1e6 / qty)`.
+  A literal `1000` / `1e6` in a cost or price expression outside those modules fails review (D-5).
+- **Brands are nominal and zero-runtime**; mixing scales is a compile error. Runtime
+  `assertSafeInteger` guards remain at every boundary — brands catch developer error,
+  assertions catch bad input.
+- Arithmetic happens on integers in `packages/shared/money.ts` / `qty.ts`; rounding half-up only
+  when producing a final amount; proportional splits use largest-remainder allocation.
+
+> **Transition state (2026-07-27 → KOK-071).** This section states the target adopted in
+> ADR-017. The DDL in §3 below still shows the **pre-migration-0007** columns — `REAL`,
+> per-milli-unit costs, un-suffixed names — because it must keep mirroring `db/schema.ts` 1:1
+> while the migration is pending. KOK-071 rewrites §3's affected columns in the same PR as the
+> migration (D-6); until it merges, §3 is what the database holds and §2 is what it is becoming.
+> Do not build new columns against §3's old scales.
 
 ## 3. Schema (DDL)
 
@@ -77,10 +103,27 @@ CREATE TABLE recipe_lines (
 CREATE TABLE price_history (                     -- price stability analysis (G2)
   id TEXT PRIMARY KEY,
   item_id TEXT NOT NULL REFERENCES items(id),
-  price INTEGER NOT NULL,                        -- centavos
+  price INTEGER NOT NULL,                        -- centavos (→ price_mc, KOK-071)
   effective_from TEXT NOT NULL,                  -- business_date
   note TEXT
 );
+
+-- PENDING (KOK-073, not yet applied): erosion series for G2.
+CREATE TABLE replacement_cost_history (
+  id TEXT PRIMARY KEY,
+  item_id TEXT NOT NULL REFERENCES items(id),
+  replacement_cost REAL NOT NULL,                -- same representation as items.replacement_cost
+                                                 -- at creation time; rescaled to
+                                                 -- replacement_cost_mc INTEGER by KOK-071 if this
+                                                 -- lands before migration 0007 (it should)
+  observed_at TEXT NOT NULL,                     -- ISO-8601 UTC, = items.replacement_cost_updated_at
+  business_date TEXT NOT NULL,
+  source TEXT NOT NULL CHECK (source IN ('PURCHASE','NIGHTLY','MANUAL'))
+);
+-- Append-only, written by the KOK-029 refresh ONLY when the recomputed value differs from the
+-- live one (no row per no-op run). Never edited, never soft-deleted: it is an observation log,
+-- not a business event, so INV-10 does not apply. This table exists because the series cannot be
+-- backfilled — see KOK-073.
 ```
 
 ### 3.2 Sessions
@@ -404,6 +447,13 @@ CREATE TABLE pending_drafts (                    -- one active AI draft per Tele
 | `v_cashflow_daily` | financial_transactions grouped by business_date × category |
 | `v_session_hours` | sessions with derived hours + linked event counts |
 | `v_waste` | stock_exits valued, grouped by reason × month |
+
+**Business-health aggregates are NOT views.** Every metric in Phase 5.5 (money at risk, input
+cost index, contribution Pareto, Bs/h per product, real-vs-nominal position) is computed by a
+pure function in `core/` over a scoped query, following the KOK-035 precedent: the margin math
+that a view got wrong for six migrations is the same math these metrics need, and it belongs
+where it can be property-tested (Doc 11 §2) and unit-typed (ADR-017), not in SQL where a scale
+error is invisible. Views stay for row-shaping and joins; they do no margin arithmetic.
 
 ## 5. Integrity beyond DDL (service-enforced, tested)
 

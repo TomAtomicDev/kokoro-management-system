@@ -29,7 +29,7 @@ better correction ergonomics for a solo operator (ADR-009).
 | INV-3 | Every event has `occurred_at` (UTC) and `business_date` (America/La_Paz); reports group by `business_date`. |
 | INV-4 | AI may draft events; only explicit human confirmation commits a write. |
 | INV-5 | `item_stock.qty_on_hand` = Σ `stock_movements.qty` per item; account `balance` = opening + Σ transactions. Checked nightly. |
-| INV-6 | Money is stored as integer centavos (BOB); quantities as decimal-safe integers in milli-units (Doc 04 §2). Derived money is rounded half-up at the final step only. |
+| INV-6 | One scale per concept (Doc 04 §2, ADR-017): money amounts are integer centavos (BOB); **every per-unit rate** — sale price, unit price, WAC, replacement cost, cost snapshots — is integer milli-centavos per WHOLE unit (`_mc` columns); quantities are integer milli-units of the item's own unit; percentages are basis points. No `REAL` in the schema. Derived money is rounded half-up at the final step only, and the only scale conversions live in `packages/shared/money.ts`. |
 | INV-7 | A custom-order deposit is a liability (`customer_deposits`) from receipt until delivery or refund; it never appears as revenue before delivery. |
 | INV-8 | Stock MAY go negative (capture-first); negative stock raises a persistent reconciliation flag, never a blocking error. |
 | INV-9 | Derived rows always carry `source_event_type` + `source_event_id`; orphan derived rows are forbidden. |

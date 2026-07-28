@@ -192,6 +192,12 @@ screen (CalcTrace).
 
 ## ADR-011 · Numeric representation: integer centavos and milli-unit quantities
 
+**Status update (2026-07-27): partially superseded by [ADR-017](#adr-017--one-scale-per-concept-unit-rates-in-milli-centavos-per-whole-unit-enforced-by-branded-types-supersedes-adr-011s-real-allowance-and-its-no-brand-choice).**
+The integer-centavos / milli-unit / basis-point core stands. Two sub-decisions did not: the
+`REAL` allowance for derived cost columns, and the choice to leave money a bare `number` rather
+than a branded type. Both are replaced by ADR-017 after they produced two shipped 1000× unit
+bugs (KOK-069 and `v_price_health`).
+
 **Context.** SQLite has no DECIMAL; floats corrupt money.
 
 **Decision.** INTEGER centavos for money, INTEGER milli-units for quantities, basis points for
@@ -318,3 +324,74 @@ across items once production recipes are involved, and the impact-preview UX nee
 work (not just a toast). New schema: `costing_adjustments` (Doc 04). This is a prerequisite
 shared by KOK-024 (edit/delete) and KOK-026/KOK-028 (production, WAC cascade on shared-cost
 allocation) — built once in `core/costing`/`core/inventory` rather than twice.
+
+## ADR-017 · One scale per concept: unit rates in milli-centavos per whole unit, enforced by branded types (supersedes ADR-011's REAL allowance and its no-brand choice)
+
+**Context.** ADR-011 chose integer centavos + milli-unit quantities and permitted `REAL` in
+"explicitly-documented derived cache columns". In practice that produced **two different
+denominators for the same-sounding concept**: `sale_price` / `sale_lines.unit_price` are centavos
+per WHOLE unit, while `items.wac`, `items.replacement_cost`, `sale_lines.unit_cost_snapshot` and
+`stock_exits.unit_cost_snapshot` are centavos per MILLI-unit, stored as floats. Nothing
+distinguishes them — not the column type, not the name, not the TypeScript type (both are bare
+`number`). So `sale_price − wac` compiles, runs, and is wrong by ~1000× while looking plausible.
+
+This is not hypothetical. It shipped: `v_price_health`'s three margin columns were wrong by
+1000× from migration 0001 until KOK-069 removed them; `SaleForm.tsx` carries a hand-written
+`unitPrice / 1000` with an explanatory comment; ~25 further ad-hoc `× 1000` / `÷ 1000` sites are
+scattered across `core/costing`, `core/production`, `core/recipes` and eight web components,
+each one an independent chance to get the direction wrong. `money.ts`'s header records the
+original decision *not* to brand the types "to keep every call site ergonomic"; the two bugs
+above are the evidence that cost more than the ergonomics saved.
+
+The system has **not been delivered to the owner and holds no production data**, so the migration
+cost of fixing the representation is close to zero and will only ever rise.
+
+**Decision.** Four scales, one per concept, each with a distinct nominal brand in
+`packages/shared`; no concept has two scales.
+
+| Concept | Scale | Brand | Column suffix |
+|---|---|---|---|
+| Money amount (total, balance, line total) | integer **centavos** | `Centavos` | none |
+| **Any per-unit rate** (sale price, unit price, WAC, replacement cost, cost snapshot, theoretical unit cost) | integer **milli-centavos per WHOLE unit** (Bs 8.00/u → `8_000_000`) | `MilliCentavosPerUnit` | `_mc` |
+| Quantity | integer **milli-units** of the item's own unit | `MilliUnits` | none |
+| Percent / rate | integer **basis points** | `BasisPoints` | none |
+
+1. **Every per-unit rate shares one denominator (the whole unit) and one scale.** `sale_price_mc
+   − replacement_cost_mc` is dimensionally valid; the class of bug above cannot be expressed.
+2. **`REAL` is removed from the schema.** Milli-centavos give ~3 decimal digits below the
+   centavo, strictly more precision than the domain needs and, unlike float, deterministic —
+   WAC replay (ADR-016) becomes reproducible bit-for-bit.
+3. **Exactly two conversion helpers exist**, both in `shared/money.ts`, and they are the only
+   place a scale factor appears anywhere in the repo:
+   `totalCentavos(rate: MilliCentavosPerUnit, qty: MilliUnits): Centavos` (÷10⁶, half-up) and
+   `rateFromTotal(total: Centavos, qty: MilliUnits): MilliCentavosPerUnit` (×10⁶).
+   A bare `1000` or `1e6` outside `money.ts`/`qty.ts` is a review failure (D-5).
+4. **Brands are nominal, zero-runtime** (`number & { readonly __brand: … }`) with explicit
+   constructors. Mixing scales becomes a compile error rather than a plausible wrong number.
+   Runtime `assertSafeInteger` guards stay — brands catch developer error, assertions catch
+   bad input.
+5. **Column names carry `_mc`** so raw SQL, D1 console sessions and CSV exports are
+   self-describing. `8000000` is unreadable; `sale_price_mc = 8000000` is not.
+
+Delivered by a new forward migration (KOK-071), not by editing applied migrations — the
+never-modify-applied-migrations guardrail holds even pre-production, and a fresh dev DB from
+`0001…0007` must be identical to a migrated one.
+
+**Consequences.** One-off churn across ~82 files touching cost/price fields, the shared Zod DTOs
+(D-4 means each schema change lands in API + form + AI tool together), and the money property
+tests (Doc 11 §2), which gain an overflow bound: `rate ≤ 10⁷ mc × qty ≤ 10⁶ mu = 10¹³`, two
+orders of magnitude inside `Number.MAX_SAFE_INTEGER`. Raw integers in the DB get larger and less
+readable, mitigated by the `_mc` suffix and by formatters at every display boundary. Migration
+0007 rewrites values in place (`× 1000` for per-milli-unit costs, `× 1000` for per-whole-unit
+prices) and is a one-way door once real data exists — which is exactly why it happens now.
+
+**Alternatives considered.**
+- *Brands only, keep both denominators.* Cheapest, and the compiler would catch the mismatch.
+  Rejected: it leaves ~25 conversion sites and the `REAL` columns in place, so every future
+  price-vs-cost feature still pays a correctness tax to save one migration we can do for free
+  today.
+- *Normalize costs to per-whole-unit but leave `sale_price` in plain centavos.* Removes most
+  sites but preserves exactly one scale boundary — the boundary KOK-069's bug lived on. Rejected
+  for leaving the door ajar.
+- *Store money as `TEXT` decimal strings or a decimal library.* Rejected under D-10 (no new
+  dependency) and for making SQL comparison/aggregation in views awkward.
