@@ -141,7 +141,7 @@ describe("recordProductionRun (UC-02)", () => {
     );
 
     // C-4: direct = 200*500 + 100*300 = 130000; total = 130150; outputUnitCostMc =
-    // rateFromTotal(130150, 1000) = round(130150 * 1e6/1000) = 130150000 (exact, KOK-071).
+    // rateFromTotal(130150, 1000) = round(130150 * 1e6/1000) = 130150000 (exact).
     expect(result.productionRun.directCost).toBe(130_000);
     expect(result.productionRun.totalCost).toBe(130_150);
     expect(result.productionRun.outputUnitCostMc).toBe(130_150_000);
@@ -161,7 +161,7 @@ describe("recordProductionRun (UC-02)", () => {
     expect(movementA).toMatchObject({ qty: -200, unitCostMc: 500_000_000 });
     expect(movementB).toMatchObject({ qty: -100, unitCostMc: 300_000_000 });
     // outputUnitCostMc = rateFromTotal(totalCost, actualOutputQty) = round(130150 * 1e6/1000) =
-    // 130150000 exactly (KOK-071) — same convention as items.wac_mc.
+    // 130150000 exactly — same convention as items.wac_mc.
     expect(inMovements[0]).toMatchObject({ itemId: output.id, qty: 1000, unitCostMc: 130_150_000 });
 
     // C-1: output item is a brand-new WAC seed (onHand=0, wac=0) -> first entry yields exactly the
@@ -310,7 +310,7 @@ describe("recordProductionRun (UC-02)", () => {
 // consumed. indirectCost 150 centavos. actualOutputQty 1000g.
 //   direct = 200*500 + 100*300 = 100000 + 30000 = 130000
 //   total  = direct + indirectCost = 130000 + 150 = 130150
-//   outputUnitCostMc (KOK-071/ADR-017) = rateFromTotal(130150, 1000) = round(130150 * 1e6/1000)
+//   outputUnitCostMc (ADR-017) = rateFromTotal(130150, 1000) = round(130150 * 1e6/1000)
 //     = 130150000 exactly — same milli-centavos-per-WHOLE-unit convention as items.wac_mc.
 // Asserted EXACTLY, no tolerance (INV-6: money is exact integer centavos).
 // ---------------------------------------------------------------------------
@@ -758,7 +758,7 @@ describe("updateProductionRun (R-1)", () => {
       where: (t, { eq: eqOp }) => eqOp(t.id, output.id),
     });
     // total=400, actualOutputQty=500mu -> rateFromTotal(400,500) = round(400*1e6/500) = 800000
-    // exactly (0.8 old scale x 1,000,000), first-ever entry.
+    // exactly, first-ever entry.
     expect(outputRow?.wacMc).toBe(800_000);
 
     expect(
@@ -918,7 +918,7 @@ describe("restoreProductionRun (Doc 06 principle 6 — 'Deshacer')", () => {
       where: (t, { eq: eqOp }) => eqOp(t.id, output.id),
     });
     // First-ever entry for a brand-new output item -> wacMc lands exactly on the run's own
-    // outputUnitCostMc (KOK-071: both are rateFromTotal(totalCost, actualOutputQty)); comparing
+    // outputUnitCostMc (both are rateFromTotal(totalCost, actualOutputQty)); comparing
     // against the pre-delete DTO value is also the "exactly as they were" claim this test makes.
     expect(outputRow?.wacMc).toBe(created.productionRun.outputUnitCostMc);
 

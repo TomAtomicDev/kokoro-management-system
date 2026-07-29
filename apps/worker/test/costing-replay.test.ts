@@ -208,13 +208,13 @@ describe("planCostingReplay — backdated change (R-2/R-4)", () => {
    * Negative, per Doc 04 §3.4's sign convention: the goods really cost more than was booked, so
    * accumulated margin FELL.
    *
-   * KOK-071 (ADR-017): wac/unit-cost numbers above are stated at the pre-migration scale for
-   * readability; stored/asserted values are each ×1,000,000 (integer MilliCentavosPerUnit).
-   * `cost_delta` is unaffected — it is a Centavos total, and replay.ts divides the mc-scale
-   * intermediate back down by the same 1,000,000 before rounding it. `before.wacMc` = 3 666 667,
-   * not the naive 44 000 000 000/12 000 = 3 666 666.67 scaled up — every purchase-line rate along
-   * the way (2 000 000, 4 000 000) was already an exact integer, so the single rounding step is
-   * the last division, same as the pre-migration float's only source of a repeating fraction.
+   * The wac/unit-cost numbers in the walkthrough above are written in simplified units
+   * (1 = 1,000,000 mc) to keep the arithmetic readable; stored and asserted values are the integer
+   * `MilliCentavosPerUnit` equivalents (ADR-017). `cost_delta` is on a different scale — it is a
+   * Centavos total, and replay.ts divides the mc-scale intermediate back down through
+   * `totalCentavos` before rounding it. `before.wacMc` = 3 666 667: every purchase-line rate along
+   * the way (2 000 000, 4 000 000) is already an exact integer, so the division at the end is the
+   * single rounding step and the only source of a repeating fraction.
    */
   it("replays a single item's kardex, corrects the WAC, and books the cost delta forward", async () => {
     const db = createDb(env.DB);

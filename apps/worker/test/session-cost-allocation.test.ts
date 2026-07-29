@@ -123,7 +123,7 @@ async function runRow(db: TestDb, id: string) {
   return row;
 }
 
-/** Returns `items.wac_mc` (KOK-071/ADR-017: milli-centavos per WHOLE unit). */
+/** Returns `items.wac_mc` (ADR-017: milli-centavos per WHOLE unit). */
 async function itemWac(db: TestDb, id: string): Promise<number> {
   const row = await db.query.items.findFirst({ where: (t, { eq: eqOp }) => eqOp(t.id, id) });
   if (!row) throw new Error(`item ${id} not found`);
@@ -465,7 +465,7 @@ describe("planSessionCostAllocation via updateSession (KOK-028, S-3)", () => {
     expect(adjustment).toMatchObject({
       triggerEventType: "session",
       triggerEventId: session.id,
-      // cost_delta (Centavos) is unaffected by KOK-071 — it's computed as
+      // cost_delta (Centavos) is unaffected by — it's computed as
       // (frozenMc - replayedMc) * qty / 1_000_000, and the mc-scale ×1,000,000 cancels back out:
       // (100_000_000 - 200_000_000) * 500 / 1_000_000 = -50_000.
       costDelta: -50_000,

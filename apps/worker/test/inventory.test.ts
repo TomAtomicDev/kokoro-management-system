@@ -21,7 +21,7 @@ import {
 import { createDb } from "../src/db/index.js";
 
 const ACTOR = "OWNER_WEB" as const;
-// KOK-071 (ADR-017): brand alias, local to this file for readability — see costing.test.ts.
+// ADR-017: brand alias, local to this file for readability — see costing.test.ts.
 const mc = toMilliCentavosPerUnit;
 
 type TestDb = ReturnType<typeof createDb>;
@@ -236,9 +236,9 @@ describe("buildStockMovementStatements — total_cost (Doc 04 §3.4)", () => {
     const db = createDb(env.DB);
     const item = await seedItem(db, "Rounding item");
 
-    // KOK-071: qty=1500 milli-units, unit_cost_mc=3_333_000 milli-centavos/WHOLE unit ->
+    // qty=1500 milli-units, unit_cost_mc=3_333_000 milli-centavos/WHOLE unit ->
     // totalCentavos = 1500*3_333_000/1e6 = 4999.5 -> rounds to 5000 (same tie-break case as the
-    // pre-migration 1500*3.333=4999.5 example — 3.333 old-scale is exactly 3_333_000 new-scale).
+    // i.e. totalCentavos(3_333_000, 1500) — the half-up case, 4999.5 rounding to 5000.)
     const { statements } = buildStockMovementStatements(db, [
       movement({ itemId: item.id, type: "PURCHASE_IN", qty: 1500, unitCostMc: mc(3_333_000) }),
     ]);

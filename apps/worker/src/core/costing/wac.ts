@@ -4,12 +4,10 @@
 // parameter, nothing async — so it is trivially usable both by future event services (purchases
 // KOK-016, production KOK-026) and by fast-check property tests (Doc 11 §2).
 //
-// Convention (KOK-071, ADR-017): `wac` / `entryUnitCost` / the return value of every function here
-// are `MilliCentavosPerUnit` — integer milli-centavos per WHOLE unit — the exact same scale as
-// `items.wac_mc` / `stock_movements.unit_cost_mc` / every `*_unit_cost_snapshot_mc` column. Before
-// KOK-071 this file operated in centavos-per-MILLI-unit floats (Doc 04 §2's old, since-removed
-// scale); the WAC formula itself (C-1) is unchanged, only its representation is. `on_hand` / `qty`
-// values are `MilliUnits` integers, unchanged by this migration.
+// Convention (ADR-017): `wac` / `entryUnitCost` / the return value of every function here are
+// `MilliCentavosPerUnit` — integer milli-centavos per WHOLE unit — the exact same scale as
+// `items.wac_mc` / `stock_movements.unit_cost_mc` / every `*_unit_cost_snapshot_mc` column.
+// `on_hand` / `qty` values are `MilliUnits` integers.
 //
 // ADJUST-vs-entry reasoning (C-1/C-6, KB-amendment-worthy — Doc 03 does not spell this out in so
 // many words, see the report for this task):
@@ -49,9 +47,8 @@ function assertSafeIntegerInput(value: number, label: string): void {
   }
 }
 
-/** KOK-071: `wac`/`entryUnitCost` are integer `MilliCentavosPerUnit` now (ADR-017 removed `REAL`
- * from the schema), so the old float `assertFiniteNonNegative` is replaced by an integer check —
- * still non-negative (a cost can never be negative), still asserting a safe integer (INV-6). */
+/** `wac`/`entryUnitCost` are integer `MilliCentavosPerUnit` (ADR-017), so this asserts a safe
+ * integer (INV-6) and non-negativity — a cost can never be negative. */
 function assertNonNegativeIntegerInput(value: number, label: string): void {
   assertSafeIntegerInput(value, label);
   if (value < 0) {
@@ -73,13 +70,13 @@ function assertNonNegativeIntegerInput(value: number, label: string): void {
  * task's required guard against a NaN/Infinity division — expressed as a precondition instead of
  * a separate post-hoc zero-check.
  *
- * KOK-071/ADR-017: `wac`/`entryUnitCost`/the result are `MilliCentavosPerUnit` (integer). The
- * numerator `onHandFloor·wac + entryQty·entryUnitCost` is exact integer arithmetic (both terms
- * share the "milli-units × milli-centavos-per-whole-unit" scale — the same pre-division numerator
+ * ADR-017: `wac`/`entryUnitCost`/the result are `MilliCentavosPerUnit` (integer). The numerator
+ * `onHandFloor·wac + entryQty·entryUnitCost` is exact integer arithmetic (both terms share the
+ * "milli-units × milli-centavos-per-whole-unit" scale — the same pre-division numerator
  * `totalCentavos` computes for a single rate/qty pair, just summed across the prior balance and
- * this entry before the one division). `roundHalfUpToInt` produces the new integer WAC — REAL is
- * gone, so every replay of the same inputs reproduces the identical result (ADR-017's determinism
- * point), where the old float version could drift by summation order.
+ * this entry before the one division). `roundHalfUpToInt` produces the new integer WAC. Because
+ * the whole path is integral, every replay of the same inputs reproduces the identical result
+ * bit-for-bit, independent of summation order (ADR-017's determinism point).
  */
 export function applyWacEntry(
   currentWac: MilliCentavosPerUnit,
@@ -110,11 +107,10 @@ export function applyWacEntry(
 
 /**
  * C-2: `unit_cost = line_total / qty`. `lineTotal` is centavos (integer) for the WHOLE purchase
- * line; `qty` is milli-units (integer). KOK-071: the result is now `MilliCentavosPerUnit` (integer
- * milli-centavos per whole unit) instead of the old centavos-per-milli-unit float — this is
- * exactly `rateFromTotal` (packages/shared/money.ts), the one sanctioned rate-from-total
- * conversion (ADR-017), so this function is now a thin, C-2-named wrapper around it rather than a
- * second implementation of the same division.
+ * line; `qty` is milli-units (integer); the result is `MilliCentavosPerUnit` (integer
+ * milli-centavos per whole unit). That is exactly `rateFromTotal` (packages/shared/money.ts), the
+ * one sanctioned rate-from-total conversion (ADR-017), so this is a thin, C-2-named wrapper around
+ * it rather than a second implementation of the same division.
  */
 export function computePurchaseLineUnitCost(lineTotal: number, qty: number): MilliCentavosPerUnit {
   assertSafeIntegerInput(lineTotal, "lineTotal");

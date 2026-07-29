@@ -4,12 +4,15 @@
 //
 // Deliberately NOT core/recipes/theoretical-cost.ts's computeTheoreticalCostPerOutputUnit, even
 // though the shape is nearly identical: that function's job is a live, rounded, per-WHOLE-unit
-// preview for comparing against `items.sale_price` (C-3b). This function's job is the CACHED
-// column itself — `items.replacement_cost_mc` — an integer `MilliCentavosPerUnit`. ADR-017's
-// KOK-071 vertical-2 amendment resolves the old float rationale: the former centavos-per-milli-unit
-// grid made an integer cache far too coarse, but the `_mc` grid bounds each recursive BOM level's
-// quantization to <= 0.5 mc. Round half-up once here, then let dependency order feed that integer
-// cache to deeper levels; display rounding remains a separate, coarser concern.
+// preview for comparing against `items.sale_price_mc` (C-3b). This function's job is the CACHED
+// column itself — `items.replacement_cost_mc` — an integer `MilliCentavosPerUnit`.
+//
+// The cache is an integer even though it is read back RECURSIVELY as an ingredient cost by a
+// deeper item's C-3 (RAW_MATERIAL → SEMI_FINISHED → FINISHED), because the `_mc` grid bounds each
+// level's quantization to <= 0.5 mc — three decimal digits below the centavo the value is ever
+// displayed at, and negligible against the leaf quantization that is unavoidable either way
+// (ADR-017). Round half-up once here, then let dependency order feed that integer cache to deeper
+// levels; display rounding remains a separate, coarser concern.
 //
 // Same "plain, synchronous, DB-free" convention as wac.ts/theoretical-cost.ts — no `Db` parameter,
 // nothing async, directly usable by property tests (Doc 11 §2) without a D1 binding.

@@ -1,19 +1,19 @@
 // Money primitives — the foundation of INV-6 (Doc 04 §2, ADR-017).
 //
-// Representation: money is an INTEGER number of BOB centavos (Bs 12.50 → 1250).
-// Money/rate/quantity types below are NOMINAL BRANDS (`number & { readonly
-// __brand }`), not bare `number`. ADR-011 originally chose a bare `number`,
-// reasoning that `assertSafeInteger` at each function boundary was safety
-// enough and a brand would only cost ergonomics. ADR-017 overturns that
-// decision: it shipped two real 1000×-scale bugs — `v_price_health`'s margin
-// columns were wrong by 1000× from migration 0001 until KOK-069, and
-// The former `SaleForm.tsx` hand-written scale workaround showed
-// because nothing (not the column, not the name, not the TypeScript type)
-// distinguished a centavos-per-WHOLE-unit amount from a centavos-per-MILLI-unit
-// one. Brands make that class of bug a compile error: a bare number literal no
-// longer satisfies `Centavos`/`BasisPoints`/`MilliCentavosPerUnit`, and mixing
-// scales requires going through the explicit conversion helpers below.
-// Runtime `assertSafeInteger` guards remain at every constructor and function
+// Representation: money is an INTEGER number of BOB centavos (Bs 12.50 → 1250),
+// and every per-unit rate is an INTEGER number of milli-centavos per WHOLE unit
+// (Bs 8.00/u → 800_000). One scale per concept; no concept has two.
+//
+// The money/rate/quantity types below are NOMINAL BRANDS (`number & { readonly
+// __brand }`), not bare `number`, because nothing else distinguishes two
+// same-shaped amounts on different scales — not the column, not the name, not
+// the TypeScript type — so mixing them would compile, run, and be wrong by a
+// factor of 1000 while looking plausible. Brands make that a compile error: a
+// bare number literal does not satisfy
+// `Centavos`/`BasisPoints`/`MilliCentavosPerUnit`, and crossing scales requires
+// the explicit conversion helpers below, which are the only place in the repo a
+// scale factor appears (enforced by `scripts/check-scale-literals.mjs`).
+// Runtime `assertSafeInteger` guards sit at every constructor and function
 // boundary — brands catch developer error, assertions catch bad input.
 //
 // All arithmetic stays on integers; the only place a fraction appears is

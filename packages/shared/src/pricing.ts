@@ -22,9 +22,9 @@ export interface PriceHealthRowDto {
   name: string;
   /** Centavos per whole unit; `null` means no price set yet (nothing to alert on). */
   salePriceMc: MilliCentavosPerUnit | null;
-  /** Integer milli-centavos per WHOLE unit (ADR-017/KOK-071). */
+  /** Integer milli-centavos per WHOLE unit (ADR-017). */
   wacMc: number;
-  /** Integer milli-centavos per WHOLE unit (ADR-017/KOK-071). */
+  /** Integer milli-centavos per WHOLE unit (ADR-017). */
   replacementCostMc: number;
   replacementCostUpdatedAt: string | null;
   /** C-5 margin over `wac` ("margen histÃƒÆ’Ã‚Â³rico") ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â `null` when `salePrice` is null or zero. */

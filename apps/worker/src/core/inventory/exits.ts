@@ -29,8 +29,8 @@
 //     snapshot is this exit's frozen valuation of that item; nothing about correcting "8 kg, not
 //     5 kg" makes the price the flour was carried at that day wrong, and re-snapshotting would
 //     silently re-value a past day at today's WAC — R-4's spirit, arriving through the edit door.
-//   - `item_id` changed → RE-SNAPSHOT at the new item's current WAC. The old snapshot was a price
-//     per milli-unit OF A DIFFERENT ITEM; carrying it over would value sugar at the WAC of flour,
+//   - `item_id` changed → RE-SNAPSHOT at the new item's current WAC. The previous snapshot was a
+//     unit rate FOR A DIFFERENT ITEM; carrying it over would value sugar at the WAC of flour,
 //     which is not a preserved history, just a wrong number. There is no correct old snapshot to
 //     preserve here, so C-6's ordinary rule (value at the item's current WAC) applies afresh.
 // Either way this stays a VALUATION read (`getCurrentWac` + `snapshotUnitCost`) and never an

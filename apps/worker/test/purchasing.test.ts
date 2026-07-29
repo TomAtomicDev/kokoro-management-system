@@ -46,13 +46,13 @@ import {
 const ACTOR = "OWNER_WEB" as const;
 const NOW = "2026-07-16T10:00:00.000Z";
 const BUSINESS_DATE = "2026-07-16";
-// KOK-071 (ADR-017): brand alias, local to this file for readability ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â see costing.test.ts.
+// ADR-017: brand alias, local to this file for readability ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â see costing.test.ts.
 const mc = toMilliCentavosPerUnit;
 
 type TestDb = ReturnType<typeof createDb>;
 
 /** DB rows carry a plain `number` for `unit_cost_mc`; `recomputeWacFromMovements` wants the branded
- * `MilliCentavosPerUnit` (KOK-071). Mirrors invariants/wac-replay.test.ts's identical helper. */
+ * `MilliCentavosPerUnit`. Mirrors invariants/wac-replay.test.ts's identical helper. */
 function toReplayMovements(
   rows: readonly { type: string; qty: number; unitCostMc: number }[],
 ): ReplayMovement[] {
@@ -586,8 +586,8 @@ describe("recordPurchase ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â backdated captur
       where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
     });
     // (12 000Ãƒâ€šÃ‚Â·6 000 000 + 10 000Ãƒâ€šÃ‚Â·4 000 000) / 22 000 = 112 000 000 000/22 000 = 5 090 909.0909ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ ->
-    // roundHalfUpToInt -> 5 090 909 (KOK-071: redo the division at the new scale ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 112 000/22 000's
-    // old float approximation 5.0909 x 1,000,000 would give the wrong 5 090 900).
+    // roundHalfUpToInt -> 5 090 909. The division is performed once, on the mc scale: rounding
+    // 112 000/22 000 to 5.0909 first and scaling up would give the wrong 5 090 900.
     expect(itemRow?.wacMc).toBe(5_090_909);
 
     // ...and it equals a from-zero recompute over the whole committed kardex (R-2): whatever the
@@ -1156,7 +1156,7 @@ describe("updatePurchase (R-1)", () => {
       ACTOR,
     );
 
-    // Pre-edit wac = (2000*2 + 10000*4) / 12000 = 44000/12000 = 3.6667 -> at the new scale,
+    // Pre-edit wac = (2000*2 + 10000*4) / 12000 = 44000/12000 = 3.6667 -> on the mc scale,
     // (2000Ãƒâ€šÃ‚Â·2 000 000 + 10000Ãƒâ€šÃ‚Â·4 000 000)/12000 = 44 000 000 000/12 000 = 3 666 666.667 -> 3 666 667.
     const beforeEdit = await db.query.items.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.id, item.id),

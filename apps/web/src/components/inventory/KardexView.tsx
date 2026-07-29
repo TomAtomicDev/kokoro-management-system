@@ -28,7 +28,7 @@ export interface KardexViewProps {
   onOpenChange: (open: boolean) => void;
 }
 
-/** Doc 04 §3.4 (ADR-017/KOK-071): unit_cost_mc is integer milli-centavos per WHOLE unit — same
+/** Doc 04 §3.4 (ADR-017): unit_cost_mc is integer milli-centavos per WHOLE unit — same
  * display scale as StockTable's wac column. */
 function formatUnitCost(row: KardexRowDto): string {
   return `${formatMoney(

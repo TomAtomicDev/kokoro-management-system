@@ -2,9 +2,9 @@
 // then by name â€” see packages/shared/src/inventory-views.ts) so no client-side re-sort is needed.
 // Row click opens the Kardex drawer for that item.
 //
-// KOK-071 (ADR-017) migrated both WAC and replacement cost to integer milli-centavos per WHOLE
-// unit. Both columns use the shared `totalCentavos` formatter below. `stockValue` is already a
-// plain INTEGER centavos column (Doc 04 Â§3.4), so it needs no conversion.
+// WAC and replacement cost are both integer milli-centavos per WHOLE unit (ADR-017), so both
+// columns go through the shared `totalCentavos` formatter below. `stockValue` is a plain INTEGER
+// centavos column (Doc 04 §3.4), so it needs no conversion.
 
 import type { StockRowDto } from "@kokoro/shared";
 import {
@@ -27,7 +27,7 @@ export interface StockTableProps {
   onRowClick?: (row: StockRowDto) => void;
 }
 
-/** ADR-017/KOK-071: both rates are integer milli-centavos per WHOLE unit. */
+/** ADR-017: both rates are integer milli-centavos per WHOLE unit. */
 function formatUnitCostMc(rateMc: number, unit: StockRowDto["unit"]): string {
   return `${formatMoney(totalCentavos(toMilliCentavosPerUnit(rateMc), WHOLE_UNIT_MILLI_UNITS))} / ${inventoryLabels.unitAbbrev[unit]}`;
 }

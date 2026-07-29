@@ -104,7 +104,7 @@ export interface ItemDto {
   kind: ItemKind;
   category: ItemCategory;
   unit: Unit;
-  /** Derived (C-1), milli-centavos per WHOLE unit (ADR-017/KOK-071) ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â read-only, render with a
+  /** Derived (C-1), milli-centavos per WHOLE unit (ADR-017) ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â read-only, render with a
    * "calculado" affordance, never editable. */
   wacMc: number;
   /** Derived (C-3), integer milli-centavos per WHOLE unit ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â read-only. */

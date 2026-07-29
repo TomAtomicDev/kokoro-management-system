@@ -59,7 +59,7 @@ import {
 } from "../../src/db/schema.js";
 
 const ACTOR = "OWNER_WEB" as const;
-// KOK-071 (ADR-017): brand alias, local to this file for readability — see costing.test.ts.
+// ADR-017: brand alias, local to this file for readability — see costing.test.ts.
 const mc = toMilliCentavosPerUnit;
 
 type TestDb = ReturnType<typeof createDb>;
@@ -80,11 +80,10 @@ async function seedItem(db: TestDb, name: string, kind: "RAW_MATERIAL" | "SEMI_F
  * both zero (deliberately — a non-zero overhead would add a constant to every expected number below
  * and obscure which part of the cascade a regression broke).
  *
- * KOK-071 (ADR-017): `consumedUnitCost` is stated at the old centavos-per-milli-unit scale for
- * readability (matching every other seed helper in this test suite); `directCost`/`totalCost`
- * (Centavos, NOT migrated) are computed from it exactly as before, and only the two `_mc` columns
- * (`unit_cost_snapshot_mc`, `unit_cost_mc`) get the ×1,000,000 conversion. The returned
- * `outputUnitCostMc` is at the new scale, ready to seed `items.wac_mc` directly.
+ * `consumedUnitCost` is given in simplified units (1 = 1,000,000 mc) for readability, matching
+ * every other seed helper in this test suite. `directCost`/`totalCost` are Centavos totals and are
+ * computed from it directly; only the two rate columns (`unit_cost_snapshot_mc`, `unit_cost_mc`)
+ * carry the mc scale. The returned `outputUnitCostMc` is already mc, ready to seed `items.wac_mc`.
  */
 async function seedProductionRun(
   db: TestDb,
@@ -267,10 +266,10 @@ beforeEach(async () => {
  * its stored unit cost of 10, and S.wac would land back on 10 — a silent no-op. The 30 is
  * unreachable without raw-before-semi ordering.
  *
- * KOK-071 (ADR-017): every wac/unit-cost number above is stated at the pre-migration scale for
- * readability; the actual stored/asserted values are each ×1,000,000 (integer
- * MilliCentavosPerUnit) — every step here is an exact multiple (2, 6, 10, 30), so none of the
- * assertions below pick up a rounding remainder.
+ * Every wac/unit-cost number in the walkthrough above is written in simplified units
+ * (1 = 1,000,000 mc) to keep the arithmetic readable; the actual stored and asserted values are
+ * the integer `MilliCentavosPerUnit` equivalents (ADR-017). Every step here is an exact multiple
+ * (2, 6, 10, 30), so none of the assertions below pick up a rounding remainder.
  */
 const RAW_PURCHASE_DAY = "2026-07-10";
 const PRODUCTION_DAY = "2026-07-12";

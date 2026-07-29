@@ -90,7 +90,7 @@ function assertValidUnitCost(unitCostMc: MilliCentavosPerUnit): void {
  * convention (Doc 03 §1-2) and computing `total_cost` internally so it can never drift from
  * `qty × unit_cost_mc` — callers do not supply `total_cost`.
  *
- * Per Doc 04 §3.4's column comments (KOK-071/ADR-017), `unit_cost_mc` is "milli-centavos per
+ * Per Doc 04 §3.4's column comments (ADR-017), `unit_cost_mc` is "milli-centavos per
  * WHOLE unit at movement time" and `total_cost` is "centavos, signed" — exactly what
  * `totalCentavos` (packages/shared/money.ts) converts a rate + a milli-unit qty into, rounding
  * half-up. `qty` is signed (in/out), so the signed `total_cost` falls out of `totalCentavos`

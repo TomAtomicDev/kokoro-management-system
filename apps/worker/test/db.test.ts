@@ -146,7 +146,7 @@ describe("migration 0001", () => {
     ]);
   });
 
-  it("v_price_health exposes only raw columns, with no unit-mismatched margin math (KOK-069)", async () => {
+  it("v_price_health exposes only raw columns, with no margin math in SQL", async () => {
     const now = "2026-07-14T10:00:00.000Z";
     await env.DB.prepare(
       `INSERT INTO items

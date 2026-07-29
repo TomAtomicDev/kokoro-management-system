@@ -6,12 +6,11 @@
 // (detectWacDrift / getCurrentWac) is covered separately in costing-repair.test.ts
 // against real D1, mirroring inventory.test.ts's pattern.
 //
-// KOK-071 (ADR-017) re-bless: `wac`/`unitCost`/entry costs are now integer `MilliCentavosPerUnit`
-// (branded via `mc` = `toMilliCentavosPerUnit`, an alias kept local to this file for readability),
-// not the old unbranded float centavos-per-milli-unit. `applyWacEntry`/`replayWacFrom` round every
-// intermediate WAC to the nearest integer (`roundHalfUpToInt`), so exact float identities the old
-// tests relied on (e.g. "applyWacEntry loses no centavos") no longer hold bit-for-bit — replaced
-// below with the bounded-rounding-error property that actually describes the new engine.
+// ADR-017: `wac`/`unitCost`/entry costs are integer `MilliCentavosPerUnit` (branded via `mc` =
+// `toMilliCentavosPerUnit`, an alias kept local to this file for readability).
+// `applyWacEntry`/`replayWacFrom` round every intermediate WAC to the nearest integer
+// (`roundHalfUpToInt`), so the engine is exactly reproducible but does not conserve centavos
+// bit-for-bit. The bounded-rounding-error property below is what describes it.
 
 import { toMilliCentavosPerUnit } from "@kokoro/shared";
 import fc from "fast-check";
@@ -63,7 +62,7 @@ describe("applyWacEntry (C-1)", () => {
   it("weights larger entries more than smaller on-hand, and vice versa", () => {
     // onHand=100 @ wac=1000, entry qty=100000 @ cost=10: on-hand's weight is only ~0.1% of the
     // total (100 vs 100100). The true weighted average is (100*1000 + 100000*10)/100100 =
-    // 1100000/100100 ≈ 10.989, which `roundHalfUpToInt` rounds to 11 — KOK-071: the result is now
+    // 1100000/100100 ≈ 10.989, which `roundHalfUpToInt` rounds to 11 —
     // an integer, so this is no longer "close to 10", it IS 11.
     const dominated = applyWacEntry(mc(1000), 100, 100000, mc(10));
     expect(dominated).toBe(11);
@@ -94,7 +93,7 @@ describe("applyWacEntry (C-1)", () => {
 describe("computePurchaseLineUnitCost (C-2)", () => {
   it("rate-from-total: line_total (centavos) × 1,000,000 / qty (milli-units), rounded half-up (ADR-017)", () => {
     // 10000 centavos / 3000 milli-units -> exact rate is 10000*1e6/3000 = 3,333,333.33... ->
-    // roundHalfUpToInt takes it to 3,333,333 (KOK-071: integer, not the old unrounded float).
+    // roundHalfUpToInt takes it to 3,333,333.
     expect(computePurchaseLineUnitCost(10000, 3000)).toBe(3_333_333);
     expect(computePurchaseLineUnitCost(5000, 1000)).toBe(5_000_000); // exact whole-unit case
   });
@@ -116,8 +115,6 @@ describe("computePurchaseLineUnitCost (C-2)", () => {
 
 describe("snapshotUnitCost", () => {
   it("is the identity for a valid wac", () => {
-    // KOK-071: wac is now an integer, so the old 123.456 float example is replaced with an
-    // integer of the same order of magnitude.
     expect(snapshotUnitCost(mc(123_456))).toBe(123_456);
     expect(snapshotUnitCost(mc(0))).toBe(0);
   });
@@ -219,8 +216,7 @@ describe("replayWacFrom (R-2/R-4 resume-from-a-point)", () => {
   });
 
   it("an empty tail returns the seed unchanged", () => {
-    // KOK-071: seed.wac is validated eagerly (even for an empty tail), so it must be an integer —
-    // the old 42.5 float example is replaced with an integer of the same order of magnitude.
+    // seed.wac is validated eagerly (even for an empty tail), so it must be an integer.
     const seed = { onHand: 750, wac: mc(4250) };
     expect(replayWacFrom(seed, [])).toEqual(seed);
   });
@@ -304,7 +300,7 @@ describe("replayWacWithTrace (R-4 cost_delta inputs)", () => {
 
 const entryArb = fc.record({
   qty: fc.integer({ min: 1, max: 1_000_000 }), // milli-units, always positive (a real entry)
-  unitCost: fc.integer({ min: 0, max: 100_000 }).map(mc), // KOK-071: integer MilliCentavosPerUnit
+  unitCost: fc.integer({ min: 0, max: 100_000 }).map(mc), // integer MilliCentavosPerUnit
 });
 
 describe("property: WAC stays bounded by the entry unit costs used to compute it", () => {
@@ -322,9 +318,9 @@ describe("property: WAC stays bounded by the entry unit costs used to compute it
         const min = Math.min(...costs);
         const max = Math.max(...costs);
 
-        // KOK-071: every value here is now an integer, and roundHalfUpToInt of a real number in
-        // [min,max] (min/max integers) can never land outside [min,max] — so unlike the old float
-        // version, no epsilon is needed; the bound holds exactly.
+        // Every value here is an integer, and roundHalfUpToInt of a real number in [min,max]
+        // (min/max integers) can never land outside [min,max] — so no epsilon is needed; the
+        // bound holds exactly.
         expect(wac).toBeGreaterThanOrEqual(min);
         expect(wac).toBeLessThanOrEqual(max);
       }),
@@ -370,7 +366,7 @@ describe("property: WAC stays bounded by the entry unit costs used to compute it
             .filter((m) => m.type === "PURCHASE_IN")
             .map((m) => m.unitCostMc);
           const max = Math.max(...entryCosts);
-          // KOK-071: integers throughout, no epsilon needed (see the property above).
+          // integers throughout, no epsilon needed (see the property above).
           expect(wac).toBeGreaterThanOrEqual(0);
           expect(wac).toBeLessThanOrEqual(max);
         },
@@ -379,15 +375,13 @@ describe("property: WAC stays bounded by the entry unit costs used to compute it
   });
 });
 
-describe("property: applyWacEntry's rounding error is bounded — KOK-071 accepts a ≤0.5-per-unit remainder in exchange for integer determinism", () => {
-  // KOK-071 note: the pre-migration version of this property asserted applyWacEntry "loses no
-  // centavos" — an EXACT algebraic identity, achievable only because both sides were floats. Once
-  // the result is rounded to the nearest integer (roundHalfUpToInt, ADR-017's determinism
-  // requirement — no accumulated float drift across a replay), that exact identity is no longer
-  // true by construction: rounding the rate before multiplying it back out by newOnHand can move
-  // the reconstructed total away from the exact (unrounded) numerator by up to newOnHand/2. This
-  // replaces the old property with the one that actually holds: the rounding error is bounded, not
-  // absent.
+describe("property: applyWacEntry's rounding error is bounded — accepts a ≤0.5-per-unit remainder in exchange for integer determinism", () => {
+  // applyWacEntry does NOT satisfy an exact "loses no centavos" identity, and cannot: the result
+  // is rounded to the nearest integer (roundHalfUpToInt, ADR-017's determinism requirement — no
+  // accumulated drift across a replay), so rounding the rate before multiplying it back out by
+  // newOnHand can move the reconstructed total away from the exact numerator by up to
+  // newOnHand/2. The property that does hold is that the rounding error is bounded, not absent —
+  // that is what this asserts.
   it("∀ (currentWac, currentOnHand, entryQty, entryUnitCost): |newOnHand·newWac − exactNumerator| ≤ newOnHand/2", () => {
     fc.assert(
       fc.property(
@@ -417,7 +411,7 @@ describe("property: a WAC replay is split-invariant — this is what makes resum
   // depend on WHERE the correction happened to cut, which would be indefensible.
   //
   // Equality here is asserted EXACTLY, not approximately, and that is deliberate: the two runs
-  // perform the identical sequence of identical integer operations (KOK-071: rounding is now a
+  // perform the identical sequence of identical integer operations (rounding is now a
   // deterministic function of the inputs, not float summation order), so any difference at all
   // would mean the seed is not carrying the full state (e.g. a lost negative on-hand, or a WAC
   // rounded on the way through) — precisely the class of bug this property exists to catch.

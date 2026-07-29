@@ -62,7 +62,7 @@ function uniqueName(prefix: string): string {
   return `${prefix} ${seq}`;
 }
 
-/** A FINISHED item carrying stock and a known WAC (6 centavos per milli-unit), the same
+/** A FINISHED item carrying stock and a known WAC (6_000_000 mc per whole unit), the same
  * recordPurchase seam sales.test.ts uses. */
 async function seedStockedItem(db: TestDb, qty = 10_000, lineTotal = 60_000) {
   const item = await createItem(
@@ -537,7 +537,7 @@ describe("deliverOrder (UC-07, O-2)", () => {
     expect(result.sale.lines).toHaveLength(1);
     expect(result.sale.lines[0]).toMatchObject({ itemId, qty: 1000, unitPriceMc: 30_000_000 });
     // WAC frozen at sale time (C-6): the seeded item's WAC is 6_000_000 milli-centavos per whole
-    // unit (KOK-071/ADR-017; recordPurchase's rateFromTotal(60000, 10000) = 6_000_000 exactly).
+    // unit (ADR-017; recordPurchase's rateFromTotal(60000, 10000) = 6_000_000 exactly).
     expect(result.sale.lines[0]?.unitCostSnapshotMc).toBe(6_000_000);
     expect(result.sale.total).toBe(
       totalCentavos(

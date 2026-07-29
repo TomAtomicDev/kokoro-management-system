@@ -150,7 +150,7 @@ export interface ProductionLineDto {
   itemId: string;
   /** Milli-units (Doc 04 §2). */
   qty: number;
-  /** Milli-centavos per WHOLE unit (Doc 04 §3.4, ADR-017/KOK-071) — this line's item's WAC
+  /** Milli-centavos per WHOLE unit (Doc 04 §3.4, ADR-017) — this line's item's WAC
    * snapshotted at commit time (C-4's "consumed item's WAC at commit time"), never rewritten by a
    * later REPLAY (R-4 protects frozen snapshots; the plan books a `costing_adjustments`
    * correction forward instead). */
@@ -182,7 +182,7 @@ export interface ProductionRunDto {
   directCost: number;
   /** Centavos (INV-6), C-4: `directCost + indirectCost + allocatedSessionCost`. */
   totalCost: number;
-  /** Milli-centavos per WHOLE output unit (ADR-017/KOK-071): `rateFromTotal(totalCost,
+  /** Milli-centavos per WHOLE output unit (ADR-017): `rateFromTotal(totalCost,
    * actualOutputQty)` — directly comparable to `items.salePrice`, same convention as
    * `RecipeCostDto.costPerOutputUnit` (recipes.ts). Derived/read-only; never stored as its own
    * column (Doc 04 §3.3 has no such column — only `total_cost` and `actual_output_qty`, from

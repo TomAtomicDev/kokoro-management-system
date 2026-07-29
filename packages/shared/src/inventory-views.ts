@@ -52,9 +52,9 @@ export interface StockRowDto {
   category: ItemCategory;
   unit: Unit;
   /** Weighted average cost, integer milli-centavos per WHOLE unit (Doc 04 Ã‚Â§2/Ã‚Â§3.4, ADR-017/
-   * KOK-071 Ã¢â‚¬â€ same scale as `items.wac_mc`/`stock_movements.unit_cost_mc`). */
+   * Ã¢â‚¬â€ same scale as `items.wac_mc`/`stock_movements.unit_cost_mc`). */
   wacMc: number;
-  /** Replacement cost, integer milli-centavos per WHOLE unit (ADR-017/KOK-071). */
+  /** Replacement cost, integer milli-centavos per WHOLE unit (ADR-017). */
   replacementCostMc: number;
   /** Centavos (INV-6). Null when the item has no set sale price yet. */
   salePriceMc: MilliCentavosPerUnit | null;
@@ -85,7 +85,7 @@ export interface KardexRowDto {
   type: StockMovementType;
   /** Signed milli-units (Doc 04 Ã‚Â§3.4). */
   qty: number;
-  /** Milli-centavos per WHOLE unit at movement time (Doc 04 Ã‚Â§3.4, ADR-017/KOK-071). */
+  /** Milli-centavos per WHOLE unit at movement time (Doc 04 Ã‚Â§3.4, ADR-017). */
   unitCostMc: number;
   /** Centavos, signed (Doc 04 Ã‚Â§3.4). */
   totalCost: number;

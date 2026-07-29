@@ -111,7 +111,7 @@ describe("listStock (Doc 04 §4 v_stock, SC-08)", () => {
       minStockQty: null,
       qtyOnHand: 5000,
       negativeSince: null,
-      stockValue: 10000, // round(5000 * 2_000_000 / 1_000_000), KOK-071
+      stockValue: 10000, // totalCentavos(2_000_000 mc, 5000 mu)
       isLowStock: false,
     });
   });

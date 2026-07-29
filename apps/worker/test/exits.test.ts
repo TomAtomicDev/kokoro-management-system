@@ -47,7 +47,7 @@ import {
 const ACTOR = "OWNER_WEB" as const;
 const NOW = "2026-07-16T10:00:00.000Z";
 const BUSINESS_DATE = "2026-07-16";
-// KOK-071 (ADR-017): brand alias, local to this file for readability — see costing.test.ts.
+// ADR-017: brand alias, local to this file for readability — see costing.test.ts.
 const mc = toMilliCentavosPerUnit;
 
 type TestDb = ReturnType<typeof createDb>;
@@ -57,7 +57,7 @@ async function seedItem(db: TestDb, name: string) {
 }
 
 /** DB rows carry a plain `number` for `unit_cost_mc`; `recomputeWacFromMovements` wants the branded
- * `MilliCentavosPerUnit` (KOK-071). Values read back from a real committed movement are already
+ * `MilliCentavosPerUnit`. Values read back from a real committed movement are already
  * valid non-negative integers (written by the real service), so re-branding here is a safe cast,
  * not a new validation. Mirrors invariants/wac-replay.test.ts's identical helper. */
 function toReplayMovements(
@@ -111,7 +111,7 @@ describe("recordExit (UC-09)", () => {
       },
       ACTOR,
     );
-    // wac = (1000*1 + 1000*3) / 2000 = 2 -> 2_000_000 mc (KOK-071, exact).
+    // wac = (1000*1 + 1000*3) / 2000 = 2 -> 2_000_000 mc (exact).
     const itemAfterPurchases = await db.query.items.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
     });
@@ -334,8 +334,8 @@ describe("recordExit — backdated capture: INV-11 replay guard (R-2/R-5, ADR-01
       where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
     });
     // (2 000·2 000 000 + 10 000·4 000 000) / 12 000 = 44 000 000 000/12 000 = 3 666 666.667 ->
-    // roundHalfUpToInt -> 3 666 667 (KOK-071: redo the division at the new scale, do not just
-    // multiply the old repeating-decimal float by 1,000,000).
+    // roundHalfUpToInt -> 3 666 667. The division is performed once, on the mc scale — rounding a
+    // coarser intermediate first and scaling it up would land on the wrong integer.
     expect(itemRow?.wacMc).toBe(3_666_667);
   });
 
@@ -853,7 +853,7 @@ describe("updateStockExit (R-1)", () => {
       ACTOR,
     );
 
-    // The old snapshot was a price per milli-unit of a DIFFERENT item — meaningless here.
+    // The previous snapshot was a unit rate for a DIFFERENT item — meaningless here.
     expect(updated.exit).toMatchObject({ itemId: itemB.id, unitCostSnapshotMc: 5_000_000 });
 
     const movements = await exitMovements(db, created.exit.id);
@@ -1236,7 +1236,7 @@ describe("updateStockExit / deleteStockExit — backdated: R-5 confirmation (ADR
     const itemRow = await db.query.items.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
     });
-    // (6 000·2 000 000 + 10 000·4 000 000) / 16 000 = 3 250 000 exactly (KOK-071).
+    // (6 000·2 000 000 + 10 000·4 000 000) / 16 000 = 3 250 000 exactly.
     expect(itemRow?.wacMc).toBe(3_250_000);
     expect(itemRow?.wacMc).toBe(recomputeWacFromMovements(toReplayMovements(kardex)));
 
@@ -1299,7 +1299,7 @@ describe("updateStockExit / deleteStockExit — backdated: R-5 confirmation (ADR
       },
       ACTOR,
     );
-    // Same 3 666 667 mc as the earlier scenario in this file (44 000/12 000 redone at the new scale).
+    // Same 3 666 667 mc as the earlier scenario in this file (44 000/12 000 on the mc scale).
     expect(exitB.exit.unitCostSnapshotMc).toBe(3_666_667);
 
     await expect(deleteStockExit(db, exitA.exit.id, {}, ACTOR)).rejects.toMatchObject({

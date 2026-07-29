@@ -1,11 +1,11 @@
 // core/costing — C-5 margin math + price suggestion (KOK-035, Doc 03 §4 C-5,
 // Doc 07 SC-12) and the read query that assembles SC-12's table.
 //
-// KOK-069 removed v_price_health's SQL margin columns after they mixed the legacy
-// centavos-per-whole-unit sale_price with per-milli-unit REAL costs. KOK-071 now stores
-// sale_price_mc, wac_mc, and replacement_cost_mc on one MilliCentavosPerUnit scale.
-// This module still computes margins in application code through totalCentavos; the view
-// supplies no additional data, so listPriceHealth queries items directly.
+// `sale_price_mc`, `wac_mc`, and `replacement_cost_mc` all share one `MilliCentavosPerUnit` scale
+// (ADR-017), so margin arithmetic over them is dimensionally valid. Margins are nonetheless
+// computed here in application code through `totalCentavos` rather than in a SQL view, so the
+// arithmetic sits where the property tests can reach it; `v_price_health` supplies no additional
+// data, so `listPriceHealth` queries `items` directly.
 //
 // Same "plain, synchronous, DB-free" convention as wac.ts/replacement-cost.ts for the pure math ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â
 // `computePriceMargin`/`computePriceSuggested` take no `Db` and are directly usable by fast-check

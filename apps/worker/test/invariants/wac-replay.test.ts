@@ -41,7 +41,7 @@ import {
 } from "../../src/db/schema.js";
 
 const ACTOR = "OWNER_WEB" as const;
-// KOK-071 (ADR-017): brand alias, local to this file for readability — see costing.test.ts.
+// ADR-017: brand alias, local to this file for readability — see costing.test.ts.
 const mc = toMilliCentavosPerUnit;
 
 type TestDb = ReturnType<typeof createDb>;
@@ -97,7 +97,7 @@ async function readKardex(db: TestDb, itemId: string) {
 }
 
 /** DB rows carry a plain `number` for `unit_cost_mc`; `recomputeWacFromMovements` wants the branded
- * `MilliCentavosPerUnit` (KOK-071). Values read back from a real committed movement are already
+ * `MilliCentavosPerUnit`. Values read back from a real committed movement are already
  * valid non-negative integers (written by the real service), so re-branding here is a safe cast,
  * not a new validation. */
 function toReplayMovements(
@@ -154,10 +154,12 @@ describe("INV-11/R-2 — same-item backdated insert lands the full-kardex WAC", 
    * B froze `unit_cost_snapshot` 2 but the replay says it consumed at 6, so
    * cost_delta = (2 − 6) × 8 000 = −32 000 centavos and R-5 demands `confirm: true`.
    *
-   * KOK-071 (ADR-017): every wac/unit-cost number above is stated at the pre-migration scale for
-   * readability; the ACTUAL stored/asserted values below are each ×1,000,000 (integer
-   * MilliCentavosPerUnit). `cost_delta` is unaffected — it is a Centavos total, and replay.ts
-   * divides the mc-scale intermediate back down by the same 1,000,000 before rounding it.
+   * Every wac/unit-cost number in the walkthrough above is written in simplified units
+   * (1 = 1,000,000 mc) to keep the arithmetic readable — C-1 is a ratio, so it is invariant under
+   * that rescaling. The ACTUAL stored and asserted values below are the integer
+   * `MilliCentavosPerUnit` equivalents (ADR-017). `cost_delta` is on a different scale entirely —
+   * it is a Centavos total, and replay.ts divides the mc-scale intermediate back down through
+   * `totalCentavos` before rounding it.
    */
   it("commits the chronologically-correct WAC, and NOT what naive C-1 threading would have written", async () => {
     const db = createDb(env.DB);
@@ -182,10 +184,10 @@ describe("INV-11/R-2 — same-item backdated insert lands the full-kardex WAC", 
     expect(stored.wac).toBe(2_000_000);
     expect(stored.onHand).toBe(2_000);
 
-    // The value the OLD code would have committed. Computed here, from the real pre-state, rather
-    // than hard-coded — so it stays honest if the seed numbers above are ever changed. entryUnitCost
-    // (10 old-scale) is likewise stated at the new scale, 10_000_000, to match what the real
-    // service would have fed applyWacEntry with.
+    // The value un-guarded C-1 threading would have committed. Computed here, from the real
+    // pre-state, rather than hard-coded — so it stays honest if the seed numbers above are ever
+    // changed. `entryUnitCost` is the mc-scale form of the walkthrough's 10, i.e. 10_000_000, to
+    // match what the real service would have fed applyWacEntry with.
     const naiveThreadedWac = applyWacEntry(mc(stored.wac), stored.onHand, 10_000, mc(10_000_000));
     // (2 000·2 000 000 + 10 000·10 000 000) / 12 000 = 104 000 000 000/12 000 = 8 666 666.67 ->
     // roundHalfUpToInt -> 8 666 667.
@@ -209,7 +211,7 @@ describe("INV-11/R-2 — same-item backdated insert lands the full-kardex WAC", 
 
     // (2) THE load-bearing assertion. Without this the test would pass against the pre-guard
     //     `recordPurchase`, which committed 8 666 667 — a green test that cannot fail is worse
-    //     than no test. Both sides are now exact integers (KOK-071), so plain inequality suffices.
+    //     than no test. Both sides are now exact integers, so plain inequality suffices.
     expect(after?.wacMc).not.toBe(naiveThreadedWac);
   });
 
@@ -275,7 +277,7 @@ describe("INV-11 fast path — a same-day capture must NOT trigger a replay", ()
 
     const stored = await readStoredState(db, item.id);
     const naiveThreadedWac = applyWacEntry(mc(stored.wac), stored.onHand, 10_000, mc(4_000_000));
-    // (10 000·2 000 000 + 10 000·4 000 000)/20 000 = 3 000 000 exactly (KOK-071: integer, exact).
+    // (10 000·2 000 000 + 10 000·4 000 000)/20 000 = 3 000 000 exactly (integer, exact).
     expect(naiveThreadedWac).toBe(3_000_000);
 
     // No `confirm` flag: a same-day purchase must never be refused by R-5 in the first place.

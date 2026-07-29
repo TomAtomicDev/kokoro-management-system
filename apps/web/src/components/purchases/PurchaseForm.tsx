@@ -260,9 +260,9 @@ export function PurchaseForm({ open, onOpenChange, accounts, purchase }: Purchas
       );
     }
 
-    // Centavos-per-milli-unit â€” the SAME scale item.replacementCostMc is stored in (Doc 04 Â§2), so
-    // no Ã—1000 conversion is needed to compare the two; Ã—1000 is only applied when formatting a
-    // money-per-whole-unit figure for display (mirrors ItemForm's derived-cost block).
+    // Milli-centavos per WHOLE unit — the SAME scale `item.replacementCostMc` is stored in
+    // (Doc 04 §2, ADR-017), so the two compare directly. Conversion happens only at the display
+    // boundary, via `totalCentavos` (mirrors ItemForm's derived-cost block).
     const unitCost = rateFromTotal(toCentavos(lineTotal), toMilliUnits(qty));
     const abbrev = purchasesLabels.unitAbbrev[item.unit];
     const isHigher =

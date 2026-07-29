@@ -51,9 +51,9 @@ async function createIngredientItem(
     { name: `Harina ${crypto.randomUUID()}`, kind, category: "INGREDIENT", unit: "KG" },
     ACTOR,
   );
-  // `wac` is stated at the old centavos-per-milli-unit scale for readability, matching
-  // `replacementCostMc` (not migrated yet) â€” core/recipes/dto.ts's buildCostDto bridges `wacMc` back
-  // down by the same Ã—1,000,000 factor before combining them, so this is exact, not an approximation.
+  // `wac` and `replacementCostMc` are given in simplified units (1 = 1,000,000 mc) for
+  // readability; `rateFromTotal` below converts each to its integer MilliCentavosPerUnit form, so
+  // the seeded values are exact, not approximations.
   await db
     .update(items)
     .set({

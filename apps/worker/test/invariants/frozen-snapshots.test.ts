@@ -115,7 +115,7 @@ async function seedSale(
     type: "SALE_OUT",
     qty: -params.qty,
     unitCostMc: params.unitCostSnapshotMc,
-    // totalCost (Centavos) is NOT migrated (KOK-071) — divide the mc-scale rate back down.
+    // totalCost is a Centavos total, so divide the mc-scale rate back down.
     totalCost: -Math.round((params.qty * params.unitCostSnapshotMc) / 1_000_000),
     sourceEventType: "sale",
     sourceEventId: saleId,
@@ -204,11 +204,12 @@ beforeEach(async () => {
  * implementation. Negative per Doc 04 §3.4: the goods really cost more than was booked, so
  * accumulated margin fell.
  *
- * KOK-071 (ADR-017): wac/unit-cost numbers above are stated at the pre-migration scale for
- * readability; `EXPECTED_REPLAYED_WAC`/`FROZEN_SNAPSHOT` below are each ×1,000,000 (integer
- * MilliCentavosPerUnit) — every purchase-line rate along the way (2, 4, 10) was an exact multiple,
- * so 5.2 scales to an exact 5_200_000, no rounding remainder. `cost_delta` is unaffected — it is a
- * Centavos total, and replay.ts divides the mc-scale intermediate back down by the same 1,000,000.
+ * The wac/unit-cost numbers in the walkthrough above are written in simplified units
+ * (1 = 1,000,000 mc) to keep the arithmetic readable; `EXPECTED_REPLAYED_WAC`/`FROZEN_SNAPSHOT`
+ * below are the integer `MilliCentavosPerUnit` equivalents (ADR-017). Every purchase-line rate
+ * along the way (2, 4, 10) is an exact multiple, so 5.2 lands on an exact 5_200_000 with no
+ * rounding remainder. `cost_delta` is on a different scale — it is a Centavos total, and replay.ts
+ * divides the mc-scale intermediate back down through `totalCentavos`.
  */
 const EXPECTED_COST_DELTA = -20_000;
 const EXPECTED_REPLAYED_WAC = 5_200_000;

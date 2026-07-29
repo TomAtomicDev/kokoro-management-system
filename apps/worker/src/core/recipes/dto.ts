@@ -41,7 +41,7 @@ async function loadItemsById(db: Db, itemIds: readonly string[]): Promise<Map<st
  * Builds one RecipeCostDto on the given basis (`wac` or `replacementCostMc`, C-3b) Ã¢â‚¬â€ the pure math
  * lives entirely in theoretical-cost.ts; this only picks which item column feeds it.
  *
- * KOK-071 (ADR-017) puts `wacMc`, `replacementCostMc`, and `salePriceMc` on the same integer
+ * ADR-017 puts `wacMc`, `replacementCostMc`, and `salePriceMc` on the same integer
  * milli-centavos-per-whole-unit scale. `computeRecipeMargin` performs the sanctioned
  * conversion to a final whole-unit Centavos amount before subtraction.
  */

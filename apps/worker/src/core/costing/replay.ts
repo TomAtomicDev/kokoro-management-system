@@ -67,12 +67,10 @@ import { replayWacFrom, replayWacWithTrace } from "./wac.js";
 
 type Statement = BatchItem<"sqlite">;
 
-/**
- * KOK-071/ADR-017: `items.wac_mc` is now an integer (REAL removed from the schema), so a replay
- * that reproduces the same inputs reproduces the identical integer every time — no epsilon
- * comparison is needed anymore. "The WAC moved" is a plain `!==`. (Before this migration, `wac`
- * was a REAL cache column and could land a few ULPs away purely from summation order; that
- * class of noise cannot happen with integer arithmetic.)
+/*
+ * ADR-017: `items.wac_mc` is an integer, so a replay that reproduces the same inputs reproduces
+ * the identical integer every time, independent of summation order. No epsilon comparison is
+ * needed anywhere in this module — "the WAC moved" is a plain `!==`.
  */
 
 /** Doc 04 §2/ADR-017's scale factor between a `Centavos` total and the microcentavos-scale
@@ -298,7 +296,7 @@ export async function planCostingReplay(
   const finalWacByItem = new Map<string, MilliCentavosPerUnit>();
 
   // C-4 cascade state: for each production run, the REPLAYED cost of each input it consumed
-  // (Centavos — a proper rounded total via `totalCentavos`, KOK-071). Populated when an
+  // (Centavos — a proper rounded total via `totalCentavos`). Populated when an
   // ingredient item's kardex is replayed (the consumption shows up there as a PRODUCTION_OUT), and
   // read when the run's OUTPUT item is replayed later in dependency order. That ordering is
   // exactly what `topoOrderAffectedItems` guarantees.
@@ -598,10 +596,10 @@ async function applyProductionCostCorrections(
   for (const run of runs) {
     if (run.actualOutputQty <= 0) continue;
     const replayed = replayedConsumptionCost.get(run.id);
-    // Each consumption's contribution is a proper rounded Centavos amount (`totalCentavos`,
-    // KOK-071) whether it came from this replay (`replayed`) or is unaffected by it (the
-    // fallback) — both must share one scale before they can be summed with `indirectCost`/
-    // `allocatedSessionCost`, which are already Centavos.
+    // Each consumption's contribution is a proper rounded Centavos amount (`totalCentavos`)
+    // whether it came from this replay (`replayed`) or is unaffected by it (the fallback) — both
+    // must share one scale before they can be summed with `indirectCost`/`allocatedSessionCost`,
+    // which are already Centavos.
     let direct = 0;
     for (const consumption of consumptions) {
       if (consumption.productionRunId !== run.id) continue;

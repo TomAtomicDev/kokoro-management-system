@@ -29,7 +29,7 @@
 // used verbatim by BOTH the create and the update paths so they can never drift apart from each
 // other or from core/costing/replay.ts's `applyProductionCostCorrections` — the function that
 // re-derives this same run's cost later when a REPLAY moves one of its inputs' WAC):
-//   direct = Σ totalCentavos(consumption line's unitCostSnapshotMc, qty) (ADR-017/KOK-071: each
+//   direct = Σ totalCentavos(consumption line's unitCostSnapshotMc, qty) (ADR-017: each
 //            line rounds to a proper Centavos amount via the one sanctioned rate->total helper,
 //            summed exactly — INV-6)
 //   total  = direct_cost + indirect_cost + allocated_session_cost (0 on create — that column is
@@ -135,7 +135,7 @@ function toProductionRunDto(
     directCost: row.directCost,
     totalCost: row.totalCost,
     // Derived/read-only (Doc 04 §3.3 has no such column) — always recomputed from the two stored
-    // columns, never cached, so it can never drift from them. ADR-017/KOK-071: the one sanctioned
+    // columns, never cached, so it can never drift from them. ADR-017: the one sanctioned
     // total->rate conversion (`rateFromTotal`), not a bare `×1000`.
     outputUnitCostMc: rateFromTotal(toCentavos(row.totalCost), toMilliUnits(row.actualOutputQty)),
     notes: row.notes,
@@ -204,9 +204,8 @@ function computeProductionCosts(
   outputUnitCostMc: MilliCentavosPerUnit;
 } {
   // Each consumption's contribution is rounded to a proper Centavos amount via `totalCentavos`
-  // (ADR-017/KOK-071) and summed exactly — no bare scale literal, and every line is independently
-  // an honest money amount (unlike the pre-migration float sum, which stayed unrounded until this
-  // one aggregate step because `unit_cost_snapshot` was itself a REAL).
+  // (ADR-017) and summed exactly — no bare scale literal, and every line is independently an
+  // honest money amount rather than a fraction carried until one aggregate step.
   const directCost: Centavos =
     consumptions.length === 0
       ? toCentavos(0)

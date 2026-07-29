@@ -23,7 +23,7 @@ export interface StockMovementInput {
    */
   qty: number;
   /**
-   * Milli-centavos per WHOLE unit at movement time (Doc 04 §3.4, ADR-017/KOK-071). `total_cost`
+   * Milli-centavos per WHOLE unit at movement time (Doc 04 §3.4, ADR-017). `total_cost`
    * is derived from this internally; it is NOT a caller input.
    */
   unitCostMc: MilliCentavosPerUnit;

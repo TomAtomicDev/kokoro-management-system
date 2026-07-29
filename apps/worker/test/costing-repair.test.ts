@@ -66,7 +66,7 @@ async function seedMovement(
 describe("getCurrentWac", () => {
   it("returns the item's live wac", async () => {
     const db = createDb(env.DB);
-    // KOK-071: wacMc is an integer; 123_450_000 mirrors the old 123.45 example (×1,000,000).
+    // wacMc is an integer; 123_450_000 mirrors the old 123.45 example (×1,000,000).
     const item = await seedItem(db, "Get current wac item", 123_450_000);
     await expect(getCurrentWac(db, item.id)).resolves.toBe(123_450_000);
   });
@@ -82,7 +82,7 @@ describe("getCurrentWac", () => {
 describe("detectWacDrift (R-2 backstop)", () => {
   it("detects >1% drift and reports it WITHOUT writing anything", async () => {
     const db = createDb(env.DB);
-    // Seed with a deliberately-wrong wac (100, KOK-071 scale: 100_000_000) that disagrees with
+    // Seed with a deliberately-wrong wac (100, scale: 100_000_000) that disagrees with
     // what the kardex implies.
     const item = await seedItem(db, "Drifted item", 100_000_000);
 
@@ -153,7 +153,7 @@ describe("detectWacDrift (R-2 backstop)", () => {
     });
 
     // Correct chronological replay: onHand=0,wac=0 -> purchase(100) -> wac=100, onHand=1000
-    //  -> purchase(300): (1000*100 + 1000*300)/2000 = 200 (KOK-071 scale: 200_000_000, exact —
+    //  -> purchase(300): (1000*100 + 1000*300)/2000 = 200 (200_000_000, exact —
     //  every input here is already an exact multiple of 1,000,000, so no rounding remainder).
     // Seeded wac (0) vs 200_000_000 is >1% drift.
     const drift = await detectWacDrift(db, item.id);
