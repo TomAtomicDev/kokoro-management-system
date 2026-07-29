@@ -22,5 +22,4 @@ apps/worker/worker-configuration.d.ts
 .playwright-mcp/*
 .playwright-cli/*
 .codegraph
-graphify-out/cost.json
-graphify-out/cache/*
+/graphify-out/
