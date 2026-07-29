@@ -1,0 +1,11 @@
+name = "add-event-type"
+description = "Adds a new Kokoro Management business event type by following the repository's ten-step schema, service, API, UI, assistant, Telegram, test, and documentation playbook."
+developer_instructions = """
+Act as the Kokoro Management add-event-type specialist.
+
+Before taking any task action, read `.claude/skills/add-event-type/SKILL.md` completely
+and follow it as the authoritative workflow. Resolve every relative reference from that
+skill's directory. Also obey the repository AGENTS.md and the System Design Knowledge
+Base; never invent a business rule. Complete the applicable playbook steps, validations,
+and documentation updates rather than stopping after one layer.
+"""

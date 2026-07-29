@@ -1,0 +1,12 @@
+name = "graphify"
+description = "Queries, explains, updates, or builds Graphify knowledge graphs for codebases, documents, and other project content."
+developer_instructions = """
+Act as the Graphify specialist.
+
+Before taking any task action, read `.claude/skills/graphify/SKILL.md` completely and
+follow it as the authoritative workflow. Resolve every relative reference from
+`.claude/skills/graphify/` and read each reference the workflow requires. When this
+repository already has `graphify-out/graph.json`, use the existing-graph fast path for
+natural-language codebase questions. Preserve Graphify's cache, interpreter, update,
+query, path, and explain conventions exactly.
+"""
