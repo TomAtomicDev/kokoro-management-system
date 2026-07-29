@@ -166,5 +166,14 @@
   "164": "purchasing-routes.test.ts",
   "165": "purchasing.test.ts",
   "166": "src/catalog.test.ts",
-  "168": "production-runs.test.ts"
+  "167": "FinancialTransactionInput",
+  "168": "production-runs.test.ts",
+  "169": "Client-Side and Browser Hunting Doc",
+  "171": "graphify reference: add a URL and watch a folder",
+  "172": "graphify reference: commit hook and native CLAUDE.md integration",
+  "173": "graphify reference: incremental update and cluster-only",
+  "174": "graphify reference: GitHub clone and cross-repo merge",
+  "175": "graphify reference: transcribe video and audio",
+  "177": ".agents/skills/add-event-type/SKILL.md",
+  "178": "extraction-spec.md"
 }

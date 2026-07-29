@@ -7,7 +7,12 @@
 // columns SC-05 lists but nothing yet populates.
 
 import type { ProductionRunDto, RecipeDto } from "@kokoro/shared";
-import { formatMoney } from "@kokoro/shared";
+import {
+  formatMoney,
+  toMilliCentavosPerUnit,
+  totalCentavos,
+  WHOLE_UNIT_MILLI_UNITS,
+} from "@kokoro/shared";
 import { useMemo } from "react";
 
 import { EventTable, type EventTableColumn } from "@/components/data-table/EventTable";
@@ -82,8 +87,10 @@ export function ProductionRunsTable({
       id: "unitCost",
       header: productionLabels.columnUnitCost,
       numeric: true,
-      // outputUnitCostMc is milli-centavos per WHOLE unit (ADR-017/KOK-071); /1000 for centavos.
-      cell: (row) => formatMoney(Math.round(row.outputUnitCostMc / 1000)),
+      cell: (row) =>
+        formatMoney(
+          totalCentavos(toMilliCentavosPerUnit(row.outputUnitCostMc), WHOLE_UNIT_MILLI_UNITS),
+        ),
     },
     {
       id: "session",

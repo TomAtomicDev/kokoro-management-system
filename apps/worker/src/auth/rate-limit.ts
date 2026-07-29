@@ -19,6 +19,7 @@ const LOGIN_FAILED_ACTION = "login_failed";
 
 /** True if 5+ failed login attempts were recorded in the last 15 minutes. */
 export async function isLoginRateLimited(db: Db, now: Date = new Date()): Promise<boolean> {
+  // scale-factor-ok: converts the rate-limit window from minutes to milliseconds
   const windowStart = new Date(now.getTime() - RATE_LIMIT_WINDOW_MINUTES * 60 * 1000).toISOString();
 
   const recentFailures = await db

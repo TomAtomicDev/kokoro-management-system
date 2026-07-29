@@ -56,7 +56,7 @@ export const productionLabels = {
   costTotalLabel: "Costo total",
   costTotalFormula: "costo directo + costo indirecto",
   costUnitLabel: "Costo unitario",
-  costUnitFormula: "costo total × 1000 / salida real",
+  costUnitFormula: "costo total ÷ salida real",
 
   detailTitle: "Producción",
   detailLines: "Insumos consumidos",

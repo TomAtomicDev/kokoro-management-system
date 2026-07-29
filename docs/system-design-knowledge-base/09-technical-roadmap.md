@@ -52,8 +52,8 @@ deposit liability (SC-04, O-1…O-5), price-health report v1 (SC-12).
 Branded numeric scales in `packages/shared`, migration 0007 normalizing every per-unit rate to
 milli-centavos per whole unit, and the call-site cleanup that removes ~25 ad-hoc ×1000
 conversions (ADR-017). Inserted 2026-07-27 after two 1000× unit bugs shipped.
-**Exit:** no `REAL` in the schema, no scale factor written outside `shared/money.ts`, WAC replay
-reproducible bit-for-bit.
+**Exit:** no `REAL` in the schema, no ad-hoc money/quantity scale conversion outside
+`shared/money.ts`, WAC replay reproducible bit-for-bit.
 **Why here and not later:** P4 freezes field names into shared Zod schemas, prompt few-shots and
 golden eval fixtures, so a rename afterwards costs a re-blessing of the eval suite that D-7
 deliberately makes expensive; running the migration first lets the whole AI layer be authored

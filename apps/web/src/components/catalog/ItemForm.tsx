@@ -8,10 +8,10 @@ import {
   formatQty,
   ITEM_CATEGORIES,
   ITEM_KINDS,
+  type MilliCentavosPerUnit,
   rateFromTotal,
   toCentavos,
   toMilliCentavosPerUnit,
-  type MilliCentavosPerUnit,
   totalCentavos,
   UNITS,
   WHOLE_UNIT_MILLI_UNITS,
@@ -64,10 +64,7 @@ export function itemFormValuesFromDto(item: {
     salePrice:
       item.salePriceMc === null
         ? ""
-        : formatIntAsDecimalInput(
-            totalCentavos(item.salePriceMc, WHOLE_UNIT_MILLI_UNITS),
-            2,
-          ),
+        : formatIntAsDecimalInput(totalCentavos(item.salePriceMc, WHOLE_UNIT_MILLI_UNITS), 2),
     minStockQty: item.minStockQty === null ? "" : formatIntAsDecimalInput(item.minStockQty, 3),
     notes: item.notes ?? "",
   };
@@ -140,10 +137,8 @@ export interface ItemFormProps {
   values: ItemFormValues;
   onChange: (values: ItemFormValues) => void;
   /**
-   * Shown as a read-only "calculado" block Ã¢â‚¬â€ never editable (Doc 03 C-1/C-3). `wacMc` comes off
-   * ItemDto as integer milli-centavos-per-WHOLE-unit (ADR-017/KOK-071, ÃƒÂ·1000 to display).
-   * `replacementCostMc` is not migrated yet and stays REAL centavos-PER-MILLI-UNIT (Doc 04 Ã‚Â§2, Ãƒâ€”1000
-   * to display) until its own KOK-071 vertical lands.
+   * Shown as a read-only "calculado" block. Both values use ADR-017's integer
+   * milli-centavos-per-WHOLE-unit scale and are displayed through `totalCentavos`.
    */
   derived?: { wacMc: number; replacementCostMc: number; replacementCostUpdatedAt: string | null };
   disabled?: boolean;

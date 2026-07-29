@@ -15,7 +15,13 @@
 // — the `beforeEach` restores the per-test guarantee. Items get a unique name per test
 // (items.name is UNIQUE), so they never need resetting.
 import { env } from "cloudflare:test";
-import { generateUuidV7, toBusinessDate, toMilliCentavosPerUnit } from "@kokoro/shared";
+import {
+  generateUuidV7,
+  rateFromTotal,
+  toBusinessDate,
+  toCentavos,
+  toMilliUnits,
+} from "@kokoro/shared";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 
@@ -35,9 +41,6 @@ import {
 } from "../src/db/schema.js";
 
 const ACTOR = "OWNER_WEB" as const;
-// KOK-071 (ADR-017): brand alias, local to this file for readability — see costing.test.ts.
-const mc = toMilliCentavosPerUnit;
-
 type TestDb = ReturnType<typeof createDb>;
 
 async function seedItem(db: TestDb, name: string) {
@@ -66,8 +69,7 @@ async function seedPurchase(
 
 /** The pending change under test: one brand-new backdated purchase line, expressed as the
  * post-commit movement set the caller is about to hand `buildReplaceMovementsForSourceStatements`.
- * `unitCost` is stated at the old centavos-per-milli-unit scale for readability, matching
- * `seedPurchase`'s convention, and converted to the real `unitCostMc` (KOK-071, ×1,000,000) here. */
+ * `unitCost` is a one-milli-unit fixture total converted through `rateFromTotal`. */
 function backdatedPurchaseChange(
   itemId: string,
   purchaseId: string,
@@ -86,7 +88,7 @@ function backdatedPurchaseChange(
         businessDate,
         type: "PURCHASE_IN",
         qty,
-        unitCostMc: mc(unitCost * 1_000_000),
+        unitCostMc: rateFromTotal(toCentavos(unitCost), toMilliUnits(1)),
         sourceEventType: "purchase",
         sourceEventId: purchaseId,
       },

@@ -145,9 +145,7 @@ describe("POST /api/production-runs", () => {
     // rawItem never purchased -> wac=0 -> direct=0 -> total=indirectCost=100.
     expect(body.productionRun.directCost).toBe(0);
     expect(body.productionRun.totalCost).toBe(100);
-    // KOK-071: outputUnitCostMc = rateFromTotal(total, actualOutputQty) = round(100*1e6/500) =
-    // 200_000 — NOT the WAC family's ×1,000,000 (outputUnitCost was already "per whole unit"
-    // pre-migration, unlike items.wac_mc's "per milli-unit" convention, so the factor here is ×1000).
+    // ADR-017: the server derives the per-whole-unit rate through `rateFromTotal`.
     expect(body.productionRun.outputUnitCostMc).toBe(200_000);
   });
 

@@ -10,7 +10,14 @@
 // (routes/sales.tsx, from v_receivables) — a plain sales list has no aging to show.
 
 import type { FinancialAccountDto, SaleDto, SaleLineDto } from "@kokoro/shared";
-import { formatMoney, roundHalfUpToInt, subMoney } from "@kokoro/shared";
+import {
+  formatMoney,
+  subMoney,
+  toCentavos,
+  toMilliCentavosPerUnit,
+  toMilliUnits,
+  totalCentavos,
+} from "@kokoro/shared";
 import { useMemo, useState } from "react";
 import { EventTable, type EventTableColumn } from "@/components/data-table/EventTable";
 import { CollectPaymentDialog } from "@/components/sales/CollectPaymentDialog";
@@ -40,17 +47,14 @@ function summarizeLines(lines: SaleLineDto[], itemNameById: Map<string, string>)
 }
 
 /** Margin off the frozen WAC snapshot per line (never the item's LIVE wac, which may have moved
- * since the sale) — `total` is the server-recomputed Σ(qty×unitPrice) (Doc 04 §5), `cost` sums
- * each line's `qty × unitCostSnapshotMc / 1,000,000` (ADR-017/KOK-071: qty is milli-units,
- * unitCostSnapshotMc is milli-centavos-per-WHOLE-unit — the same `totalCentavos` formula
- * ProductionRunForm's `renderLineExtra` uses for `qty × item.wacMc`). Returns `null` margin% when
- * the sale has zero total (an all-giveaway sale) — a percentage of zero is not meaningful. */
+ * since the sale). Each line uses `totalCentavos`, matching the server's ADR-017 conversion.
+ * Returns `null` margin% when the sale has zero total. */
 function computeMargin(sale: SaleDto): { margin: number; marginPct: number | null } {
   let cost = 0;
   for (const line of sale.lines) {
-    cost += roundHalfUpToInt((line.qty * line.unitCostSnapshotMc) / 1_000_000);
+    cost += totalCentavos(toMilliCentavosPerUnit(line.unitCostSnapshotMc), toMilliUnits(line.qty));
   }
-  const margin = subMoney(sale.total, cost);
+  const margin = subMoney(toCentavos(sale.total), toCentavos(cost));
   const marginPct = sale.total > 0 ? margin / sale.total : null;
   return { margin, marginPct };
 }

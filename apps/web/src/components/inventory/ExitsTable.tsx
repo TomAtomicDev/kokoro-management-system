@@ -4,7 +4,13 @@
 // fetching (see routes/inventory.tsx for how the lookup Map is built from useItemsQuery).
 
 import type { StockExitDto, Unit } from "@kokoro/shared";
-import { formatMoney, formatQty } from "@kokoro/shared";
+import {
+  formatMoney,
+  formatQty,
+  toMilliCentavosPerUnit,
+  toMilliUnits,
+  totalCentavos,
+} from "@kokoro/shared";
 
 import { EventTable, type EventTableColumn } from "@/components/data-table/EventTable";
 import { inventoryLabels } from "@/lib/i18n-inventory";
@@ -51,10 +57,11 @@ export function ExitsTable({ rows, items, loading, onRowClick }: ExitsTableProps
       id: "valuedCost",
       header: inventoryLabels.exitsColumnValuedCost,
       numeric: true,
-      // unitCostSnapshotMc is milli-centavos-per-WHOLE-unit (ADR-017/KOK-071) and qty is
-      // milli-units, so qty × unitCostSnapshotMc / 1,000,000 is the centavos total — the same
-      // `totalCentavos` formula core/inventory/movements.ts's `total_cost` uses server-side.
-      cell: (row) => formatMoney(Math.round((row.qty * row.unitCostSnapshotMc) / 1_000_000)),
+      // Keep the preview on the same sanctioned rate-to-total conversion as core inventory.
+      cell: (row) =>
+        formatMoney(
+          totalCentavos(toMilliCentavosPerUnit(row.unitCostSnapshotMc), toMilliUnits(row.qty)),
+        ),
     },
   ];
 

@@ -10,7 +10,13 @@ import type {
   RecipeDto,
   UpdateProductionRunResult,
 } from "@kokoro/shared";
-import { formatMoney, formatQty } from "@kokoro/shared";
+import {
+  formatMoney,
+  formatQty,
+  toMilliCentavosPerUnit,
+  totalCentavos,
+  WHOLE_UNIT_MILLI_UNITS,
+} from "@kokoro/shared";
 import { useMemo, useState } from "react";
 
 import { DetailDrawer } from "@/components/data-table/DetailDrawer";
@@ -201,7 +207,12 @@ export function ProductionRunDetailDrawer({
                   {productionLabels.detailUnitCost}
                 </span>
                 <span className="numeric-cell font-semibold text-foreground">
-                  {formatMoney(Math.round(productionRun.outputUnitCostMc / 1000))}
+                  {formatMoney(
+                    totalCentavos(
+                      toMilliCentavosPerUnit(productionRun.outputUnitCostMc),
+                      WHOLE_UNIT_MILLI_UNITS,
+                    ),
+                  )}
                 </span>
               </div>
             </div>
@@ -228,8 +239,13 @@ export function ProductionRunDetailDrawer({
                         <div className="flex items-center justify-end text-muted-foreground text-xs">
                           <span className="numeric-cell">
                             {productionLabels.unitCostLabel}:{" "}
-                            {formatMoney(Math.round(line.unitCostSnapshotMc / 1000))} /{" "}
-                            {productionLabels.unitAbbrev[item.unit]}
+                            {formatMoney(
+                              totalCentavos(
+                                toMilliCentavosPerUnit(line.unitCostSnapshotMc),
+                                WHOLE_UNIT_MILLI_UNITS,
+                              ),
+                            )}{" "}
+                            / {productionLabels.unitAbbrev[item.unit]}
                           </span>
                         </div>
                       ) : null}

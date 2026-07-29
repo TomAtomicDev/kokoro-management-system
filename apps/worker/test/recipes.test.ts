@@ -2,6 +2,7 @@
 // command -> assert event rows + audit_log entries + atomicity, run against real D1 via
 // @cloudflare/vitest-pool-workers (test/setup.ts applies migrations/0001_init.sql first).
 import { env } from "cloudflare:test";
+import { rateFromTotal, toCentavos, toMilliUnits } from "@kokoro/shared";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
@@ -55,7 +56,10 @@ async function createIngredientItem(
   // down by the same Ã—1,000,000 factor before combining them, so this is exact, not an approximation.
   await db
     .update(items)
-    .set({ wacMc: wac * 1_000_000, replacementCostMc: replacementCostMc * 1_000_000 })
+    .set({
+      wacMc: rateFromTotal(toCentavos(wac), toMilliUnits(1)),
+      replacementCostMc: rateFromTotal(toCentavos(replacementCostMc), toMilliUnits(1)),
+    })
     .where(eq(items.id, item.id));
   return item;
 }

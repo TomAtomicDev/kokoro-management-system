@@ -11,7 +11,14 @@
 // list/detail views pick it up immediately after (RecipeDetailDrawer / RecipesTable).
 
 import type { ItemDto, RecipeDto, RecipeSettingsDto } from "@kokoro/shared";
-import { formatMoney, recordRecipeCommandSchema, roundHalfUpToInt } from "@kokoro/shared";
+import {
+  formatMoney,
+  recordRecipeCommandSchema,
+  toCentavos,
+  toMilliCentavosPerUnit,
+  toMilliUnits,
+  totalCentavos,
+} from "@kokoro/shared";
 import { useEffect, useMemo, useState } from "react";
 
 import { ItemPicker } from "@/components/catalog/ItemPicker";
@@ -206,14 +213,16 @@ export function RecipeForm({ open, onOpenChange, recipe, settings }: RecipeFormP
     const qty = parseDecimalToInt(line.qty, 3);
     if (qty === null || qty <= 0) {
       return (
-        <span className="text-subtle-foreground text-xs">{recipesLabels.lineContribution}: â€”</span>
+        <span className="text-subtle-foreground text-xs">
+          {recipesLabels.lineContribution}: â€”
+        </span>
       );
     }
-    // qty is milli-units, item.replacementCostMc is centavos PER MILLI-UNIT (Doc 04 Â§2, same scale
-    // StockTable.tsx documents) â€” so qty Ã— replacementCostMc is directly the line's contribution in
-    // whole centavos, no Ã—1000 conversion needed (that only applies when displaying a per-WHOLE-
-    // unit cost). Display-only preview, rounded for formatMoney's integer requirement.
-    const contribution = roundHalfUpToInt(qty * item.replacementCostMc);
+    // Use the same ADR-017 rate-to-total conversion as the server-side recipe costing path.
+    const contribution = totalCentavos(
+      toMilliCentavosPerUnit(item.replacementCostMc),
+      toMilliUnits(qty),
+    );
     return (
       <span className="text-muted-foreground text-xs">
         {recipesLabels.lineContribution}:{" "}
@@ -233,12 +242,13 @@ export function RecipeForm({ open, onOpenChange, recipe, settings }: RecipeFormP
     return [
       ...recipe.lines.map((line): CalcTraceInput => {
         const item = itemsById.get(line.itemId);
-        // KOK-071 vertical 1: wacMc is milli-centavos per WHOLE unit; replacementCostMc is not
-        // migrated yet, so the wac basis converts back down to the old centavos-per-milli-unit
-        // convention this function still expects (mirrors core/recipes/dto.ts's buildCostDto).
-        const unitCost =
-          basis === "wac" ? (item ? item.wacMc / 1_000_000 : 0) : (item?.replacementCostMc ?? 0);
-        const contribution = roundHalfUpToInt(line.qty * unitCost);
+        // Both bases share ADR-017's milli-centavos-per-WHOLE-unit scale.
+        const unitCostMc =
+          basis === "wac" ? (item?.wacMc ?? null) : (item?.replacementCostMc ?? null);
+        const contribution =
+          unitCostMc === null
+            ? toCentavos(0)
+            : totalCentavos(toMilliCentavosPerUnit(unitCostMc), toMilliUnits(line.qty));
         return { label: item?.name ?? line.itemId, value: formatMoney(contribution) };
       }),
       {

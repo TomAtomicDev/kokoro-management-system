@@ -5,7 +5,14 @@
 // same way items do").
 
 import type { ItemDto } from "@kokoro/shared";
-import { formatMoney, formatQty, roundHalfUpToInt } from "@kokoro/shared";
+import {
+  formatMoney,
+  formatQty,
+  toCentavos,
+  toMilliCentavosPerUnit,
+  toMilliUnits,
+  totalCentavos,
+} from "@kokoro/shared";
 import { useMemo, useState } from "react";
 
 import { CalcTrace, type CalcTraceInput } from "@/components/common/CalcTrace";
@@ -50,12 +57,13 @@ export function RecipeDetailDrawer({ recipeId, open, onOpenChange }: RecipeDetai
     return [
       ...recipe.lines.map((line): CalcTraceInput => {
         const item = itemById.get(line.itemId);
-        // KOK-071 vertical 1: wacMc is milli-centavos per WHOLE unit; replacementCostMc is not
-        // migrated yet, so the wac basis converts back down to the old centavos-per-milli-unit
-        // convention this function still expects (mirrors core/recipes/dto.ts's buildCostDto).
-        const unitCost =
-          basis === "wac" ? (item ? item.wacMc / 1_000_000 : 0) : (item?.replacementCostMc ?? 0);
-        const contribution = roundHalfUpToInt(line.qty * unitCost);
+        // Both bases share ADR-017's milli-centavos-per-WHOLE-unit scale.
+        const unitCostMc =
+          basis === "wac" ? (item?.wacMc ?? null) : (item?.replacementCostMc ?? null);
+        const contribution =
+          unitCostMc === null
+            ? toCentavos(0)
+            : totalCentavos(toMilliCentavosPerUnit(unitCostMc), toMilliUnits(line.qty));
         return { label: item?.name ?? line.itemId, value: formatMoney(contribution) };
       }),
       {

@@ -143,6 +143,7 @@ export async function runBackup(db: Db, bucket: R2Bucket): Promise<void> {
     const retentionDays = Number.isNaN(parsedRetentionDays)
       ? DEFAULT_RETENTION_DAYS
       : parsedRetentionDays;
+    // scale-factor-ok: converts whole retention days to JavaScript milliseconds
     const cutoff = Date.now() - retentionDays * 24 * 60 * 60 * 1000;
     const existingObjects = await listObjects(bucket, BACKUP_PREFIX);
     let deletedCount = 0;
