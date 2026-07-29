@@ -10,7 +10,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `7b42346b`
+- Built from commit: `f75a8162`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -190,7 +190,7 @@
 - src/auth.ts
 - lucide-react
 - @radix-ui/react-slot
-- api/backups.ts
+- production.tsx
 
 ## God Nodes (most connected - your core abstractions)
 1. `nowIso()` - 109 edges
@@ -244,8 +244,8 @@ Cohesion: 0.09
 Nodes (30): PendingMovementChange, assertSafeIntegerInput(), assertValidTransactionAmount(), BalanceMismatchDto, BalanceMismatchRow, buildReplaceTransactionsForSourceStatements(), buildTransactionInsert(), FinancialAccountRow (+22 more)
 
 ### Community 1 - "Inventory Command Services"
-Cohesion: 0.09
-Nodes (29): CalcTrace(), CalcTraceInput, CalcTraceProps, LineEditorLine, formatBasisPointsAsPercent(), MarginBadge(), MarginBadgeProps, MarginTone (+21 more)
+Cohesion: 0.10
+Nodes (27): CalcTrace(), CalcTraceInput, CalcTraceProps, LineEditorLine, formatBasisPointsAsPercent(), MarginBadge(), MarginBadgeProps, MarginTone (+19 more)
 
 ### Community 2 - "Auth Routes & Audit Log"
 Cohesion: 0.10
@@ -340,8 +340,8 @@ Cohesion: 0.08
 Nodes (31): ProductionRunFormProps, ProductionRunsTableProps, filtersToQueryString(), PRODUCTION_RUNS_ROOT_KEY, productionRunDetailKey(), productionRunsListKey(), useProductionRun(), useProductionRuns() (+23 more)
 
 ### Community 25 - "Production Run Table UI"
-Cohesion: 0.06
-Nodes (50): CreateCustomerDialog(), CustomerForm(), CustomerFormParsed, CustomerFormProps, CustomerFormValues, emptyCustomerFormValues(), parseCustomerFormValues(), CustomerPicker() (+42 more)
+Cohesion: 0.07
+Nodes (46): CreateCustomerDialog(), CustomerForm(), CustomerFormParsed, CustomerFormProps, CustomerFormValues, emptyCustomerFormValues(), parseCustomerFormValues(), CustomerPicker() (+38 more)
 
 ### Community 26 - "Session Detail & Form UI"
 Cohesion: 0.07
@@ -453,7 +453,7 @@ Nodes (21): CreateCustomerDialogProps, CustomerPickerProps, customerDetailKey(),
 
 ### Community 53 - "Counts API & Schemas"
 Cohesion: 0.12
-Nodes (24): SessionDetailDrawer(), datetimeLocalToIso(), emptyCostLine(), isoToDatetimeLocal(), parseDurationMinutes(), SessionCostLineValue, SessionForm(), sessionToFormState() (+16 more)
+Nodes (23): SessionDetailDrawer(), datetimeLocalToIso(), emptyCostLine(), isoToDatetimeLocal(), parseDurationMinutes(), SessionCostLineValue, SessionForm(), sessionToFormState() (+15 more)
 
 ### Community 54 - "Golden Rules D-1..D-5 (KB)"
 Cohesion: 0.11
@@ -536,8 +536,8 @@ Cohesion: 0.18
 Nodes (11): Debounce mechanism for --watch, graphify --watch (folder watcher), git post-commit hook (graphify hook install), Video/audio transcription step (Step 2.5), transcribe_all() (graphify.transcribe), Whisper initial prompt (domain hint), build_merge() (graphify.build), graphify --cluster-only (+3 more)
 
 ### Community 75 - "sessions.tsx"
-Cohesion: 0.10
-Nodes (39): EventTable(), EventTableColumn, EventTableProps, AccountCard(), LiabilityReceivableStrip(), TransactionsTable(), CountForm(), CountFormProps (+31 more)
+Cohesion: 0.09
+Nodes (45): EventTable(), EventTableColumn, EventTableProps, AccountCard(), LiabilityReceivableStrip(), TransactionsTable(), CountForm(), CountFormProps (+37 more)
 
 ### Community 76 - "Production Run Service Tests"
 Cohesion: 0.14
@@ -688,8 +688,8 @@ Cohesion: 0.22
 Nodes (11): ACCOUNTS_KEY, ITEMS_ROOT_KEY, ONBOARDING_ROOT_KEY, BulkCreateItemsCommand, bulkCreateItemsCommandSchema, BulkCreateItemsResult, OnboardingCompleteResult, OnboardingStatusResult (+3 more)
 
 ### Community 143 - "PurchaseForm.tsx"
-Cohesion: 0.10
-Nodes (30): RecordTransactionDialogProps, TransactionsTableProps, TransferDialogProps, WithdrawDialogProps, PurchaseDetailDrawer(), PurchaseDetailDrawerProps, emptyLine(), PurchaseForm() (+22 more)
+Cohesion: 0.09
+Nodes (31): RecordTransactionDialogProps, TransactionsTableProps, TransferDialogProps, WithdrawDialogProps, PurchaseDetailDrawer(), PurchaseDetailDrawerProps, emptyLine(), PurchaseForm() (+23 more)
 
 ### Community 144 - "src/purchasing.ts"
 Cohesion: 0.80
@@ -784,12 +784,12 @@ Cohesion: 0.08
 Nodes (46): ACTOR, productionRunsRoute, buildProductionMovementsFromConsumptions(), buildProductionRunCreateInputs(), buildProductionRunDeleteInputs(), buildProductionRunUpdateInputs(), commitProductionRunMutation(), compareKardexRows() (+38 more)
 
 ### Community 169 - "Client-Side and Browser Hunting Doc"
-Cohesion: 0.40
-Nodes (5): Client-Side and Browser Hunting Doc, DOM-based injection attack classes, Prototype pollution attack classes, Client-side trust and messaging attack classes, UI-redress and navigation attack classes
-
-### Community 170 - "sales.test.ts"
 Cohesion: 0.25
 Nodes (7): listReceivables(), saleLines, sales, ACTOR, seedFinishedItem(), seedStockedFinishedItem(), TestDb
+
+### Community 170 - "sales.test.ts"
+Cohesion: 0.40
+Nodes (5): Client-Side and Browser Hunting Doc, DOM-based injection attack classes, Prototype pollution attack classes, Client-side trust and messaging attack classes, UI-redress and navigation attack classes
 
 ### Community 171 - "graphify reference: add a URL and watch a folder"
 Cohesion: 0.50
@@ -809,19 +809,19 @@ Nodes (7): CollectPaymentDialogProps, SaleFormProps, SalesTableProps, Receivable
 
 ### Community 179 - "src/audit.ts"
 Cohesion: 0.40
-Nodes (4): AuditLogEntryDto, auditLogEntryDtoSchema, ListAuditLogResult, auditActorSchema
+Nodes (3): BackupRunDetail, backupsRoute, ADR-0015
 
 ### Community 180 - "src/auth.ts"
-Cohesion: 0.50
-Nodes (3): LoginCommand, loginCommandSchema, ADR-0008
+Cohesion: 0.40
+Nodes (4): AuditLogEntryDto, auditLogEntryDtoSchema, ListAuditLogResult, auditActorSchema
 
 ### Community 181 - "lucide-react"
 Cohesion: 0.29
 Nodes (6): ACTOR, sessionsRoute, listSessions(), deleteSessionCommandSchema, listSessionsFiltersSchema, recordSessionCommandSchema
 
-### Community 195 - "api/backups.ts"
-Cohesion: 0.40
-Nodes (3): BackupRunDetail, backupsRoute, ADR-0015
+### Community 183 - "production.tsx"
+Cohesion: 0.50
+Nodes (3): LoginCommand, loginCommandSchema, ADR-0008
 
 ## Ambiguous Edges - Review These
 - `Wiki export (--wiki)` → `Token reduction benchmark (graphify benchmark)`  [AMBIGUOUS]
@@ -837,9 +837,9 @@ _Questions this graph is uniquely positioned to answer:_
 
 - **What is the exact relationship between `Wiki export (--wiki)` and `Token reduction benchmark (graphify benchmark)`?**
   _Edge tagged AMBIGUOUS (relation: conceptually_related_to) - confidence is low._
-- **Why does `toMilliCentavosPerUnit()` connect `Sessions Route Tests` to `Inventory Command Services`, `Auth Routes & Audit Log`, `Onboarding & Catalog API`, `WAC Costing Engine`, `Stock Drift Repair & Counts API`, `Financial Accounts & Transactions`, `Finance & Count Dialogs UI`, `costing-replay.test.ts`, `Transaction & Purchase Drawers UI`, `Sessions Domain Service`, `Item Dialogs & Detail Drawer`, `Item Form & Onboarding Steps`, `Memory Safety, Binary, and Kernel Hunting`, `Crypto Utils & CSRF`, `run-code Command`, `CalcTrace & Stock Table UI`, `Event & Count Tables UI`, `Finance API & Schemas`, `production-runs.test.ts`, `sales.test.ts`, `Security Audit Skill Phases`, `Exit/Purchase Route Tests`, `sessions.tsx`, `Production Run Service Tests`, `cross-item-cascade.test.ts`?**
+- **Why does `toMilliCentavosPerUnit()` connect `Sessions Route Tests` to `Inventory Command Services`, `Auth Routes & Audit Log`, `Onboarding & Catalog API`, `WAC Costing Engine`, `Stock Drift Repair & Counts API`, `Financial Accounts & Transactions`, `Finance & Count Dialogs UI`, `costing-replay.test.ts`, `Transaction & Purchase Drawers UI`, `Sessions Domain Service`, `Item Dialogs & Detail Drawer`, `Item Form & Onboarding Steps`, `Memory Safety, Binary, and Kernel Hunting`, `Crypto Utils & CSRF`, `run-code Command`, `CalcTrace & Stock Table UI`, `Event & Count Tables UI`, `Finance API & Schemas`, `production-runs.test.ts`, `Client-Side and Browser Hunting Doc`, `Security Audit Skill Phases`, `Exit/Purchase Route Tests`, `sessions.tsx`, `Production Run Service Tests`, `cross-item-cascade.test.ts`?**
   _High betweenness centrality (0.017) - this node is a cross-community bridge._
-- **Why does `toCentavos()` connect `sessions.tsx` to `Inventory Command Services`, `Onboarding & Catalog API`, `WAC Costing Engine`, `Finance & Count Dialogs UI`, `costing-replay.test.ts`, `Transaction & Purchase Drawers UI`, `PurchaseForm.tsx`, `Item Dialogs & Detail Drawer`, `Item Form & Onboarding Steps`, `OrderDto`, `Production Run Table UI`, `Crypto Utils & CSRF`, `run-code Command`, `CalcTrace & Stock Table UI`, `Dashboard Stat Widgets`, `production-runs.test.ts`, `sales.test.ts`, `Counts API & Schemas`, `Security Audit Skill Phases`, `Exit/Purchase Route Tests`, `Sessions Route Tests`?**
+- **Why does `toCentavos()` connect `sessions.tsx` to `Inventory Command Services`, `Onboarding & Catalog API`, `WAC Costing Engine`, `Finance & Count Dialogs UI`, `costing-replay.test.ts`, `Transaction & Purchase Drawers UI`, `PurchaseForm.tsx`, `Item Dialogs & Detail Drawer`, `Item Form & Onboarding Steps`, `OrderDto`, `Production Run Table UI`, `Crypto Utils & CSRF`, `run-code Command`, `CalcTrace & Stock Table UI`, `Dashboard Stat Widgets`, `production-runs.test.ts`, `Client-Side and Browser Hunting Doc`, `Counts API & Schemas`, `Security Audit Skill Phases`, `Exit/Purchase Route Tests`, `Sessions Route Tests`?**
   _High betweenness centrality (0.015) - this node is a cross-community bridge._
 - **Why does `nowIso()` connect `CalcTrace & Stock Table UI` to `Recipes API & Queries`, `Onboarding & Catalog API`, `Backups & Dashboard API`, `WAC Costing Engine`, `Stock Drift Repair & Counts API`, `Financial Accounts & Transactions`, `costing-replay.test.ts`, `Transaction & Purchase Drawers UI`, `PurchaseForm.tsx`, `Sessions Domain Service`, `Count & Exit Forms UI`, `Production Movements & Kardex`, `Finance API & Schemas`, `customers/customers.ts`, `production-runs.test.ts`, `Counts API & Schemas`, `Security Audit Skill Phases`, `Exit/Purchase Route Tests`, `daily-snapshot.ts`, `sessions.tsx`, `cross-item-cascade.test.ts`?**
   _High betweenness centrality (0.009) - this node is a cross-community bridge._
