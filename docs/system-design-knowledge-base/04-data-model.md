@@ -36,7 +36,10 @@ Rules:
   place a scale factor is written anywhere in the repo:
   `totalCentavos(rate, qty)` = `roundHalfUp(rate × qty / 1e6)` and
   `rateFromTotal(total, qty)` = `roundHalfUp(total × 1e6 / qty)`.
-  A literal `1000` / `1e6` in a cost or price expression outside those modules fails review (D-5).
+  The root lint gate rejects a literal `1000` / `1e6` used in arithmetic outside `money.ts`.
+  A legitimate non-money conversion requires an adjacent
+  `// scale-factor-ok: <specific reason>` comment. Immutable invariant tests remain independent
+  formula oracles and are excluded from this mechanical guard (D-5).
 - **Brands are nominal and zero-runtime**; mixing scales is a compile error. Runtime
   `assertSafeInteger` guards remain at every boundary — brands catch developer error,
   assertions catch bad input.

@@ -29,7 +29,13 @@
 // of what `exitId` does afterward.
 
 import type { ItemDto } from "@kokoro/shared";
-import { formatMoney, formatQty } from "@kokoro/shared";
+import {
+  formatMoney,
+  formatQty,
+  toMilliCentavosPerUnit,
+  toMilliUnits,
+  totalCentavos,
+} from "@kokoro/shared";
 import { useEffect, useMemo, useState } from "react";
 
 import { DetailDrawer } from "@/components/data-table/DetailDrawer";
@@ -147,7 +153,12 @@ export function ExitDetailDrawer({ exitId, open, onOpenChange }: ExitDetailDrawe
                   {inventoryLabels.exitsColumnValuedCost}
                 </span>
                 <span className="numeric-cell font-medium text-foreground">
-                  {formatMoney(Math.round((exit.qty * exit.unitCostSnapshotMc) / 1_000_000))}
+                  {formatMoney(
+                    totalCentavos(
+                      toMilliCentavosPerUnit(exit.unitCostSnapshotMc),
+                      toMilliUnits(exit.qty),
+                    ),
+                  )}
                 </span>
               </div>
             </div>

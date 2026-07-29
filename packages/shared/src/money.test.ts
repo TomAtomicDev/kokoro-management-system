@@ -156,6 +156,7 @@ describe("totalCentavos / rateFromTotal (ADR-017 scale conversion)", () => {
         (rateValue, qtyValue) => {
           const total = totalCentavos(toMilliCentavosPerUnit(rateValue), toMilliUnits(qtyValue));
           expect(Number.isSafeInteger(total)).toBe(true);
+          // scale-factor-ok: independent property oracle for totalCentavos' documented formula
           expect(Math.abs(total - (rateValue * qtyValue) / 1_000_000)).toBeLessThanOrEqual(0.5);
         },
       ),
@@ -170,6 +171,7 @@ describe("totalCentavos / rateFromTotal (ADR-017 scale conversion)", () => {
         (totalValue, qtyValue) => {
           const rate = rateFromTotal(toCentavos(totalValue), toMilliUnits(qtyValue));
           expect(Number.isSafeInteger(rate)).toBe(true);
+          // scale-factor-ok: independent property oracle for rateFromTotal's documented formula
           expect(Math.abs(rate - (totalValue * 1_000_000) / qtyValue)).toBeLessThanOrEqual(0.5);
         },
       ),

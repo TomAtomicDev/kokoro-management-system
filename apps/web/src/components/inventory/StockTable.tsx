@@ -2,13 +2,9 @@
 // then by name â€” see packages/shared/src/inventory-views.ts) so no client-side re-sort is needed.
 // Row click opens the Kardex drawer for that item.
 //
-// wac/replacementCostMc display: KOK-071 (ADR-017) migrated `wac` to the integer milli-centavos-
-// per-WHOLE-unit scale (`wacMc`, Ã·1000 to display as centavos) â€” `replacementCostMc` is not migrated
-// yet and stays the pre-migration REAL centavos-per-MILLI-unit scale (`Ã—1000` to display), the
-// same scale ItemForm.tsx still displays via `formatMoney(Math.round(value * 1000))`. The two
-// columns therefore use different formatters below until replacementCostMc's own KOK-071 vertical
-// lands. `stockValue` itself is already a plain INTEGER centavos column (Doc 04 Â§3.4
-// `stock_value INTEGER`), so it needs no such conversion.
+// KOK-071 (ADR-017) migrated both WAC and replacement cost to integer milli-centavos per WHOLE
+// unit. Both columns use the shared `totalCentavos` formatter below. `stockValue` is already a
+// plain INTEGER centavos column (Doc 04 Â§3.4), so it needs no conversion.
 
 import type { StockRowDto } from "@kokoro/shared";
 import {

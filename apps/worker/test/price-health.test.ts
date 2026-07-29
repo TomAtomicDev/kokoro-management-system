@@ -2,6 +2,7 @@ import {
   rateFromTotal,
   toCentavos,
   toMilliCentavosPerUnit,
+  totalCentavos,
   WHOLE_UNIT_MILLI_UNITS,
 } from "@kokoro/shared";
 import fc from "fast-check";
@@ -52,9 +53,10 @@ describe("computePriceMargin (C-5)", () => {
             rateFromTotal(toCentavos(salePrice), WHOLE_UNIT_MILLI_UNITS),
             mc(costMc),
           );
-          expect((margin as { amount: number }).amount + Math.floor(costMc / 1000 + 0.5)).toBe(
-            salePrice,
-          );
+          expect(
+            (margin as { amount: number }).amount +
+              totalCentavos(mc(costMc), WHOLE_UNIT_MILLI_UNITS),
+          ).toBe(salePrice);
         },
       ),
     );

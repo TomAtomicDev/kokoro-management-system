@@ -32,6 +32,7 @@ export async function createSessionCookieValue(
   sessionSecret: string,
   now: Date = new Date(),
 ): Promise<string> {
+  // scale-factor-ok: converts JavaScript milliseconds to JWT NumericDate seconds
   const iat = Math.floor(now.getTime() / 1000);
   const payload: SessionPayload = { iat, exp: iat + SESSION_MAX_AGE_SECONDS };
   const payloadB64 = toBase64Url(new TextEncoder().encode(JSON.stringify(payload)));
@@ -80,6 +81,7 @@ export async function verifySessionCookieValue(
   }
   if (typeof payload.exp !== "number" || typeof payload.iat !== "number") return null;
 
+  // scale-factor-ok: converts JavaScript milliseconds to JWT NumericDate seconds
   const nowSeconds = Math.floor(now.getTime() / 1000);
   if (nowSeconds >= payload.exp) return null;
 

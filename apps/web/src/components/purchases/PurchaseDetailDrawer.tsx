@@ -10,7 +10,15 @@ import type {
   ItemDto,
   UpdatePurchaseResult,
 } from "@kokoro/shared";
-import { formatMoney, formatQty } from "@kokoro/shared";
+import {
+  formatMoney,
+  formatQty,
+  rateFromTotal,
+  toCentavos,
+  toMilliUnits,
+  totalCentavos,
+  WHOLE_UNIT_MILLI_UNITS,
+} from "@kokoro/shared";
 import { useEffect, useMemo, useState } from "react";
 
 import { DetailDrawer } from "@/components/data-table/DetailDrawer";
@@ -172,7 +180,10 @@ export function PurchaseDetailDrawer({
               <ul className="flex flex-col gap-2">
                 {purchase.lines.map((line) => {
                   const item = itemById.get(line.itemId);
-                  const unitCost = line.qty > 0 ? line.lineTotal / line.qty : null;
+                  const unitCostMc =
+                    line.qty > 0
+                      ? rateFromTotal(toCentavos(line.lineTotal), toMilliUnits(line.qty))
+                      : null;
                   return (
                     <li
                       key={line.id}
@@ -188,10 +199,10 @@ export function PurchaseDetailDrawer({
                       </div>
                       <div className="flex items-center justify-between text-muted-foreground text-xs">
                         <span>{item ? formatQty(line.qty, item.unit) : line.qty}</span>
-                        {item && unitCost !== null ? (
+                        {item && unitCostMc !== null ? (
                           <span className="numeric-cell">
                             {purchasesLabels.unitCostLabel}:{" "}
-                            {formatMoney(Math.round(unitCost * 1000))} /{" "}
+                            {formatMoney(totalCentavos(unitCostMc, WHOLE_UNIT_MILLI_UNITS))} /{" "}
                             {purchasesLabels.unitAbbrev[item.unit]}
                           </span>
                         ) : null}

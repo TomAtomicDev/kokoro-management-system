@@ -8,7 +8,12 @@
 // tests assert `items.wac_mc` stays exactly as seeded and no `costing_repair` audit row appears,
 // alongside the returned `WacDrift` shape.
 import { env } from "cloudflare:test";
-import { generateUuidV7 } from "@kokoro/shared";
+import {
+  generateUuidV7,
+  toMilliCentavosPerUnit,
+  toMilliUnits,
+  totalCentavos,
+} from "@kokoro/shared";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
@@ -50,9 +55,8 @@ async function seedMovement(
     type: opts.type,
     qty: opts.qty,
     unitCostMc: opts.unitCostMc,
-    // totalCost (Centavos) = totalCentavos(unitCostMc, qty), KOK-071 — unlike unitCostMc, this
-    // column is NOT migrated, so it still needs the /1,000,000 back down to a money total.
-    totalCost: Math.round((opts.qty * opts.unitCostMc) / 1_000_000),
+    // totalCost is a Centavos amount derived through ADR-017's sanctioned rate-to-total helper.
+    totalCost: totalCentavos(toMilliCentavosPerUnit(opts.unitCostMc), toMilliUnits(opts.qty)),
     sourceEventType: "test_fixture",
     sourceEventId: "fixture_1",
     createdAt: opts.createdAt ?? opts.occurredAt,

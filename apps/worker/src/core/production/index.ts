@@ -38,9 +38,8 @@
 //   outputUnitCostMc (fed into the PRODUCTION_IN movement's `unitCostMc`) =
 //            rateFromTotal(total_cost, actual_output_qty) — the one sanctioned total->rate helper,
 //            same milli-centavos-per-WHOLE-unit convention as `items.wac_mc`.
-//   outputUnitCost (the DTO's per-WHOLE-unit figure, comparable to `items.salePrice`) =
-//            roundHalfUpToInt(total_cost × 1000 / actual_output_qty) — mirrors
-//            `RecipeCostDto.costPerOutputUnit`'s convention (recipes.ts).
+//   outputUnitCostMc is exposed on the DTO at the same rate scale, recomputed with
+//            `rateFromTotal` so it cannot drift from total_cost and actual_output_qty.
 //
 // RECIPE RESOLUTION, NOT ACCOUNT RESOLUTION: `command.recipeId` must name an ACTIVE recipe
 // (`findActiveRecipeRowOrThrow`, mirroring `core/finance/accounts.ts`'s `findActiveAccountRowOrThrow`

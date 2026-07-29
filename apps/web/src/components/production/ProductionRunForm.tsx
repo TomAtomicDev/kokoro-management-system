@@ -19,9 +19,14 @@ import {
   formatMoney,
   formatQty,
   nowIso,
+  rateFromTotal,
   recordProductionRunCommandSchema,
-  roundHalfUpToInt,
   toBusinessDate,
+  toCentavos,
+  toMilliCentavosPerUnit,
+  toMilliUnits,
+  totalCentavos,
+  WHOLE_UNIT_MILLI_UNITS,
 } from "@kokoro/shared";
 import { useEffect, useMemo, useState } from "react";
 
@@ -288,12 +293,8 @@ export function ProductionRunForm({ open, onOpenChange, productionRun }: Product
         </span>
       );
     }
-    // qty is milli-units, item.wacMc is milli-centavos per WHOLE unit (ADR-017/KOK-071) â€” so
-    // qty Ã— wacMc / 1,000,000 is the line's contribution in whole centavos (the same formula
-    // `totalCentavos` uses server-side). Production consumption values at WAC (C-6), unlike
-    // purchases' replacement-cost comparison â€” mirrors RecipeForm.tsx's `renderLineExtra` but
-    // sources `item.wacMc` instead of `item.replacementCostMc`.
-    const contribution = roundHalfUpToInt((qty * item.wacMc) / 1_000_000);
+    // Production consumption values at WAC (C-6), using the server's `totalCentavos` conversion.
+    const contribution = totalCentavos(toMilliCentavosPerUnit(item.wacMc), toMilliUnits(qty));
     return (
       <span className="text-muted-foreground text-xs">
         {productionLabels.lineContribution}:{" "}
@@ -307,24 +308,23 @@ export function ProductionRunForm({ open, onOpenChange, productionRun }: Product
   // --- Live cost preview (pure client computation, shown always â€” no server round-trip needed) --
 
   const directCostPreview = useMemo(() => {
-    let sum = 0;
+    let sum = toCentavos(0);
     for (const line of lines) {
       const item = line.itemId ? itemsById.get(line.itemId) : undefined;
       const qty = parseDecimalToInt(line.qty, 3);
       if (!item || qty === null || qty <= 0) continue;
-      sum += qty * item.wacMc;
+      sum = toCentavos(sum + totalCentavos(toMilliCentavosPerUnit(item.wacMc), toMilliUnits(qty)));
     }
-    return roundHalfUpToInt(sum / 1_000_000);
+    return sum;
   }, [lines, itemsById]);
 
   const indirectCostPreview = parseDecimalToInt(indirectCost, 2) ?? 0;
   const totalCostPreview = directCostPreview + indirectCostPreview;
   const actualOutputQtyPreview = parseDecimalToInt(actualOutputQty, 3);
-  // outputUnitCostPreviewMc: milli-centavos per WHOLE unit (ADR-017/KOK-071) â€” the same
-  // rateFromTotal formula the server uses (totalCostPreview Ã— 1,000,000 / actualOutputQtyPreview).
+  // Keep the preview on the server's sanctioned total-to-rate conversion.
   const outputUnitCostPreviewMc =
     actualOutputQtyPreview !== null && actualOutputQtyPreview > 0
-      ? roundHalfUpToInt((totalCostPreview * 1_000_000) / actualOutputQtyPreview)
+      ? rateFromTotal(toCentavos(totalCostPreview), toMilliUnits(actualOutputQtyPreview))
       : null;
 
   // CalcTrace inputs for the cost panel below â€” one row per consumption line's contribution
@@ -335,7 +335,10 @@ export function ProductionRunForm({ open, onOpenChange, productionRun }: Product
     const qty = parseDecimalToInt(line.qty, 3);
     if (!item || qty === null || qty <= 0) return [];
     return [
-      { label: item.name, value: formatMoney(roundHalfUpToInt((qty * item.wacMc) / 1_000_000)) },
+      {
+        label: item.name,
+        value: formatMoney(totalCentavos(toMilliCentavosPerUnit(item.wacMc), toMilliUnits(qty))),
+      },
     ];
   });
   const totalCostTraceInputs: CalcTraceInput[] = [
@@ -524,7 +527,7 @@ export function ProductionRunForm({ open, onOpenChange, productionRun }: Product
               </span>
               <span className="numeric-cell text-foreground text-sm">
                 {outputUnitCostPreviewMc !== null
-                  ? formatMoney(Math.round(outputUnitCostPreviewMc / 1000))
+                  ? formatMoney(totalCentavos(outputUnitCostPreviewMc, WHOLE_UNIT_MILLI_UNITS))
                   : "â€”"}
               </span>
             </div>

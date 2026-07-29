@@ -8,13 +8,9 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 
-import {
-  type MilliCentavosPerUnit,
-  toCentavos,
-  totalCentavos,
-} from "./money.js";
+import { type MilliCentavosPerUnit, toCentavos, totalCentavos } from "./money.js";
 import { allocateAgreedTotalToOrderLines, orderLineCommandSchema } from "./orders.js";
-import { toMilliUnits } from "./qty.js";
+import { toMilliUnits, WHOLE_UNIT_MILLI_UNITS } from "./qty.js";
 
 /** Σ(qty × unit_price) exactly as core/orders will compute the sale's stored total. */
 function reconstructTotal(
@@ -160,7 +156,7 @@ describe("allocateAgreedTotalToOrderLines", () => {
           // A line of N whole units carries ONE per-unit price, so its money is always a multiple
           // of N — some agreed totals are genuinely unrepresentable (Bs 1,00 over 3 units). The
           // helper must then refuse rather than round the customer's price.
-          const lines = unitCounts.map((units) => ({ qty: units * 1000 }));
+          const lines = unitCounts.map((units) => ({ qty: units * WHOLE_UNIT_MILLI_UNITS }));
           const out = allocateAgreedTotalToOrderLines(toCentavos(agreedTotal), lines);
           if (out === null) return;
           expect(reconstructTotal(out, lines)).toBe(agreedTotal);

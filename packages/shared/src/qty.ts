@@ -54,7 +54,9 @@ export function formatQty(milliUnits: number, unit: Unit): string {
 
   const negative = milliUnits < 0;
   const abs = Math.abs(milliUnits);
+  // scale-factor-ok: formatQty intentionally separates whole and fractional milli-units
   const intPart = Math.floor(abs / 1000);
+  // scale-factor-ok: formatQty intentionally isolates the fractional milli-unit remainder
   const milliRemainder = abs % 1000; // 0 .. 999
 
   const decimals = milliRemainder.toString().padStart(3, "0").replace(/0+$/, ""); // trim trailing zeros → "5", "25", "" ...

@@ -358,7 +358,7 @@ export interface OrderLineAllocation {
  *  2. Whatever is left over is split across the remaining lines by `allocateLargestRemainder`,
  *     weighted by `qty` — so 2 cakes carry twice the share of 1, and the leftover centavos land on
  *     the largest remainders rather than vanishing.
- *  3. `unitPrice` is then the per-WHOLE-UNIT price: `round(lineTotal × 1000 / qty)`.
+ *  3. `unitPriceMc` is then derived with the sanctioned `rateFromTotal` helper.
  *
  * Returns `null` when the split is impossible, which the caller turns into a Spanish VALIDATION
  * error rather than silently misstating revenue:

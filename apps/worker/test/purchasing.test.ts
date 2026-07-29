@@ -11,7 +11,13 @@
 // rows from prior tests. Items are created fresh with a unique name per test (items.name is
 // UNIQUE), so they never need resetting between tests.
 import { env } from "cloudflare:test";
-import { generateUuidV7, toMilliCentavosPerUnit } from "@kokoro/shared";
+import {
+  generateUuidV7,
+  rateFromTotal,
+  toCentavos,
+  toMilliCentavosPerUnit,
+  toMilliUnits,
+} from "@kokoro/shared";
 import { eq, inArray } from "drizzle-orm";
 import fc from "fast-check";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -910,7 +916,9 @@ describe("property: purchase sequences keep item_stock and WAC consistent (INV-5
             );
             for (const cl of commandLines) {
               qtyByItem.set(cl.itemId, (qtyByItem.get(cl.itemId) ?? 0) + cl.qty);
-              entryCostsByItem.get(cl.itemId)?.push(cl.lineTotal / cl.qty);
+              entryCostsByItem
+                .get(cl.itemId)
+                ?.push(rateFromTotal(toCentavos(cl.lineTotal), toMilliUnits(cl.qty)));
             }
           }
 
@@ -926,13 +934,8 @@ describe("property: purchase sequences keep item_stock and WAC consistent (INV-5
             const itemRow = await db.query.items.findFirst({
               where: (t, { eq: eqOp }) => eqOp(t.id, itemId),
             });
-            // KOK-071: costs are entered at the pre-migration scale (lineTotal/qty); rescale by
-            // 1,000,000 to compare against wacMc. wacMc is an exact integer produced via repeated
-            // roundHalfUpToInt (C-1), so the tolerance only needs to cover accumulated half-up
-            // rounding across at most costs.length applyWacEntry calls (<=0.5 mc each), not
-            // floating-point noise.
-            const min = Math.min(...costs) * 1_000_000;
-            const max = Math.max(...costs) * 1_000_000;
+            const min = Math.min(...costs);
+            const max = Math.max(...costs);
             const epsilon = costs.length + 1;
             expect(itemRow?.wacMc ?? 0).toBeGreaterThanOrEqual(min - epsilon);
             expect(itemRow?.wacMc ?? 0).toBeLessThanOrEqual(max + epsilon);

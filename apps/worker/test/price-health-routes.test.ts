@@ -67,9 +67,8 @@ describe("GET /api/price-health", () => {
     }).then((r) => r.json() as Promise<{ id: string }>);
 
     // wac/replacementCostMc are system-derived (never settable via the API) â€” set directly, same
-    // pattern costing-routes.test.ts uses for its precondition setup. KOK-071: wacMc is
-    // milli-centavos per WHOLE unit; 5_000_000 here reproduces the old wac=5-per-milli-unit
-    // example via price-health.ts's own bridge (Ã·1,000,000) â€” replacementCostMc is not migrated yet.
+    // pattern costing-routes.test.ts uses for its precondition setup. Both values use ADR-017's
+    // milli-centavos-per-WHOLE-unit scale.
     await db
       .update(items)
       .set({ wacMc: 5_000_000, replacementCostMc: 7_000_000 })
