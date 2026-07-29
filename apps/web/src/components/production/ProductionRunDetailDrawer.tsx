@@ -13,6 +13,7 @@ import type {
 import {
   formatMoney,
   formatQty,
+  toCentavos,
   toMilliCentavosPerUnit,
   totalCentavos,
   WHOLE_UNIT_MILLI_UNITS,
@@ -175,13 +176,13 @@ export function ProductionRunDetailDrawer({
               <div className="flex items-center justify-between">
                 <span className="text-muted-foreground">{productionLabels.detailDirectCost}</span>
                 <span className="numeric-cell text-foreground">
-                  {formatMoney(productionRun.directCost)}
+                  {formatMoney(toCentavos(productionRun.directCost))}
                 </span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-muted-foreground">{productionLabels.detailIndirectCost}</span>
                 <span className="numeric-cell text-foreground">
-                  {formatMoney(productionRun.indirectCost)}
+                  {formatMoney(toCentavos(productionRun.indirectCost))}
                 </span>
               </div>
               {productionRun.allocatedSessionCost > 0 ? (
@@ -190,7 +191,7 @@ export function ProductionRunDetailDrawer({
                     {productionLabels.detailAllocatedCost}
                   </span>
                   <span className="numeric-cell text-foreground">
-                    {formatMoney(productionRun.allocatedSessionCost)}
+                    {formatMoney(toCentavos(productionRun.allocatedSessionCost))}
                   </span>
                 </div>
               ) : null}
@@ -199,7 +200,7 @@ export function ProductionRunDetailDrawer({
                   {productionLabels.detailTotalCost}
                 </span>
                 <span className="numeric-cell font-medium text-foreground">
-                  {formatMoney(productionRun.totalCost)}
+                  {formatMoney(toCentavos(productionRun.totalCost))}
                 </span>
               </div>
               <div className="flex items-center justify-between">

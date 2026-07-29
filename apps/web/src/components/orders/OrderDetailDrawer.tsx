@@ -11,7 +11,7 @@
 // every ProductionRun linked via `custom_order_id` (O-4) — one extra list fetch, no N+1.
 
 import type { CustomOrderStatus, ItemDto, OrderDto } from "@kokoro/shared";
-import { formatMoney } from "@kokoro/shared";
+import { formatMoney, toCentavos } from "@kokoro/shared";
 import { useMemo, useState } from "react";
 
 import { ItemPicker } from "@/components/catalog/ItemPicker";
@@ -225,21 +225,21 @@ export function OrderDetailDrawer({ orderId, open, onOpenChange }: OrderDetailDr
                 <span className="text-muted-foreground">{ordersLabels.columnAgreedTotal}</span>
                 <span className="numeric-cell font-medium text-foreground">
                   {order.agreedTotal !== null
-                    ? formatMoney(order.agreedTotal)
+                    ? formatMoney(toCentavos(order.agreedTotal))
                     : ordersLabels.noAgreedTotal}
                 </span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-muted-foreground">{ordersLabels.columnDepositPaid}</span>
                 <span className="numeric-cell font-medium text-foreground">
-                  {formatMoney(order.depositPaid)}
+                  {formatMoney(toCentavos(order.depositPaid))}
                 </span>
               </div>
               {order.balanceDue !== null ? (
                 <div className="flex items-center justify-between">
                   <span className="text-muted-foreground">{ordersLabels.columnBalanceDue}</span>
                   <span className="numeric-cell font-medium text-foreground">
-                    {formatMoney(order.balanceDue)}
+                    {formatMoney(toCentavos(order.balanceDue))}
                   </span>
                 </div>
               ) : null}
@@ -270,7 +270,7 @@ export function OrderDetailDrawer({ orderId, open, onOpenChange }: OrderDetailDr
                         {itemById.get(line.itemId)?.name ?? line.itemId}
                       </span>
                       <span className="numeric-cell text-muted-foreground text-xs">
-                        {line.lineTotal !== null ? formatMoney(line.lineTotal) : "—"}
+                        {line.lineTotal !== null ? formatMoney(toCentavos(line.lineTotal)) : "—"}
                       </span>
                     </li>
                   ) : (
@@ -292,21 +292,23 @@ export function OrderDetailDrawer({ orderId, open, onOpenChange }: OrderDetailDr
                   {ordersLabels.profitabilityAgreedTotal}
                 </span>
                 <span className="numeric-cell text-foreground">
-                  {order.agreedTotal !== null ? formatMoney(order.agreedTotal) : "—"}
+                  {order.agreedTotal !== null ? formatMoney(toCentavos(order.agreedTotal)) : "—"}
                 </span>
               </div>
               <div className="flex items-center justify-between text-xs">
                 <span className="text-muted-foreground">
                   {ordersLabels.profitabilityLinkedCosts}
                 </span>
-                <span className="numeric-cell text-foreground">{formatMoney(linkedCost)}</span>
+                <span className="numeric-cell text-foreground">
+                  {formatMoney(toCentavos(linkedCost))}
+                </span>
               </div>
               <div className="flex items-center justify-between border-border border-t pt-2 text-xs">
                 <span className="text-muted-foreground">{ordersLabels.profitabilityMargin}</span>
                 <span
                   className={`numeric-cell font-medium ${margin !== null && margin < 0 ? "text-negative" : "text-foreground"}`}
                 >
-                  {margin !== null ? formatMoney(margin) : "—"}
+                  {margin !== null ? formatMoney(toCentavos(margin)) : "—"}
                 </span>
               </div>
 
@@ -321,7 +323,7 @@ export function OrderDetailDrawer({ orderId, open, onOpenChange }: OrderDetailDr
                     <li key={run.id} className="flex items-center justify-between text-xs">
                       <span className="text-foreground">{run.businessDate}</span>
                       <span className="numeric-cell text-foreground">
-                        {formatMoney(run.totalCost)}
+                        {formatMoney(toCentavos(run.totalCost))}
                       </span>
                     </li>
                   ))}

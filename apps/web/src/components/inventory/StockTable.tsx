@@ -10,6 +10,7 @@ import type { StockRowDto } from "@kokoro/shared";
 import {
   formatMoney,
   formatQty,
+  toCentavos,
   toMilliCentavosPerUnit,
   totalCentavos,
   WHOLE_UNIT_MILLI_UNITS,
@@ -96,7 +97,7 @@ export function StockTable({ rows, loading, onRowClick }: StockTableProps) {
       numeric: true,
       cell: (row) => (
         <div className="flex flex-col items-end gap-0.5">
-          <span className="font-medium">{formatMoney(row.stockValue)}</span>
+          <span className="font-medium">{formatMoney(toCentavos(row.stockValue))}</span>
           <CalcTrace
             formula={inventoryLabels.stockValueFormula}
             inputs={[

@@ -5,6 +5,7 @@ import type { KardexRowDto } from "@kokoro/shared";
 import {
   formatMoney,
   formatQty,
+  toCentavos,
   toMilliCentavosPerUnit,
   totalCentavos,
   WHOLE_UNIT_MILLI_UNITS,
@@ -83,7 +84,7 @@ export function KardexView({ itemId, itemName, open, onOpenChange }: KardexViewP
       numeric: true,
       cell: (row) => (
         <span className={cn(row.totalCost < 0 && "text-negative")}>
-          {formatMoney(row.totalCost, { signed: true })}
+          {formatMoney(toCentavos(row.totalCost), { signed: true })}
         </span>
       ),
     },

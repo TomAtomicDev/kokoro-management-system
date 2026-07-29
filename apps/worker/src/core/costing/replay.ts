@@ -447,7 +447,7 @@ export async function planCostingReplay(
         triggerEventId: input.trigger.eventId,
         affectedSaleLineIds: entry.saleLineIds,
         affectedStockExitIds: entry.stockExitIds,
-        costDelta: entry.costDelta,
+        costDelta: toCentavos(entry.costDelta),
       }),
     );
   }

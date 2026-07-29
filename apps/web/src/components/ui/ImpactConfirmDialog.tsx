@@ -6,7 +6,7 @@
 // repo wants — a shared ui/ primitive never imports a features/ file).
 
 import type { ReplayImpactDto } from "@kokoro/shared";
-import { formatMoney } from "@kokoro/shared";
+import { formatMoney, toCentavos } from "@kokoro/shared";
 
 import { cn } from "@/lib/utils";
 
@@ -107,7 +107,9 @@ export function ImpactConfirmDialog({
 
         <div className="flex items-center justify-between border-border border-t pt-3 text-sm">
           <span className="text-muted-foreground">Cambio de costo</span>
-          <span className={costDeltaClass}>{formatMoney(impact.costDelta, { signed: true })}</span>
+          <span className={costDeltaClass}>
+            {formatMoney(toCentavos(impact.costDelta), { signed: true })}
+          </span>
         </div>
       </div>
       <div className="flex justify-end gap-2 border-border border-t px-5 py-3">

@@ -1,5 +1,5 @@
 import type { DashboardSummaryDto } from "@kokoro/shared";
-import { formatMoney } from "@kokoro/shared";
+import { formatMoney, toCentavos } from "@kokoro/shared";
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect } from "react";
 
@@ -21,10 +21,10 @@ function CashBreakdown({ cash }: { cash: DashboardSummaryDto["cash"] }) {
   return (
     <div className="flex items-center justify-between text-muted-foreground text-xs">
       <span>
-        {dashboardLabels.cashBank}: {formatMoney(cash.bank)}
+        {dashboardLabels.cashBank}: {formatMoney(toCentavos(cash.bank))}
       </span>
       <span>
-        {dashboardLabels.cashCash}: {formatMoney(cash.cash)}
+        {dashboardLabels.cashCash}: {formatMoney(toCentavos(cash.cash))}
       </span>
     </div>
   );
@@ -47,9 +47,13 @@ export function PanelRoute() {
   const summaryQuery = useDashboardSummary();
   const summary = summaryQuery.data;
   const cashValue =
-    summaryQuery.isLoading || !summary ? dashboardLabels.loading : formatMoney(summary.cash.total);
+    summaryQuery.isLoading || !summary
+      ? dashboardLabels.loading
+      : formatMoney(toCentavos(summary.cash.total));
   const stockValue =
-    summaryQuery.isLoading || !summary ? dashboardLabels.loading : formatMoney(summary.stockValue);
+    summaryQuery.isLoading || !summary
+      ? dashboardLabels.loading
+      : formatMoney(toCentavos(summary.stockValue));
 
   return (
     <div className="flex flex-col gap-4">

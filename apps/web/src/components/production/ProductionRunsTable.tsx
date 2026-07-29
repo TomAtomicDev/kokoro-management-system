@@ -9,6 +9,7 @@
 import type { ProductionRunDto, RecipeDto } from "@kokoro/shared";
 import {
   formatMoney,
+  toCentavos,
   toMilliCentavosPerUnit,
   totalCentavos,
   WHOLE_UNIT_MILLI_UNITS,
@@ -81,7 +82,7 @@ export function ProductionRunsTable({
       id: "totalCost",
       header: productionLabels.columnTotalCost,
       numeric: true,
-      cell: (row) => formatMoney(row.totalCost),
+      cell: (row) => formatMoney(toCentavos(row.totalCost)),
     },
     {
       id: "unitCost",

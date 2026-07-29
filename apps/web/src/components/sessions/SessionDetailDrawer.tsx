@@ -13,7 +13,7 @@
 // `status: "CLOSED"`, since UpdateSessionCommand is a full replace, not a patch.
 
 import type { FinancialAccountDto } from "@kokoro/shared";
-import { addMoney, formatMoney, updateSessionCommandSchema } from "@kokoro/shared";
+import { addMoney, formatMoney, toCentavos, updateSessionCommandSchema } from "@kokoro/shared";
 import { Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 
@@ -253,7 +253,9 @@ export function SessionDetailDrawer({
               <div className="flex items-center justify-between">
                 <span className="font-medium text-foreground">{sessionsLabels.detailCosts}</span>
                 <span className="numeric-cell font-medium text-foreground">
-                  {formatMoney(addMoney(...session.costLines.map((line) => line.amount)))}
+                  {formatMoney(
+                    addMoney(...session.costLines.map((line) => toCentavos(line.amount))),
+                  )}
                 </span>
               </div>
               {session.costLines.length === 0 ? (
@@ -272,7 +274,9 @@ export function SessionDetailDrawer({
                             <Badge variant="muted">{sessionsLabels.estimateBadge}</Badge>
                           ) : null}
                         </span>
-                        <span className="numeric-cell font-medium">{formatMoney(line.amount)}</span>
+                        <span className="numeric-cell font-medium">
+                          {formatMoney(toCentavos(line.amount))}
+                        </span>
                       </div>
                       {line.accountId ? (
                         <span className="text-muted-foreground text-xs">

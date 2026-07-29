@@ -2,7 +2,7 @@
 // paid/pending badge, balance. Click opens OrderDetailDrawer (composed by the caller).
 
 import type { OrderDto } from "@kokoro/shared";
-import { formatMoney } from "@kokoro/shared";
+import { formatMoney, toCentavos } from "@kokoro/shared";
 
 import { Badge } from "@/components/ui/badge";
 import { ordersLabels } from "@/lib/i18n-orders";
@@ -40,14 +40,16 @@ export function OrderCard({ order, onClick }: OrderCardProps) {
       <div className="flex items-center justify-between border-border border-t pt-2 text-xs">
         <span className="text-muted-foreground">{ordersLabels.columnAgreedTotal}</span>
         <span className="numeric-cell font-medium text-foreground">
-          {order.agreedTotal !== null ? formatMoney(order.agreedTotal) : ordersLabels.noAgreedTotal}
+          {order.agreedTotal !== null
+            ? formatMoney(toCentavos(order.agreedTotal))
+            : ordersLabels.noAgreedTotal}
         </span>
       </div>
       {order.balanceDue !== null && order.balanceDue > 0 ? (
         <div className="flex items-center justify-between text-xs">
           <span className="text-muted-foreground">{ordersLabels.cardBalance}</span>
           <span className="numeric-cell font-medium text-warning">
-            {formatMoney(order.balanceDue)}
+            {formatMoney(toCentavos(order.balanceDue))}
           </span>
         </div>
       ) : null}

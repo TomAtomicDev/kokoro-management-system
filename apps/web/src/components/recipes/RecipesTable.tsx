@@ -3,7 +3,7 @@
 // drawer. Mirrors PurchasesTable.tsx's structure.
 
 import type { ItemDto, RecipeDto } from "@kokoro/shared";
-import { formatMoney, formatQty } from "@kokoro/shared";
+import { formatMoney, formatQty, toCentavos } from "@kokoro/shared";
 import { useMemo } from "react";
 
 import { EventTable, type EventTableColumn } from "@/components/data-table/EventTable";
@@ -57,7 +57,7 @@ export function RecipesTable({ recipes, loading, onRowClick }: RecipesTableProps
       id: "costReplacement",
       header: recipesLabels.columnCostReplacement,
       numeric: true,
-      cell: (row) => formatMoney(row.theoreticalCostReplacement.costPerOutputUnit),
+      cell: (row) => formatMoney(toCentavos(row.theoreticalCostReplacement.costPerOutputUnit)),
     },
     {
       id: "status",

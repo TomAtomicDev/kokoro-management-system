@@ -7,7 +7,7 @@
 // Read + row-click only (no inline edit here) — same precedent as PurchasesTable.
 
 import type { SessionListItemDto } from "@kokoro/shared";
-import { formatMoney } from "@kokoro/shared";
+import { formatMoney, toCentavos } from "@kokoro/shared";
 import { EventTable, type EventTableColumn } from "@/components/data-table/EventTable";
 import { Badge } from "@/components/ui/badge";
 import { sessionsLabels } from "@/lib/i18n-sessions";
@@ -49,7 +49,7 @@ export function SessionsTable({ sessions, loading, onRowClick }: SessionsTablePr
       id: "costs",
       header: sessionsLabels.columnCosts,
       numeric: true,
-      cell: (row) => formatMoney(row.costsTotal),
+      cell: (row) => formatMoney(toCentavos(row.costsTotal)),
     },
     {
       id: "linkedEvents",

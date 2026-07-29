@@ -478,7 +478,7 @@ export function SaleForm({ open, onOpenChange, accounts, sale }: SaleFormProps) 
               {salesLabels.totalPreviewLabel}
             </span>
             <span className="numeric-cell font-semibold text-foreground text-lg">
-              {formatMoney(totalPreview)}
+              {formatMoney(toCentavos(totalPreview))}
             </span>
           </div>
 

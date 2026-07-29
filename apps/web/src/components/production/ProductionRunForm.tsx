@@ -343,10 +343,16 @@ export function ProductionRunForm({ open, onOpenChange, productionRun }: Product
   });
   const totalCostTraceInputs: CalcTraceInput[] = [
     { label: productionLabels.costDirectLabel, value: formatMoney(directCostPreview) },
-    { label: productionLabels.costIndirectLabel, value: formatMoney(indirectCostPreview) },
+    {
+      label: productionLabels.costIndirectLabel,
+      value: formatMoney(toCentavos(indirectCostPreview)),
+    },
   ];
   const unitCostTraceInputs: CalcTraceInput[] = [
-    { label: productionLabels.costTotalLabel, value: formatMoney(totalCostPreview) },
+    {
+      label: productionLabels.costTotalLabel,
+      value: formatMoney(toCentavos(totalCostPreview)),
+    },
     {
       label: productionLabels.fieldActualOutputQty,
       value:
@@ -502,7 +508,7 @@ export function ProductionRunForm({ open, onOpenChange, productionRun }: Product
                 {productionLabels.costIndirectLabel}
               </span>
               <span className="numeric-cell text-foreground text-sm">
-                {formatMoney(indirectCostPreview)}
+                {formatMoney(toCentavos(indirectCostPreview))}
               </span>
             </div>
             <div className="flex items-center justify-between">
@@ -514,7 +520,7 @@ export function ProductionRunForm({ open, onOpenChange, productionRun }: Product
                 />
               </span>
               <span className="numeric-cell font-semibold text-foreground text-lg">
-                {formatMoney(totalCostPreview)}
+                {formatMoney(toCentavos(totalCostPreview))}
               </span>
             </div>
             <div className="flex items-center justify-between">

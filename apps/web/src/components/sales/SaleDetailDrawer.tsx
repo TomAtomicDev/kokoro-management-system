@@ -14,6 +14,7 @@ import type {
 import {
   formatMoney,
   formatQty,
+  toCentavos,
   toMilliUnits,
   totalCentavos,
   WHOLE_UNIT_MILLI_UNITS,
@@ -195,7 +196,7 @@ export function SaleDetailDrawer({ saleId, open, onOpenChange, accounts }: SaleD
               <div className="flex items-center justify-between">
                 <span className="text-muted-foreground">{salesLabels.columnTotal}</span>
                 <span className="numeric-cell font-medium text-foreground">
-                  {formatMoney(sale.total)}
+                  {formatMoney(toCentavos(sale.total))}
                 </span>
               </div>
             </div>
