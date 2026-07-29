@@ -259,7 +259,7 @@ async function buildSaleCreateMovements(
 
   // Server-recomputed, never trusted from the caller (Doc 04 §5) — recordSaleCommandSchema has no
   // `total` field, so this is the only place a sale's total is produced.
-  const total = addMoney(...lineTotals);
+  const total = addMoney(...lineTotals.map(toCentavos));
 
   const isPaid = command.paymentStatus === "PAID";
   const saleRow: SaleRow = {
@@ -384,7 +384,10 @@ export async function recordSale(
     sale: toSaleDto(saleRow, saleLineRows),
     account:
       account !== null
-        ? toAccountDto({ ...account, balance: addMoney(account.balance, total) })
+        ? toAccountDto({
+            ...account,
+            balance: addMoney(toCentavos(account.balance), toCentavos(total)),
+          })
         : null,
   };
 }
@@ -757,7 +760,7 @@ async function buildSaleUpdateMutationInputs(
       unitCostSnapshotMc,
     };
   });
-  const total = addMoney(...lineTotals);
+  const total = addMoney(...lineTotals.map(toCentavos));
 
   const newRow: SaleRow = {
     ...existing,
@@ -1168,7 +1171,10 @@ export async function collectPayment(
 
   return {
     sale: toSaleDto({ ...saleRow, ...updatedFields }, lineRows),
-    account: toAccountDto({ ...account, balance: addMoney(account.balance, outstanding) }),
+    account: toAccountDto({
+      ...account,
+      balance: addMoney(toCentavos(account.balance), toCentavos(outstanding)),
+    }),
   };
 }
 
@@ -1189,7 +1195,7 @@ async function outstandingForSale(db: Db, saleRow: SaleRow): Promise<number> {
       andOp(eqOp(t.id, customOrderId), isNull(t.deletedAt)),
   });
   if (!orderRow) return saleRow.total;
-  return Math.max(subMoney(saleRow.total, orderRow.depositPaid), 0);
+  return Math.max(subMoney(toCentavos(saleRow.total), toCentavos(orderRow.depositPaid)), 0);
 }
 
 /** Raw `v_receivables` row shape (snake_case, exactly the view's SELECT list — Doc 04 §4). The

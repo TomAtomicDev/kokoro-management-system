@@ -170,7 +170,7 @@ export function PurchaseDetailDrawer({
               <div className="flex items-center justify-between">
                 <span className="text-muted-foreground">{purchasesLabels.columnTotal}</span>
                 <span className="numeric-cell font-medium text-foreground">
-                  {formatMoney(purchase.total)}
+                  {formatMoney(toCentavos(purchase.total))}
                 </span>
               </div>
             </div>
@@ -194,7 +194,7 @@ export function PurchaseDetailDrawer({
                           {item?.name ?? line.itemId}
                         </span>
                         <span className="numeric-cell font-medium">
-                          {formatMoney(line.lineTotal)}
+                          {formatMoney(toCentavos(line.lineTotal))}
                         </span>
                       </div>
                       <div className="flex items-center justify-between text-muted-foreground text-xs">

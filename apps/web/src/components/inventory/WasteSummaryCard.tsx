@@ -3,7 +3,7 @@
 // report — `v_waste` (WasteSummaryRowDto) already aggregates by (month, reason); this just filters
 // the current month's rows and sums/lists them. Mirrors AccountCard.tsx's card shell.
 
-import { formatMoney, nowIso, toBusinessDate } from "@kokoro/shared";
+import { formatMoney, nowIso, toBusinessDate, toCentavos } from "@kokoro/shared";
 
 import { useWasteSummary } from "@/features/inventory/api";
 import { inventoryLabels } from "@/lib/i18n-inventory";
@@ -27,7 +27,7 @@ export function WasteSummaryCard() {
           {inventoryLabels.wasteSummaryTotalLabel}
         </span>
         <span className="numeric-cell font-medium text-foreground text-lg">
-          {formatMoney(total)}
+          {formatMoney(toCentavos(total))}
         </span>
       </div>
       {currentMonthRows.length > 0 ? (
@@ -39,7 +39,7 @@ export function WasteSummaryCard() {
             <div key={row.reason} className="flex items-center justify-between text-xs">
               <span className="text-foreground">{inventoryLabels.reasonLabels[row.reason]}</span>
               <span className="numeric-cell text-muted-foreground">
-                {formatMoney(row.totalCost)}
+                {formatMoney(toCentavos(row.totalCost))}
               </span>
             </div>
           ))}

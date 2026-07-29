@@ -12,6 +12,7 @@ import {
   nowIso,
   PAYMENT_METHODS,
   toBusinessDate,
+  toCentavos,
 } from "@kokoro/shared";
 import { useEffect, useState } from "react";
 
@@ -125,7 +126,7 @@ export function ConfirmOrderDialog({ order, open, onOpenChange }: ConfirmOrderDi
               {ordersLabels.columnAgreedTotal}
             </span>
             <span className="numeric-cell font-semibold text-foreground">
-              {formatMoney(order.agreedTotal ?? 0)}
+              {formatMoney(toCentavos(order.agreedTotal ?? 0))}
             </span>
           </div>
         )}

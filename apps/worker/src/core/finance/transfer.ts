@@ -15,7 +15,7 @@
 // against the real D1 engine, not assumed from reading the schema.
 
 import type { AuditActor, TransferCommand, TransferResult } from "@kokoro/shared";
-import { addMoney, generateUuidV7, nowIso, subMoney } from "@kokoro/shared";
+import { addMoney, generateUuidV7, nowIso, subMoney, toCentavos } from "@kokoro/shared";
 import { eq } from "drizzle-orm";
 
 import type { Db } from "../../db/index.js";
@@ -120,11 +120,11 @@ export async function transfer(
     inTransaction: toTransactionDto(inRow),
     fromAccount: toAccountDto({
       ...fromAccount,
-      balance: subMoney(fromAccount.balance, command.amount),
+      balance: subMoney(toCentavos(fromAccount.balance), toCentavos(command.amount)),
     }),
     toAccount: toAccountDto({
       ...toAccount,
-      balance: addMoney(toAccount.balance, command.amount),
+      balance: addMoney(toCentavos(toAccount.balance), toCentavos(command.amount)),
     }),
   };
 }

@@ -23,6 +23,7 @@ import {
   nowIso,
   RECORD_TRANSACTION_CATEGORIES_BY_TYPE,
   subMoney,
+  toCentavos,
 } from "@kokoro/shared";
 
 import type { Db } from "../../db/index.js";
@@ -98,8 +99,8 @@ export async function recordTransaction(
 
   const newBalance =
     command.type === "INCOME"
-      ? addMoney(account.balance, command.amount)
-      : subMoney(account.balance, command.amount);
+      ? addMoney(toCentavos(account.balance), toCentavos(command.amount))
+      : subMoney(toCentavos(account.balance), toCentavos(command.amount));
 
   return {
     transaction: toTransactionDto(row),
@@ -148,7 +149,10 @@ export async function withdraw(
 
   return {
     transaction: toTransactionDto(row),
-    account: toAccountDto({ ...account, balance: subMoney(account.balance, command.amount) }),
+    account: toAccountDto({
+      ...account,
+      balance: subMoney(toCentavos(account.balance), toCentavos(command.amount)),
+    }),
   };
 }
 

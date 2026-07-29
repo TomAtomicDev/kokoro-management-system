@@ -387,7 +387,7 @@ export function RecipeForm({ open, onOpenChange, recipe, settings }: RecipeFormP
                 />
               </span>
               <span className="numeric-cell text-foreground text-sm">
-                {formatMoney(recipe.theoreticalCostWac.costPerOutputUnit)}
+                {formatMoney(toCentavos(recipe.theoreticalCostWac.costPerOutputUnit))}
               </span>
             </div>
             <div className="flex items-center justify-between">
@@ -399,7 +399,7 @@ export function RecipeForm({ open, onOpenChange, recipe, settings }: RecipeFormP
                 />
               </span>
               <span className="numeric-cell font-semibold text-foreground text-lg">
-                {formatMoney(recipe.theoreticalCostReplacement.costPerOutputUnit)}
+                {formatMoney(toCentavos(recipe.theoreticalCostReplacement.costPerOutputUnit))}
               </span>
             </div>
             {recipe.theoreticalCostReplacement.margin ? (

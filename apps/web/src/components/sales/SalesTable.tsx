@@ -117,7 +117,7 @@ export function SalesTable({
       id: "total",
       header: salesLabels.columnTotal,
       numeric: true,
-      cell: (row) => formatMoney(row.total),
+      cell: (row) => formatMoney(toCentavos(row.total)),
     },
     {
       id: "margin",
@@ -127,7 +127,7 @@ export function SalesTable({
         const { margin, marginPct } = computeMargin(row);
         return (
           <span>
-            {formatMoney(margin)}
+            {formatMoney(toCentavos(margin))}
             {marginPct !== null ? (
               <span className="text-muted-foreground"> ({formatPercent(marginPct)})</span>
             ) : null}

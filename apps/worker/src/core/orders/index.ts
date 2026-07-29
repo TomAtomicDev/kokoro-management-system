@@ -80,6 +80,7 @@ import {
   nowIso,
   REPLAY_CONFIRMATION_REQUIRED,
   subMoney,
+  toBasisPoints,
   toCentavos,
   toMilliCentavosPerUnit,
   toMilliUnits,
@@ -199,7 +200,10 @@ function toOrderDto(
     notes: row.notes,
     lines: lineRows.map(toOrderLineDto),
     // Derived, never stored: what the customer still owes (O-2's "balance").
-    balanceDue: row.agreedTotal === null ? null : subMoney(row.agreedTotal, row.depositPaid),
+    balanceDue:
+      row.agreedTotal === null
+        ? null
+        : subMoney(toCentavos(row.agreedTotal), toCentavos(row.depositPaid)),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -313,7 +317,10 @@ async function resolveDefaultDepositRequired(db: Db, agreedTotal: number): Promi
   const raw = await getSetting(db, "default_deposit_pct");
   const parsed = raw === null ? Number.NaN : Number(raw);
   const bp = Number.isInteger(parsed) && parsed >= 0 && parsed <= 10_000 ? parsed : null;
-  return mulMoneyByBasisPoints(agreedTotal, bp ?? DEFAULT_DEPOSIT_PCT_BP);
+  return mulMoneyByBasisPoints(
+    toCentavos(agreedTotal),
+    toBasisPoints(bp ?? DEFAULT_DEPOSIT_PCT_BP),
+  );
 }
 
 // ---- UC-05 quote ------------------------------------------------------------------------------
@@ -509,7 +516,7 @@ export async function confirmOrder(
     order: await readOrderDto(db, id),
     account: toAccountDto({
       ...account,
-      balance: addMoney(account.balance, command.depositAmount),
+      balance: addMoney(toCentavos(account.balance), toCentavos(command.depositAmount)),
     }),
   };
 }
@@ -623,7 +630,7 @@ async function buildDeliveryPlan(
 
   // D-5: split the agreed total across the lines so Σ(qty × unit_price) reproduces it to the
   // centavo. Refuses (null) rather than rounding the customer's agreed price.
-  const allocations = allocateAgreedTotalToOrderLines(agreedTotal, lineRows);
+  const allocations = allocateAgreedTotalToOrderLines(toCentavos(agreedTotal), lineRows);
   if (allocations === null) {
     throw validationError(
       "No se puede repartir el total acordado en precios unitarios exactos para estas líneas. Ajusta el total acordado, las cantidades o los importes por línea.",
@@ -697,7 +704,7 @@ async function buildDeliveryPlan(
     });
   }
 
-  const balance = subMoney(agreedTotal, order.depositPaid);
+  const balance = subMoney(toCentavos(agreedTotal), toCentavos(order.depositPaid));
   // A fully-prepaid order owes nothing, so the sale is PAID however the caller framed the balance —
   // an ON_CREDIT sale with a zero receivable would sit in `v_receivables` forever meaning nothing.
   const isPaid = balance === 0 || command.balancePaymentStatus === "PAID";
@@ -845,7 +852,10 @@ export async function deliverOrder(
     sale: toSaleDto(plan.saleRow, plan.saleLineRows),
     account:
       account !== null
-        ? toAccountDto({ ...account, balance: addMoney(account.balance, plan.balance) })
+        ? toAccountDto({
+            ...account,
+            balance: addMoney(toCentavos(account.balance), toCentavos(plan.balance)),
+          })
         : null,
   };
 }
@@ -1002,7 +1012,10 @@ export async function cancelOrder(
     order: await readOrderDto(db, id),
     account:
       account !== null
-        ? toAccountDto({ ...account, balance: subMoney(account.balance, row.depositPaid) })
+        ? toAccountDto({
+            ...account,
+            balance: subMoney(toCentavos(account.balance), toCentavos(row.depositPaid)),
+          })
         : null,
   };
 }

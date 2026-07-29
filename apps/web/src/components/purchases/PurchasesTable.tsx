@@ -4,7 +4,7 @@
 // editing a recorded purchase has no API yet (KOK-024's job).
 
 import type { FinancialAccountDto, PurchaseDto, PurchaseLineDto } from "@kokoro/shared";
-import { formatMoney } from "@kokoro/shared";
+import { formatMoney, toCentavos } from "@kokoro/shared";
 import { Paperclip } from "lucide-react";
 import { useMemo } from "react";
 
@@ -66,7 +66,7 @@ export function PurchasesTable({ purchases, accounts, loading, onRowClick }: Pur
       id: "total",
       header: purchasesLabels.columnTotal,
       numeric: true,
-      cell: (row) => formatMoney(row.total),
+      cell: (row) => formatMoney(toCentavos(row.total)),
     },
     {
       id: "account",

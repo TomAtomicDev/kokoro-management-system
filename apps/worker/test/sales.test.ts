@@ -22,6 +22,7 @@ import { env } from "cloudflare:test";
 import {
   addMoney,
   generateUuidV7,
+  toCentavos,
   toMilliCentavosPerUnit,
   toMilliUnits,
   totalCentavos,
@@ -1377,8 +1378,12 @@ describe("property: collectPayment credits the account by exactly the sale's tot
           ACTOR,
         );
 
-        expect(result.account.balance).toBe(addMoney(before, sale.sale.total));
-        expect(await accountBalance(db, "acc_cash")).toBe(addMoney(before, sale.sale.total));
+        expect(result.account.balance).toBe(
+          addMoney(toCentavos(before), toCentavos(sale.sale.total)),
+        );
+        expect(await accountBalance(db, "acc_cash")).toBe(
+          addMoney(toCentavos(before), toCentavos(sale.sale.total)),
+        );
       }),
       { numRuns: 15 },
     );

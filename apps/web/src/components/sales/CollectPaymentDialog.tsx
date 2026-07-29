@@ -12,6 +12,7 @@ import {
   PAYMENT_METHODS,
   type PaymentMethod,
   toBusinessDate,
+  toCentavos,
 } from "@kokoro/shared";
 import { useEffect, useState } from "react";
 
@@ -87,7 +88,7 @@ export function CollectPaymentDialog({
         <div className="flex items-center justify-between rounded-md border border-border bg-muted px-4 py-3">
           <span className="font-medium text-foreground text-sm">{salesLabels.columnTotal}</span>
           <span className="numeric-cell font-semibold text-foreground text-lg">
-            {formatMoney(sale.total)}
+            {formatMoney(toCentavos(sale.total))}
           </span>
         </div>
 

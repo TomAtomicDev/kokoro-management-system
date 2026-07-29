@@ -1131,7 +1131,7 @@ export async function planSessionCostAllocation(
   }
 
   const weights = runs.map((r) => r.directCost);
-  const allocations = allocateLargestRemainder(totalSharedCost, weights);
+  const allocations = allocateLargestRemainder(toCentavos(totalSharedCost), weights);
 
   const changed: { run: ProductionRunRow; newAllocation: number; newTotalCost: number }[] = [];
   for (let i = 0; i < runs.length; i++) {

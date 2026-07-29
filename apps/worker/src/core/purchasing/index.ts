@@ -40,11 +40,11 @@ import {
   generateUuidV7,
   nowIso,
   REPLAY_CONFIRMATION_REQUIRED,
+  rateFromTotal,
   subMoney,
   toCentavos,
   toMilliCentavosPerUnit,
   toMilliUnits,
-  rateFromTotal,
 } from "@kokoro/shared";
 import { and, eq, gt, isNull, ne } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
@@ -227,7 +227,7 @@ async function buildPurchaseCreateMovements(db: Db, command: RecordPurchaseComma
 
   // Server-recomputed, never trusted from the caller (Doc 04 Ãƒâ€šÃ‚Â§5) ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â recordPurchaseCommandSchema has
   // no `total` field at all, so this is the only place a purchase's total is ever produced.
-  const total = addMoney(...command.lines.map((l) => l.lineTotal));
+  const total = addMoney(...command.lines.map((l) => toCentavos(l.lineTotal)));
 
   const purchaseRow = {
     id: purchaseId,
@@ -395,7 +395,10 @@ export async function recordPurchase(
 
   return {
     purchase: toPurchaseDto(purchaseRow, purchaseLineRows),
-    account: toAccountDto({ ...account, balance: subMoney(account.balance, total) }),
+    account: toAccountDto({
+      ...account,
+      balance: subMoney(toCentavos(account.balance), total),
+    }),
   };
 }
 
@@ -988,7 +991,7 @@ async function buildPurchaseUpdateMutationInputs(
   await findActiveAccountRowOrThrow(db, command.accountId);
 
   const now = nowIso();
-  const total = addMoney(...command.lines.map((l) => l.lineTotal));
+  const total = addMoney(...command.lines.map((l) => toCentavos(l.lineTotal)));
 
   const newRow: PurchaseRow = {
     ...existing,
