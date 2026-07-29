@@ -89,10 +89,7 @@ async function seedSale(
     occurredAt: params.occurredAt,
     businessDate: params.businessDate,
     channel: "CATALOG",
-    total: totalCentavos(
-      toMilliCentavosPerUnit(params.unitPriceMc),
-      toMilliUnits(params.qty),
-    ),
+    total: totalCentavos(toMilliCentavosPerUnit(params.unitPriceMc), toMilliUnits(params.qty)),
     paymentStatus: "PAID",
     paidAt: params.occurredAt,
     paymentMethod: "CASH",

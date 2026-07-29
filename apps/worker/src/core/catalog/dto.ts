@@ -24,8 +24,7 @@ export function toItemDto(row: ItemRow, aliases: ItemAliasRow[]): ItemDto {
     wacMc: row.wacMc,
     replacementCostMc: row.replacementCostMc,
     replacementCostUpdatedAt: row.replacementCostUpdatedAt,
-    salePriceMc:
-      row.salePriceMc === null ? null : toMilliCentavosPerUnit(row.salePriceMc),
+    salePriceMc: row.salePriceMc === null ? null : toMilliCentavosPerUnit(row.salePriceMc),
     minStockQty: row.minStockQty,
     isActive: row.isActive === 1,
     notes: row.notes,

@@ -825,8 +825,8 @@
     "semantic_hash": ""
   },
   "apps/worker/src/core/catalog/dto.ts": {
-    "mtime": 1785298054.2037182,
-    "ast_hash": "1fcd324747d041dc7207034a41cca032",
+    "mtime": 1785298874.2370994,
+    "ast_hash": "82bfdd63b8981d33e5cc4be75735bb1a",
     "semantic_hash": ""
   },
   "apps/worker/src/core/catalog/index.ts": {
@@ -930,8 +930,8 @@
     "semantic_hash": ""
   },
   "apps/worker/src/core/inventory/queries.ts": {
-    "mtime": 1785298088.2362902,
-    "ast_hash": "09041bdc3ae21459975af23bcd622160",
+    "mtime": 1785298874.2671149,
+    "ast_hash": "4b9e1f45402dc7be574c48df69012e78",
     "semantic_hash": ""
   },
   "apps/worker/src/core/inventory/types.ts": {
@@ -1150,8 +1150,8 @@
     "semantic_hash": ""
   },
   "apps/worker/test/invariants/frozen-snapshots.test.ts": {
-    "mtime": 1785298090.1084235,
-    "ast_hash": "4de2e02fff90d293daeb2a55a45b86cc",
+    "mtime": 1785298874.3484285,
+    "ast_hash": "d7d80103a916a4a0dc13e66dcda19ee1",
     "semantic_hash": ""
   },
   "apps/worker/test/invariants/wac-replay.test.ts": {
@@ -1160,8 +1160,8 @@
     "semantic_hash": ""
   },
   "apps/worker/test/inventory-queries.test.ts": {
-    "mtime": 1785298109.8117714,
-    "ast_hash": "62abab834129396ae1f4147a214f5393",
+    "mtime": 1785298874.3534317,
+    "ast_hash": "49d81090ff1e49ead5d3dbf5c86f54fb",
     "semantic_hash": ""
   },
   "apps/worker/test/inventory.test.ts": {
@@ -1850,8 +1850,8 @@
     "semantic_hash": ""
   },
   "apps/worker/src/core/costing/replacement-cost-refresh.ts": {
-    "mtime": 1785298056.0165665,
-    "ast_hash": "4ce88e070789a05baa546dc08ee38f51",
+    "mtime": 1785298874.2531016,
+    "ast_hash": "c53f25add964408aa036107366acfdcd",
     "semantic_hash": ""
   },
   "apps/worker/src/core/costing/replacement-cost.ts": {
@@ -2155,8 +2155,8 @@
     "semantic_hash": ""
   },
   "apps/worker/test/orders.test.ts": {
-    "mtime": 1785298111.6728866,
-    "ast_hash": "0438167c120de1b307f4c9404397158d",
+    "mtime": 1785298874.4344957,
+    "ast_hash": "4217e64d7229e6ce0f0c170f8fef4c5f",
     "semantic_hash": ""
   },
   "packages/shared/src/orders.test.ts": {

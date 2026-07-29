@@ -17,11 +17,7 @@
 //     place, which is what releases the liability (see core/orders' header).
 import { env } from "cloudflare:test";
 import type { CustomOrderStatus } from "@kokoro/shared";
-import {
-  toMilliCentavosPerUnit,
-  toMilliUnits,
-  totalCentavos,
-} from "@kokoro/shared";
+import { toMilliCentavosPerUnit, toMilliUnits, totalCentavos } from "@kokoro/shared";
 import { eq, inArray, sql } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 
@@ -722,11 +718,7 @@ describe("deliverOrder (UC-07, O-2)", () => {
     expect(
       sale.lines.reduce(
         (sum, line) =>
-          sum +
-          totalCentavos(
-            toMilliCentavosPerUnit(line.unitPriceMc),
-            toMilliUnits(line.qty),
-          ),
+          sum + totalCentavos(toMilliCentavosPerUnit(line.unitPriceMc), toMilliUnits(line.qty)),
         0,
       ),
     ).toBe(1_000);

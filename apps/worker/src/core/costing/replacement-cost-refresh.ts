@@ -22,15 +22,13 @@
 // judgment call: reuse the already-tested primitive rather than hand-roll a second topological
 // sort, so the two correction paths can never disagree on what "dependency order" means.
 
-import { nowIso } from "@kokoro/shared";
+import { type MilliCentavosPerUnit, nowIso, toMilliCentavosPerUnit } from "@kokoro/shared";
 import { eq } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
-
 import type { Db } from "../../db/index.js";
 import { items } from "../../db/schema.js";
 import type { RecipeEdge } from "./dependency-graph.js";
 import { topoOrderAffectedItems } from "./dependency-graph.js";
-import { toMilliCentavosPerUnit, type MilliCentavosPerUnit } from "@kokoro/shared";
 
 import { computeItemReplacementCost, type ReplacementCostLine } from "./replacement-cost.js";
 
@@ -146,7 +144,11 @@ export async function planReplacementCostRefresh(db: Db): Promise<ReplacementCos
     statements.push(
       db
         .update(items)
-        .set({ replacementCostMc: newReplacementCost, replacementCostUpdatedAt: now, updatedAt: now })
+        .set({
+          replacementCostMc: newReplacementCost,
+          replacementCostUpdatedAt: now,
+          updatedAt: now,
+        })
         .where(eq(items.id, itemId)),
     );
   }

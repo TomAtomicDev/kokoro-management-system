@@ -75,8 +75,7 @@ function toStockRowDto(row: StockViewRow): StockRowDto {
     unit: row.unit,
     wacMc: row.wac_mc,
     replacementCostMc: row.replacement_cost_mc,
-    salePriceMc:
-      row.sale_price_mc === null ? null : toMilliCentavosPerUnit(row.sale_price_mc),
+    salePriceMc: row.sale_price_mc === null ? null : toMilliCentavosPerUnit(row.sale_price_mc),
     minStockQty: row.min_stock_qty,
     qtyOnHand: row.qty_on_hand,
     negativeSince: row.negative_since,
