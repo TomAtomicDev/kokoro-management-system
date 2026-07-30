@@ -11,6 +11,8 @@ export const dashboardLabels = {
   cashBank: "Banco",
   cashCash: "Caja chica",
   stockValue: "Valor de inventario",
+  liabilityTotal: "Anticipos de clientes",
+  receivablesTotal: "Por cobrar",
 
   // No glossary entry exists yet for "low stock" on the dashboard strip (judgment call): reuses
   // the same natural Spanish as the Inventory screen's own flag (i18n-inventory.ts's

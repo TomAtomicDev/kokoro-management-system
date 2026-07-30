@@ -54,6 +54,14 @@ export function PanelRoute() {
     summaryQuery.isLoading || !summary
       ? dashboardLabels.loading
       : formatMoney(toCentavos(summary.stockValue));
+  const liabilityValue =
+    summaryQuery.isLoading || !summary
+      ? dashboardLabels.loading
+      : formatMoney(toCentavos(summary.liability));
+  const receivablesValue =
+    summaryQuery.isLoading || !summary
+      ? dashboardLabels.loading
+      : formatMoney(toCentavos(summary.receivablesTotal));
 
   return (
     <div className="flex flex-col gap-4">
@@ -70,6 +78,15 @@ export function PanelRoute() {
         </StatCard>
 
         <StatCard label={dashboardLabels.stockValue} value={stockValue} href="/inventory" />
+      </div>
+
+      <div className="flex flex-col gap-3 sm:flex-row">
+        <StatCard label={dashboardLabels.liabilityTotal} value={liabilityValue} href="/finance" />
+        <StatCard
+          label={dashboardLabels.receivablesTotal}
+          value={receivablesValue}
+          href="/finance"
+        />
       </div>
 
       <LowStockStrip rows={summary?.lowStock ?? []} loading={summaryQuery.isLoading} />

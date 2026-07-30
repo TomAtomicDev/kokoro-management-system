@@ -164,3 +164,12 @@ export interface ListTransactionsResult {
 export interface ListAccountsResult {
   accounts: FinancialAccountDto[];
 }
+
+export interface FinanceSummaryDto {
+  /** Centavos (INV-6): current customer_deposits from v_liability (ADR-012 — cash the owner
+   * holds but doesn't own yet, until delivery/refund/forfeit). */
+  liability: number;
+  /** Centavos (INV-6): SUM(total) over v_receivables — every ON_CREDIT sale's uncollected
+   * remainder. */
+  receivablesTotal: number;
+}

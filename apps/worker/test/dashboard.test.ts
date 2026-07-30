@@ -106,5 +106,7 @@ describe("GET /api/dashboard/summary", () => {
     expect(summary.lowStock.some((row) => row.itemId === item.id)).toBe(true);
     const lowRow = summary.lowStock.find((row) => row.itemId === item.id);
     expect(lowRow?.isLowStock).toBe(true);
+    expect(summary.liability).toBe(0);
+    expect(summary.receivablesTotal).toBe(0);
   });
 });
