@@ -28,7 +28,7 @@ export const financeLabels = {
 
   liabilityLabel: "Anticipos de clientes",
   receivableLabel: "Por cobrar",
-  comingSoon: "Próximamente",
+  liabilityHint: "De tu caja, no es tuyo todavía",
 
   columnDate: "Fecha",
   columnAccount: "Cuenta",

@@ -6,6 +6,7 @@ export {
   listAccounts,
   setOpeningBalances,
 } from "./accounts.js";
+export { getLiabilityReceivableSummary } from "./liability-receivables.js";
 export {
   assertTransactionEditable,
   listTransactions,

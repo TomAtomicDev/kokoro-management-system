@@ -3,6 +3,8 @@
 // listAccounts, core/inventory's getStockValueTotal + listStock), not a new business concept of
 // its own. Reuses `StockRowDto` (inventory-views.ts) for the low-stock rows rather than
 // redefining item fields (single-shape precedent, same spirit as D-4).
+// KOK-037 adds the liability/receivables total as a fourth composed read (core/finance's new
+// getLiabilityReceivableSummary).
 //
 // SC-01's full scope (sales/profit/Bs-per-hour StatCards, deltas/sparklines, margin-at-risk top-5,
 // upcoming orders, the 30-day sales chart, and the general alerts strip) is explicitly OUT of
@@ -24,6 +26,12 @@ export interface DashboardSummaryDto {
   cash: DashboardCashSummary;
   /** Centavos (INV-6): `SUM(stock_value)` over `v_stock` (core/inventory's getStockValueTotal). */
   stockValue: number;
+  /** Centavos (INV-6): current customer_deposits from v_liability (ADR-012 — cash the owner
+   * holds but doesn't own yet, until delivery/refund/forfeit). */
+  liability: number;
+  /** Centavos (INV-6): SUM(total) over v_receivables — every ON_CREDIT sale's uncollected
+   * remainder. */
+  receivablesTotal: number;
   /** `v_stock` rows with `isLowStock = true` (core/inventory's `listStock({ lowStockOnly: true })`). */
   lowStock: StockRowDto[];
 }

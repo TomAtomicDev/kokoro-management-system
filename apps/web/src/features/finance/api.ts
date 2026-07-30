@@ -4,6 +4,7 @@
 // features/catalog/api.ts.
 
 import type {
+  FinanceSummaryDto,
   ListAccountsResult,
   ListTransactionsFilters,
   ListTransactionsResult,
@@ -43,6 +44,13 @@ export function useAccounts() {
   return useQuery({
     queryKey: ACCOUNTS_KEY,
     queryFn: () => api.get<ListAccountsResult>("/finance/accounts"),
+  });
+}
+
+export function useFinanceSummary() {
+  return useQuery({
+    queryKey: ["finance", "summary"],
+    queryFn: () => api.get<FinanceSummaryDto>("/finance/summary"),
   });
 }
 

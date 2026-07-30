@@ -35,12 +35,15 @@
 // for the same business date upserts (`onConflictDoUpdate`) rather than colliding.
 
 import { nowIso, toBusinessDate } from "@kokoro/shared";
-import { sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 
 import type { WacDrift } from "../core/costing/index.js";
 import { detectWacDrift } from "../core/costing/index.js";
-import { getBalanceConsistencyMismatches, listAccounts } from "../core/finance/index.js";
+import {
+  getBalanceConsistencyMismatches,
+  getLiabilityReceivableSummary,
+  listAccounts,
+} from "../core/finance/index.js";
 import {
   getStockConsistencyMismatches,
   getStockValueTotal,
@@ -52,14 +55,6 @@ import type { Db } from "../db/index.js";
 type Statement = BatchItem<"sqlite">;
 
 const JOB_NAME = "daily-snapshot";
-
-interface ReceivablesTotalRow {
-  total: number | null;
-}
-
-interface LiabilityRow {
-  customer_deposits: number | null;
-}
 
 /** Runs the daily-snapshot job. Never throws — any failure is caught and recorded as a
  * `job_runs` row with `ok=0` instead, per this module's header note on why a job must not let an
@@ -73,24 +68,22 @@ export async function runDailySnapshot(db: Db): Promise<void> {
       stockValue,
       activeStock,
       accounts,
-      receivablesRows,
-      liabilityRows,
+      liabilityReceivables,
       stockMismatches,
       balanceMismatches,
     ] = await Promise.all([
       getStockValueTotal(db),
       listStock(db), // v_stock, already filtered to is_active = 1 (Doc 04 §4) — source of the item-id list below
       listAccounts(db),
-      db.all<ReceivablesTotalRow>(sql`SELECT COALESCE(SUM(total), 0) AS total FROM v_receivables`),
-      db.all<LiabilityRow>(sql`SELECT customer_deposits FROM v_liability`),
+      getLiabilityReceivableSummary(db),
       getStockConsistencyMismatches(db),
       getBalanceConsistencyMismatches(db),
     ]);
 
     const bankBalance = accounts.accounts.find((a) => a.type === "BANK")?.balance ?? 0;
     const cashBalance = accounts.accounts.find((a) => a.type === "CASH")?.balance ?? 0;
-    const accountsReceivable = receivablesRows[0]?.total ?? 0;
-    const customerDeposits = liabilityRows[0]?.customer_deposits ?? 0;
+    const accountsReceivable = liabilityReceivables.receivablesTotal;
+    const customerDeposits = liabilityReceivables.liability;
 
     // R-2 backstop (KOK-024/ADR-016): detect WAC drift, once per active item — never repair it.
     // `items.wac_mc` is corrected exclusively by the synchronous replay now; a drift found here means
