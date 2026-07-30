@@ -23,6 +23,7 @@ import type {
   UpdateSaleResult,
 } from "@kokoro/shared";
 import {
+  computeMarginBasisPoints,
   formatMoney,
   nowIso,
   PAYMENT_METHODS,
@@ -38,9 +39,9 @@ import {
   WHOLE_UNIT_MILLI_UNITS,
 } from "@kokoro/shared";
 import { useEffect, useMemo, useState } from "react";
-
 import { CustomerPicker } from "@/components/customers/CustomerPicker";
 import { LineEditor, type LineEditorLine } from "@/components/line-editor/LineEditor";
+import { MarginBadge } from "@/components/pricing/MarginBadge";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { ImpactConfirmDialog } from "@/components/ui/ImpactConfirmDialog";
@@ -48,10 +49,12 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { useItemsQuery } from "@/features/catalog/api";
 import { useStock } from "@/features/inventory/api";
+import { usePricingSettings } from "@/features/pricing/api";
 import { useRecordSale, useUpdateSale } from "@/features/sales/api";
 import { useReplayConfirmableMutation } from "@/hooks/useReplayConfirmableMutation";
 import { ApiError } from "@/lib/api";
 import { formatIntAsDecimalInput, parseDecimalToInt } from "@/lib/decimal";
+import { pricingLabels } from "@/lib/i18n-pricing";
 import { salesLabels } from "@/lib/i18n-sales";
 
 export interface SaleFormProps {
@@ -141,6 +144,8 @@ export function SaleForm({ open, onOpenChange, accounts, sale }: SaleFormProps) 
     (command) => updateMutation.mutateAsync(command),
     { onSuccess: () => onOpenChange(false) },
   );
+
+  const pricingSettingsQuery = usePricingSettings();
 
   const itemsQuery = useItemsQuery({ isActive: true, kind: "FINISHED" });
   const itemsById = useMemo(() => {
@@ -325,29 +330,39 @@ export function SaleForm({ open, onOpenChange, accounts, sale }: SaleFormProps) 
     const requested = qtyByItemId.get(item.id) ?? 0;
     const negativeStockWarning = requested > 0 && onHand - requested < 0;
 
+    // C-5 margin-vs-replacement-cost, live as the price is typed (KOK-036, Doc 07 SC-03) —
+    // replaces the old plain-text "below replacement cost" warning with the same `MarginBadge`
+    // SC-06/SC-12 use, since this is the one place in Sales where the metric genuinely matches
+    // C-5's threshold (unlike SC-02's historical WAC-snapshot margin, which stays unbadged).
     // Convert the decimal-input centavos to the same `_mc` rate scale as replacementCostMc before
     // comparing; both stored rates are dimensionally identical (ADR-017).
-    const belowReplacementWarning =
-      unitPrice !== null &&
-      item.replacementCostMc > 0 &&
-      rateFromTotal(toCentavos(unitPrice), WHOLE_UNIT_MILLI_UNITS) <
-        toMilliCentavosPerUnit(item.replacementCostMc);
+    const marginReplacement =
+      unitPrice !== null && item.replacementCostMc > 0
+        ? computeMarginBasisPoints(
+            rateFromTotal(toCentavos(unitPrice), WHOLE_UNIT_MILLI_UNITS),
+            toMilliCentavosPerUnit(item.replacementCostMc),
+          )
+        : null;
 
     return (
       <div className="flex flex-col gap-0.5 text-xs">
         <span className="text-muted-foreground">
           {salesLabels.lineSubtotal}:{" "}
           <span className="numeric-cell font-medium text-foreground">
-            {subtotal !== null ? formatMoney(subtotal) : "â€”"}
+            {subtotal !== null ? formatMoney(subtotal) : "—"}
           </span>
         </span>
         {negativeStockWarning ? (
           <span className="font-medium text-warning">{salesLabels.warnings.negativeStock}</span>
         ) : null}
-        {belowReplacementWarning ? (
-          <span className="font-medium text-negative">
-            {salesLabels.warnings.belowReplacementCost}
-          </span>
+        {unitPrice !== null && item.replacementCostMc === 0 ? (
+          <span className="text-muted-foreground">{pricingLabels.costPending}</span>
+        ) : marginReplacement !== null && pricingSettingsQuery.data ? (
+          <MarginBadge
+            pctBasisPoints={marginReplacement.pctBasisPoints}
+            minMarginPct={pricingSettingsQuery.data.minMarginPct}
+            className="w-fit"
+          />
         ) : null}
       </div>
     );
