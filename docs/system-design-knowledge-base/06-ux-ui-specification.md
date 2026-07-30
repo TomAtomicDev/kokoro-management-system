@@ -135,7 +135,7 @@ a scarce semantic accent (≤ ~5-8% of any screen), never decoration.** Full rat
 |-----------|--------------------|
 | `MoneyText` | Formats centavos → `Bs 1.234,50`; props: `signed`, `colorBySign` |
 | `QtyText` | milli-units + unit → `1,5 kg`, `12 u` |
-| `MarginBadge` | margin% with C-5 threshold colors (used everywhere margins appear) |
+| `MarginBadge` | margin% with C-5 threshold colors — used wherever **replacement-cost** margin is shown (SC-03, SC-06, SC-12); SC-02's sales list shows a different, historical metric (margin off the frozen `unit_cost_snapshot`) and stays a neutral, unbadged figure — coloring it against the C-5 threshold would misrepresent what it measures (KOK-036) |
 | `ItemPicker` | combobox over items + aliases, filter by kind; inline "crear ítem" |
 | `CustomerPicker` | combobox + inline create |
 | `DateRangePicker` | presets: hoy, ayer, semana, mes, 3m, año, personalizado |

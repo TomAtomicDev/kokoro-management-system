@@ -7,15 +7,18 @@
 // arithmetic sits where the property tests can reach it; `v_price_health` supplies no additional
 // data, so `listPriceHealth` queries `items` directly.
 //
-// Same "plain, synchronous, DB-free" convention as wac.ts/replacement-cost.ts for the pure math ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â
+// Same "plain, synchronous, DB-free" convention as wac.ts/replacement-cost.ts for the pure math —
 // `computePriceMargin`/`computePriceSuggested` take no `Db` and are directly usable by fast-check
-// property tests (Doc 11 Ãƒâ€šÃ‚Â§2, D-5: this touches money math).
+// property tests (Doc 11 §2, D-5: this touches money math). The margin arithmetic itself lives in
+// `@kokoro/shared`'s `computeMarginBasisPoints` (KOK-036) so the web app's SC-03 live-preview badge
+// can reuse the exact tested formula instead of re-deriving it; this function only adds the
+// command-level input validation and null/zero-price early-outs a DomainError boundary needs.
 
-import type { PriceHealthRowDto, PriceMarginDto } from "@kokoro/shared";
+import type { PriceHealthRowDto, PriceMarginDto, PricingSettingsDto } from "@kokoro/shared";
 import {
+  computeMarginBasisPoints,
   type MilliCentavosPerUnit,
   roundHalfUpToInt,
-  subMoney,
   toMilliCentavosPerUnit,
   totalCentavos,
   WHOLE_UNIT_MILLI_UNITS,
@@ -32,11 +35,9 @@ function assertSafeIntegerInput(value: number, label: string): void {
 }
 
 /**
- * C-5: `margin = price ÃƒÂ¢Ã‹â€ Ã¢â‚¬â„¢ cost`, and `margin / price` as basis points. The rate is converted to a
- * whole-unit centavo amount by the sanctioned `totalCentavos` helper before subtracting
- * from the `_mc` sale-price rate after the same sanctioned conversion. Returns `null` when there is nothing
- * meaningful to compare against: no sale price set yet, or a sale price of exactly zero (mirrors
- * `computeRecipeMargin`'s identical precedent in core/recipes/theoretical-cost.ts).
+ * C-5: `margin = price − cost`, and `margin / price` as basis points. Returns `null` when there is
+ * nothing meaningful to compare against: no sale price set yet, or a sale price of exactly zero
+ * (mirrors `computeRecipeMargin`'s identical precedent in core/recipes/theoretical-cost.ts).
  */
 export function computePriceMargin(
   salePriceMc: MilliCentavosPerUnit | null,
@@ -44,20 +45,16 @@ export function computePriceMargin(
 ): PriceMarginDto | null {
   if (salePriceMc === null || salePriceMc === 0) return null;
   assertSafeIntegerInput(salePriceMc, "salePriceMc");
-  const salePrice = totalCentavos(salePriceMc, WHOLE_UNIT_MILLI_UNITS);
-  if (salePrice === 0) return null;
-  const costPerUnit = totalCentavos(costMc, WHOLE_UNIT_MILLI_UNITS);
-  const amount = subMoney(salePrice, costPerUnit);
-  const pctBasisPoints = roundHalfUpToInt((amount * 10000) / salePrice);
-  return { amount, pctBasisPoints };
+  if (totalCentavos(salePriceMc, WHOLE_UNIT_MILLI_UNITS) === 0) return null;
+  return computeMarginBasisPoints(salePriceMc, costMc);
 }
 
 /**
- * Doc 07 SC-12: `price_suggested = replacement_cost / (1 ÃƒÂ¢Ã‹â€ Ã¢â‚¬â„¢ min_margin_pct)` ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â the price at which
+ * Doc 07 SC-12: `price_suggested = replacement_cost / (1 − min_margin_pct)` — the price at which
  * `margin_replacement_pct` exactly equals the target. The stored `_mc` rate is converted to a
- * whole-unit centavo amount before the
- * division. Returns `null` when replacement cost is 0 (nothing to mark up from yet ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â e.g. a
- * FINISHED item whose default-recipe C-3 refresh (KOK-029) hasn't run).
+ * whole-unit centavo amount before the division. Returns `null` when replacement cost is 0
+ * (nothing to mark up from yet — e.g. a FINISHED item whose default-recipe C-3 refresh (KOK-029)
+ * hasn't run).
  */
 export function computePriceSuggested(
   replacementCostMc: MilliCentavosPerUnit,
@@ -77,6 +74,15 @@ export function computePriceSuggested(
 
   const replacementCostMcPerUnit = totalCentavos(replacementCostMc, WHOLE_UNIT_MILLI_UNITS);
   return roundHalfUpToInt(replacementCostMcPerUnit / (1 - minMarginPctBp / 10000));
+}
+
+/** `app_settings.min_margin_pct`, exposed on its own (`GET /pricing-settings`, KOK-036) for
+ * screens that need only the C-5 threshold — mirrors `core/recipes/dto.ts`'s
+ * `getRecipeSettingsDto` precedent. `listPriceHealth` below reuses this rather than re-reading
+ * the setting inline. */
+export async function getPricingSettingsDto(db: Db): Promise<PricingSettingsDto> {
+  const raw = await getSetting(db, "min_margin_pct");
+  return { minMarginPct: Number(raw ?? 0) };
 }
 
 interface PriceHealthItemRow {
@@ -113,7 +119,7 @@ export async function listPriceHealth(
   const itemIds = itemRows.map((row) => row.id);
   const lastChangeByItemId = new Map<string, string>();
   if (itemIds.length > 0) {
-    // Newest-first per item (`effective_from DESC`, UUIDv7 `id DESC` tiebreak ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â price_history has
+    // Newest-first per item (`effective_from DESC`, UUIDv7 `id DESC` tiebreak — price_history has
     // no `created_at`, so id's own chronological ordering breaks same-business-date ties, mirroring
     // the kardex view's `occurred_at DESC, created_at DESC, id DESC` precedent).
     const historyRows = await db.query.priceHistory.findMany({
@@ -128,8 +134,7 @@ export async function listPriceHealth(
     }
   }
 
-  const minMarginPctRaw = await getSetting(db, "min_margin_pct");
-  const minMarginPct = Number(minMarginPctRaw ?? 0);
+  const { minMarginPct } = await getPricingSettingsDto(db);
 
   const rows: PriceHealthRowDto[] = itemRows.map((row) => {
     return {

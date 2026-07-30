@@ -68,8 +68,6 @@ export const salesLabels = {
   warnings: {
     /** INV-8: this line's (aggregated-by-item) qty would take the item's on-hand stock negative. */
     negativeStock: "El stock quedaría negativo.",
-    /** C-5: this line's unit price is below the item's stored replacement cost. */
-    belowReplacementCost: "Precio por debajo del costo de reposición.",
   },
 
   save: "Guardar",

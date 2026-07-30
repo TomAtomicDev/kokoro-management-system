@@ -27,11 +27,21 @@ Table: fecha, canal, cliente, items resumen, total, margen (from `unit_cost_snap
 pago (badge POR COBRAR), método. Actions: new sale, mark paid (account + method inline),
 edit/delete. Filter presets include "Por cobrar" (v_receivables with aging).
 
+This margin is historical — the WAC frozen at sale time, not the item's current replacement cost —
+so it is a plain neutral figure, deliberately **not** `MarginBadge`/C-5-thresholded (KOK-036):
+badging a historical number with the anti-decapitalization threshold would read as "this sale is
+fine" when the real question C-5 asks is "would selling at this price today still be fine." SC-12
+is where that question lives.
+
 ## SC-03 · Sale form (modal/drawer)
 
 `LineEditor` (FINISHED items only, price prefilled from `items.sale_price`, editable),
 payment_status, method+account when PAID, optional customer/session. Warnings: stock going
-negative (amber, INV-8), price below replacement cost (red, C-5).
+negative (amber, INV-8); price vs. replacement cost as a live `MarginBadge` (C-5, KOK-036) as the
+price is typed, reading `GET /pricing-settings` for the threshold — replaces the earlier plain-text
+"below replacement cost" warning. Shows a neutral "Costo pendiente" label instead of the badge when
+`replacementCostMc` is 0 (C-3 hasn't run for that item yet): a badge would otherwise misreport a
+missing cost as a healthy 100% margin.
 
 ## SC-04 · Orders board — `/orders` (UC-05…UC-08)
 

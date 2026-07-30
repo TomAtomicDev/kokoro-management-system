@@ -1,5 +1,6 @@
-// Route-level test for GET /api/price-health (KOK-035, Doc 07 SC-12). Mirrors
-// test/costing-routes.test.ts's exact pattern (`SELF.fetch`, the `login()` helper).
+// Route-level test for GET /api/price-health (KOK-035, Doc 07 SC-12) and GET
+// /api/pricing-settings (KOK-036). Mirrors test/costing-routes.test.ts's exact pattern
+// (`SELF.fetch`, the `login()` helper).
 
 import { env, SELF } from "cloudflare:test";
 import { eq } from "drizzle-orm";
@@ -129,5 +130,23 @@ describe("GET /api/price-health", () => {
     expect(row?.marginReplacement).toBeNull();
     expect(row?.priceSuggested).toBeNull(); // replacementCostMc defaults to 0 (C-3 hasn't run yet)
     expect(row?.lastPriceChangeAt).toBeNull();
+  });
+});
+
+describe("GET /api/pricing-settings", () => {
+  it("returns 401 without a session", async () => {
+    const res = await SELF.fetch("https://example.com/api/pricing-settings");
+    expect(res.status).toBe(401);
+  });
+
+  it("returns the C-5 threshold on its own, matching /price-health's minMarginPct", async () => {
+    const auth = await login();
+
+    const res = await SELF.fetch("https://example.com/api/pricing-settings", {
+      headers: authHeaders(auth),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { minMarginPct: number };
+    expect(body.minMarginPct).toBe(3000); // seeded default (Doc 04 §7)
   });
 });
