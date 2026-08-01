@@ -1,10 +1,10 @@
 // Integration tests for core/settings, core/finance/accounts.ts's setOpeningBalances, and
 // core/catalog/bulk-import.ts's bulkCreateItems (KOK-020, Doc 07 steps 1-5). Follows the Doc 11
-// §3 template: seed -> execute command -> assert rows + audit_log + atomicity, run against real
+// Ã‚Â§3 template: seed -> execute command -> assert rows + audit_log + atomicity, run against real
 // D1 via @cloudflare/vitest-pool-workers.
 //
 // Storage is isolated per test FILE, not per test (mirrors exits.test.ts/counts.test.ts's
-// identical note) — the `beforeEach` below resets both seeded accounts' balance AND
+// identical note) Ã¢â‚¬â€ the `beforeEach` below resets both seeded accounts' balance AND
 // openingBalance to 0, clears `onboarding_completed_at` from app_settings, and deletes any
 // audit_log rows this file's tests create so counts don't leak across tests. Items get unique
 // names per test (items.name is UNIQUE) so seeded rows never collide across tests.
@@ -35,7 +35,7 @@ beforeEach(async () => {
   }
 });
 
-describe("core/settings — getSetting/setSetting", () => {
+describe("core/settings Ã¢â‚¬â€ getSetting/setSetting", () => {
   it("returns null for a never-set key", async () => {
     const db = createDb(env.DB);
     expect(await getSetting(db, "does_not_exist_key")).toBeNull();
@@ -45,7 +45,7 @@ describe("core/settings — getSetting/setSetting", () => {
     const db = createDb(env.DB);
     await setSetting(db, "test_setting_key", "hello");
     expect(await getSetting(db, "test_setting_key")).toBe("hello");
-    // Cleanup — this key isn't reset by beforeEach (only ONBOARDING_KEY is).
+    // Cleanup Ã¢â‚¬â€ this key isn't reset by beforeEach (only ONBOARDING_KEY is).
     await db.delete(appSettings).where(eq(appSettings.key, "test_setting_key"));
   });
 
@@ -59,7 +59,7 @@ describe("core/settings — getSetting/setSetting", () => {
   });
 });
 
-describe("core/settings — onboarding status semantics", () => {
+describe("core/settings Ã¢â‚¬â€ onboarding status semantics", () => {
   it("no setting -> not completed; after setSetting -> completed", async () => {
     const db = createDb(env.DB);
     expect(await getSetting(db, ONBOARDING_KEY)).toBeNull();
@@ -125,14 +125,14 @@ describe("bulkCreateItems", () => {
 
     expect(result.items).toHaveLength(3);
     for (const dto of result.items) {
-      expect(dto.wac).toBe(0);
-      expect(dto.replacementCost).toBe(0);
+      expect(dto.wacMc).toBe(0);
+      expect(dto.replacementCostMc).toBe(0);
       expect(dto.replacementCostUpdatedAt).toBeNull();
       expect(dto.isActive).toBe(true);
     }
 
     const rowA = await findByName(db, "Bulk item A");
-    expect(rowA).toMatchObject({ wac: 0, replacementCost: 0, isActive: 1 });
+    expect(rowA).toMatchObject({ wacMc: 0, replacementCostMc: 0, isActive: 1 });
 
     const auditRows = await db.query.auditLog.findMany({
       where: (t, { and, eq: eqOp }) =>

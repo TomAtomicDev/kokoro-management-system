@@ -29,18 +29,19 @@ better correction ergonomics for a solo operator (ADR-009).
 | INV-3 | Every event has `occurred_at` (UTC) and `business_date` (America/La_Paz); reports group by `business_date`. |
 | INV-4 | AI may draft events; only explicit human confirmation commits a write. |
 | INV-5 | `item_stock.qty_on_hand` = Σ `stock_movements.qty` per item; account `balance` = opening + Σ transactions. Checked nightly. |
-| INV-6 | Money is stored as integer centavos (BOB); quantities as decimal-safe integers in milli-units (Doc 04 §2). Derived money is rounded half-up at the final step only. |
+| INV-6 | One scale per concept (Doc 04 §2, ADR-017): money amounts are integer centavos (BOB); **every per-unit rate** — sale price, unit price, WAC, replacement cost, cost snapshots — is integer milli-centavos per WHOLE unit (`_mc` columns); quantities are integer milli-units of the item's own unit; percentages are basis points. No monetary value or per-unit rate uses `REAL`. Derived money is rounded half-up at the final step only, and the only scale conversions live in `packages/shared/money.ts`. |
 | INV-7 | A custom-order deposit is a liability (`customer_deposits`) from receipt until delivery or refund; it never appears as revenue before delivery. |
 | INV-8 | Stock MAY go negative (capture-first); negative stock raises a persistent reconciliation flag, never a blocking error. |
 | INV-9 | Derived rows always carry `source_event_type` + `source_event_id`; orphan derived rows are forbidden. |
 | INV-10 | Deleting an event soft-deletes it and removes/reverses its derived rows in the same batch; history stays in `audit_log`. |
+| INV-11 | A create/edit/delete of a movement-affecting event whose `(occurred_at, created_at)` point precedes the latest already-processed movement for an affected item triggers a synchronous, bounded WAC/cost replay before the command commits (R-2, ADR-016); the nightly sentinel (INV-5) is a backstop auditor, never the primary corrector. |
 
 ## 3. Aggregates and key entities
 
 | Aggregate root | Contains | Notes |
 |----------------|----------|-------|
 | **Item** | aliases, costing state, stock summary | `kind`: RAW_MATERIAL / SEMI_FINISHED / FINISHED; `category`: INGREDIENT / PACKAGING / LABEL / BAKERY / DAIRY / OTHER. Packaging rule: high-value packaging = RAW_MATERIAL consumed by recipes; minor consumables are bought as OPERATING_EXPENSE with no item (hybrid, per original spec). |
-| **Recipe** | recipe lines (item + qty), expected yield, est. labor minutes | One output item per recipe; an item MAY have several recipes (variants); one is `is_default`. |
+| **Recipe** | recipe lines (item + qty), expected yield, est. labor minutes | One output item per recipe; an item MAY have several recipes (variants); one is `is_default`. Deletion is a soft **deactivate** (`is_active = 0`), mirroring `items.is_active` — never a hard DELETE (a recipe already referenced by a production run is protected by `ON DELETE RESTRICT` on `production_runs.recipe_id` regardless). |
 | **Purchase** | purchase lines, payment info, optional session link, photo | Creates PURCHASE_IN movements + expense transaction; updates WAC + replacement cost. A line's `lineTotal` may be 0 (free/promotional stock); if the purchase's total across all lines is 0, no `financial_transactions` row is created (no cash moved) — `financial_transactions.amount` is always > 0. |
 | **ProductionRun** | consumed lines (actual), output (actual qty), indirect cost, optional session link | Recipe is a template: consumption defaults from recipe × batches, editable before commit. |
 | **Sale** | sale lines, channel (CATALOG / CUSTOM_ORDER), payment status, customer ref | Creates SALE_OUT movements (+ income transaction if paid). |
@@ -58,10 +59,32 @@ better correction ergonomics for a solo operator (ADR-009).
   Exits consume at current `wac` and never change it.
 - **C-2 Purchase cost** per line: `unit_cost = line_total / qty` (freight/session shared costs are
   NOT capitalized into items; they go to OPERATING_EXPENSE — simplicity over precision, ADR-010).
-- **C-3 Replacement cost**: for RAW_MATERIAL, `replacement_cost = last purchase unit cost`
-  (updated on every purchase). For SEMI_FINISHED/FINISHED,
+- **C-3 Replacement cost**: for RAW_MATERIAL, `replacement_cost = last purchase unit cost`, where
+  **"last" means last by `business_date`, not last recorded** (ties on the same `business_date`
+  break by capture order, so the most recently recorded of that day wins). A purchase therefore
+  updates `replacement_cost` only when no purchase of that item carries a LATER `business_date`;
+  a backdated purchase leaves it untouched. Rationale (KOK-024): replacement cost answers "what
+  would it cost me to buy this again today", so backdating last week's invoice must not roll
+  today's price back to last week's — a real hazard in a high-inflation context, and the reason
+  C-5's `margin_replacement` and its price-health alert would otherwise drift optimistic. Soft
+  -deleted purchases (R-3) do not count. For SEMI_FINISHED/FINISHED,
   `replacement_cost = Σ(default-recipe line qty × ingredient replacement_cost) / expected_yield`,
-  recomputed by the nightly job and on demand; cached with timestamp.
+  recomputed by the nightly job and on demand; cached with timestamp. The cached column is an
+  INTEGER `replacement_cost_mc` (milli-centavos per whole unit) like every other stored rate, and
+  because an ingredient's `replacement_cost_mc` may itself be a SEMI_FINISHED item's cached value
+  (a multi-level BOM), the formula rounds half-up **once per level**. That quantization is bounded
+  and deliberate — ≤ 0.5 mc (Bs 0.000005/unit) per level, dominated by the leaf raw material's own
+  quantization, which is unavoidable; see ADR-017's KOK-071 vertical-2 amendment for the
+  measurements and for why no float exception is carved out for this column.
+- **C-3b Recipe theoretical cost (KOK-025 KB amendment)**: the Recipes screen (SC-06) previews a
+  recipe's cost per output unit at both valuations, generalizing C-3's replacement-cost formula
+  (which is defined there only for the *default* recipe feeding the cached column) to ANY recipe
+  — default or variant — so the owner can compare candidates before promoting one to default:
+  `theoretical_cost_wac = Σ(recipe line qty × ingredient wac) / expected_yield`;
+  `theoretical_cost_replacement = Σ(recipe line qty × ingredient replacement_cost) / expected_yield`.
+  Both are computed live and returned by the recipe read APIs; neither is cached nor written to
+  `items.wac` / `items.replacement_cost` — only the *default* recipe's replacement-cost figure
+  feeds that cache, and only via the nightly/on-demand job (KOK-029), never from KOK-025 itself.
 - **C-4 Production run cost**:
   `direct = Σ(consumed qty × consumed item's WAC at commit time)`;
   `total = direct + indirect_cost + allocated session shared cost (§6)`;
@@ -94,8 +117,28 @@ Rules:
 - **O-2** On `deliver`: the system creates the linked **Sale** (channel CUSTOM_ORDER) for the
   full agreed total; the deposit liability is released against it; the balance is recorded as
   paid (ORDER_BALANCE) or as accounts receivable if the customer owes.
+  - The sale's lines are derived from the order's lines, so **every order line must be linked to
+    a catalog FINISHED item before an order can be delivered** (Doc 04 §5) — free-text lines are a
+    quoting convenience and must be resolved first (`resolveOrderLine`, KOK-034 — the one narrow
+    exception to "no generic update order", see Doc 04 §5); delivery refuses (409) otherwise. `agreed_total`
+    is split across those lines by largest remainder so `Σ(qty × unit_price_mc / 1e6)` reproduces it exactly.
+  - Only the **balance** is new money: the deposit was already banked at confirm time, so
+    `ORDER_BALANCE` is booked for `agreed_total − deposit_paid` (nothing when that is zero), and an
+    ON_CREDIT balance shows in `v_receivables` net of the deposit — never the full agreed total.
+  - The deposit liability is released by the status reaching `DELIVERED`; `v_liability` subtracts
+    delivered orders' `deposit_paid`. Revenue is recognized here, at delivery, and never earlier
+    (INV-7).
 - **O-3** On `cancel` after deposit: owner chooses REFUND (expense DEPOSIT_REFUND, liability
   released) or FORFEIT (liability converts to OTHER_INCOME).
+  - FORFEIT writes **no new transaction and moves no cash**: the money is already in the account
+    (ADR-012), so the original INCOME/`ORDER_DEPOSIT` row is **recategorized in place** to
+    `OTHER_INCOME`, keeping its account, amount and original `business_date`. That single category
+    change both recognizes the income and drops the row out of `v_liability`'s
+    `category IN ('ORDER_DEPOSIT','DEPOSIT_REFUND')` filter, clearing the liability. Booking a
+    second income row instead would double-count the same cash. Consequence, accepted by design:
+    the forfeited amount appears in the cash-flow category mix of the month the DEPOSIT was
+    received, not the month of the cancellation.
+  - Cancelling an order that never took a deposit needs no resolution and has no financial effect.
 - **O-4** Orders never reserve stock (single operator; reservation adds friction without value).
   Production for an order is a normal ProductionRun linked via `custom_order_id`, enabling
   per-order cost and profit reporting.
@@ -121,11 +164,33 @@ Rules:
 ## 7. Correction & recalculation policy
 
 - **R-1** Editing an event regenerates its derived rows (INV-9/10) in one batch.
-- **R-2** WAC is **not** retroactively replayed when a past event is edited (cost of replay >
-  value for a microbusiness). Instead the nightly consistency job recomputes each item's WAC
-  from the full kardex; if drift > 1% it repairs it and logs a `costing_repair` audit entry.
-  This keeps edits O(1) while guaranteeing eventual cost correctness (ADR-009).
+- **R-2** WAC and dependent costs **are** replayed synchronously, inside the triggering
+  command's own batch, whenever a create/edit/delete lands with an `(occurred_at, created_at)`
+  point earlier than the latest already-processed movement for an affected item (INV-11) — this
+  covers plain out-of-order inserts too, not only edits of existing events (e.g. recording
+  today's production before backdating last week's purchase). `business_date` is not the ordering
+  key: two movements can share a `business_date` but disagree on `occurred_at`, and the kardex
+  orders by the latter (`created_at` as a stable tiebreak). The replay resumes
+  `recomputeWacFromMovements` (KOK-013) from the touched point forward rather than only from
+  zero, and cascades across items linked by ACTIVE production recipes (raw material →
+  semi-finished → finished, dependency order; a deactivated recipe edge is not followed), since a
+  `ProductionRun`'s cost (C-4) depends on its consumed items' WAC. The nightly consistency job
+  (INV-5) remains a backstop auditor for drift the synchronous path might miss (e.g. a direct DB
+  fix bypassing services) — not the primary correction mechanism. This supersedes ADR-009's
+  "nightly-only, O(1) edits" framing; see ADR-016.
 - **R-3** Deletions are soft (`deleted_at`), reversible for 90 days via audit data.
+- **R-4** A replay (R-2) never rewrites an already-frozen cost snapshot
+  (`sale_lines.unit_cost_snapshot`, `stock_exits.unit_cost_snapshot`) — historical per-day
+  margins stay exactly as they were reported at the time. Instead it books, for EACH item the
+  replay touched whose `cost_delta` is nonzero, one `costing_adjustment` row (Doc 04 §3.4)
+  capturing that item's `cost_delta` in Bs, dated to the *correction's* `business_date` (today) —
+  an item the replay recomputed but whose WAC didn't actually move gets no row, so cumulative
+  profitability absorbs the correction without silently altering history (ADR-016).
+- **R-5** Before committing a create/edit/delete whose replay (R-2) would touch sales, stock
+  exits, or production runs already recorded after the touched point, the service computes — and
+  the UI surfaces — an impact preview (count of affected records + estimated `cost_delta`) and
+  requires explicit user confirmation. Applies equally to a plain backdated insert and to an
+  edit/delete/restore of a past event (ADR-016).
 
 ## 8. Domain events (naming: past tense, for logs/hooks/UI toasts)
 

@@ -1,4 +1,4 @@
-// P0 acceptance gate (Doc 11 §6): "migration 0001 applied cleanly to fresh DB". test/setup.ts
+// P0 acceptance gate (Doc 11 Â§6): "migration 0001 applied cleanly to fresh DB". test/setup.ts
 // applies it before this file runs; these assertions confirm the resulting shape and that the
 // generated views actually compute (not just that CREATE VIEW parsed).
 import { env } from "cloudflare:test";
@@ -50,7 +50,7 @@ const EXPECTED_VIEWS = [
 ];
 
 describe("migration 0001", () => {
-  it("creates every table from Doc 04 §3", async () => {
+  it("creates every table from Doc 04 Â§3", async () => {
     const { results } = await env.DB.prepare(
       "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name",
     ).all<{ name: string }>();
@@ -60,7 +60,7 @@ describe("migration 0001", () => {
     }
   });
 
-  it("creates every view from Doc 04 §4", async () => {
+  it("creates every view from Doc 04 Â§4", async () => {
     const { results } = await env.DB.prepare(
       "SELECT name FROM sqlite_master WHERE type = 'view' ORDER BY name",
     ).all<{ name: string }>();
@@ -70,7 +70,7 @@ describe("migration 0001", () => {
     }
   });
 
-  it("seeds the two financial accounts (Doc 04 §7)", async () => {
+  it("seeds the two financial accounts (Doc 04 Â§7)", async () => {
     const { results } = await env.DB.prepare(
       "SELECT id, type, balance FROM financial_accounts ORDER BY id",
     ).all<{ id: string; type: string; balance: number }>();
@@ -80,7 +80,7 @@ describe("migration 0001", () => {
     ]);
   });
 
-  it("seeds app_settings defaults (Doc 04 §7)", async () => {
+  it("seeds app_settings defaults (Doc 04 Â§7)", async () => {
     const row = await env.DB.prepare(
       "SELECT value FROM app_settings WHERE key = 'min_margin_pct'",
     ).first<{ value: string }>();
@@ -96,12 +96,12 @@ describe("migration 0001", () => {
     ).rejects.toThrow();
   });
 
-  it("v_stock computes stock_value = qty_on_hand x wac and flags low stock", async () => {
+  it("v_stock computes stock_value = qty_on_hand x wac_mc / 1e6 and flags low stock", async () => {
     const now = "2026-07-14T10:00:00.000Z";
     await env.DB.batch([
       env.DB.prepare(
-        `INSERT INTO items (id, name, kind, category, unit, wac, min_stock_qty, created_at, updated_at)
-         VALUES ('item_test', 'Test flour', 'RAW_MATERIAL', 'INGREDIENT', 'KG', 12.0, 10000, ?, ?)`,
+        `INSERT INTO items (id, name, kind, category, unit, wac_mc, min_stock_qty, created_at, updated_at)
+         VALUES ('item_test', 'Test flour', 'RAW_MATERIAL', 'INGREDIENT', 'KG', 12000000, 10000, ?, ?)`,
       ).bind(now, now),
       env.DB.prepare(
         "INSERT INTO item_stock (item_id, qty_on_hand, updated_at) VALUES ('item_test', 5000, ?)",
@@ -124,15 +124,15 @@ describe("migration 0001", () => {
       ).bind(now, now),
       env.DB.prepare(
         `INSERT INTO stock_movements
-           (id, occurred_at, business_date, item_id, type, qty, unit_cost, total_cost,
+           (id, occurred_at, business_date, item_id, type, qty, unit_cost_mc, total_cost,
             source_event_type, source_event_id, created_at)
-         VALUES ('mv_a', ?, '2026-07-14', 'item_kardex_test', 'PURCHASE_IN', 3000, 10, 30000, 'purchase', 'p1', ?)`,
+         VALUES ('mv_a', ?, '2026-07-14', 'item_kardex_test', 'PURCHASE_IN', 3000, 10000000, 30000, 'purchase', 'p1', ?)`,
       ).bind(now, now),
       env.DB.prepare(
         `INSERT INTO stock_movements
-           (id, occurred_at, business_date, item_id, type, qty, unit_cost, total_cost,
+           (id, occurred_at, business_date, item_id, type, qty, unit_cost_mc, total_cost,
             source_event_type, source_event_id, created_at)
-         VALUES ('mv_b', ?, '2026-07-14', 'item_kardex_test', 'SALE_OUT', -1000, 10, -10000, 'sale', 's1', ?)`,
+         VALUES ('mv_b', ?, '2026-07-14', 'item_kardex_test', 'SALE_OUT', -1000, 10000000, -10000, 'sale', 's1', ?)`,
       ).bind(now, now),
     ]);
 
@@ -144,5 +144,29 @@ describe("migration 0001", () => {
       { qty: 3000, running_balance: 3000 },
       { qty: -1000, running_balance: 2000 },
     ]);
+  });
+
+  it("v_price_health exposes only raw columns, with no margin math in SQL", async () => {
+    const now = "2026-07-14T10:00:00.000Z";
+    await env.DB.prepare(
+      `INSERT INTO items
+         (id, name, kind, category, unit, is_active, sale_price_mc, wac_mc, replacement_cost_mc, created_at, updated_at)
+       VALUES ('item_price_health_test', 'Price health test cake', 'FINISHED', 'BAKERY', 'UNIT', 1, 5000000, 1500000000, 1600, ?, ?)`,
+    )
+      .bind(now, now)
+      .run();
+
+    const row = await env.DB.prepare(
+      "SELECT * FROM v_price_health WHERE item_id = 'item_price_health_test'",
+    ).first<Record<string, unknown>>();
+
+    expect(row).toEqual({
+      item_id: "item_price_health_test",
+      name: "Price health test cake",
+      sale_price_mc: 5000000,
+      wac_mc: 1500000000,
+      replacement_cost_mc: 1600,
+      replacement_cost_updated_at: null,
+    });
   });
 });

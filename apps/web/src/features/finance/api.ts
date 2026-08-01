@@ -4,6 +4,7 @@
 // features/catalog/api.ts.
 
 import type {
+  FinanceSummaryDto,
   ListAccountsResult,
   ListTransactionsFilters,
   ListTransactionsResult,
@@ -18,7 +19,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
 
-const ACCOUNTS_KEY = ["finance", "accounts"] as const;
+// Exported so other features whose commands move an account balance without going through
+// core/finance directly (e.g. core/sales' collectPayment, KOK-031) can invalidate it too, instead
+// of duplicating this literal.
+export const ACCOUNTS_KEY = ["finance", "accounts"] as const;
 const TRANSACTIONS_ROOT_KEY = ["finance", "transactions"] as const;
 
 function transactionsListKey(filters: ListTransactionsFilters) {
@@ -40,6 +44,13 @@ export function useAccounts() {
   return useQuery({
     queryKey: ACCOUNTS_KEY,
     queryFn: () => api.get<ListAccountsResult>("/finance/accounts"),
+  });
+}
+
+export function useFinanceSummary() {
+  return useQuery({
+    queryKey: ["finance", "summary"],
+    queryFn: () => api.get<FinanceSummaryDto>("/finance/summary"),
   });
 }
 

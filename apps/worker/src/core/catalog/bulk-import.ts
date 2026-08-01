@@ -1,12 +1,12 @@
-// core/catalog/bulk-import — onboarding wizard's catalog step (KOK-020, Doc 07 steps 1-5).
+// core/catalog/bulk-import ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â onboarding wizard's catalog step (KOK-020, Doc 07 steps 1-5).
 // `bulkCreateItems` mirrors `createItem`'s row shape exactly (see items.ts) for every item in the
 // command, but ALL validation happens BEFORE any `db.batch()` call: this is the simplest correct
 // way to get "one bad item rejects the whole batch" atomicity (D-3) without partial-failure
-// gymnastics at the DB level — if any item is invalid, db.batch() is never called at all, so
+// gymnastics at the DB level ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â if any item is invalid, db.batch() is never called at all, so
 // nothing is written.
 
 import type { AuditActor, BulkCreateItemsCommand, BulkCreateItemsResult } from "@kokoro/shared";
-import { generateUuidV7, nowIso } from "@kokoro/shared";
+import { generateUuidV7, nowIso, toMilliCentavosPerUnit } from "@kokoro/shared";
 import type { BatchItem } from "drizzle-orm/batch";
 
 import type { Db } from "../../db/index.js";
@@ -20,7 +20,7 @@ type Statement = BatchItem<"sqlite">;
 type ItemRow = typeof items.$inferSelect;
 
 /** UC-onboarding: create N catalog items in one atomic batch (D-3). Validates every item's name
- * against (a) existing DB rows and (b) the rest of `command.items` BEFORE writing anything — the
+ * against (a) existing DB rows and (b) the rest of `command.items` BEFORE writing anything ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â the
  * first offending item throws ONE conflict() and aborts the whole call. */
 export async function bulkCreateItems(
   db: Db,
@@ -30,7 +30,7 @@ export async function bulkCreateItems(
   const seenNames = new Set<string>();
   for (const item of command.items) {
     if (seenNames.has(item.name)) {
-      throw conflict(`El nombre "${item.name}" aparece más de una vez en el lote.`, {
+      throw conflict(`El nombre "${item.name}" aparece mÃƒÆ’Ã‚Â¡s de una vez en el lote.`, {
         field: "name",
         name: item.name,
       });
@@ -39,7 +39,7 @@ export async function bulkCreateItems(
 
     const duplicate = await findItemRowByName(db, item.name);
     if (duplicate) {
-      throw conflict(`Ya existe un ítem llamado "${item.name}".`, {
+      throw conflict(`Ya existe un ÃƒÆ’Ã‚Â­tem llamado "${item.name}".`, {
         field: "name",
         name: item.name,
       });
@@ -53,10 +53,10 @@ export async function bulkCreateItems(
     kind: item.kind,
     category: item.category,
     unit: item.unit,
-    wac: 0,
-    replacementCost: 0,
+    wacMc: toMilliCentavosPerUnit(0),
+    replacementCostMc: 0,
     replacementCostUpdatedAt: null,
-    salePrice: item.salePrice ?? null,
+    salePriceMc: item.salePriceMc ?? null,
     minStockQty: item.minStockQty ?? null,
     isActive: 1,
     notes: item.notes ?? null,
@@ -67,7 +67,7 @@ export async function bulkCreateItems(
   const statements: Statement[] = [
     ...rows.map((row) => db.insert(items).values(row)),
     // N independent catalog entries, not one linked owner action (contrast
-    // core/finance/accounts.ts's setOpeningBalances) — one audit row per item, mirroring
+    // core/finance/accounts.ts's setOpeningBalances) ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â one audit row per item, mirroring
     // createItem's own per-item audit granularity.
     ...rows.map((row) =>
       buildAuditLogInsert(db, {
@@ -82,7 +82,7 @@ export async function bulkCreateItems(
   ];
 
   // `statements` always has at least 2 entries (bulkCreateItemsCommandSchema's `.min(1)` on
-  // `items` guarantees at least one insert + one audit insert), so it is never empty — same
+  // `items` guarantees at least one insert + one audit insert), so it is never empty ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â same
   // non-empty-tuple cast technique as every other dynamic-length batch in this codebase.
   await db.batch(statements as [Statement, ...Statement[]]);
 

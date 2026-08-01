@@ -1,7 +1,64 @@
-import { RouteStub } from "@/components/common/RouteStub";
-import { navLabels } from "@/lib/i18n-nav";
+// SC-05 · Producción — /production (UC-02). Header: "Nueva producción" action + a secondary link
+// to Recetas (KOK-025's sub-feature, which has no other nav entry — Doc 06 §2 lists only one
+// top-level "Producción" item, see nav-items.ts's AppPath union / primaryNav); table of all
+// production runs; detail drawer on row click. Mirrors routes/purchases.tsx's composition.
+//
+// Replaces the former placeholder body (a single full-width link card to /production/recipes) now
+// that the real screen exists — the link to Recipes is kept, just demoted to a header button
+// alongside the primary action, per this task's brief.
 
-// Placeholder — real screen built in a later SC-xx task (see Doc 07 screen catalog).
+import { Link } from "@tanstack/react-router";
+import { useState } from "react";
+
+import { ProductionRunDetailDrawer } from "@/components/production/ProductionRunDetailDrawer";
+import { ProductionRunForm } from "@/components/production/ProductionRunForm";
+import { ProductionRunsTable } from "@/components/production/ProductionRunsTable";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { useProductionRuns } from "@/features/production-runs/api";
+import { useRecipesQuery } from "@/features/recipes/api";
+import { productionLabels } from "@/lib/i18n-production";
+
 export function ProductionRoute() {
-  return <RouteStub title={navLabels.produccion} />;
+  const productionRunsQuery = useProductionRuns();
+  const recipesQuery = useRecipesQuery({ isActive: true });
+
+  const [formOpen, setFormOpen] = useState(false);
+  const [selectedProductionRunId, setSelectedProductionRunId] = useState<string | null>(null);
+
+  const recipes = recipesQuery.data?.recipes ?? [];
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="font-semibold text-2xl text-foreground">{productionLabels.title}</h1>
+          <p className="text-muted-foreground text-sm">{productionLabels.subtitle}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Link to="/production/recipes" className={buttonVariants({ variant: "outline" })}>
+            {productionLabels.goToRecipes}
+          </Link>
+          <Button type="button" onClick={() => setFormOpen(true)}>
+            {productionLabels.actionRecord}
+          </Button>
+        </div>
+      </div>
+
+      <ProductionRunsTable
+        productionRuns={productionRunsQuery.data?.productionRuns ?? []}
+        recipes={recipes}
+        loading={productionRunsQuery.isLoading}
+        onRowClick={(productionRun) => setSelectedProductionRunId(productionRun.id)}
+      />
+
+      <ProductionRunForm open={formOpen} onOpenChange={setFormOpen} />
+      <ProductionRunDetailDrawer
+        productionRunId={selectedProductionRunId}
+        open={selectedProductionRunId !== null}
+        onOpenChange={(open) => {
+          if (!open) setSelectedProductionRunId(null);
+        }}
+      />
+    </div>
+  );
 }

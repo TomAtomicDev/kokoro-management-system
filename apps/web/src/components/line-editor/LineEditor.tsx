@@ -1,10 +1,14 @@
 // Generic event-line editor (Doc 06 §4-adjacent, first consumer: purchases KOK-016). Deliberately
 // domain-agnostic — sales (KOK-030) and recipes (KOK-025) reuse this for their own line shapes, so
 // it knows nothing about money/qty scale, purchases, or "inflation signals". Each line only needs
-// an item, a quantity string, and an amount string; both numeric fields stay raw strings in local
-// state (same convention as RecordTransactionDialog's `amount` state) so the CALLER decides how to
-// parse them (purchases: qty scale 3 / amount scale 2 centavos-for-the-line; a future sales line
-// might parse differently) — this component never calls parseDecimalToInt itself.
+// an item and a quantity string (both stay raw strings in local state, same convention as
+// RecordTransactionDialog's `amount` state) so the CALLER decides how to parse them (purchases:
+// qty scale 3 / amount scale 2 centavos-for-the-line; a future sales line might parse differently)
+// — this component never calls parseDecimalToInt itself.
+//
+// `amount` is OPTIONAL (KOK-025): recipe lines have no per-line money, only itemId+qty. Pass
+// `showAmount={false}` to hide the amount column entirely; omit it (or pass `true`) and behavior
+// is unchanged from before recipes existed — purchases doesn't pass either prop.
 
 import type { ItemKind } from "@kokoro/shared";
 import { X } from "lucide-react";
@@ -20,14 +24,16 @@ export interface LineEditorLine {
   itemId: string | null;
   /** Decimal input string, caller-defined scale (e.g. milli-units for a qty). */
   qty: string;
-  /** Decimal input string, caller-defined scale (e.g. centavos for a line total). */
-  amount: string;
+  /** Decimal input string, caller-defined scale (e.g. centavos for a line total). Omit entirely
+   * for line shapes that have no per-line money (recipes) — pair with `showAmount={false}`. */
+  amount?: string;
 }
 
 export interface LineEditorLabels {
   item: string;
   qty: string;
-  amount: string;
+  /** Unused (and safe to omit) when the caller passes `showAmount={false}`. */
+  amount?: string;
   addLine: string;
   removeLine: string;
   qtyPlaceholder?: string;
@@ -41,12 +47,17 @@ export interface LineEditorProps<T extends LineEditorLine> {
    * LineEditor can't construct one itself. */
   createLine: () => T;
   labels: LineEditorLabels;
-  /** Render-prop slot for domain-specific per-line UI (e.g. purchases' unit-cost preview) —
-   * composes without this component knowing what it renders. */
+  /** Render-prop slot for domain-specific per-line UI (e.g. purchases' unit-cost preview, or
+   * recipes' per-line cost contribution) — composes without this component knowing what it
+   * renders. */
   renderExtraColumns?: (line: T, index: number) => ReactNode;
   disabled?: boolean;
-  /** Passed straight through to each row's ItemPicker. */
-  itemKindFilter?: ItemKind;
+  /** Passed straight through to each row's ItemPicker. An array means "any of these kinds"
+   * (ItemPicker filters client-side since `GET /items` only accepts one `kind`). */
+  itemKindFilter?: ItemKind | ItemKind[];
+  /** Show the amount input column. Defaults to `true` (purchases' original, unchanged behavior);
+   * recipes pass `false` since a recipe line has no per-line money. */
+  showAmount?: boolean;
 }
 
 export function LineEditor<T extends LineEditorLine>({
@@ -57,6 +68,7 @@ export function LineEditor<T extends LineEditorLine>({
   renderExtraColumns,
   disabled,
   itemKindFilter,
+  showAmount = true,
 }: LineEditorProps<T>) {
   function updateLine(index: number, patch: Partial<T>) {
     onChange(lines.map((line, i) => (i === index ? { ...line, ...patch } : line)));
@@ -101,18 +113,20 @@ export function LineEditor<T extends LineEditorLine>({
                 disabled={disabled}
               />
             </div>
-            <div className="w-full sm:w-32">
-              <Input
-                inputMode="decimal"
-                aria-label={labels.amount}
-                placeholder={labels.amountPlaceholder ?? "0.00"}
-                value={line.amount}
-                onChange={(event) =>
-                  updateLine(index, { amount: event.target.value } as Partial<T>)
-                }
-                disabled={disabled}
-              />
-            </div>
+            {showAmount ? (
+              <div className="w-full sm:w-32">
+                <Input
+                  inputMode="decimal"
+                  aria-label={labels.amount ?? ""}
+                  placeholder={labels.amountPlaceholder ?? "0.00"}
+                  value={line.amount ?? ""}
+                  onChange={(event) =>
+                    updateLine(index, { amount: event.target.value } as Partial<T>)
+                  }
+                  disabled={disabled}
+                />
+              </div>
+            ) : null}
             {renderExtraColumns ? (
               <div className="flex-1 sm:min-w-40">{renderExtraColumns(line, index)}</div>
             ) : null}

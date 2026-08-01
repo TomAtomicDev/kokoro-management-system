@@ -16,11 +16,12 @@
   },
   "scripts": {
     "check": "pnpm run lint && pnpm run typecheck && pnpm run build && pnpm run test",
-    "lint": "biome check .",
+    "lint": "biome check . && pnpm run guard:scales",
     "lint:fix": "biome check --write .",
     "format": "biome format --write .",
+    "guard:scales": "node scripts/check-scale-literals.mjs",
     "typecheck": "pnpm -r --if-present run typecheck",
-    "test": "pnpm -r --if-present run test",
+    "test": "node --test scripts/*.test.mjs && pnpm -r --if-present run test",
     "build": "pnpm -r --if-present run build",
     "dev:worker": "pnpm --filter @kokoro/worker run dev",
     "dev:web": "pnpm --filter @kokoro/web run dev"

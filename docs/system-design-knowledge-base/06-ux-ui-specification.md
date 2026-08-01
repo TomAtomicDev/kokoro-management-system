@@ -34,8 +34,10 @@ Currency `Bs 1.234,50` (space, comma decimals); dates `lun 6 jul` / `06/07/2026`
 5. **Everything editable from where you see it.** Every event row opens its edit form; every
    dashboard number links to its underlying list filtered accordingly.
 6. **Undo over confirm-dialogs.** Destructive actions use soft delete + 10 s "Deshacer" toast
-   (INV-10) instead of "¿Estás segura?" walls. Exception: order cancellation with deposit
-   (explicit refund/forfeit choice, O-3).
+   (INV-10) instead of "¿Estás segura?" walls. Exceptions: order cancellation with deposit
+   (explicit refund/forfeit choice, O-3), and any create/edit/delete/restore whose cost-replay
+   impact requires confirmation (R-5, ADR-016) — that one genuinely needs the owner's informed
+   yes before it commits, not an after-the-fact undo window (KOK-024).
 
 ## 2. Web app — navigation & layout
 
@@ -133,7 +135,7 @@ a scarce semantic accent (≤ ~5-8% of any screen), never decoration.** Full rat
 |-----------|--------------------|
 | `MoneyText` | Formats centavos → `Bs 1.234,50`; props: `signed`, `colorBySign` |
 | `QtyText` | milli-units + unit → `1,5 kg`, `12 u` |
-| `MarginBadge` | margin% with C-5 threshold colors (used everywhere margins appear) |
+| `MarginBadge` | margin% with C-5 threshold colors — used wherever **replacement-cost** margin is shown (SC-03, SC-06, SC-12); SC-02's sales list shows a different, historical metric (margin off the frozen `unit_cost_snapshot`) and stays a neutral, unbadged figure — coloring it against the C-5 threshold would misrepresent what it measures (KOK-036) |
 | `ItemPicker` | combobox over items + aliases, filter by kind; inline "crear ítem" |
 | `CustomerPicker` | combobox + inline create |
 | `DateRangePicker` | presets: hoy, ayer, semana, mes, 3m, año, personalizado |
@@ -151,7 +153,8 @@ a scarce semantic accent (≤ ~5-8% of any screen), never decoration.** Full rat
 | `ChatPanel` | assistant chat: streaming, tool-activity indicator, renders `chart` blocks |
 | `ConfirmDraftCard` | web rendering of an AI draft (same data as Telegram card) |
 | `EmptyState` | per-list guidance + primary action ("Registra tu primera compra"); **standard UI type only, never Cinzel** — empty states are daily-flow surfaces, not a brand moment (§3) |
-| `UndoToast` | soft-delete undo (principle 6) |
+| `UndoToast` | soft-delete undo (principle 6); shipped as a hand-rolled `ToastProvider`/`useToast` (no new dependency, D-10), not a third-party toast library |
+| `ImpactConfirmDialog` | the principle-6 exception: shows a replay's affected counts + `cost_delta` (R-5, ADR-016) and requires explicit confirm/cancel before an edit/delete/restore commits (KOK-024) |
 
 ## 5. Telegram UX
 

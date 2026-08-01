@@ -152,6 +152,12 @@ serializers.
 
 ## ADR-009 · Editable events with system-derived kardex; O(1) edits + nightly WAC repair
 
+**Status update (2026-07-18): partially superseded by [ADR-016](#adr-016-synchronous-bounded-wac-replay--cost-adjustment-ledger-for-backdated-inventory-changes-supersedes-adr-009s-nightly-only-repair).**
+The "editable events, system-owned derived rows" decision below still holds. What's superseded
+is the *repair timing* claim (nightly-only, O(1) edit cost) — it didn't account for plain
+out-of-order inserts (not just edits), and left historical sale/exit margins permanently wrong
+when a WAC-affecting event was corrected after the fact. See ADR-016 for the revised mechanism.
+
 **Context.** The original proposal made `Movimientos_Inventario` an immutable user-facing
 ledger. Solo operators mis-record constantly; strict append-only correction (reversal entries)
 is accountant ergonomics, not hers. But naive in-place editing corrupts derived costs.
@@ -164,6 +170,8 @@ a nightly job recomputes WAC from the full kardex and repairs drift > 1% with an
 preserved via `audit_log` before/after; costs are eventually exact with O(1) edit cost. Accepted
 imprecision window: between an edit of an old event and the nightly repair, WAC can be slightly
 stale — immaterial at this margin granularity, and the consistency sentinel (INV-5) monitors it.
+*(Superseded by ADR-016: this window turned out to be unbounded for historical sale margins,
+not just "until tomorrow" — see there.)*
 
 ## ADR-010 · Costing policy: WAC valuation; labor and trip costs not capitalized
 
@@ -183,6 +191,12 @@ captures every boliviano. All three are conventions the insights layer states ex
 screen (CalcTrace).
 
 ## ADR-011 · Numeric representation: integer centavos and milli-unit quantities
+
+**Status update (2026-07-27): partially superseded by [ADR-017](#adr-017--one-scale-per-concept-unit-rates-in-milli-centavos-per-whole-unit-enforced-by-branded-types-supersedes-adr-011s-real-allowance-and-its-no-brand-choice).**
+The integer-centavos / milli-unit / basis-point core stands. Two sub-decisions did not: the
+`REAL` allowance for derived cost columns, and the choice to leave money a bare `number` rather
+than a branded type. Both are replaced by ADR-017 after they produced two shipped 1000× unit
+bugs (KOK-069 and `v_price_health`).
 
 **Context.** SQLite has no DECIMAL; floats corrupt money.
 
@@ -253,3 +267,227 @@ multiple authenticated actors with different photo-access scopes, presigned URLs
 capability-scoped variant) become worth revisiting — not needed today. Doc 02 §6 and any future
 receipt-photo-adjacent task (sales/production attachments) should follow this same
 Worker-proxied pattern unless a concrete new requirement forces a change.
+
+## ADR-016 · Synchronous bounded WAC replay + cost-adjustment ledger for backdated inventory changes (supersedes ADR-009's nightly-only repair)
+
+**Context.** ADR-009 assumed WAC drift from edits could wait for the nightly job because edits
+were expected to be rare, deliberate corrections. Designing KOK-024 (event edit/delete) surfaced
+a broader case: **any** new event recorded with a `business_date` earlier than the latest
+already-processed movement for that item — not only edits of existing events — breaks C-1's
+incremental WAC formula, which assumes chronological application order. This is the *routine*
+case for a Telegram-first capture flow (e.g. recording today's production run before backdating
+last week's flour purchase), and it is already reachable today, confirmed in the shipped
+`recordPurchase` (KOK-016): it reads `items.wac` / `item_stock.qty_on_hand` at their CURRENT
+value and applies C-1 against them regardless of the new movement's `business_date`
+(`apps/worker/src/core/purchasing/index.ts:108-154`); no ordering guard exists anywhere in the
+command schema, route, or service. Separately, waiting for the nightly job to fix an item's
+current `wac` never touches already-frozen `sale_lines.unit_cost_snapshot` /
+`stock_exits.unit_cost_snapshot` values — those margins stay wrong forever, not just "until
+tomorrow" as ADR-009 implied.
+
+**Decision.**
+1. Any command that creates, edits, or deletes a movement-affecting event with a `business_date`
+   earlier than the latest already-processed movement for an affected item triggers a
+   **synchronous, bounded replay** — within the same batch as the command, not the nightly job —
+   that resumes `recomputeWacFromMovements` (KOK-013) from the touched point forward instead of
+   only from zero (R-2 revised). The nightly consistency job (KOK-021/INV-5) becomes a backstop
+   auditor for drift the synchronous path might miss (e.g. a direct DB fix bypassing services),
+   not the primary corrector.
+2. The replay cascades across items connected by production recipes (raw material →
+   semi-finished → finished), in recipe-dependency order, because a `ProductionRun`'s output
+   unit cost (C-4) depends on its consumed items' WAC. Until KOK-026 ships, the dependency graph
+   has a single node (no production yet), so this only becomes observable once production runs
+   exist — but the mechanism is designed generically now so KOK-026 doesn't need a second
+   implementation.
+3. Snapshots already frozen at write time (`sale_lines.unit_cost_snapshot`,
+   `stock_exits.unit_cost_snapshot`) are never rewritten by a replay — per-day historical margins
+   stay exactly as originally reported. Instead the replay books a `costing_adjustment` row (new
+   table, Doc 04 §3.4, R-4) capturing the aggregate `cost_delta` in Bs, dated to the
+   *correction's* `business_date` (today), so cumulative profitability reporting absorbs the
+   correction without silently altering history.
+4. Before committing a change whose replay (per point 1) would touch sales or production runs
+   already recorded after the touched point, the service computes and the API returns an
+   **impact preview** (count of affected records + estimated `cost_delta`); the UI requires
+   explicit confirmation before commit (R-5).
+
+**Consequences.** Edit/insert/delete cost is no longer strictly O(1) — it's O(n), n = an affected
+item's TOTAL movement count, not just the movements after the touched point. There is no
+per-movement WAC cache to resume the seed state from (a cache would be a third place for the WAC
+to be wrong), so the replay recomputes the untouched prefix from zero on every run, in addition to
+the touched suffix. Bounded in practice by tens to low hundreds of movements for a solo-operator
+business, which is cheap enough to do synchronously.
+This removes the "stale until tomorrow" WAC window entirely and — more importantly — stops
+historical sale margins from silently absorbing an old costing mistake with no visibility.
+Historical per-day reports stay trustworthy (never rewritten); cumulative rentabilidad stays
+accurate via the adjustment ledger. New complexity: replay must walk a small dependency graph
+across items once production recipes are involved, and the impact-preview UX needs real design
+work (not just a toast). New schema: `costing_adjustments` (Doc 04). This is a prerequisite
+shared by KOK-024 (edit/delete) and KOK-026/KOK-028 (production, WAC cascade on shared-cost
+allocation) — built once in `core/costing`/`core/inventory` rather than twice.
+
+## ADR-017 · One scale per concept: unit rates in milli-centavos per whole unit, enforced by branded types (supersedes ADR-011's REAL allowance and its no-brand choice)
+
+**Context.** ADR-011 chose integer centavos + milli-unit quantities and permitted `REAL` in
+"explicitly-documented derived cache columns". In practice that produced **two different
+denominators for the same-sounding concept**: `sale_price` / `sale_lines.unit_price` are centavos
+per WHOLE unit, while `items.wac`, `items.replacement_cost`, `sale_lines.unit_cost_snapshot` and
+`stock_exits.unit_cost_snapshot` are centavos per MILLI-unit, stored as floats. Nothing
+distinguishes them — not the column type, not the name, not the TypeScript type (both are bare
+`number`). So `sale_price − wac` compiles, runs, and is wrong by ~1000× while looking plausible.
+
+This is not hypothetical. It shipped: `v_price_health`'s three margin columns were wrong by
+1000× from migration 0001 until KOK-069 removed them; `SaleForm.tsx` carries a hand-written
+`unitPrice / 1000` with an explanatory comment; ~25 further ad-hoc `× 1000` / `÷ 1000` sites are
+scattered across `core/costing`, `core/production`, `core/recipes` and eight web components,
+each one an independent chance to get the direction wrong. `money.ts`'s header records the
+original decision *not* to brand the types "to keep every call site ergonomic"; the two bugs
+above are the evidence that cost more than the ergonomics saved.
+
+The system has **not been delivered to the owner and holds no production data**, so the migration
+cost of fixing the representation is close to zero and will only ever rise.
+
+**Decision.** Four scales, one per concept, each with a distinct nominal brand in
+`packages/shared`; no concept has two scales.
+
+| Concept | Scale | Brand | Column suffix |
+|---|---|---|---|
+| Money amount (total, balance, line total) | integer **centavos** | `Centavos` | none |
+| **Any per-unit rate** (sale price, unit price, WAC, replacement cost, cost snapshot, theoretical unit cost) | integer **milli-centavos per WHOLE unit** (Bs 8.00/u → `800_000`) | `MilliCentavosPerUnit` | `_mc` |
+| Quantity | integer **milli-units** of the item's own unit | `MilliUnits` | none |
+| Percent / rate | integer **basis points** | `BasisPoints` | none |
+
+1. **Every per-unit rate shares one denominator (the whole unit) and one scale.** `sale_price_mc
+   − replacement_cost_mc` is dimensionally valid; the class of bug above cannot be expressed.
+2. **`REAL` is removed from the schema.** Milli-centavos give ~3 decimal digits below the
+   centavo, strictly more precision than the domain needs and, unlike float, deterministic —
+   WAC replay (ADR-016) becomes reproducible bit-for-bit.
+3. **Exactly two conversion helpers exist**, both in `shared/money.ts`, and they are the only
+   place a scale factor appears anywhere in the repo:
+   `totalCentavos(rate: MilliCentavosPerUnit, qty: MilliUnits): Centavos` (÷10⁶, half-up) and
+   `rateFromTotal(total: Centavos, qty: MilliUnits): MilliCentavosPerUnit` (×10⁶).
+   A bare `1000` or `1e6` outside `money.ts`/`qty.ts` is a review failure (D-5).
+4. **Brands are nominal, zero-runtime** (`number & { readonly __brand: … }`) with explicit
+   constructors. Mixing scales becomes a compile error rather than a plausible wrong number.
+   Runtime `assertSafeInteger` guards stay — brands catch developer error, assertions catch
+   bad input.
+5. **Column names carry `_mc`** so raw SQL, D1 console sessions and CSV exports are
+   self-describing. `800000` is unreadable; `sale_price_mc = 800000` is not.
+
+**Correction (found during KOK-070).** Every worked example above (and the two duplicates in
+Doc 04 §2 and Doc 13) originally read `8_000_000` for Bs 8.00/u and `12_345_000` for Bs 12.345/kg
+— 10× too large. `milli-` is literally ×1000 (matching `MilliUnits`, which is unambiguously
+×1000 in shipped code — see `qty.ts`'s `formatQty`, `÷ 1000`), so Bs 8.00 = 800 centavos ×
+1000 = `800_000` milli-centavos, not `8_000_000`. The stated formulas were never wrong —
+`totalCentavos(800_000, 1000)` (rate × qty ÷ 1e6, qty=1000 for one whole unit) already produces
+the correct `800` centavos — only the illustrative numbers were, evidently copy-pasted between
+the three docs without being checked against the formula. Fixed here and in Doc 04 §2 / Doc 13
+in the same PR (D-1); `packages/shared/src/money.test.ts` now property-tests
+`totalCentavos`/`rateFromTotal` against the corrected scale.
+
+Delivered by a new forward migration (KOK-071), not by editing applied migrations — the
+never-modify-applied-migrations guardrail holds even pre-production, and a fresh dev DB from
+`0001…0007` must be identical to a migrated one.
+
+**Consequences.** One-off churn across ~82 files touching cost/price fields, the shared Zod DTOs
+(D-4 means each schema change lands in API + form + AI tool together), and the money property
+tests (Doc 11 §2), which gain an overflow bound: `rate ≤ 10⁷ mc × qty ≤ 10⁶ mu = 10¹³`, two
+orders of magnitude inside `Number.MAX_SAFE_INTEGER`. Raw integers in the DB get larger and less
+readable, mitigated by the `_mc` suffix and by formatters at every display boundary. Migration
+0007 rewrites values in place (**`× 1_000_000`** for the old centavos-per-MILLI-unit costs, `× 1000`
+for the old centavos-per-WHOLE-unit prices) and is a one-way door once real data exists — which is
+exactly why it happens now.
+
+> _Correction (KOK-071 vertical 2, 2026-07-28): this paragraph originally read `× 1000` for **both**
+> groups. Wrong for the first: Bs 8.00/u is `0.8` centavos per milli-unit and `800_000` mc, a factor
+> of 10⁶ — two conversions (milli-unit → whole unit, and centavo → milli-centavo), not one. The
+> shipped migration was always correct (`0007_wac_family_mc_scale.sql` uses
+> `CAST(ROUND("wac" * 1000000) AS INTEGER)`); only this prose was, and it would have led migration
+> 0008 to under-scale `replacement_cost` by 1000×. Same copy-paste failure mode as the KOK-070
+> correction above — check illustrative factors against the formula._
+
+**Alternatives considered.**
+- *Brands only, keep both denominators.* Cheapest, and the compiler would catch the mismatch.
+  Rejected: it leaves ~25 conversion sites and the `REAL` columns in place, so every future
+  price-vs-cost feature still pays a correctness tax to save one migration we can do for free
+  today.
+- *Normalize costs to per-whole-unit but leave `sale_price` in plain centavos.* Removes most
+  sites but preserves exactly one scale boundary — the boundary KOK-069's bug lived on. Rejected
+  for leaving the door ajar.
+- *Store money as `TEXT` decimal strings or a decimal library.* Rejected under D-10 (no new
+  dependency) and for making SQL comparison/aggregation in views awkward.
+
+**Amendment (KOK-071 vertical 2, 2026-07-28) — quantization of derived and recursive rates.**
+
+`core/costing/replacement-cost.ts`'s `computeItemReplacementCost` returns a deliberately UNROUNDED
+float, and its header records why: `items.replacement_cost` is read back **recursively** as an
+ingredient's cost by another item's C-3 calculation (a multi-level BOM — RAW_MATERIAL →
+SEMI_FINISHED → FINISHED), so rounding the stored value compounds a rounding error at every level
+instead of only once, at display time — the discipline `core/recipes/theoretical-cost.ts`'s C-3b
+preview follows. Point 2 above removes `REAL` from the schema and requires every stored money value
+to be an integer. For this one column the two read as a straightforward conflict, and vertical 2
+cannot proceed without settling it.
+
+**Decision: the integer wins, with no exception carved out for this column.** Three findings, in
+order of weight:
+
+1. **The conflict is an artifact of the OLD scale.** The float rationale was written when the only
+   integer alternative was the pre-KOK-071 *centavos-per-milli-unit* grid, on which Bs 8.00/u is
+   `0.8` — quantizing there costs ~25% per level and the header comment is entirely right to refuse
+   it. On the `_mc` grid the same rate is `800_000`. One milli-centavo is Bs 0.00001 per unit:
+   three decimal digits below the centavo the value is ever *displayed* in. "Round only at display
+   time, never in the cached column" is therefore **preserved, not violated** — milli-centavos is
+   not a display scale, and C-3b's preview (which rounds to a whole centavo per whole unit, a grid
+   1000× coarser) remains the only place a display rounding happens.
+2. **The recursion is not unique to this column, and vertical 1 already decided it.** A production
+   run's output cost is `rateFromTotal(total_cost, actual_output_qty)` → an integer
+   `MilliCentavosPerUnit`, written as the PRODUCTION_IN movement's `unit_cost_mc` and rounded a
+   second time by `applyWacEntry`'s C-1 average into `items.wac_mc`; when that output is
+   SEMI_FINISHED and is consumed by a deeper run, its rounded WAC is snapshot as that run's
+   `direct` cost (C-4). That is the identical multi-level compounding structure on the identical
+   grid, and migration 0007 shipped it. The premise that "WAC never had replacement_cost's
+   recursion problem" does not survive inspection; a carve-out here would leave the two halves of
+   one BOM cost model on two different rules — which is the ambiguity ADR-017 exists to remove.
+3. **Measured, the disputed rounding is not what causes BOM drift.** Simulated against an exact
+   rational reference, decomposing drift into the *leaf* quantization (a RAW_MATERIAL's own
+   `replacement_cost_mc = rateFromTotal(line_total, qty)`, an integer under this ADR no matter what
+   is decided here) versus the *incremental* cost of also rounding each derived level. Flour bought
+   3 kg for Bs 25.00, item unit = gram, 1000 g → 1 output unit (true cost `833_333.33` mc):
+
+   | BOM depth | drift from leaf quantization alone | added by rounding the cached column |
+   | --------- | ---------------------------------- | ----------------------------------- |
+   | 1         | 333.3 mc (0.333 centavos)          | 0.000 mc                            |
+   | 2         | 1 003.0 mc (1.003 centavos)        | 0.441 mc (0.0004 centavos)          |
+   | 5         | 27 326 mc (27.3 centavos)          | 15.8 mc (0.016 centavos)            |
+
+   The float cache does not protect against the drift that actually exists: at every depth the leaf
+   term is 100–1700× larger, and it is unavoidable under this ADR. A displayed centavo only moves
+   past 500 mc of drift.
+
+**Normative consequences.**
+
+- `items.replacement_cost_mc` is `INTEGER NOT NULL DEFAULT 0`, milli-centavos per whole unit,
+  rounded half-up once per BOM level by the same `roundHalfUpToInt` every other derived rate uses.
+- **Recorded tolerance:** each derived level adds ≤ 0.5 mc (Bs 0.000005/unit) of absolute
+  quantization. Relative drift down a chain is dominated by, and approximately equal to, the leaf's
+  own `0.5 mc / leaf_cost_mc` — the tolerance this ADR already accepts for every stored rate. This
+  is an accepted, bounded tolerance, not a defect to be fixed later.
+- **A property test pins the bound** (Doc 11 §2, and CLAUDE.md's money-math rule): the integer
+  result of a randomly-generated multi-level BOM must stay within 0.5 mc per level of an exact
+  rational reference.
+- **Unit-of-measure guidance (a real finding, wider than C-3).** Drift scales with how many
+  ingredient units enter one output unit, so cataloguing a bulk ingredient per GRAM rather than per
+  KG multiplies its quantization ~1000× — measured above: 0.33 centavos vs 0.0003 centavos on the
+  identical Bs 25.00 / 3 kg purchase. This is a property of this ADR's scale, not of C-3, and it
+  argues for preferring the coarser unit when defining an item. Not a blocker for vertical 2.
+
+**Alternatives rejected here.**
+
+- *A `REAL` carve-out for this one column, via a KB exception.* Preserves exactly the "one concept,
+  two representations" ambiguity this ADR removes, and per finding 3 buys 0.0004–0.016 centavos of
+  precision against a leaf term 100–1700× larger. It also re-opens the non-determinism point 2
+  closed: a float `replacement_cost` makes the nightly refresh's result depend on summation order.
+- *Recompute each SEMI_FINISHED/FINISHED item from raw materials in one unrounded pass* instead of
+  reading its children's cached values. Genuinely removes the per-level term, but contradicts C-3's
+  "cached with timestamp" and the dependency-ordered refresh
+  (`core/costing/replacement-cost-refresh.ts`), and costs a full BOM tree walk per item — to
+  recover ~10⁻⁵ relative precision that no display can show. Rejected.

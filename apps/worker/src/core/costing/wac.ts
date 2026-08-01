@@ -4,11 +4,10 @@
 // parameter, nothing async — so it is trivially usable both by future event services (purchases
 // KOK-016, production KOK-026) and by fast-check property tests (Doc 11 §2).
 //
-// Convention (matches core/inventory, see movements.ts): `wac` / `entryUnitCost` / the return
-// value of every function here are CENTAVOS PER MILLI-UNIT (a deliberately-float quantity, Doc 04
-// §2/§3.4), the exact same unit as `stock_movements.unit_cost`. A value produced here can be
-// passed straight into a StockMovementInput's `unitCost` field with no conversion. `on_hand` /
-// `qty` values are milli-unit integers.
+// Convention (ADR-017): `wac` / `entryUnitCost` / the return value of every function here are
+// `MilliCentavosPerUnit` — integer milli-centavos per WHOLE unit — the exact same scale as
+// `items.wac_mc` / `stock_movements.unit_cost_mc` / every `*_unit_cost_snapshot_mc` column.
+// `on_hand` / `qty` values are `MilliUnits` integers.
 //
 // ADJUST-vs-entry reasoning (C-1/C-6, KB-amendment-worthy — Doc 03 does not spell this out in so
 // many words, see the report for this task):
@@ -26,7 +25,14 @@
 // service, which must call `snapshotUnitCost`/`getCurrentWac` (repair.ts) rather than ever calling
 // `applyWacEntry` for an ADJUST or exit movement.
 
-import type { StockMovementType } from "@kokoro/shared";
+import type { MilliCentavosPerUnit, StockMovementType } from "@kokoro/shared";
+import {
+  rateFromTotal,
+  roundHalfUpToInt,
+  toCentavos,
+  toMilliCentavosPerUnit,
+  toMilliUnits,
+} from "@kokoro/shared";
 
 import { validationError } from "../errors.js";
 
@@ -41,9 +47,12 @@ function assertSafeIntegerInput(value: number, label: string): void {
   }
 }
 
-function assertFiniteNonNegative(value: number, label: string): void {
-  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
-    throw validationError(`${label} debe ser un número finito no negativo.`, { [label]: value });
+/** `wac`/`entryUnitCost` are integer `MilliCentavosPerUnit` (ADR-017), so this asserts a safe
+ * integer (INV-6) and non-negativity — a cost can never be negative. */
+function assertNonNegativeIntegerInput(value: number, label: string): void {
+  assertSafeIntegerInput(value, label);
+  if (value < 0) {
+    throw validationError(`${label} debe ser un entero no negativo.`, { [label]: value });
   }
 }
 
@@ -60,17 +69,25 @@ function assertFiniteNonNegative(value: number, label: string): void {
  * STRUCTURALLY unable to reach zero (max(on_hand,0) >= 0, entryQty > 0 ⇒ sum > 0), which is the
  * task's required guard against a NaN/Infinity division — expressed as a precondition instead of
  * a separate post-hoc zero-check.
+ *
+ * ADR-017: `wac`/`entryUnitCost`/the result are `MilliCentavosPerUnit` (integer). The numerator
+ * `onHandFloor·wac + entryQty·entryUnitCost` is exact integer arithmetic (both terms share the
+ * "milli-units × milli-centavos-per-whole-unit" scale — the same pre-division numerator
+ * `totalCentavos` computes for a single rate/qty pair, just summed across the prior balance and
+ * this entry before the one division). `roundHalfUpToInt` produces the new integer WAC. Because
+ * the whole path is integral, every replay of the same inputs reproduces the identical result
+ * bit-for-bit, independent of summation order (ADR-017's determinism point).
  */
 export function applyWacEntry(
-  currentWac: number,
+  currentWac: MilliCentavosPerUnit,
   currentOnHand: number,
   entryQty: number,
-  entryUnitCost: number,
-): number {
-  assertFiniteNonNegative(currentWac, "currentWac");
+  entryUnitCost: MilliCentavosPerUnit,
+): MilliCentavosPerUnit {
+  assertNonNegativeIntegerInput(currentWac, "currentWac");
   assertSafeIntegerInput(currentOnHand, "currentOnHand");
   assertSafeIntegerInput(entryQty, "entryQty");
-  assertFiniteNonNegative(entryUnitCost, "entryUnitCost");
+  assertNonNegativeIntegerInput(entryUnitCost, "entryUnitCost");
 
   if (entryQty <= 0) {
     throw validationError(
@@ -82,18 +99,20 @@ export function applyWacEntry(
   const onHandFloor = Math.max(currentOnHand, 0);
   const newOnHand = onHandFloor + entryQty; // strictly > 0, see doc comment above.
 
-  return (onHandFloor * currentWac + entryQty * entryUnitCost) / newOnHand;
+  const newWac = roundHalfUpToInt(
+    (onHandFloor * currentWac + entryQty * entryUnitCost) / newOnHand,
+  );
+  return toMilliCentavosPerUnit(newWac);
 }
 
 /**
  * C-2: `unit_cost = line_total / qty`. `lineTotal` is centavos (integer) for the WHOLE purchase
- * line; `qty` is milli-units (integer). Result is centavos-per-milli-unit — a float, matching
- * `items.wac` / `stock_movements.unit_cost`'s convention. Deliberately NOT rounded: this is a
- * cached/derived REAL value (Doc 04 §2), not a final money amount (INV-6's "rounded half-up at
- * the final step only" applies when this value is later multiplied by a qty to produce a money
- * total, e.g. core/inventory's `total_cost`, not here).
+ * line; `qty` is milli-units (integer); the result is `MilliCentavosPerUnit` (integer
+ * milli-centavos per whole unit). That is exactly `rateFromTotal` (packages/shared/money.ts), the
+ * one sanctioned rate-from-total conversion (ADR-017), so this is a thin, C-2-named wrapper around
+ * it rather than a second implementation of the same division.
  */
-export function computePurchaseLineUnitCost(lineTotal: number, qty: number): number {
+export function computePurchaseLineUnitCost(lineTotal: number, qty: number): MilliCentavosPerUnit {
   assertSafeIntegerInput(lineTotal, "lineTotal");
   assertSafeIntegerInput(qty, "qty");
   if (lineTotal < 0) {
@@ -102,19 +121,20 @@ export function computePurchaseLineUnitCost(lineTotal: number, qty: number): num
   if (qty <= 0) {
     throw validationError("La cantidad de la línea de compra debe ser positiva.", { qty });
   }
-  return lineTotal / qty;
+  return rateFromTotal(toCentavos(lineTotal), toMilliUnits(qty));
 }
 
 /**
  * Centralizes "unit-cost snapshotting for exits/sales" (KOK-013 task description): every future
  * exit-valuing service (sales, production consumption, stock exits, inventory-count ADJUST lines)
  * must call this ONE function to snapshot the item's current WAC onto its own
- * `*_unit_cost_snapshot` column, rather than reading `items.wac` ad hoc in each service. Presently
- * trivial (identity + validation) by design — C-6 says exits value AT current WAC, full stop — but
- * having a single named call site means a future costing nuance only needs to change here.
+ * `*_unit_cost_snapshot_mc` column, rather than reading `items.wac_mc` ad hoc in each service.
+ * Presently trivial (identity + validation) by design — C-6 says exits value AT current WAC, full
+ * stop — but having a single named call site means a future costing nuance only needs to change
+ * here.
  */
-export function snapshotUnitCost(currentWac: number): number {
-  assertFiniteNonNegative(currentWac, "currentWac");
+export function snapshotUnitCost(currentWac: MilliCentavosPerUnit): MilliCentavosPerUnit {
+  assertNonNegativeIntegerInput(currentWac, "currentWac");
   return currentWac;
 }
 
@@ -124,8 +144,9 @@ export interface ReplayMovement {
   type: StockMovementType;
   /** Signed milli-units (Doc 04 §3.4), same sign convention as `stock_movements.qty`. */
   qty: number;
-  /** Centavos per milli-unit (Doc 04 §3.4), same convention as `stock_movements.unit_cost`. */
-  unitCost: number;
+  /** Milli-centavos per WHOLE unit (Doc 04 §3.4, ADR-017), same convention as
+   * `stock_movements.unit_cost_mc`. */
+  unitCostMc: MilliCentavosPerUnit;
 }
 
 /** Movement types that trigger a C-1 WAC update on replay — see the ADJUST-vs-entry reasoning in
@@ -140,7 +161,7 @@ const WAC_ENTRY_TYPES: ReadonlySet<StockMovementType> = new Set(["PURCHASE_IN", 
  * chronological order (the order the events actually happened in the kardex — see repair.ts's
  * `occurredAt` then `createdAt` tiebreak). This function's input shape deliberately omits any
  * timestamp field to keep it minimal and directly reusable from a raw `stock_movements` row
- * (`{ type, qty, unitCost }` needs no mapping) — since there is no timestamp to sort by, this
+ * (`{ type, qty, unitCostMc }` needs no mapping) — since there is no timestamp to sort by, this
  * function does NOT attempt to re-sort its input; doing so silently on unsorted input would hide a
  * caller bug instead of producing an obviously-wrong (but at least deterministic and debuggable)
  * WAC.
@@ -151,9 +172,89 @@ const WAC_ENTRY_TYPES: ReadonlySet<StockMovementType> = new Set(["PURCHASE_IN", 
  * accumulates every movement's signed qty, entries and exits alike — C-1's `max(on_hand,0)` needs
  * the true running balance at each step, not just the entries' running total.
  */
-export function recomputeWacFromMovements(movements: readonly ReplayMovement[]): number {
-  let onHand = 0;
-  let wac = 0;
+export function recomputeWacFromMovements(
+  movements: readonly ReplayMovement[],
+): MilliCentavosPerUnit {
+  return replayWacFrom(ZERO_WAC_STATE, movements).wac;
+}
+
+/**
+ * The complete running state a WAC replay carries between movements: the on-hand balance
+ * (milli-unit integer, may be negative per INV-8) and the weighted-average cost (integer
+ * `MilliCentavosPerUnit` — same convention as `items.wac_mc`). This is deliberately the WHOLE
+ * state, which is what makes a replay resumable: `replayWacFrom(replayWacFrom(seed, a).final, b)`
+ * is identical to `replayWacFrom(seed, [...a, ...b])` (pinned by a property test in
+ * costing.test.ts).
+ */
+export interface WacState {
+  onHand: number;
+  wac: MilliCentavosPerUnit;
+}
+
+const ZERO_WAC_STATE: WacState = { onHand: 0, wac: toMilliCentavosPerUnit(0) };
+
+/** Per-movement WAC snapshot produced by `replayWacWithTrace`. `steps[i]` describes
+ * `movements[i]`: the state immediately BEFORE that movement was applied and immediately AFTER.
+ *
+ * R-4's `cost_delta` is computed from `wacBefore`: for a SALE_OUT/EXIT_OUT movement, the frozen
+ * `unit_cost_snapshot_mc` written at event time is compared against the WAC the replay says was in
+ * effect at that point in the kardex. (For exits the two WAC fields are equal — C-6 carries WAC
+ * forward across exits — but both are exposed so the caller never has to know which type it is
+ * holding, and so an entry's before/after are both available for debugging a drift report.)
+ */
+export interface WacTraceStep {
+  wacBefore: MilliCentavosPerUnit;
+  wacAfter: MilliCentavosPerUnit;
+  onHandBefore: number;
+  onHandAfter: number;
+}
+
+/**
+ * Resume-from-a-point version of `recomputeWacFromMovements` (R-2/R-4): replays `movements`
+ * starting from an ARBITRARY `seed` state instead of always from `onHand = 0, wac = 0`, and
+ * returns the final state rather than just the final `wac`.
+ *
+ * This is what lets a correction replay only the kardex TAIL after the edited event: the caller
+ * reads the last known-good `{ on_hand, wac }` at the cut point and feeds it in here, instead of
+ * re-reading and re-replaying an item's entire history.
+ *
+ * Same PRECONDITION as `recomputeWacFromMovements`: `movements` MUST already be sorted
+ * chronologically (see that function's note on why this is not checked here), and must all fall
+ * AFTER the point `seed` describes. Same C-1/C-6 semantics: only `WAC_ENTRY_TYPES`
+ * (PURCHASE_IN/PRODUCTION_IN) run the C-1 formula via `applyWacEntry`; every other type carries
+ * `wac` forward untouched and only moves `onHand`.
+ */
+export function replayWacFrom(seed: WacState, movements: readonly ReplayMovement[]): WacState {
+  return runReplay(seed, movements);
+}
+
+/**
+ * `replayWacFrom` plus the per-movement trace (see `WacTraceStep`). `steps` is index-aligned with
+ * `movements` — `steps.length === movements.length` — because R-4 needs the WAC as of each
+ * INDIVIDUAL movement, not just the end state.
+ */
+export function replayWacWithTrace(
+  seed: WacState,
+  movements: readonly ReplayMovement[],
+): { final: WacState; steps: WacTraceStep[] } {
+  const steps: WacTraceStep[] = [];
+  const final = runReplay(seed, movements, steps);
+  return { final, steps };
+}
+
+/** Shared replay loop behind `replayWacFrom` / `replayWacWithTrace` / `recomputeWacFromMovements`
+ * — one implementation so the three can never drift apart. Collecting the trace is opt-in (pass
+ * `steps`) so the untraced callers allocate nothing per movement. */
+function runReplay(
+  seed: WacState,
+  movements: readonly ReplayMovement[],
+  steps?: WacTraceStep[],
+): WacState {
+  assertSafeIntegerInput(seed.onHand, "seed.onHand");
+  assertNonNegativeIntegerInput(seed.wac, "seed.wac");
+
+  let onHand = seed.onHand;
+  let wac = seed.wac;
 
   for (const movement of movements) {
     assertSafeIntegerInput(movement.qty, "qty");
@@ -165,11 +266,16 @@ export function recomputeWacFromMovements(movements: readonly ReplayMovement[]):
       throw validationError("Un movimiento de stock no puede tener cantidad cero.", { movement });
     }
 
+    const onHandBefore = onHand;
+    const wacBefore = wac;
+
     if (WAC_ENTRY_TYPES.has(movement.type)) {
-      wac = applyWacEntry(wac, onHand, movement.qty, movement.unitCost);
+      wac = applyWacEntry(wac, onHand, movement.qty, movement.unitCostMc);
     }
     onHand += movement.qty;
+
+    steps?.push({ wacBefore, wacAfter: wac, onHandBefore, onHandAfter: onHand });
   }
 
-  return wac;
+  return { onHand, wac };
 }

@@ -6,7 +6,9 @@
 // core/inventory never calls db.batch() itself (it only builds statements — see movements.ts), so
 // these tests execute the returned statements the same way a future event service would: by
 // pushing them into the test's own db.batch() call.
+
 import { env } from "cloudflare:test";
+import { toMilliCentavosPerUnit } from "@kokoro/shared";
 import type { BatchItem } from "drizzle-orm/batch";
 import { describe, expect, it } from "vitest";
 
@@ -19,6 +21,8 @@ import {
 import { createDb } from "../src/db/index.js";
 
 const ACTOR = "OWNER_WEB" as const;
+// ADR-017: brand alias, local to this file for readability — see costing.test.ts.
+const mc = toMilliCentavosPerUnit;
 
 type TestDb = ReturnType<typeof createDb>;
 
@@ -48,7 +52,7 @@ function movement(
     businessDate: "2026-07-16",
     type: "ADJUST",
     qty: 1000,
-    unitCost: 100,
+    unitCostMc: mc(100_000_000),
     sourceEventType: "test_source",
     sourceEventId: "src_1",
     ...overrides,
@@ -124,7 +128,7 @@ describe("buildStockMovementStatements — multi-line netting", () => {
         itemId: itemA.id,
         type: "PURCHASE_IN",
         qty: 5000,
-        unitCost: 200,
+        unitCostMc: mc(200_000_000),
         sourceEventType: "purchase",
         sourceEventId: "p1",
       }),
@@ -132,7 +136,7 @@ describe("buildStockMovementStatements — multi-line netting", () => {
         itemId: itemA.id,
         type: "SALE_OUT",
         qty: -2000,
-        unitCost: 200,
+        unitCostMc: mc(200_000_000),
         sourceEventType: "sale",
         sourceEventId: "s1",
       }),
@@ -140,7 +144,7 @@ describe("buildStockMovementStatements — multi-line netting", () => {
         itemId: itemB.id,
         type: "PURCHASE_IN",
         qty: 3000,
-        unitCost: 150,
+        unitCostMc: mc(150_000_000),
         sourceEventType: "purchase",
         sourceEventId: "p1",
       }),
@@ -232,9 +236,11 @@ describe("buildStockMovementStatements — total_cost (Doc 04 §3.4)", () => {
     const db = createDb(env.DB);
     const item = await seedItem(db, "Rounding item");
 
-    // qty=1500 milli-units, unit_cost=3.333 centavos/milli-unit -> 1500*3.333 = 4999.5 -> rounds to 5000.
+    // qty=1500 milli-units, unit_cost_mc=3_333_000 milli-centavos/WHOLE unit ->
+    // totalCentavos = 1500*3_333_000/1e6 = 4999.5 -> rounds to 5000 (same tie-break case as the
+    // i.e. totalCentavos(3_333_000, 1500) — the half-up case, 4999.5 rounding to 5000.)
     const { statements } = buildStockMovementStatements(db, [
-      movement({ itemId: item.id, type: "PURCHASE_IN", qty: 1500, unitCost: 3.333 }),
+      movement({ itemId: item.id, type: "PURCHASE_IN", qty: 1500, unitCostMc: mc(3_333_000) }),
     ]);
     await execBatch(db, statements);
 
@@ -243,7 +249,7 @@ describe("buildStockMovementStatements — total_cost (Doc 04 §3.4)", () => {
     });
     expect(row?.totalCost).toBe(5000);
 
-    // Exact (no rounding needed): qty=-2000 (SALE_OUT), unit_cost=2.5 -> -5000 exactly.
+    // Exact (no rounding needed): qty=-2000 (SALE_OUT), unit_cost_mc=2_500_000 -> -5000 exactly.
     const item2 = await seedItem(db, "Exact cost item");
     // Give it stock first so the exit doesn't need a purchase to exist first (INV-8 allows negative anyway).
     await execBatch(
@@ -253,7 +259,7 @@ describe("buildStockMovementStatements — total_cost (Doc 04 §3.4)", () => {
           itemId: item2.id,
           type: "SALE_OUT",
           qty: -2000,
-          unitCost: 2.5,
+          unitCostMc: mc(2_500_000),
           sourceEventId: "sale_exact",
         }),
       ]).statements,
@@ -269,7 +275,7 @@ describe("buildStockMovementStatements — total_cost (Doc 04 §3.4)", () => {
     const item = await seedItem(db, "Negative cost item");
     expectDomainValidationError(() =>
       buildStockMovementStatements(db, [
-        movement({ itemId: item.id, type: "PURCHASE_IN", qty: 1000, unitCost: -1 }),
+        movement({ itemId: item.id, type: "PURCHASE_IN", qty: 1000, unitCostMc: mc(-1) }),
       ]),
     );
   });
@@ -286,7 +292,7 @@ describe("buildReplaceMovementsForSourceStatements — idempotent regeneration (
         itemId: itemA.id,
         type: "PURCHASE_IN",
         qty: 4000,
-        unitCost: 100,
+        unitCostMc: mc(100_000_000),
         sourceEventType: "purchase",
         sourceEventId: "purchase_replace_1",
       }),
@@ -294,7 +300,7 @@ describe("buildReplaceMovementsForSourceStatements — idempotent regeneration (
         itemId: itemB.id,
         type: "PURCHASE_IN",
         qty: 1000,
-        unitCost: 50,
+        unitCostMc: mc(50_000_000),
         sourceEventType: "purchase",
         sourceEventId: "purchase_replace_1",
       }),

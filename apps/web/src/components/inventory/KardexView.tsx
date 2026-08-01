@@ -2,7 +2,14 @@
 // first (server-sorted, see packages/shared/src/inventory-views.ts).
 
 import type { KardexRowDto } from "@kokoro/shared";
-import { formatMoney, formatQty } from "@kokoro/shared";
+import {
+  formatMoney,
+  formatQty,
+  toCentavos,
+  toMilliCentavosPerUnit,
+  totalCentavos,
+  WHOLE_UNIT_MILLI_UNITS,
+} from "@kokoro/shared";
 import { Link } from "@tanstack/react-router";
 
 import { DetailDrawer } from "@/components/data-table/DetailDrawer";
@@ -21,10 +28,12 @@ export interface KardexViewProps {
   onOpenChange: (open: boolean) => void;
 }
 
-/** Doc 04 §3.4: unit_cost is REAL centavos-per-milli-unit — same display scale as StockTable's
- * wac/replacementCost columns. */
+/** Doc 04 §3.4 (ADR-017): unit_cost_mc is integer milli-centavos per WHOLE unit — same
+ * display scale as StockTable's wac column. */
 function formatUnitCost(row: KardexRowDto): string {
-  return `${formatMoney(Math.round(row.unitCost * 1000))} / ${inventoryLabels.unitAbbrev[row.unit]}`;
+  return `${formatMoney(
+    totalCentavos(toMilliCentavosPerUnit(row.unitCostMc), WHOLE_UNIT_MILLI_UNITS),
+  )} / ${inventoryLabels.unitAbbrev[row.unit]}`;
 }
 
 function SourceCell({ row }: { row: KardexRowDto }) {
@@ -75,7 +84,7 @@ export function KardexView({ itemId, itemName, open, onOpenChange }: KardexViewP
       numeric: true,
       cell: (row) => (
         <span className={cn(row.totalCost < 0 && "text-negative")}>
-          {formatMoney(row.totalCost, { signed: true })}
+          {formatMoney(toCentavos(row.totalCost), { signed: true })}
         </span>
       ),
     },

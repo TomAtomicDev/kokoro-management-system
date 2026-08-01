@@ -4,7 +4,13 @@
 // fetching (see routes/inventory.tsx for how the lookup Map is built from useItemsQuery).
 
 import type { StockExitDto, Unit } from "@kokoro/shared";
-import { formatMoney, formatQty } from "@kokoro/shared";
+import {
+  formatMoney,
+  formatQty,
+  toMilliCentavosPerUnit,
+  toMilliUnits,
+  totalCentavos,
+} from "@kokoro/shared";
 
 import { EventTable, type EventTableColumn } from "@/components/data-table/EventTable";
 import { inventoryLabels } from "@/lib/i18n-inventory";
@@ -17,9 +23,11 @@ export interface ExitsTableProps {
    * acceptable per the task's own guidance not to over-engineer this fallback. */
   items: Map<string, { name: string; unit: Unit }>;
   loading?: boolean;
+  /** Row -> detail drawer (KOK-024 Phase G) — same optional-prop precedent as PurchasesTable's. */
+  onRowClick?: (row: StockExitDto) => void;
 }
 
-export function ExitsTable({ rows, items, loading }: ExitsTableProps) {
+export function ExitsTable({ rows, items, loading, onRowClick }: ExitsTableProps) {
   const columns: EventTableColumn<StockExitDto>[] = [
     {
       id: "date",
@@ -49,11 +57,11 @@ export function ExitsTable({ rows, items, loading }: ExitsTableProps) {
       id: "valuedCost",
       header: inventoryLabels.exitsColumnValuedCost,
       numeric: true,
-      // unitCostSnapshot is centavos-per-milli-unit (Doc 04 §3.4) and qty is milli-units, so their
-      // direct product is already centavos — no ×1000 conversion, unlike a per-whole-unit DISPLAY
-      // price. This mirrors core/inventory/movements.ts's `total_cost = qty × unit_cost` formula
-      // for `stock_movements` exactly (see that file's comment on the INSERT builder).
-      cell: (row) => formatMoney(Math.round(row.qty * row.unitCostSnapshot)),
+      // Keep the preview on the same sanctioned rate-to-total conversion as core inventory.
+      cell: (row) =>
+        formatMoney(
+          totalCentavos(toMilliCentavosPerUnit(row.unitCostSnapshotMc), toMilliUnits(row.qty)),
+        ),
     },
   ];
 
@@ -62,6 +70,7 @@ export function ExitsTable({ rows, items, loading }: ExitsTableProps) {
       columns={columns}
       rows={rows}
       getRowId={(row) => row.id}
+      onRowClick={onRowClick}
       emptyMessage={inventoryLabels.noExits}
       loading={loading}
       loadingMessage={inventoryLabels.loading}

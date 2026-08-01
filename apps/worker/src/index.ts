@@ -3,15 +3,27 @@
 // this file wires together, and §4.4 for the cron table.
 
 import { Hono } from "hono";
+import { auditRoute } from "./api/audit.js";
 import { authRoute } from "./api/auth.js";
+import { backupsRoute } from "./api/backups.js";
 import { catalogRoute } from "./api/catalog.js";
+import { costingRoute } from "./api/costing.js";
+import { customersRoute } from "./api/customers.js";
+import { dashboardRoute } from "./api/dashboard.js";
 import { errorHandler } from "./api/error-handler.js";
 import { financeRoute } from "./api/finance.js";
 import { healthRoute } from "./api/health.js";
 import { inventoryRoute } from "./api/inventory.js";
 import { onboardingRoute } from "./api/onboarding.js";
+import { ordersRoute } from "./api/orders.js";
+import { productionRunsRoute } from "./api/production-runs.js";
 import { purchasingRoute } from "./api/purchasing.js";
+import { recipesRoute } from "./api/recipes.js";
+import { salesRoute } from "./api/sales.js";
+import { sessionsRoute } from "./api/sessions.js";
+import { createDb } from "./db/index.js";
 import type { Env, Variables } from "./env.js";
+import { runJob } from "./jobs/index.js";
 import { requireCsrf, requireSession } from "./middleware/auth.js";
 import { structuredLogging } from "./middleware/logging.js";
 
@@ -29,10 +41,20 @@ app.use("/api/*", requireCsrf());
 app.route("/api", healthRoute);
 app.route("/api", authRoute);
 app.route("/api", catalogRoute); // KOK-011 — items & aliases (Doc 07 SC-15).
+app.route("/api", customersRoute); // KOK-032 — customers (Doc 04 §3.3, CustomerPicker inline-create).
+app.route("/api", recipesRoute); // KOK-025 — recipes (Doc 07 SC-06).
 app.route("/api", financeRoute); // KOK-014 — standalone transactions, transfers, withdrawals (Doc 03 UC-11/12/13).
 app.route("/api", purchasingRoute); // KOK-016 — purchases (Doc 03 UC-01), the template event vertical.
+app.route("/api", productionRunsRoute); // KOK-026 — production runs (Doc 03 UC-02), the second full event vertical.
+app.route("/api", salesRoute); // KOK-030 — catalog sales (Doc 03 UC-03, Doc 07 SC-02/03).
+app.route("/api", ordersRoute); // KOK-033 — custom-order lifecycle (Doc 03 UC-05…08 §5, Doc 07 SC-04).
+app.route("/api", sessionsRoute); // KOK-027 — sessions (Doc 03 §6 UC-14, Doc 07 SC-09).
 app.route("/api", inventoryRoute); // KOK-017 — v_stock/v_kardex reads (Doc 07 SC-08).
 app.route("/api", onboardingRoute); // KOK-020 — onboarding wizard (Doc 07 steps 1-5).
+app.route("/api", dashboardRoute); // KOK-023 — dashboard summary (Doc 07 SC-01 reduced).
+app.route("/api", backupsRoute); // KOK-022 — backup status + download (Doc 07 SC-16).
+app.route("/api", costingRoute); // KOK-029 — on-demand replacement-cost refresh (Doc 03 §4 C-3).
+app.route("/api", auditRoute); // KOK-067 — audit_log read, reusable by every DetailDrawer footer.
 
 // Extension point for a later backlog task — kept as a comment so the file reads as an obvious
 // map of where things go:
@@ -47,12 +69,14 @@ app.route("/api", onboardingRoute); // KOK-020 — onboarding wizard (Doc 07 ste
 app.get("*", (c) => c.env.ASSETS.fetch(c.req.raw));
 
 /**
- * Cron Trigger dispatcher (Doc 02 §4.4). Job bodies don't exist yet (jobs/ is empty until
- * KOK-021+); for now every scheduled cron just logs which job would have run.
+ * Cron Trigger dispatcher (Doc 02 §4.4). Maps the firing cron expression to a job name
+ * (`jobNameForCron`) and dispatches into the `jobs/` registry (`runJob`, KOK-021) — every job run
+ * is recorded in `job_runs`, so this handler itself never needs its own logging: a failure inside
+ * `runJob`'s dispatched handler is caught there, not here (see `jobs/daily-snapshot.ts`'s header).
  */
-async function scheduled(event: ScheduledEvent, _env: Env, _ctx: ExecutionContext): Promise<void> {
+async function scheduled(event: ScheduledEvent, env: Env, _ctx: ExecutionContext): Promise<void> {
   const job = jobNameForCron(event.cron);
-  console.log(JSON.stringify({ job, at: new Date().toISOString() }));
+  await runJob(createDb(env.DB), job, env.BUCKET);
 }
 
 /** Maps a cron expression (Doc 02 §4.4) to its job name. */

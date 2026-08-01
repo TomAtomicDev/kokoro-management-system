@@ -29,6 +29,7 @@ describe("session cookie (HMAC-SHA256)", () => {
   });
 
   it("rejects an expired session", async () => {
+    // scale-factor-ok: converts the fixture's seconds offset to JavaScript milliseconds
     const issuedLongAgo = new Date(Date.now() - (SESSION_MAX_AGE_SECONDS + 3600) * 1000);
     const value = await createSessionCookieValue(SECRET, issuedLongAgo);
     expect(await verifySessionCookieValue(value, SECRET)).toBeNull();
@@ -37,7 +38,9 @@ describe("session cookie (HMAC-SHA256)", () => {
   it("accepts a session at exactly its last valid second and rejects it once expired", async () => {
     const now = new Date();
     const value = await createSessionCookieValue(SECRET, now);
+    // scale-factor-ok: converts the fixture's seconds offset to JavaScript milliseconds
     const justBeforeExpiry = new Date(now.getTime() + (SESSION_MAX_AGE_SECONDS - 1) * 1000);
+    // scale-factor-ok: converts the fixture's seconds offset to JavaScript milliseconds
     const justAfterExpiry = new Date(now.getTime() + (SESSION_MAX_AGE_SECONDS + 1) * 1000);
     expect(await verifySessionCookieValue(value, SECRET, justBeforeExpiry)).not.toBeNull();
     expect(await verifySessionCookieValue(value, SECRET, justAfterExpiry)).toBeNull();

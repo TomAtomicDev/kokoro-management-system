@@ -20,7 +20,8 @@
       "!**/.github",
       "!**/.mcp.json",
       "!**/pnpm-lock.yaml",
-      "!**/apps/worker/migrations"
+      "!**/apps/worker/migrations",
+      "!**/graphify-out"
     ]
   },
   "formatter": {

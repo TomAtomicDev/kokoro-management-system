@@ -6,7 +6,7 @@
 // not just for system-owned rows.
 
 import type { FinancialAccountDto, FinancialTransactionDto } from "@kokoro/shared";
-import { formatMoney } from "@kokoro/shared";
+import { formatMoney, toCentavos } from "@kokoro/shared";
 import { useMemo } from "react";
 
 import { EventTable, type EventTableColumn } from "@/components/data-table/EventTable";
@@ -58,7 +58,7 @@ export function TransactionsTable({ transactions, accounts, loading }: Transacti
       numeric: true,
       cell: (row) => (
         <span className={cn("font-medium", transactionAmountColorClass(row.type))}>
-          {formatMoney(signedTransactionAmount(row.type, row.amount), { signed: true })}
+          {formatMoney(toCentavos(signedTransactionAmount(row.type, row.amount)), { signed: true })}
         </span>
       ),
     },

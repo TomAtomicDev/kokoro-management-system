@@ -1,41 +1,73 @@
-// core/purchasing — UC-01 "Record purchase" (KOK-016, Doc 03 UC-01, Doc 04 §3.3/§3.4). This is the
+// core/purchasing ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â UC-01 "Record purchase" (KOK-016, Doc 03 UC-01, Doc 04 Ãƒâ€šÃ‚Â§3.3/Ãƒâ€šÃ‚Â§3.4). This is the
 // TEMPLATE event-vertical module every future business-event service (production KOK-026, sales
 // KOK-030, exits KOK-018, counts KOK-019) copies the shape of: `recordPurchase` is a top-level
-// command entry point — like core/finance/transactions.ts and core/catalog, NOT a building block
-// like core/inventory/core/costing — so it does its own defensive validation, builds every row
+// command entry point ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â like core/finance/transactions.ts and core/catalog, NOT a building block
+// like core/inventory/core/costing ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â so it does its own defensive validation, builds every row
 // itself, and executes exactly ONE atomic `db.batch()` (D-3) containing:
 //   - the `purchases` + `purchase_lines` inserts (the event itself)
 //   - the PURCHASE_IN `stock_movements` + `item_stock` upserts (core/inventory's
-//     buildStockMovementStatements — a building block spliced into this batch, never its own)
+//     buildStockMovementStatements ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â a building block spliced into this batch, never its own)
 //   - one `items` UPDATE per distinct item touched, carrying the C-1 WAC update and (RAW_MATERIAL
 //     only) the C-3 replacement_cost update
 //   - the account balance debit (core/finance's buildAccountBalanceDelta)
-//   - the system-owned EXPENSE/SUPPLY_PURCHASE `financial_transactions` row — sourceEventType/
+//   - the system-owned EXPENSE/SUPPLY_PURCHASE `financial_transactions` row ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â sourceEventType/
 //     sourceEventId are SET here (unlike core/finance/transactions.ts's standalone commands, which
-//     are always null), per Doc 04 §5's rule that purchase-sourced transactions carry their source
+//     are always null), per Doc 04 Ãƒâ€šÃ‚Â§5's rule that purchase-sourced transactions carry their source
 //   - the `audit_log` row (core/audit's buildAuditLogInsert)
+//   - (KOK-024) whatever `planCostingReplay` returns when this purchase is BACKDATED ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â the
+//     corrected `items.wac_mc` for every item whose kardex it re-weights, the `costing_adjustments`
+//     row booking the difference forward (R-4), the `item_stock.negative_since` fix, and its own
+//     audit row. Empty on the ordinary same-day capture, which is the overwhelmingly common case.
 
 import type {
   AuditActor,
+  DeletePurchaseCommand,
+  DeletePurchaseResult,
   ListPurchasesFilters,
   ListPurchasesResult,
+  MilliCentavosPerUnit,
   PurchaseDto,
+  PurchaseImpactRequest,
   PurchaseLineDto,
   RecordPurchaseCommand,
   RecordPurchaseResult,
+  ReplayImpactDto,
+  UpdatePurchaseCommand,
+  UpdatePurchaseResult,
 } from "@kokoro/shared";
-import { addMoney, generateUuidV7, nowIso, subMoney } from "@kokoro/shared";
-import { eq } from "drizzle-orm";
+import {
+  addMoney,
+  generateUuidV7,
+  nowIso,
+  REPLAY_CONFIRMATION_REQUIRED,
+  rateFromTotal,
+  subMoney,
+  toCentavos,
+  toMilliCentavosPerUnit,
+  toMilliUnits,
+} from "@kokoro/shared";
+import { and, eq, gt, isNull, ne } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 
 import type { Db } from "../../db/index.js";
 import { financialTransactions, items, purchaseLines, purchases } from "../../db/schema.js";
 import { buildAuditLogInsert } from "../audit.js";
-import { applyWacEntry, computePurchaseLineUnitCost } from "../costing/wac.js";
-import { notFound, validationError } from "../errors.js";
-import { buildAccountBalanceDelta, findActiveAccountRowOrThrow } from "../finance/accounts.js";
+import type { CostingReplayPlan } from "../costing/replay.js";
+import { planCostingReplay } from "../costing/replay.js";
+import type { ReplayMovement } from "../costing/wac.js";
+import { applyWacEntry, computePurchaseLineUnitCost, replayWacFrom } from "../costing/wac.js";
+import { conflict, notFound, validationError } from "../errors.js";
+import type { FinancialTransactionInput } from "../finance/accounts.js";
+import {
+  buildAccountBalanceDelta,
+  buildReplaceTransactionsForSourceStatements,
+  findActiveAccountRowOrThrow,
+} from "../finance/accounts.js";
 import { toAccountDto } from "../finance/dto.js";
-import { buildStockMovementStatements } from "../inventory/movements.js";
+import {
+  buildReplaceMovementsForSourceStatements,
+  buildStockMovementStatements,
+} from "../inventory/movements.js";
 import type { StockMovementInput } from "../inventory/types.js";
 
 type Statement = BatchItem<"sqlite">;
@@ -46,22 +78,22 @@ type ItemRow = typeof items.$inferSelect;
 /**
  * Running WAC/on-hand state for ONE item across a purchase's lines, threaded per-line so a second
  * line for the same item (e.g. two batches of flour on one invoice) applies C-1 against the
- * FIRST line's effect, not the pre-purchase snapshot twice — see this module's header and Doc 10
+ * FIRST line's effect, not the pre-purchase snapshot twice ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â see this module's header and Doc 10
  * KOK-016's "sequencing multi-line same-item purchases" note. Seeded ONCE per distinct item from
- * its currently-stored `items.wac` / `item_stock.qty_on_hand` (defaulting on-hand to 0 when no
- * `item_stock` row exists yet, i.e. a brand-new item's first-ever movement) — this is NOT a full
+ * its currently-stored `items.wac_mc` / `item_stock.qty_on_hand` (defaulting on-hand to 0 when no
+ * `item_stock` row exists yet, i.e. a brand-new item's first-ever movement) ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â this is NOT a full
  * kardex replay (that's `recomputeWacFromMovements`, R-2, a different call site); it only threads
  * this purchase's own lines forward from the current live state.
  */
 interface ItemPurchaseState {
-  wac: number;
+  wacMc: MilliCentavosPerUnit;
   onHand: number;
   kind: ItemRow["kind"];
   /** Unit cost of the LAST line processed so far for this item. Overwritten on every line that
    * touches this item, so after the full pass it holds the last line's value regardless of how
-   * many lines (or their position among other items' lines) touched this item — C-3: "for
-   * RAW_MATERIAL, replacement_cost = last purchase unit cost". */
-  lastUnitCost: number;
+   * many lines (or their position among other items' lines) touched this item ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â C-3: "for
+   * RAW_MATERIAL, replacement_cost_mc = last purchase unit cost. */
+  lastUnitCost: MilliCentavosPerUnit;
 }
 
 function toPurchaseDto(row: PurchaseRow, lineRows: readonly PurchaseLineRow[]): PurchaseDto {
@@ -87,23 +119,63 @@ function toPurchaseDto(row: PurchaseRow, lineRows: readonly PurchaseLineRow[]): 
   };
 }
 
-/** UC-01: record a multi-line purchase in one atomic batch (D-3). See this module's header for the
- * full statement list this builds. */
-export async function recordPurchase(
+/**
+ * C-3, "last by `business_date`": does a purchase dated AFTER this one already supply `itemId`'s
+ * replacement cost?
+ *
+ * C-3 says `replacement_cost = last purchase unit cost`. Until KOK-024 "last" was implemented as
+ * "most recently RECORDED", which let a backdated purchase clobber a replacement cost set by a
+ * purchase with a later `business_date` ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â the owner backdates last week's invoice and today's
+ * price silently rolls back to last week's. Doc 03 Ãƒâ€šÃ‚Â§4 C-3 now defines "last" as last by
+ * `business_date` (D-1/D-6, amended in this same commit); this is that rule's query.
+ *
+ * Ties keep the previous behaviour deliberately (`>` not `>=`): two purchases on the SAME business
+ * date are ordered only by capture, so the later-recorded one still wins ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â which is what the
+ * ordinary same-day path has always done, and what "the last price I paid today" means.
+ *
+ * Runs BEFORE the insert, so this purchase's own (not yet written) line can never match. Soft
+ * -deleted purchases are excluded (INV-10 / D-8): a reverted invoice must not keep pinning a price.
+ */
+async function hasLaterDatedPurchaseForItem(
   db: Db,
-  command: RecordPurchaseCommand,
-  actor: AuditActor,
-): Promise<RecordPurchaseResult> {
-  // Defensive re-check (core/ services never trust a caller already ran Zod, D-2) — mirrors
+  itemId: string,
+  businessDate: string,
+): Promise<boolean> {
+  const rows = await db
+    .select({ id: purchases.id })
+    .from(purchaseLines)
+    .innerJoin(purchases, eq(purchaseLines.purchaseId, purchases.id))
+    .where(
+      and(
+        eq(purchaseLines.itemId, itemId),
+        isNull(purchases.deletedAt),
+        gt(purchases.businessDate, businessDate),
+      ),
+    )
+    .limit(1);
+  return rows.length > 0;
+}
+
+/**
+ * Builds the create path's post-state: the C-1-threaded `itemStates`, this purchase's PURCHASE_IN
+ * `movements`, its `purchaseRow`/`purchaseLineRows`, and the validated destination `account` ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â
+ * everything `recordPurchase` needs to keep assembling its batch, and everything
+ * `previewPurchaseImpact`'s "create" dry run needs to call `planCostingReplay` with. Extracted
+ * (KOK-024 Phase F) so the two can never build these inputs differently ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â this module's header:
+ * "the preview and the mutation it previews must run the exact same planner, or the preview is a
+ * lie with a UI around it." Pure construction; never calls `db.batch()`.
+ */
+async function buildPurchaseCreateMovements(db: Db, command: RecordPurchaseCommand) {
+  // Defensive re-check (core/ services never trust a caller already ran Zod, D-2) ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â mirrors
   // recordPurchaseCommandSchema's `.min(1)` on `lines`.
   if (command.lines.length === 0) {
-    throw validationError("Se requiere al menos una línea de compra.", {});
+    throw validationError("Se requiere al menos una lÃƒÆ’Ã‚Â­nea de compra.", {});
   }
 
   const account = await findActiveAccountRowOrThrow(db, command.accountId);
 
   // Seed one ItemPurchaseState per DISTINCT item up front (one items query + one item_stock query
-  // per distinct itemId, never per line), then thread it through the lines below in order — see
+  // per distinct itemId, never per line), then thread it through the lines below in order ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â see
   // ItemPurchaseState's doc comment for why this differs from a naive per-line snapshot read.
   const itemStates = new Map<string, ItemPurchaseState>();
   for (const itemId of new Set(command.lines.map((l) => l.itemId))) {
@@ -111,16 +183,16 @@ export async function recordPurchase(
       where: (t, { eq: eqOp }) => eqOp(t.id, itemId),
     });
     if (!itemRow) {
-      throw notFound("No se encontró el ítem.", { id: itemId });
+      throw notFound("No se encontrÃƒÆ’Ã‚Â³ el ÃƒÆ’Ã‚Â­tem.", { id: itemId });
     }
     const stockRow = await db.query.itemStock.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.itemId, itemId),
     });
     itemStates.set(itemId, {
-      wac: itemRow.wac,
+      wacMc: toMilliCentavosPerUnit(itemRow.wacMc),
       onHand: stockRow?.qtyOnHand ?? 0,
       kind: itemRow.kind,
-      lastUnitCost: 0,
+      lastUnitCost: toMilliCentavosPerUnit(0),
     });
   }
 
@@ -136,10 +208,10 @@ export async function recordPurchase(
       throw validationError("Estado interno de compra inconsistente.", { itemId: line.itemId });
     }
 
-    const unitCost = computePurchaseLineUnitCost(line.lineTotal, line.qty);
-    state.wac = applyWacEntry(state.wac, state.onHand, line.qty, unitCost);
+    const unitCostMc = computePurchaseLineUnitCost(line.lineTotal, line.qty);
+    state.wacMc = applyWacEntry(state.wacMc, state.onHand, line.qty, unitCostMc);
     state.onHand += line.qty;
-    state.lastUnitCost = unitCost;
+    state.lastUnitCost = rateFromTotal(toCentavos(line.lineTotal), toMilliUnits(line.qty));
 
     movements.push({
       itemId: line.itemId,
@@ -147,15 +219,15 @@ export async function recordPurchase(
       businessDate: command.businessDate,
       type: "PURCHASE_IN",
       qty: line.qty,
-      unitCost,
+      unitCostMc,
       sourceEventType: "purchase",
       sourceEventId: purchaseId,
     });
   }
 
-  // Server-recomputed, never trusted from the caller (Doc 04 §5) — recordPurchaseCommandSchema has
+  // Server-recomputed, never trusted from the caller (Doc 04 Ãƒâ€šÃ‚Â§5) ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â recordPurchaseCommandSchema has
   // no `total` field at all, so this is the only place a purchase's total is ever produced.
-  const total = addMoney(...command.lines.map((l) => l.lineTotal));
+  const total = addMoney(...command.lines.map((l) => toCentavos(l.lineTotal)));
 
   const purchaseRow = {
     id: purchaseId,
@@ -180,33 +252,93 @@ export async function recordPurchase(
     lineTotal: line.lineTotal,
   }));
 
+  return { account, itemStates, purchaseId, now, movements, total, purchaseRow, purchaseLineRows };
+}
+
+/** UC-01: record a multi-line purchase in one atomic batch (D-3). See this module's header for the
+ * full statement list this builds. */
+export async function recordPurchase(
+  db: Db,
+  command: RecordPurchaseCommand,
+  actor: AuditActor,
+): Promise<RecordPurchaseResult> {
+  const { account, itemStates, purchaseId, now, movements, total, purchaseRow, purchaseLineRows } =
+    await buildPurchaseCreateMovements(db, command);
+
+  // ---- INV-11 / R-2 ordering guard (ADR-016 Ãƒâ€šÃ‚Â§1) --------------------------------------------
+  // A purchase is not exempt from the replay just because it is a CREATE: recording today's
+  // production and only then backdating last week's flour invoice is an ordinary Tuesday, and the
+  // C-1 threading above ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â which reads `items.wac_mc` / `item_stock.qty_on_hand` at their CURRENT
+  // value ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â is simply wrong for it. Planned BEFORE the batch is assembled so the R-5 refusal below
+  // can happen before a single write.
+  const plan = await planCostingReplay(db, {
+    trigger: {
+      eventType: "purchase",
+      eventId: purchaseId,
+      businessDate: command.businessDate,
+      occurredAt: command.occurredAt,
+    },
+    changes: [{ sourceEventType: "purchase", sourceEventId: purchaseId, newMovements: movements }],
+    actor,
+  });
+
+  // R-5: the replay would move cost already booked against a recorded sale/exit/production run.
+  // Refuse ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â before `db.batch`, so nothing is written ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â and hand the caller the impact it needs to
+  // render the preview and re-submit with `confirm: true`. CONFLICT/409 (Doc 08 Ãƒâ€šÃ‚Â§2), discriminated
+  // by `details.reason`; see REPLAY_CONFIRMATION_REQUIRED for why this is not its own error code.
+  if (plan.confirmationRequired && command.confirm !== true) {
+    throw conflict(
+      "Esta compra tiene fecha anterior a movimientos ya registrados y cambia costos ya calculados. Revisa el impacto y confirma para guardarla.",
+      { reason: REPLAY_CONFIRMATION_REQUIRED, impact: plan.impact },
+    );
+  }
+
   const { statements: movementStatements } = buildStockMovementStatements(db, movements);
 
-  // One `items` UPDATE per distinct item touched, carrying its FINAL threaded wac (C-1) and, for
-  // RAW_MATERIAL only (C-3 — SEMI_FINISHED/FINISHED replacement cost is a recipe rollup, KOK-029,
-  // out of scope here), the last line's unit cost as the new replacement_cost.
-  const itemUpdateStatements: Statement[] = [];
+  // Which items' WAC does the plan own? For a backdated item the replay's value is authoritative
+  // and the naive threaded one is stale, so exactly ONE of the two writes it ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â never both, or the
+  // batch would contain two conflicting `items` UPDATEs for the same row. The planner already
+  // decided this, per item, to pick the items it replayed; `replayedItemIds` is that decision,
+  // reported rather than re-derived, so the two can no longer drift apart. Empty on the fast path
+  // (`required === false`), which leaves the ordinary same-day capture writing every naive value.
+  const replayOwnedItemIds = new Set(plan.replayedItemIds);
+
+  // C-3, "last by business_date" (Doc 03 Ãƒâ€šÃ‚Â§4): a backdated purchase must not roll a replacement cost
+  // back to an older price. Only RAW_MATERIAL is asked (C-3 restricts the rule to it), and only
+  // when the purchase could actually be backdated ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â the same-day path never queries.
+  const replacementCostMcSupersededItemIds = new Set<string>();
   for (const [itemId, state] of itemStates) {
-    if (state.kind === "RAW_MATERIAL") {
-      itemUpdateStatements.push(
-        db
-          .update(items)
-          .set({
-            wac: state.wac,
-            replacementCost: state.lastUnitCost,
-            replacementCostUpdatedAt: now,
-            updatedAt: now,
-          })
-          .where(eq(items.id, itemId)),
-      );
-    } else {
-      itemUpdateStatements.push(
-        db.update(items).set({ wac: state.wac, updatedAt: now }).where(eq(items.id, itemId)),
-      );
+    if (state.kind !== "RAW_MATERIAL") continue;
+    if (await hasLaterDatedPurchaseForItem(db, itemId, command.businessDate)) {
+      replacementCostMcSupersededItemIds.add(itemId);
     }
   }
 
-  // financial_transactions.amount is always > 0 (no zero-value cash movements, Doc 04 §3.3) — a
+  // At most ONE `items` UPDATE per distinct item touched (D-3, and the invariant the "threads WAC
+  // across two lines" test pins), carrying whichever of the two columns this service still owns:
+  //   - `wac`: its FINAL threaded C-1 value, UNLESS the replay owns this item (above).
+  //   - `replacement_cost`: RAW_MATERIAL only, unless a later-dated purchase already supersedes it.
+  // An item where the replay owns the WAC and C-3 is superseded needs no statement at all.
+  const itemUpdateStatements: Statement[] = [];
+  for (const [itemId, state] of itemStates) {
+    const values: Partial<typeof items.$inferInsert> = {};
+    if (!replayOwnedItemIds.has(itemId)) {
+      values.wacMc = state.wacMc;
+    }
+    if (state.kind === "RAW_MATERIAL" && !replacementCostMcSupersededItemIds.has(itemId)) {
+      values.replacementCostMc = state.lastUnitCost;
+      values.replacementCostUpdatedAt = now;
+    }
+    if (Object.keys(values).length === 0) continue;
+    itemUpdateStatements.push(
+      db
+        .update(items)
+        .set({ ...values, updatedAt: now })
+        .where(eq(items.id, itemId)),
+    );
+  }
+
+  // financial_transactions.amount is always > 0 (no zero-value cash movements, Doc 04 Ãƒâ€šÃ‚Â§3.3) ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â a
   // purchase whose total across all lines is 0 (all free/promotional stock) moved no cash, so it
   // skips this row entirely rather than violating that CHECK constraint. PURCHASE_IN movements,
   // WAC, and replacement_cost above are unaffected either way.
@@ -247,9 +379,15 @@ export async function recordPurchase(
       before: null,
       after: purchaseRow,
     }),
+    // R-2: the replay lands in THIS batch, not a second one ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â a purchase and the cost correction it
+    // forces are one atomic fact (D-3). LAST on purpose, and specifically after `movementStatements`
+    // (replay.ts's module header states this requirement): the `item_stock` upsert there recomputes
+    // `negative_since` incrementally from its own delta, while the plan's is the authoritative
+    // recomputation over the whole projected kardex and must win. Empty on the fast path.
+    ...plan.statements,
   ];
 
-  // `statements` always starts with the fixed purchase insert above, so it is never empty — this
+  // `statements` always starts with the fixed purchase insert above, so it is never empty ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â this
   // cast satisfies Drizzle's non-empty-tuple `batch()` signature for what is otherwise a
   // dynamic-length array (varying line/movement/item-update counts), the same technique
   // test/inventory.test.ts's execBatch helper uses for the identical reason.
@@ -257,7 +395,807 @@ export async function recordPurchase(
 
   return {
     purchase: toPurchaseDto(purchaseRow, purchaseLineRows),
-    account: toAccountDto({ ...account, balance: subMoney(account.balance, total) }),
+    account: toAccountDto({
+      ...account,
+      balance: subMoney(toCentavos(account.balance), total),
+    }),
+  };
+}
+
+// ============================================================================================
+// UC-01 EDIT / DELETE (KOK-024 Phase E) ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Doc 03 Ãƒâ€šÃ‚Â§7 R-1 (edit regenerates derived rows in ONE
+// batch), R-3 (deletions are soft), R-5 (confirm a replay that moves already-booked cost),
+// INV-9 (no orphan derived rows), INV-10 (delete soft-deletes the event AND reverses its derived
+// rows in the same batch).
+//
+// The shape below is deliberately the create path's, with two REPLACEMENTS swapped in for the two
+// INSERT building blocks: `buildReplaceMovementsForSourceStatements` for the kardex and
+// `buildReplaceTransactionsForSourceStatements` for the cash side. Both are idempotent
+// regenerations keyed on `(source_event_type, source_event_id)` and both net exactly one delta per
+// touched item / account, which is what makes "the same purchase, but on the other account" come
+// out right on BOTH sides rather than double-counting one of them.
+//
+// A delete is the same code path with `newMovements = []` and `newTransactions = []` ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â that is the
+// whole difference, and it is why delete needs no reversal arithmetic of its own.
+// ============================================================================================
+
+/** A kardex row as the projected-WAC recompute below manipulates it: `ReplayMovement` (what the
+ * C-1 replay consumes) plus the sort key that puts the rows in kardex order first. */
+interface ProjectedKardexRow extends ReplayMovement {
+  occurredAt: string;
+  createdAt: string;
+}
+
+/** The kardex sort key, IDENTICAL to core/costing/replay.ts's `comparePoints` and repair.ts's
+ * `asc(occurredAt), asc(createdAt)`. All three must agree or the synchronous replay, this
+ * recompute, and the nightly audit would each settle on a different WAC. */
+function compareKardexRows(a: ProjectedKardexRow, b: ProjectedKardexRow): number {
+  if (a.occurredAt !== b.occurredAt) return a.occurredAt < b.occurredAt ? -1 : 1;
+  if (a.createdAt !== b.createdAt) return a.createdAt < b.createdAt ? -1 : 1;
+  return 0;
+}
+
+/**
+ * The post-state `items.wac_mc` for ONE item, computed by replaying its PROJECTED kardex ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â the rows
+ * that will exist once this purchase's movements are replaced by `newMovements`.
+ *
+ * WHY A FULL REPLAY AND NOT `recordPurchase`'s INCREMENTAL THREADING. C-1 is a weighted average
+ * folded forward one entry at a time; it is NOT INVERTIBLE. `recordPurchase` can thread from the
+ * currently-stored `items.wac_mc` because a create only ever ADDS an entry to the end. An edit or a
+ * delete REMOVES the entries this purchase previously contributed, and there is no arithmetic that
+ * backs a specific entry out of a weighted average ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â the stored WAC simply does not carry enough
+ * information. Undoing it requires the history, so this reads the history.
+ *
+ * Used only for the items the replay plan does NOT own (`plan.replayedItemIds`). When the plan owns
+ * an item its own replay is authoritative and this must not run ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â see the call site.
+ *
+ * O(kardex) per touched item, deliberately: an edit is rare (the owner correcting an invoice), and
+ * the alternative is the `wac_after` cache column ADR-016 Ãƒâ€šÃ‚Â§4 rejected ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â a third place for the WAC
+ * to be wrong.
+ */
+async function computeProjectedWac(
+  db: Db,
+  itemId: string,
+  purchaseId: string,
+  newMovements: readonly StockMovementInput[],
+  pendingCreatedAt: string,
+): Promise<MilliCentavosPerUnit> {
+  const existingRows = await db.query.stockMovements.findMany({
+    where: (t, { eq: eqOp }) => eqOp(t.itemId, itemId),
+  });
+
+  const projected: ProjectedKardexRow[] = existingRows
+    // This purchase's CURRENT movements are about to be deleted by
+    // `buildReplaceMovementsForSourceStatements`, so they are not part of the post-state.
+    .filter((row) => !(row.sourceEventType === "purchase" && row.sourceEventId === purchaseId))
+    .map((row) => ({
+      occurredAt: row.occurredAt,
+      createdAt: row.createdAt,
+      type: row.type,
+      qty: row.qty,
+      unitCostMc: toMilliCentavosPerUnit(row.unitCostMc),
+    }));
+
+  for (const movement of newMovements) {
+    if (movement.itemId !== itemId) continue;
+    projected.push({
+      occurredAt: movement.occurredAt,
+      // The replacement rows do not exist yet; `buildMovementInsert` will stamp them with its own
+      // `nowIso()`. Planning against the same pending value keeps this recompute's ordering
+      // identical to what actually lands ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â and matches how replay.ts sorts its pending rows.
+      createdAt: pendingCreatedAt,
+      type: movement.type,
+      qty: movement.qty,
+      unitCostMc: movement.unitCostMc,
+    });
+  }
+
+  projected.sort(compareKardexRows);
+  return replayWacFrom({ onHand: 0, wac: toMilliCentavosPerUnit(0) }, projected).wac;
+}
+
+/** A purchase line's C-3 candidate: its `_mc` unit cost and the point that decides which one is last. */
+interface ReplacementCostCandidate {
+  businessDate: string;
+  createdAt: string;
+  unitCost: MilliCentavosPerUnit;
+}
+
+/** C-3's "last" ordering (Doc 03 Ãƒâ€šÃ‚Â§4, as amended in Phase D): last by `business_date`, ties broken by
+ * capture order. Strict ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â equal points are NOT "later". */
+function isLaterCandidate(a: ReplacementCostCandidate, b: ReplacementCostCandidate): boolean {
+  if (a.businessDate !== b.businessDate) return a.businessDate > b.businessDate;
+  return a.createdAt > b.createdAt;
+}
+
+/**
+ * The latest purchase line for `itemId` among all OTHER purchases (C-3, Doc 03 Ãƒâ€šÃ‚Â§4). Soft-deleted
+ * purchases are excluded ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â the create path's `hasLaterDatedPurchaseForItem` already established
+ * that a reverted invoice must not keep pinning a price (INV-10 / D-8), and an edit or delete has
+ * to honour the same rule from the other direction.
+ *
+ * `purchase_lines.id` is the final tiebreak because line ids are uuid-v7, generated in command
+ * order: within one purchase that lists the same item twice, "last" means the last line, which is
+ * exactly what `recordPurchase`'s `lastUnitCost` threading records.
+ */
+async function findLatestOtherPurchaseLineForItem(
+  db: Db,
+  itemId: string,
+  excludePurchaseId: string,
+): Promise<ReplacementCostCandidate | null> {
+  const rows = await db
+    .select({
+      qty: purchaseLines.qty,
+      lineTotal: purchaseLines.lineTotal,
+      lineId: purchaseLines.id,
+      businessDate: purchases.businessDate,
+      createdAt: purchases.createdAt,
+    })
+    .from(purchaseLines)
+    .innerJoin(purchases, eq(purchaseLines.purchaseId, purchases.id))
+    .where(
+      and(
+        eq(purchaseLines.itemId, itemId),
+        isNull(purchases.deletedAt),
+        ne(purchases.id, excludePurchaseId),
+      ),
+    )
+    .orderBy(purchases.businessDate, purchases.createdAt, purchaseLines.id);
+
+  const last = rows.at(-1);
+  if (last === undefined) return null;
+  return {
+    businessDate: last.businessDate,
+    createdAt: last.createdAt,
+    unitCost: rateFromTotal(toCentavos(last.lineTotal), toMilliUnits(last.qty)),
+  };
+}
+
+/**
+ * C-3 for the post-state: `replacement_cost_mc = last purchase unit cost`, evaluated over the
+ * purchases that will exist AFTER this edit/delete commits.
+ *
+ * Two candidates compete: the latest line from any other live purchase, and ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â unless this purchase
+ * is being deleted or no longer lists the item ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â this purchase's own edited line. The later
+ * `(business_date, created_at)` wins, so an edit that moves a purchase's date BACKWARD correctly
+ * yields the floor to a newer invoice instead of clobbering it, and a delete correctly falls back to
+ * whatever the previous purchase paid.
+ *
+ * Returns 0 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â `items.replacement_cost_mc`'s schema default ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â when nothing is left: deleting an item's
+ * only purchase leaves no "last purchase unit cost" to name, and a stale price from a reverted
+ * invoice is exactly what INV-10 says must not survive.
+ */
+async function computeReplacementCost(
+  db: Db,
+  itemId: string,
+  purchaseId: string,
+  own: ReplacementCostCandidate | null,
+): Promise<MilliCentavosPerUnit> {
+  const other = await findLatestOtherPurchaseLineForItem(db, itemId, purchaseId);
+  if (own === null) return other?.unitCost ?? toMilliCentavosPerUnit(0);
+  if (other === null) return own.unitCost;
+  // `own` keeps the tie: the create path resolves same-date purchases by capture order and this
+  // purchase's `created_at` is compared on exactly that footing.
+  return isLaterCandidate(other, own) ? other.unitCost : own.unitCost;
+}
+
+/** Canonical identity of one kardex row for the "did the kardex actually change?" comparison below.
+ * Covers every column the C-1 replay reads plus both dates, so two movement sets that agree on this
+ * key project the same stock, the same WAC and the same `replacement_cost`. Deliberately EXCLUDES
+ * `id` and `created_at`, which the regeneration reassigns and which carry no business meaning. */
+function movementKey(m: {
+  itemId: string;
+  occurredAt: string;
+  businessDate: string;
+  type: string;
+  qty: number;
+  unitCostMc: number;
+}): string {
+  return [m.itemId, m.occurredAt, m.businessDate, m.type, m.qty, m.unitCostMc].join("|");
+}
+
+/** True when `newMovements` describes exactly the kardex rows that already exist for this event ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â
+ * i.e. the edit changed only descriptive fields (notes, supplier, receipt photo). Compared as
+ * multisets: a purchase may legitimately list the same item twice at the same price. */
+function movementSetsEqual(
+  existingRows: readonly {
+    itemId: string;
+    occurredAt: string;
+    businessDate: string;
+    type: string;
+    qty: number;
+    unitCostMc: number;
+  }[],
+  newMovements: readonly StockMovementInput[],
+): boolean {
+  if (existingRows.length !== newMovements.length) return false;
+  const a = existingRows.map(movementKey).sort();
+  const b = newMovements.map(movementKey).sort();
+  return a.every((key, i) => key === b[i]);
+}
+
+/** The plan a descriptive-only edit gets: no replay was run, so nothing is owned, nothing is
+ * corrected, and nothing needs confirming. Shaped like `planCostingReplay`'s own fast-path return
+ * so the code below cannot tell the difference. */
+const NO_KARDEX_CHANGE_PLAN: CostingReplayPlan = {
+  required: false,
+  impact: {
+    affectedSaleLineIds: [],
+    affectedStockExitIds: [],
+    affectedProductionRunIds: [],
+    affectedItemIds: [],
+    costDelta: 0,
+    requiresConfirmation: false,
+  },
+  replayedItemIds: [],
+  confirmationRequired: false,
+  statements: [],
+};
+
+/** Everything the shared edit/delete/restore commit path needs. `newMovements` / `newTransactions`
+ * empty means "this event no longer has a stock or cash effect" ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â which is precisely a delete; a
+ * restore is the mirror image (see `restorePurchase`): `newMovements`/`newTransactions` re-derived
+ * from the purchase's own unchanged lines, `newRow.deletedAt` going from set to `null`. */
+interface PurchaseMutationPlan {
+  action: "update" | "delete" | "restore";
+  existing: PurchaseRow;
+  existingLines: readonly PurchaseLineRow[];
+  newRow: PurchaseRow;
+  newLines: readonly PurchaseLineRow[];
+  newMovements: StockMovementInput[];
+  newTransactions: FinancialTransactionInput[];
+  confirm: boolean;
+  actor: AuditActor;
+}
+
+/**
+ * Plans the costing replay ONE pending update/delete/restore implies (R-2/R-5): whether the kardex
+ * changed at ALL ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â load-bearing for R-5, not an optimisation. `planCostingReplay` decides by kardex
+ * POSITION ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â "is there history after the point this event sits at?" ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â which is the right question
+ * for a change that moves stock, and the wrong one for a change that does not. Without this guard,
+ * fixing a typo in the supplier name of a three-month-old invoice would compute a replay over every
+ * exit since, find those exits' frozen snapshots, and demand the owner confirm a cost correction of
+ * exactly zero. She would learn to click through confirmations that mean nothing, which is how
+ * R-5's actual warnings stop being read.
+ *
+ * It also makes the `kardexUnchanged` skip SAFE rather than merely cheap.
+ * `buildReplaceMovementsForSourceStatements` regenerates rows with a fresh `created_at`, which is
+ * the kardex tiebreak between movements sharing an instant ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â so replacing an identical movement set
+ * is not quite a no-op, it can reorder this purchase against a same-instant movement of another
+ * event. Emitting nothing is the only way "nothing changed" is actually true.
+ *
+ * Planned against the POST-state movement set, exactly as `recordPurchase` does. The planner itself
+ * notes the touched point is the EARLIEST kardex position disturbed across the union of the
+ * movements being removed and those being added ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â so an edit that MOVES a purchase's date is
+ * measured from whichever end is earlier, and a delete/restore is measured from where the
+ * purchase's movements are or were.
+ *
+ * SHARED, verbatim, between `commitPurchaseMutation` (which uses the full plan, including its
+ * `.statements`, inside its own batch) and `previewPurchaseImpact`'s "update"/"delete" dry run
+ * (which reads only `.costingPlan.impact` and never batches anything) ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â the one function both call
+ * so the preview can never compute a different number than the mutation it previews (this module's
+ * header).
+ */
+async function planPurchaseMutationCostingImpact(
+  db: Db,
+  purchaseId: string,
+  newRow: Pick<PurchaseRow, "businessDate" | "occurredAt">,
+  newMovements: readonly StockMovementInput[],
+  actor: AuditActor,
+): Promise<{ kardexUnchanged: boolean; costingPlan: CostingReplayPlan }> {
+  const existingMovementRows = await db.query.stockMovements.findMany({
+    where: (t, { and: andOp, eq: eqOp }) =>
+      andOp(eqOp(t.sourceEventType, "purchase"), eqOp(t.sourceEventId, purchaseId)),
+  });
+
+  const kardexUnchanged = movementSetsEqual(existingMovementRows, newMovements);
+
+  // Planned BEFORE any statement is assembled so the R-5 refusal at the call site writes nothing.
+  const costingPlan = kardexUnchanged
+    ? NO_KARDEX_CHANGE_PLAN
+    : await planCostingReplay(db, {
+        trigger: {
+          eventType: "purchase",
+          eventId: purchaseId,
+          businessDate: newRow.businessDate,
+          occurredAt: newRow.occurredAt,
+        },
+        changes: [
+          {
+            sourceEventType: "purchase",
+            sourceEventId: purchaseId,
+            newMovements: [...newMovements],
+          },
+        ],
+        actor,
+      });
+
+  return { kardexUnchanged, costingPlan };
+}
+
+/**
+ * The single commit path shared by `updatePurchase`, `deletePurchase`, and `restorePurchase`: plans
+ * the replay, honours R-5, and executes ONE atomic `db.batch()` (D-3) containing the event write,
+ * its regenerated derived rows, the costing correction, and the audit row.
+ */
+async function commitPurchaseMutation(db: Db, plan: PurchaseMutationPlan): Promise<void> {
+  const { existing, newRow, newMovements, newTransactions } = plan;
+  const purchaseId = existing.id;
+  const now = newRow.updatedAt;
+
+  const { kardexUnchanged, costingPlan } = await planPurchaseMutationCostingImpact(
+    db,
+    purchaseId,
+    newRow,
+    newMovements,
+    plan.actor,
+  );
+
+  // R-5, identical to the create path's: refuse BEFORE `db.batch` and hand back the impact preview.
+  if (costingPlan.confirmationRequired && plan.confirm !== true) {
+    throw conflict(
+      plan.action === "delete"
+        ? "Eliminar esta compra cambia costos ya calculados de ventas o salidas registradas. Revisa el impacto y confirma para eliminarla."
+        : plan.action === "restore"
+          ? "Restaurar esta compra cambia costos ya calculados de ventas o salidas registradas. Revisa el impacto y confirma para restaurarla."
+          : "Esta ediciÃƒÆ’Ã‚Â³n cambia costos ya calculados de ventas o salidas registradas. Revisa el impacto y confirma para guardarla.",
+      { reason: REPLAY_CONFIRMATION_REQUIRED, impact: costingPlan.impact },
+    );
+  }
+
+  const movementStatements = kardexUnchanged
+    ? []
+    : (await buildReplaceMovementsForSourceStatements(db, "purchase", purchaseId, newMovements))
+        .statements;
+  // The cash side is replaced unconditionally: `financial_transactions` rows carry no ordering
+  // semantics (nothing sorts by their `created_at`), so regenerating an identical row is a genuine
+  // no-op that the primitive's own idempotency guarantee already covers.
+  const { statements: transactionStatements } = await buildReplaceTransactionsForSourceStatements(
+    db,
+    "purchase",
+    purchaseId,
+    newTransactions,
+  );
+
+  // Same rule as the create path: exactly ONE of the plan and this service writes each item's WAC,
+  // never both, or the batch would carry two conflicting `items` UPDATEs for one row.
+  const replayOwnedItemIds = new Set(costingPlan.replayedItemIds);
+  const pendingCreatedAt = nowIso();
+
+  // Every item the edit touches on EITHER side: an item dropped from the purchase needs its WAC and
+  // replacement cost recomputed just as much as one that was added (INV-9 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â no derived state may be
+  // left describing lines that no longer exist).
+  //
+  // Empty when the kardex is unchanged: movement equality covers `occurred_at`, `business_date`,
+  // qty and unit cost, so every input to BOTH C-1 and C-3 is provably identical and there is
+  // nothing for an `items` UPDATE to say.
+  const touchedItemIds = kardexUnchanged
+    ? new Set<string>()
+    : new Set<string>([
+        ...plan.existingLines.map((l) => l.itemId),
+        ...plan.newLines.map((l) => l.itemId),
+      ]);
+
+  const itemUpdateStatements: Statement[] = [];
+  for (const itemId of touchedItemIds) {
+    const itemRow = await db.query.items.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.id, itemId),
+    });
+    if (!itemRow) {
+      throw notFound("No se encontrÃƒÆ’Ã‚Â³ el ÃƒÆ’Ã‚Â­tem.", { id: itemId });
+    }
+
+    const values: Partial<typeof items.$inferInsert> = {};
+    if (!replayOwnedItemIds.has(itemId)) {
+      values.wacMc = await computeProjectedWac(
+        db,
+        itemId,
+        purchaseId,
+        newMovements,
+        pendingCreatedAt,
+      );
+    }
+    if (itemRow.kind === "RAW_MATERIAL") {
+      // C-3 restricts replacement_cost to RAW_MATERIAL, same as the create path.
+      //
+      // A SOFT-DELETED purchase supplies no candidate at all, even though its lines survive the
+      // delete (R-3 keeps them for the 90-day reversal). "Last purchase unit cost" means the last
+      // LIVE purchase ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â the same reading `findLatestOtherPurchaseLineForItem`'s `deleted_at` filter
+      // and the create path's `hasLaterDatedPurchaseForItem` both take (INV-10). Without this gate a
+      // delete would leave the item pinned to the price of the invoice just reverted.
+      const ownLast =
+        newRow.deletedAt === null
+          ? plan.newLines.filter((l) => l.itemId === itemId).at(-1)
+          : undefined;
+      const own: ReplacementCostCandidate | null =
+        ownLast === undefined
+          ? null
+          : {
+              businessDate: newRow.businessDate,
+              createdAt: newRow.createdAt,
+              unitCost: rateFromTotal(toCentavos(ownLast.lineTotal), toMilliUnits(ownLast.qty)),
+            };
+      const replacementCostMc = await computeReplacementCost(db, itemId, purchaseId, own);
+      if (replacementCostMc !== itemRow.replacementCostMc) {
+        values.replacementCostMc = replacementCostMc;
+        values.replacementCostUpdatedAt = now;
+      }
+    }
+
+    if (Object.keys(values).length === 0) continue;
+    itemUpdateStatements.push(
+      db
+        .update(items)
+        .set({ ...values, updatedAt: now })
+        .where(eq(items.id, itemId)),
+    );
+  }
+
+  const statements: Statement[] = [
+    // The EVENT itself. On delete this carries `deleted_at` (R-3/D-8: the event is soft-deleted;
+    // only its DERIVED rows above are hard-replaced, which is the carve-out D-8 names explicitly).
+    db
+      .update(purchases)
+      .set({
+        occurredAt: newRow.occurredAt,
+        businessDate: newRow.businessDate,
+        supplierName: newRow.supplierName,
+        sessionId: newRow.sessionId,
+        accountId: newRow.accountId,
+        total: newRow.total,
+        receiptPhotoKey: newRow.receiptPhotoKey,
+        notes: newRow.notes,
+        deletedAt: newRow.deletedAt,
+        updatedAt: newRow.updatedAt,
+      })
+      .where(eq(purchases.id, purchaseId)),
+    // `purchase_lines` are components of the event aggregate, not independently-addressable business
+    // events ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â they carry no `deleted_at` column (Doc 04 Ãƒâ€šÃ‚Â§3.3) and only ever exist as the current
+    // content of their purchase. Replacing them wholesale is therefore the same regeneration D-8
+    // permits, and the full previous content is preserved in the audit row's `before`.
+    //
+    // A DELETE touches them not at all: the purchase is soft-deleted, so its lines must survive
+    // intact for R-3's 90-day reversal. Only the DERIVED rows (kardex, cash) are removed.
+    ...(plan.action === "update"
+      ? [
+          db.delete(purchaseLines).where(eq(purchaseLines.purchaseId, purchaseId)),
+          ...plan.newLines.map((row) => db.insert(purchaseLines).values(row)),
+        ]
+      : []),
+    ...movementStatements,
+    ...itemUpdateStatements,
+    ...transactionStatements,
+    buildAuditLogInsert(db, {
+      actor: plan.actor,
+      action: plan.action,
+      entityType: "purchases",
+      entityId: purchaseId,
+      // R-1 / INV-10: the complete event, lines included, on both sides ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â this is the record that
+      // makes a delete reversible for 90 days (R-3), so a partial snapshot would not be enough.
+      before: { ...existing, lines: plan.existingLines },
+      after: { ...newRow, lines: plan.newLines },
+    }),
+    // LAST, and specifically after `movementStatements` ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â replay.ts's module header states this
+    // requirement: the `item_stock` upsert there recomputes `negative_since` incrementally from its
+    // own delta, while the plan's is the authoritative recomputation over the whole projected kardex
+    // and must land last to win. Empty on the fast path.
+    ...costingPlan.statements,
+  ];
+
+  await db.batch(statements as [Statement, ...Statement[]]);
+}
+
+/** Loads a purchase and its lines for mutation, refusing one that is missing or already
+ * soft-deleted (INV-10: a reverted event is not editable ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â re-recording is the correction path). */
+async function loadPurchaseForMutation(
+  db: Db,
+  id: string,
+): Promise<{ row: PurchaseRow; lines: PurchaseLineRow[] }> {
+  const row = await db.query.purchases.findFirst({
+    where: (t, { and: andOp, eq: eqOp, isNull: isNullOp }) =>
+      andOp(eqOp(t.id, id), isNullOp(t.deletedAt)),
+  });
+  if (!row) {
+    throw notFound("No se encontrÃƒÆ’Ã‚Â³ la compra.", { id });
+  }
+  const lines = await db.query.purchaseLines.findMany({
+    where: (t, { eq: eqOp }) => eqOp(t.purchaseId, id),
+  });
+  return { row, lines };
+}
+
+/** The system-owned EXPENSE/SUPPLY_PURCHASE cash row a purchase projects, or none when it moved no
+ * cash. `amount > 0` is a CHECK constraint (Doc 04 Ãƒâ€šÃ‚Â§3.4), so a fully-free purchase (total 0) has no
+ * transaction at all ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â the same rule `recordPurchase` applies. */
+function buildPurchaseTransactionInputs(row: PurchaseRow): FinancialTransactionInput[] {
+  if (row.total <= 0) return [];
+  return [
+    {
+      occurredAt: row.occurredAt,
+      businessDate: row.businessDate,
+      accountId: row.accountId,
+      type: "EXPENSE",
+      category: "SUPPLY_PURCHASE",
+      amount: row.total,
+      description: null,
+      sourceEventType: "purchase",
+      sourceEventId: row.id,
+    },
+  ];
+}
+
+/** Re-reads an account AFTER the mutation batch. Deliberately not arithmetic on the pre-state like
+ * `recordPurchase` does: an edit can move a purchase between accounts, so the balance is the net of
+ * a reversal and a new effect that `buildReplaceTransactionsForSourceStatements` owns. Reading the
+ * committed row is the one answer that cannot disagree with what was actually written. */
+async function readAccountDtoOrThrow(db: Db, accountId: string) {
+  const row = await db.query.financialAccounts.findFirst({
+    where: (t, { eq: eqOp }) => eqOp(t.id, accountId),
+  });
+  if (!row) {
+    throw notFound("No se encontrÃƒÆ’Ã‚Â³ la cuenta.", { accountId });
+  }
+  return toAccountDto(row);
+}
+
+/** Turns a purchase's post-state `lines` into their PURCHASE_IN kardex movements: unit cost
+ * re-derived per line (D-5 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â never carried over from a previous generation, which may have had
+ * different quantities entirely), dated at the purchase's own `occurredAt`/`businessDate`. This is
+ * the exact construction `updatePurchase`'s `newMovements` has always used, factored out (KOK-024
+ * Phase F) so `restorePurchase` can reproduce a purchase's kardex from its UNCHANGED lines without
+ * a second, potentially-drifting copy of the unit-cost/sign logic. */
+function buildPurchaseInMovementsFromLines(
+  purchaseId: string,
+  lines: readonly PurchaseLineRow[],
+  occurredAt: string,
+  businessDate: string,
+): StockMovementInput[] {
+  return lines.map((line) => ({
+    itemId: line.itemId,
+    occurredAt,
+    businessDate,
+    type: "PURCHASE_IN",
+    qty: line.qty,
+    unitCostMc: computePurchaseLineUnitCost(line.lineTotal, line.qty),
+    sourceEventType: "purchase",
+    sourceEventId: purchaseId,
+  }));
+}
+
+/** Everything `updatePurchase` needs to keep assembling its batch, AND everything
+ * `previewPurchaseImpact`'s "update" dry run needs to call `planPurchaseMutationCostingImpact`
+ * with. Extracted (KOK-024 Phase F) for the same reason `buildPurchaseCreateMovements` was: the
+ * preview and the mutation it previews must build these inputs identically, never separately. Pure
+ * construction; never calls `db.batch()`. */
+async function buildPurchaseUpdateMutationInputs(
+  db: Db,
+  id: string,
+  command: UpdatePurchaseCommand,
+): Promise<{
+  existing: PurchaseRow;
+  existingLines: PurchaseLineRow[];
+  newRow: PurchaseRow;
+  newLines: PurchaseLineRow[];
+  newMovements: StockMovementInput[];
+  newTransactions: FinancialTransactionInput[];
+}> {
+  // Defensive re-check (core/ services never trust a caller already ran Zod, D-2).
+  if (command.lines.length === 0) {
+    throw validationError("Se requiere al menos una lÃƒÆ’Ã‚Â­nea de compra.", {});
+  }
+
+  const { row: existing, lines: existingLines } = await loadPurchaseForMutation(db, id);
+  // The DESTINATION account must be active, exactly as on create. The OLD account is deliberately
+  // NOT checked: money already left it, and refusing to correct an invoice because the account it
+  // was booked against has since been archived would strand the error permanently.
+  await findActiveAccountRowOrThrow(db, command.accountId);
+
+  const now = nowIso();
+  const total = addMoney(...command.lines.map((l) => toCentavos(l.lineTotal)));
+
+  const newRow: PurchaseRow = {
+    ...existing,
+    occurredAt: command.occurredAt,
+    businessDate: command.businessDate,
+    supplierName: command.supplierName ?? null,
+    sessionId: command.sessionId ?? null,
+    accountId: command.accountId,
+    total,
+    receiptPhotoKey: command.receiptPhotoKey ?? null,
+    notes: command.notes ?? null,
+    deletedAt: null,
+    updatedAt: now,
+  };
+
+  const newLines: PurchaseLineRow[] = command.lines.map((line) => ({
+    id: generateUuidV7(),
+    purchaseId: id,
+    itemId: line.itemId,
+    qty: line.qty,
+    lineTotal: line.lineTotal,
+  }));
+
+  const newMovements = buildPurchaseInMovementsFromLines(
+    id,
+    newLines,
+    newRow.occurredAt,
+    newRow.businessDate,
+  );
+
+  return {
+    existing,
+    existingLines,
+    newRow,
+    newLines,
+    newMovements,
+    newTransactions: buildPurchaseTransactionInputs(newRow),
+  };
+}
+
+/** Everything `deletePurchase` needs to keep assembling its batch, AND everything
+ * `previewPurchaseImpact`'s "delete" dry run needs ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â same extraction reasoning as
+ * `buildPurchaseUpdateMutationInputs`. */
+async function buildPurchaseDeleteMutationInputs(
+  db: Db,
+  id: string,
+): Promise<{ existing: PurchaseRow; existingLines: PurchaseLineRow[]; newRow: PurchaseRow }> {
+  const { row: existing, lines: existingLines } = await loadPurchaseForMutation(db, id);
+  const now = nowIso();
+  const newRow: PurchaseRow = { ...existing, deletedAt: now, updatedAt: now };
+  return { existing, existingLines, newRow };
+}
+
+/**
+ * UC-01 edit (R-1): replaces a purchase's content and regenerates every row derived from it ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â the
+ * kardex, `item_stock`, the WAC, `replacement_cost`, the cash transaction and the account balances ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â
+ * in ONE atomic batch (D-3). See this section's header for the shape.
+ *
+ * The command is a FULL REPLACEMENT, not a patch: `command.lines` becomes the purchase's complete
+ * line set, and `total` is re-derived server-side as ÃƒÅ½Ã‚Â£ lineTotal (Doc 04 Ãƒâ€šÃ‚Â§5), never accepted from
+ * the caller ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â identical to the create path.
+ */
+export async function updatePurchase(
+  db: Db,
+  id: string,
+  command: UpdatePurchaseCommand,
+  actor: AuditActor,
+): Promise<UpdatePurchaseResult> {
+  const { existing, existingLines, newRow, newLines, newMovements, newTransactions } =
+    await buildPurchaseUpdateMutationInputs(db, id, command);
+
+  await commitPurchaseMutation(db, {
+    action: "update",
+    existing,
+    existingLines,
+    newRow,
+    newLines,
+    newMovements,
+    newTransactions,
+    confirm: command.confirm === true,
+    actor,
+  });
+
+  return {
+    purchase: toPurchaseDto(newRow, newLines),
+    account: await readAccountDtoOrThrow(db, newRow.accountId),
+  };
+}
+
+/**
+ * UC-01 delete (R-3 / INV-10): soft-deletes the purchase and reverses everything derived from it in
+ * ONE atomic batch (D-3) ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â the kardex rows and cash transaction are removed outright (the D-8
+ * carve-out for derived-row regeneration), `item_stock` and the account balance are netted back, and
+ * the WAC is recomputed as though the purchase had never happened.
+ *
+ * INV-8: deleting a purchase whose stock was ALREADY CONSUMED is permitted and will drive the item's
+ * `qty_on_hand` negative. That is not an error here and must never become one ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â INV-8 states stock
+ * MAY go negative and that a negative balance raises a persistent reconciliation flag, never a
+ * blocking error. The capture-first premise depends on it: the owner correcting a wrongly-recorded
+ * invoice cannot be told to first un-sell what she already sold. `item_stock.negative_since` is set
+ * by the same statements that net the balance, so the reconciliation flag fires on its own.
+ */
+export async function deletePurchase(
+  db: Db,
+  id: string,
+  command: DeletePurchaseCommand,
+  actor: AuditActor,
+): Promise<DeletePurchaseResult> {
+  const { existing, existingLines, newRow } = await buildPurchaseDeleteMutationInputs(db, id);
+
+  await commitPurchaseMutation(db, {
+    action: "delete",
+    existing,
+    existingLines,
+    newRow,
+    // A deleted purchase projects NOTHING: no lines, no kardex rows, no cash row. Every reversal
+    // below falls out of the replacement primitives netting an empty new set against the old one.
+    newLines: existingLines,
+    newMovements: [],
+    newTransactions: [],
+    confirm: command.confirm === true,
+    actor,
+  });
+
+  return {
+    purchase: toPurchaseDto(newRow, existingLines),
+    account: await readAccountDtoOrThrow(db, existing.accountId),
+  };
+}
+
+/** Loads a purchase and its lines for a restore, refusing one that is MISSING or already LIVE
+ * (i.e. not currently soft-deleted) ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â the mirror image of `loadPurchaseForMutation`'s "already
+ * -deleted is not editable" guard: here, "not deleted" is the state that isn't restorable. */
+async function loadPurchaseForRestore(
+  db: Db,
+  id: string,
+): Promise<{ row: PurchaseRow; lines: PurchaseLineRow[] }> {
+  const row = await db.query.purchases.findFirst({
+    where: (t, { and: andOp, eq: eqOp, isNotNull }) =>
+      andOp(eqOp(t.id, id), isNotNull(t.deletedAt)),
+  });
+  if (!row) {
+    throw notFound("No se encontrÃƒÆ’Ã‚Â³ la compra eliminada.", { id });
+  }
+  const lines = await db.query.purchaseLines.findMany({
+    where: (t, { eq: eqOp }) => eqOp(t.purchaseId, id),
+  });
+  return { row, lines };
+}
+
+/**
+ * Server side of the "Deshacer" 10s-undo toast (Doc 06 principle 6): un-deletes a soft-deleted
+ * purchase and reconstructs everything `deletePurchase` reversed, in ONE atomic batch (D-3), routed
+ * through the SAME `commitPurchaseMutation` path `updatePurchase`/`deletePurchase` already share
+ * (audited as `"restore"`, a free-form `audit_log.action` string ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â no CHECK constraint, no
+ * migration needed).
+ *
+ * `purchase_lines` survive a delete unchanged (R-3: only the kardex and cash were reversed, the
+ * lines themselves were never touched), so this is functionally "an update with unchanged content,
+ * just un-deleting it": `newLines` is the purchase's own stored lines, `newMovements`/
+ * `newTransactions` are re-derived from those SAME lines via `buildPurchaseInMovementsFromLines`/
+ * `buildPurchaseTransactionInputs` ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â the identical constructions `updatePurchase` uses, never a
+ * re-implementation ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â and `newRow` is `existing` with `deletedAt` cleared. `total` is left exactly
+ * as stored: it already equals ÃƒÅ½Ã‚Â£ lineTotal over these unchanged lines (Doc 04 Ãƒâ€šÃ‚Â§5), and `confirm` is
+ * the only content this command accepts from the caller at all.
+ *
+ * Re-inserting HISTORICAL movements at their original dates can itself require R-5 confirmation: if
+ * other purchases/exits/production happened while this purchase was deleted, reintroducing its
+ * kardex re-weights C-1 for everything after it exactly as a backdated edit would.
+ * `commitPurchaseMutation`'s existing `planPurchaseMutationCostingImpact` gate handles that with no
+ * special-casing here ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â a restore is simply another shape of pending kardex change to it.
+ */
+export async function restorePurchase(
+  db: Db,
+  id: string,
+  command: DeletePurchaseCommand,
+  actor: AuditActor,
+): Promise<UpdatePurchaseResult> {
+  const { row: existing, lines: existingLines } = await loadPurchaseForRestore(db, id);
+
+  const now = nowIso();
+  const newRow: PurchaseRow = { ...existing, deletedAt: null, updatedAt: now };
+  const newMovements = buildPurchaseInMovementsFromLines(
+    id,
+    existingLines,
+    newRow.occurredAt,
+    newRow.businessDate,
+  );
+
+  await commitPurchaseMutation(db, {
+    action: "restore",
+    existing,
+    existingLines,
+    newRow,
+    newLines: existingLines,
+    newMovements,
+    newTransactions: buildPurchaseTransactionInputs(newRow),
+    confirm: command.confirm === true,
+    actor,
+  });
+
+  return {
+    purchase: toPurchaseDto(newRow, existingLines),
+    account: await readAccountDtoOrThrow(db, newRow.accountId),
   };
 }
 
@@ -266,7 +1204,7 @@ export async function getPurchase(db: Db, id: string): Promise<PurchaseDto> {
     where: (t, { and, eq: eqOp, isNull }) => and(eqOp(t.id, id), isNull(t.deletedAt)),
   });
   if (!row) {
-    throw notFound("No se encontró la compra.", { id });
+    throw notFound("No se encontrÃƒÆ’Ã‚Â³ la compra.", { id });
   }
   const lineRows = await db.query.purchaseLines.findMany({
     where: (t, { eq: eqOp }) => eqOp(t.purchaseId, id),
@@ -274,7 +1212,7 @@ export async function getPurchase(db: Db, id: string): Promise<PurchaseDto> {
   return toPurchaseDto(row, lineRows);
 }
 
-/** Read query for the (later) Purchases screen's list — mirrors core/finance/transactions.ts's
+/** Read query for the (later) Purchases screen's list ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â mirrors core/finance/transactions.ts's
  * listTransactions. Soft-delete-aware even though nothing deletes purchases yet (KOK-024's job). */
 export async function listPurchases(
   db: Db,
@@ -309,4 +1247,74 @@ export async function listPurchases(
   return {
     purchases: rows.map((row) => toPurchaseDto(row, linesByPurchase.get(row.id) ?? [])),
   };
+}
+
+/**
+ * A placeholder `AuditActor` for `planCostingReplay` calls this dry run makes. `actor` only labels
+ * the (discarded) `costing_replay` audit-row statement `planCostingReplay` would otherwise build ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â
+ * it plays no part in computing `.impact` ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â and this function never reaches `db.batch()`, so no
+ * audit row, nor anything else naming this actor, is ever written. `"SYSTEM"` is the honest label
+ * for "no human actor initiated this specific read."
+ */
+const PREVIEW_ACTOR: AuditActor = "SYSTEM";
+
+/**
+ * R-5 / ADR-016's dry-run endpoint (Doc 03 Ãƒâ€šÃ‚Â§7): "what would this create/edit/delete do to costing?",
+ * answered WITHOUT writing anything ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â no `db.batch()` call anywhere in this function's call graph.
+ *
+ * THE hard requirement this module's header states ("the preview and the mutation it previews must
+ * run the exact same planner, or the preview is a lie with a UI around it") is met by construction,
+ * not by convention: every branch below calls the SAME builder the corresponding real mutation
+ * calls (`buildPurchaseCreateMovements` / `buildPurchaseUpdateMutationInputs` /
+ * `buildPurchaseDeleteMutationInputs`) and the SAME planning step
+ * (`planCostingReplay` / `planPurchaseMutationCostingImpact`) ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â never a re-implementation that
+ * could silently drift from the real path over time.
+ */
+export async function previewPurchaseImpact(
+  db: Db,
+  request: PurchaseImpactRequest,
+): Promise<ReplayImpactDto> {
+  if (request.op === "create") {
+    const { purchaseId, movements } = await buildPurchaseCreateMovements(db, request.command);
+    const plan = await planCostingReplay(db, {
+      trigger: {
+        eventType: "purchase",
+        eventId: purchaseId,
+        businessDate: request.command.businessDate,
+        occurredAt: request.command.occurredAt,
+      },
+      changes: [
+        { sourceEventType: "purchase", sourceEventId: purchaseId, newMovements: movements },
+      ],
+      actor: PREVIEW_ACTOR,
+    });
+    return plan.impact;
+  }
+
+  if (request.op === "update") {
+    const { newRow, newMovements } = await buildPurchaseUpdateMutationInputs(
+      db,
+      request.id,
+      request.command,
+    );
+    const { costingPlan } = await planPurchaseMutationCostingImpact(
+      db,
+      request.id,
+      newRow,
+      newMovements,
+      PREVIEW_ACTOR,
+    );
+    return costingPlan.impact;
+  }
+
+  // request.op === "delete"
+  const { newRow } = await buildPurchaseDeleteMutationInputs(db, request.id);
+  const { costingPlan } = await planPurchaseMutationCostingImpact(
+    db,
+    request.id,
+    newRow,
+    [],
+    PREVIEW_ACTOR,
+  );
+  return costingPlan.impact;
 }

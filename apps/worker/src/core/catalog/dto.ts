@@ -2,6 +2,7 @@
 // separate so none of those three files needs to duplicate the shape of ItemDto.
 
 import type { ItemAliasDto, ItemDto } from "@kokoro/shared";
+import { toMilliCentavosPerUnit } from "@kokoro/shared";
 
 import type { Db } from "../../db/index.js";
 import type { itemAliases, items } from "../../db/schema.js";
@@ -20,10 +21,10 @@ export function toItemDto(row: ItemRow, aliases: ItemAliasRow[]): ItemDto {
     kind: row.kind,
     category: row.category,
     unit: row.unit,
-    wac: row.wac,
-    replacementCost: row.replacementCost,
+    wacMc: row.wacMc,
+    replacementCostMc: row.replacementCostMc,
     replacementCostUpdatedAt: row.replacementCostUpdatedAt,
-    salePrice: row.salePrice,
+    salePriceMc: row.salePriceMc === null ? null : toMilliCentavosPerUnit(row.salePriceMc),
     minStockQty: row.minStockQty,
     isActive: row.isActive === 1,
     notes: row.notes,

@@ -12,17 +12,45 @@ authoritative schema; Drizzle definitions in `apps/worker/src/db/schema.ts` MUST
 - Soft delete: business-event tables carry `deleted_at TEXT NULL`; queries filter it by default.
 - All FKs declared with `ON DELETE RESTRICT` unless noted (D1 enforces FKs; keep `PRAGMA foreign_keys=ON` semantics via wrangler default).
 
-## 2. Numeric representation (INV-6)
+## 2. Numeric representation (INV-6, ADR-017)
 
-| Concept | Storage | Example |
-|---------|---------|---------|
-| Money (BOB) | `INTEGER` centavos | Bs 12.50 → `1250` |
-| Quantity | `INTEGER` milli-units of the item's unit | 1.5 kg (unit=KG) → `1500` |
-| Percent / rates | `INTEGER` basis points | 30% → `3000` |
-| Unit costs (derived, needs precision) | `INTEGER` micro-centavos per milli-unit is overkill → store as `REAL` **only** in cached/derived columns (`wac`, `replacement_cost`), documented per column; all persisted transaction amounts remain INTEGER |
+Four scales, one per concept. **No concept has two scales** — that rule is the whole point, and
+it exists because the previous model had two different denominators for "a per-unit price" and
+shipped two 1000× bugs (KOK-069; see ADR-017 for the full history).
 
-Rule: arithmetic happens on integers/exact decimals in `packages/shared/money.ts`; rounding
-half-up only when producing a final money amount.
+| Concept | Storage | Brand (`packages/shared`) | Column suffix | Example |
+|---------|---------|---------------------------|---------------|---------|
+| Money amount — totals, balances, line totals, transaction amounts | `INTEGER` centavos | `Centavos` | none | Bs 12.50 → `1250` |
+| **Any per-unit rate** — sale price, line unit price, `wac`, `replacement_cost`, cost snapshots, theoretical unit cost | `INTEGER` milli-centavos per **WHOLE** unit | `MilliCentavosPerUnit` | `_mc` | Bs 8.00 per unit → `800000`; Bs 12.345/kg → `1234500` |
+| Quantity | `INTEGER` milli-units of the item's own unit | `MilliUnits` | none | 1.5 kg (unit=KG) → `1500` |
+| Percent / rate | `INTEGER` basis points | `BasisPoints` | none | 30% → `3000` |
+
+Rules:
+
+- **`REAL` does not appear in money or per-unit-rate columns.** Milli-centavos carry three decimal digits below the
+  centavo — more precision than the domain needs, and deterministic, so WAC replay (ADR-016) is
+  reproducible.
+- **The denominator of every rate is the whole unit**, never the milli-unit, so
+  `sale_price_mc − replacement_cost_mc` is always dimensionally valid.
+- **Two conversion helpers only**, both in `packages/shared/money.ts`, and they are the only
+  place a scale factor is written anywhere in the repo:
+  `totalCentavos(rate, qty)` = `roundHalfUp(rate × qty / 1e6)` and
+  `rateFromTotal(total, qty)` = `roundHalfUp(total × 1e6 / qty)`.
+  The root lint gate rejects a literal `1000` / `1e6` used in arithmetic outside `money.ts`.
+  A legitimate non-money conversion requires an adjacent
+  `// scale-factor-ok: <specific reason>` comment. Immutable invariant tests remain independent
+  formula oracles and are excluded from this mechanical guard (D-5).
+- **Brands are nominal and zero-runtime**; mixing scales is a compile error. Runtime
+  `assertSafeInteger` guards remain at every boundary — brands catch developer error,
+  assertions catch bad input.
+- Arithmetic happens on integers in `packages/shared/money.ts` / `qty.ts`; rounding half-up only
+  when producing a final amount; proportional splits use largest-remainder allocation.
+
+> **Correction (found during KOK-070, 2026-07-28).** This section's `MilliCentavosPerUnit`
+> example originally showed `8000000`/`12345000` — 10× too large; `milli-` is ×1000, same as
+> `MilliUnits`, so Bs 8.00/unit is `800000` milli-centavos, not `8000000`. See ADR-017's
+> correction note for the full derivation. The `totalCentavos`/`rateFromTotal` formulas below
+> were never wrong, only the worked examples were.
 
 ## 3. Schema (DDL)
 
@@ -36,10 +64,10 @@ CREATE TABLE items (
   category TEXT NOT NULL CHECK (category IN
     ('INGREDIENT','PACKAGING','LABEL','BAKERY','DAIRY','OTHER')),
   unit TEXT NOT NULL CHECK (unit IN ('G','KG','ML','L','UNIT')),
-  wac REAL NOT NULL DEFAULT 0,                   -- weighted avg cost, centavos per milli-unit (derived, C-1)
-  replacement_cost REAL NOT NULL DEFAULT 0,      -- centavos per milli-unit (derived, C-3)
+  wac_mc INTEGER NOT NULL DEFAULT 0,             -- weighted avg cost, milli-centavos per whole unit (derived, C-1)
+  replacement_cost_mc INTEGER NOT NULL DEFAULT 0,-- milli-centavos per whole unit (derived, C-3)
   replacement_cost_updated_at TEXT,
-  sale_price INTEGER,                            -- centavos per unit; NULL unless sellable (FINISHED)
+  sale_price_mc INTEGER,                         -- milli-centavos per whole unit; NULL unless sellable (FINISHED)
   min_stock_qty INTEGER,                         -- milli-units; NULL = no alert
   is_active INTEGER NOT NULL DEFAULT 1,
   notes TEXT,
@@ -77,10 +105,24 @@ CREATE TABLE recipe_lines (
 CREATE TABLE price_history (                     -- price stability analysis (G2)
   id TEXT PRIMARY KEY,
   item_id TEXT NOT NULL REFERENCES items(id),
-  price INTEGER NOT NULL,                        -- centavos
+  price_mc INTEGER NOT NULL,                     -- milli-centavos per whole unit
   effective_from TEXT NOT NULL,                  -- business_date
   note TEXT
 );
+
+-- PENDING (KOK-073, not yet applied): erosion series for G2.
+CREATE TABLE replacement_cost_history (
+  id TEXT PRIMARY KEY,
+  item_id TEXT NOT NULL REFERENCES items(id),
+  replacement_cost_mc INTEGER NOT NULL,          -- milli-centavos per whole unit
+  observed_at TEXT NOT NULL,                     -- ISO-8601 UTC, = items.replacement_cost_updated_at
+  business_date TEXT NOT NULL,
+  source TEXT NOT NULL CHECK (source IN ('PURCHASE','NIGHTLY','MANUAL'))
+);
+-- Append-only, written by the KOK-029 refresh ONLY when the recomputed value differs from the
+-- live one (no row per no-op run). Never edited, never soft-deleted: it is an observation log,
+-- not a business event, so INV-10 does not apply. This table exists because the series cannot be
+-- backfilled — see KOK-073.
 ```
 
 ### 3.2 Sessions
@@ -157,7 +199,7 @@ CREATE TABLE production_consumptions (           -- ACTUAL consumption (recipe i
   production_run_id TEXT NOT NULL REFERENCES production_runs(id) ON DELETE CASCADE,
   item_id TEXT NOT NULL REFERENCES items(id),
   qty INTEGER NOT NULL CHECK (qty > 0),          -- milli-units
-  unit_cost_snapshot REAL NOT NULL               -- WAC at commit (audit of C-4)
+  unit_cost_snapshot_mc INTEGER NOT NULL         -- WAC at commit, milli-centavos per whole unit
 );
 
 CREATE TABLE customers (
@@ -188,8 +230,8 @@ CREATE TABLE sale_lines (
   sale_id TEXT NOT NULL REFERENCES sales(id) ON DELETE CASCADE,
   item_id TEXT NOT NULL REFERENCES items(id),    -- FINISHED only (service-enforced)
   qty INTEGER NOT NULL CHECK (qty > 0),
-  unit_price INTEGER NOT NULL,                   -- centavos (editable vs list price)
-  unit_cost_snapshot REAL NOT NULL               -- WAC at sale → per-line margin forever
+  unit_price_mc INTEGER NOT NULL,                -- milli-centavos per whole unit (editable vs list price)
+  unit_cost_snapshot_mc INTEGER NOT NULL         -- WAC at sale → per-line margin forever
 );
 
 CREATE TABLE custom_orders (
@@ -225,7 +267,7 @@ CREATE TABLE stock_exits (                       -- non-commercial exits (UC-09)
   qty INTEGER NOT NULL CHECK (qty > 0),
   reason TEXT NOT NULL CHECK (reason IN
     ('WASTE','SELF_CONSUMPTION','GIFT_SAMPLE','SPOILAGE','OTHER')),
-  unit_cost_snapshot REAL NOT NULL,              -- WAC at exit (C-6)
+  unit_cost_snapshot_mc INTEGER NOT NULL,        -- WAC at exit, milli-centavos per whole unit (C-6)
   session_id TEXT REFERENCES sessions(id),
   notes TEXT, deleted_at TEXT,
   created_at TEXT NOT NULL, updated_at TEXT NOT NULL
@@ -259,8 +301,8 @@ CREATE TABLE stock_movements (                   -- THE KARDEX (system-owned, IN
   type TEXT NOT NULL CHECK (type IN
     ('PURCHASE_IN','PRODUCTION_IN','PRODUCTION_OUT','SALE_OUT','EXIT_OUT','ADJUST')),
   qty INTEGER NOT NULL,                          -- signed milli-units (+in / −out)
-  unit_cost REAL NOT NULL,                       -- centavos per milli-unit at movement time
-  total_cost INTEGER NOT NULL,                   -- centavos, signed (qty × unit_cost rounded)
+  unit_cost_mc INTEGER NOT NULL,                 -- milli-centavos per whole unit at movement time
+  total_cost INTEGER NOT NULL,                   -- centavos, signed via totalCentavos(unit_cost_mc, qty)
   source_event_type TEXT NOT NULL,               -- 'purchase'|'production_run'|'sale'|'stock_exit'|'inventory_count'
   source_event_id TEXT NOT NULL,
   created_at TEXT NOT NULL
@@ -297,7 +339,38 @@ CREATE TABLE financial_transactions (
   description TEXT, deleted_at TEXT,
   created_at TEXT NOT NULL, updated_at TEXT NOT NULL
 );
+
+CREATE TABLE costing_adjustments (       -- R-4: cumulative P&L correction from a backdated
+                                          -- WAC replay (ADR-016); never rewrites frozen snapshots
+  id TEXT PRIMARY KEY,
+  occurred_at TEXT NOT NULL, business_date TEXT NOT NULL,  -- date of the CORRECTION, not of the
+                                                            -- backdated event that triggered it
+  item_id TEXT NOT NULL REFERENCES items(id),
+  trigger_event_type TEXT NOT NULL CHECK (trigger_event_type IN
+    ('purchase','production_run','stock_exit','session','sale')), -- KOK-024: a backdated exit
+                                          -- changes on-hand, which changes C-1's max(on_hand,0)
+                                          -- weight for every later entry — so an exit CAN move
+                                          -- downstream WAC and that correction must be bookable.
+                                          -- KOK-028: closing a PRODUCTION session (S-3) can
+                                          -- recompute several production runs'
+                                          -- allocated_session_cost/output cost at once, so the
+                                          -- trigger is the session, not one run. KOK-064: a sale
+                                          -- is stock-wise identical to a stock exit (SALE_OUT), so
+                                          -- a backdated sale can move downstream WAC exactly as a
+                                          -- backdated exit does
+
+  trigger_event_id TEXT NOT NULL,        -- the create/edit/delete that triggered the replay
+  affected_sale_line_ids TEXT NOT NULL,  -- JSON array of sale_lines.id, for UI drill-down
+  affected_stock_exit_ids TEXT NOT NULL, -- JSON array of stock_exits.id
+  cost_delta INTEGER NOT NULL,           -- centavos, signed: negative = accumulated margin fell
+  created_at TEXT NOT NULL
+);
 ```
+
+No `affected_production_run_ids` column: the row is keyed to one `item_id`, and until production
+runs exist (KOK-026) no replay ever touches one — the impact-preview DTO (`packages/shared/src/
+costing.ts`'s `ReplayImpactDto`) already carries `affectedProductionRunIds` for the day it does,
+but persisting them here is deferred to KOK-026 rather than added speculatively now.
 
 Deposit liability is derived, not a table:
 `customer_deposits = Σ deposits received − Σ released/refunded`, computed from ORDER_DEPOSIT /
@@ -365,25 +438,53 @@ CREATE TABLE pending_drafts (                    -- one active AI draft per Tele
 
 | View | Definition (essence) |
 |------|----------------------|
-| `v_stock` | items ⨝ item_stock + `stock_value = qty_on_hand × wac`, low-stock flag |
+| `v_stock` | items ⨝ item_stock + `stock_value = round(qty_on_hand × wac_mc / 1e6)`, low-stock flag |
 | `v_kardex` | stock_movements ⨝ items, ordered, with running balance via window function |
-| `v_price_health` | FINISHED items: price, wac, replacement_cost, margin_wac, margin_repl, margin_repl_pct, alert flag (C-5) |
-| `v_receivables` | sales WHERE payment_status='ON_CREDIT' AND deleted_at IS NULL, aged |
+| `v_price_health` | FINISHED items: id, name, sale_price_mc, wac_mc, replacement_cost_mc, replacement_cost_updated_at. Raw columns only — margins are computed in `core/costing/price-health.ts` (KOK-035), not in this view; the former SQL margin columns were removed in migration 0006 because they mixed per-whole-unit prices with per-milli-unit costs. |
+| `v_receivables` | sales WHERE payment_status='ON_CREDIT' AND deleted_at IS NULL, aged; `total` = **uncollected remainder**, i.e. `sales.total − custom_orders.deposit_paid` for a CUSTOM_ORDER sale (KOK-033, migration 0005) and plain `sales.total` otherwise |
 | `v_liability` | current customer_deposits (see §3.4) |
 | `v_cashflow_daily` | financial_transactions grouped by business_date × category |
 | `v_session_hours` | sessions with derived hours + linked event counts |
 | `v_waste` | stock_exits valued, grouped by reason × month |
 
+**Business-health aggregates are NOT views.** Every metric in Phase 5.5 (money at risk, input
+cost index, contribution Pareto, Bs/h per product, real-vs-nominal position) is computed by a
+pure function in `core/` over a scoped query, following the KOK-035 precedent: the margin math
+that a view got wrong for six migrations is the same math these metrics need, and it belongs
+where it can be property-tested (Doc 11 §2) and unit-typed (ADR-017), not in SQL where a scale
+error is invisible. Views stay for row-shaping and joins; they do no margin arithmetic.
+
 ## 5. Integrity beyond DDL (service-enforced, tested)
 
 - Sale lines only reference `kind='FINISHED'` items; recipe output must not be RAW_MATERIAL;
   production consumption items must not be FINISHED **unless** flagged rework (v1: forbidden).
-- `purchases.total = Σ purchase_lines.line_total`; `sales.total = Σ qty×unit_price` (recomputed
+- `purchases.total = Σ purchase_lines.line_total`; `sales.total = Σ qty×unit_price_mc / 1e6` (recomputed
   server-side, client values ignored).
-- `custom_orders` transitions only along the state machine (O-1…O-3).
+- `custom_orders` transitions only along the state machine (O-1…O-3). There is no generic
+  "update order" command and no soft-delete/restore pair: `CANCELLED` is the terminal
+  "this didn't happen" state.
+- **Every `custom_order_lines` row must carry an `item_id` before the order may be DELIVERED**
+  (KOK-033). Item-less free-text lines are legal while QUOTING, but `sale_lines.item_id` is NOT
+  NULL and FINISHED-only and `sales.total` is recomputed from those lines, so a delivery with an
+  unlinked line could not produce a sale equal to `agreed_total` without either inventing revenue
+  no line backs or skipping the `SALE_OUT` for goods that really shipped (drifting `item_stock`
+  upward forever, INV-5, since O-4's ProductionRun already booked the matching PRODUCTION_IN).
+  `deliverOrder` therefore refuses with a 409 until every line is linked. **Amendment (KOK-034):**
+  the ONE narrow exception to "no generic update order" is `resolveOrderLine`, which attaches a
+  catalog item to a single line's `item_id` (leaving `description`/`qty`/`line_total` untouched) —
+  legal on any non-terminal order (same set `cancelOrder` accepts), so the Orders board can resolve
+  a free-text line before delivery without a general-purpose line editor.
+- `agreed_total` is split across the delivered sale's lines by the largest-remainder method
+  (`allocateAgreedTotalToOrderLines`): lines carrying an explicit `line_total` are pinned, the rest
+  share what is left weighted by `qty`, and `Σ(qty × unit_price_mc / 1e6)` must reproduce `agreed_total` to
+  the centavo (D-5) — otherwise the delivery is refused rather than rounded.
+- The sale created by a delivery is owned by its order: `core/sales`' update/delete refuse
+  (409 CONFLICT) for any `channel='CUSTOM_ORDER'` sale, since editing it would desynchronize
+  `custom_orders.sale_id`/`agreed_total` and rewrite the order's `ORDER_BALANCE` transaction.
 - One OPEN session per type at a time (soft rule: warn, allow override).
 - `financial_transactions` with `source_event_id` are system-owned: not editable directly (edit
-  the source event instead).
+  the source event instead) — the owning SERVICE may still rewrite them as part of its own
+  transitions, which is how O-3's FORFEIT recategorizes a deposit row in place.
 
 ## 6. Indexes
 
@@ -400,6 +501,7 @@ CREATE INDEX ix_runs_date ON production_runs(business_date);
 CREATE INDEX ix_runs_order ON production_runs(custom_order_id);
 CREATE INDEX ix_orders_status_date ON custom_orders(status, delivery_date);
 CREATE INDEX ix_exits_date ON stock_exits(business_date);
+CREATE INDEX ix_costing_adj_item_date ON costing_adjustments(item_id, business_date);
 CREATE INDEX ix_audit_entity ON audit_log(entity_type, entity_id);
 CREATE INDEX ix_ai_at ON assistant_interactions(at);
 ```

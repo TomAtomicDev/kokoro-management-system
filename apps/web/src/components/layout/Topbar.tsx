@@ -1,17 +1,17 @@
 import { useNavigate } from "@tanstack/react-router";
 import { Bell, LogOut, Search } from "lucide-react";
 
+import { SessionChip } from "@/components/sessions/SessionChip";
 import { Button } from "@/components/ui/button";
 import { useLogout } from "@/features/auth/api";
 import { authLabels } from "@/lib/i18n-auth";
 import { topbarLabels } from "@/lib/i18n-nav";
 
-// Visual placeholders only — each wires to a real feature in a later task:
-// search → ⌘K command palette, bell → AlertsPanel (KOK-0xx), session chip → SessionChip (KOK-027).
-// The logout button (KOK-063, SC-18) is the one real action in here — everything else stays a
-// placeholder. No wordmark here — the sidebar carries the one persistent brand moment (Doc 06 §2
-// / design brief). Repeating it in the topbar would make "Kokoro" a daily-flow fixture instead of
-// a quiet nod, which the brief explicitly avoids.
+// search → ⌘K command palette, bell → AlertsPanel (KOK-0xx) stay visual placeholders. SessionChip
+// (KOK-027) is the one placeholder promoted to a real feature here. The logout button (KOK-063,
+// SC-18) was already real. No wordmark here — the sidebar carries the one persistent brand moment
+// (Doc 06 §2 / design brief). Repeating it in the topbar would make "Kokoro" a daily-flow fixture
+// instead of a quiet nod, which the brief explicitly avoids.
 export function Topbar({ onOpenQuickAdd }: { onOpenQuickAdd: () => void }) {
   const navigate = useNavigate();
   const logoutMutation = useLogout();
@@ -52,10 +52,7 @@ export function Topbar({ onOpenQuickAdd }: { onOpenQuickAdd: () => void }) {
           <Bell className="size-4" />
         </button>
 
-        <span className="hidden items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-muted-foreground text-xs sm:flex">
-          <span className="size-1.5 rounded-full bg-muted-foreground" />
-          {topbarLabels.noOpenSession}
-        </span>
+        <SessionChip />
 
         <button
           type="button"

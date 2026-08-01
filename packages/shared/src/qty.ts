@@ -11,6 +11,21 @@
 import { UNITS, type Unit } from "./enums";
 import { assertSafeInteger, groupThousands } from "./numeric";
 
+/**
+ * An integer number of milli-units of the item's own stored unit (INV-6,
+ * ADR-017): 1.5 kg (unit=KG) → `1500`; 12 units (unit=UNIT) → `12000`.
+ */
+export type MilliUnits = number & { readonly __brand: "MilliUnits" };
+
+/** One whole stored unit, expressed in milli-units. Keep the scale literal in this module. */
+export const WHOLE_UNIT_MILLI_UNITS = 1000 as MilliUnits;
+
+/** Constructs a `MilliUnits` value, asserting it is a safe integer (INV-6). */
+export function toMilliUnits(value: number): MilliUnits {
+  assertSafeInteger(value, "milliUnits");
+  return value as MilliUnits;
+}
+
 /** Display abbreviation per stored unit. `UNIT` shows as lowercase `u`. */
 const UNIT_LABELS: Record<Unit, string> = {
   G: "g",
@@ -39,7 +54,9 @@ export function formatQty(milliUnits: number, unit: Unit): string {
 
   const negative = milliUnits < 0;
   const abs = Math.abs(milliUnits);
+  // scale-factor-ok: formatQty intentionally separates whole and fractional milli-units
   const intPart = Math.floor(abs / 1000);
+  // scale-factor-ok: formatQty intentionally isolates the fractional milli-unit remainder
   const milliRemainder = abs % 1000; // 0 .. 999
 
   const decimals = milliRemainder.toString().padStart(3, "0").replace(/0+$/, ""); // trim trailing zeros → "5", "25", "" ...

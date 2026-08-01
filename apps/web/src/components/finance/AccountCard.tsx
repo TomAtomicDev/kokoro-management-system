@@ -6,7 +6,7 @@
 // never gets that treatment (see features/finance/transaction-styling.ts for that rule).
 
 import type { FinancialAccountDto } from "@kokoro/shared";
-import { formatMoney } from "@kokoro/shared";
+import { formatMoney, toCentavos } from "@kokoro/shared";
 
 import { financeLabels } from "@/lib/i18n-finance";
 import { cn } from "@/lib/utils";
@@ -29,7 +29,7 @@ export function AccountCard({ account }: { account: FinancialAccountDto }) {
             negative ? "text-negative" : "text-foreground",
           )}
         >
-          {formatMoney(account.balance)}
+          {formatMoney(toCentavos(account.balance))}
         </span>
       </div>
     </div>

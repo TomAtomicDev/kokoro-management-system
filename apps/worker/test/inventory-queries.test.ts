@@ -15,17 +15,24 @@
 // rows never collide across tests in this file; storage is isolated per FILE, not per test, so
 // listStock's "no filters" assertions always scope down to just-created itemIds rather than
 // asserting on the full table.
+
 import { env } from "cloudflare:test";
+import { type MilliCentavosPerUnit, toMilliCentavosPerUnit } from "@kokoro/shared";
 import { eq } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { createItem, setItemActive } from "../src/core/catalog/index.js";
 import { buildStockMovementStatements } from "../src/core/inventory/index.js";
-import { listKardex, listStock } from "../src/core/inventory/queries.js";
+import {
+  getStockConsistencyMismatches,
+  getStockValueTotal,
+  listKardex,
+  listStock,
+} from "../src/core/inventory/queries.js";
 import { recordPurchase } from "../src/core/purchasing/index.js";
 import { createDb } from "../src/db/index.js";
-import { financialAccounts } from "../src/db/schema.js";
+import { financialAccounts, itemStock } from "../src/db/schema.js";
 
 const ACTOR = "OWNER_WEB" as const;
 
@@ -38,7 +45,7 @@ async function seedItem(
     kind: "RAW_MATERIAL" | "SEMI_FINISHED" | "FINISHED";
     category: "INGREDIENT" | "PACKAGING" | "LABEL" | "BAKERY" | "DAIRY" | "OTHER";
     unit: "G" | "KG" | "ML" | "L" | "UNIT";
-    salePrice: number | null;
+    salePriceMc: MilliCentavosPerUnit | null;
     minStockQty: number | null;
   }> = {},
 ) {
@@ -49,7 +56,7 @@ async function seedItem(
       kind: overrides.kind ?? "RAW_MATERIAL",
       category: overrides.category ?? "INGREDIENT",
       unit: overrides.unit ?? "KG",
-      salePrice: overrides.salePrice,
+      salePriceMc: overrides.salePriceMc,
       minStockQty: overrides.minStockQty,
     },
     ACTOR,
@@ -77,7 +84,7 @@ describe("listStock (Doc 04 §4 v_stock, SC-08)", () => {
       kind: "RAW_MATERIAL",
       category: "DAIRY",
       unit: "KG",
-      salePrice: 500,
+      salePriceMc: toMilliCentavosPerUnit(500_000),
     });
 
     await recordPurchase(
@@ -99,12 +106,12 @@ describe("listStock (Doc 04 §4 v_stock, SC-08)", () => {
       kind: "RAW_MATERIAL",
       category: "DAIRY",
       unit: "KG",
-      wac: 2,
-      salePrice: 500,
+      wacMc: 2_000_000,
+      salePriceMc: toMilliCentavosPerUnit(500_000),
       minStockQty: null,
       qtyOnHand: 5000,
       negativeSince: null,
-      stockValue: 10000, // round(5000 * 2)
+      stockValue: 10000, // totalCentavos(2_000_000 mc, 5000 mu)
       isLowStock: false,
     });
   });
@@ -163,7 +170,7 @@ describe("listStock (Doc 04 §4 v_stock, SC-08)", () => {
           businessDate: "2026-07-16",
           type: "EXIT_OUT",
           qty: -1000,
-          unitCost: 0,
+          unitCostMc: toMilliCentavosPerUnit(0),
           sourceEventType: "test_exit",
           sourceEventId: "exit_negative_stock_test",
         },
@@ -212,6 +219,53 @@ describe("listStock (Doc 04 §4 v_stock, SC-08)", () => {
     const { stock } = await listStock(db, { kind: "FINISHED" });
     expect(stock.some((r) => r.itemId === finished.id)).toBe(true);
     expect(stock.some((r) => r.itemId === raw.id)).toBe(false);
+  });
+});
+
+describe("getStockValueTotal (KOK-023 dashboard aggregate, SUM(stock_value) over v_stock)", () => {
+  it("increases by exactly the sum of newly purchased items' stockValue", async () => {
+    const db = createDb(env.DB);
+    const before = await getStockValueTotal(db);
+
+    const itemA = await seedItem(db, "Stock value total item A");
+    const itemB = await seedItem(db, "Stock value total item B");
+
+    await recordPurchase(
+      db,
+      {
+        accountId: "acc_bank",
+        occurredAt: "2026-07-16T10:00:00.000Z",
+        businessDate: "2026-07-16",
+        lines: [
+          { itemId: itemA.id, qty: 5000, lineTotal: 10000 }, // stockValue 10000
+          { itemId: itemB.id, qty: 2000, lineTotal: 6000 }, // stockValue 6000
+        ],
+      },
+      ACTOR,
+    );
+
+    const after = await getStockValueTotal(db);
+    expect(after - before).toBe(16000);
+  });
+
+  it("excludes an inactive item, matching v_stock's own WHERE is_active = 1", async () => {
+    const db = createDb(env.DB);
+    const item = await seedItem(db, "Stock value inactive item");
+    await recordPurchase(
+      db,
+      {
+        accountId: "acc_bank",
+        occurredAt: "2026-07-16T10:00:00.000Z",
+        businessDate: "2026-07-16",
+        lines: [{ itemId: item.id, qty: 1000, lineTotal: 2000 }],
+      },
+      ACTOR,
+    );
+
+    const before = await getStockValueTotal(db);
+    await setItemActive(db, { id: item.id, isActive: false }, ACTOR);
+    const after = await getStockValueTotal(db);
+    expect(before - after).toBe(2000);
   });
 });
 
@@ -310,5 +364,50 @@ describe("listKardex (Doc 04 §4 v_kardex, SC-08's row -> drawer interaction)", 
     // real caller-facing 400 comes from listKardexFiltersSchema.parse() at the route layer
     // (apps/worker/src/api/inventory.ts), which this test does not exercise directly.
     await expect(listKardex(db, {})).rejects.toMatchObject({ code: "VALIDATION" });
+  });
+});
+
+describe("getStockConsistencyMismatches (INV-5 nightly sentinel, KOK-021)", () => {
+  it("reports no mismatch for an item whose item_stock still agrees with its stock_movements ledger", async () => {
+    const db = createDb(env.DB);
+    const item = await seedItem(db, "Consistency happy item");
+    await recordPurchase(
+      db,
+      {
+        accountId: "acc_bank",
+        occurredAt: "2026-07-16T10:00:00.000Z",
+        businessDate: "2026-07-16",
+        lines: [{ itemId: item.id, qty: 3000, lineTotal: 3000 }],
+      },
+      ACTOR,
+    );
+
+    const mismatches = await getStockConsistencyMismatches(db);
+    expect(mismatches.some((m) => m.itemId === item.id)).toBe(false);
+  });
+
+  it("detects a mismatch when item_stock.qtyOnHand is corrupted independently of the stock_movements ledger", async () => {
+    const db = createDb(env.DB);
+    const item = await seedItem(db, "Consistency corrupted item");
+    await recordPurchase(
+      db,
+      {
+        accountId: "acc_bank",
+        occurredAt: "2026-07-16T10:00:00.000Z",
+        businessDate: "2026-07-16",
+        lines: [{ itemId: item.id, qty: 1000, lineTotal: 1000 }],
+      },
+      ACTOR,
+    );
+
+    // Deliberately corrupt item_stock directly (test-only fixture, mirrors
+    // test/costing-repair.test.ts's direct items.wac_mc corruption) so it disagrees with the ledger's
+    // true SUM(qty) of 1000 — no core/ command produces this state, it simulates an earlier
+    // atomicity bug this sentinel exists to catch.
+    await db.update(itemStock).set({ qtyOnHand: 9999 }).where(eq(itemStock.itemId, item.id));
+
+    const mismatches = await getStockConsistencyMismatches(db);
+    const row = mismatches.find((m) => m.itemId === item.id);
+    expect(row).toMatchObject({ itemId: item.id, expectedQty: 1000, actualQty: 9999 });
   });
 });

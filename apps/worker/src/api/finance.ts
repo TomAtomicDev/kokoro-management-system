@@ -3,6 +3,7 @@
 // DomainErrors thrown by the service propagate to the global errorHandler.
 
 import {
+  type FinanceSummaryDto,
   listTransactionsFiltersSchema,
   recordTransactionCommandSchema,
   transferCommandSchema,
@@ -11,6 +12,7 @@ import {
 import { Hono } from "hono";
 
 import {
+  getLiabilityReceivableSummary,
   listAccounts,
   listTransactions,
   recordTransaction,
@@ -29,6 +31,11 @@ export const financeRoute = new Hono<{ Bindings: Env; Variables: Variables }>()
   .get("/finance/accounts", async (c) => {
     const db = createDb(c.env.DB);
     return c.json(await listAccounts(db));
+  })
+  .get("/finance/summary", async (c) => {
+    const db = createDb(c.env.DB);
+    const summary: FinanceSummaryDto = await getLiabilityReceivableSummary(db);
+    return c.json(summary);
   })
   .get("/finance/transactions", async (c) => {
     const db = createDb(c.env.DB);

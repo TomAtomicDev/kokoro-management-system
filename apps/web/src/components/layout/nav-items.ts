@@ -27,6 +27,9 @@ export type AppPath =
   | "/sales"
   | "/orders"
   | "/production"
+  // Reached only from within /production's link card (Doc 06 §2 lists a single "Producción" nav
+  // entry) — deliberately NOT added to primaryNav/mobileTabs below, same precedent as /onboarding.
+  | "/production/recipes"
   | "/purchases"
   | "/inventory"
   | "/sessions"

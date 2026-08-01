@@ -1,19 +1,41 @@
 {
   "permissions": {
+    "deny": ["Bash(sudo *)", "Bash(rm -rf /*)", "Read(.env)", "Read(**/.env*)"],
     "allow": [
-      "mcp__codegraph__*"
+      "Skill(playwright-cli)",
+      "Skill(run)",
+      "Bash(git:*)",
+      "Bash(pnpm:*)",
+      "Bash(cd:*)"
     ]
   },
+  "enabledPlugins": {
+    "context-mode@context-mode": true
+  },
   "hooks": {
-    "UserPromptSubmit": [
+    "PreToolUse": [
       {
+        "matcher": "Bash|Grep",
         "hooks": [
           {
             "type": "command",
-            "command": "codegraph prompt-hook"
+            "command": "C:/Users/tommy/AppData/Local/Programs/Python/Python313/Scripts/graphify.EXE hook-guard search"
+          }
+        ]
+      },
+      {
+        "matcher": "Read|Glob",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "C:/Users/tommy/AppData/Local/Programs/Python/Python313/Scripts/graphify.EXE hook-guard read"
           }
         ]
       }
     ]
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "context-mode statusline"
   }
 }

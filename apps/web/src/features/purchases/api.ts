@@ -9,11 +9,17 @@
 // and share a cross-feature invalidation helper, this hook should call into it too.
 
 import type {
+  DeletePurchaseCommand,
+  DeletePurchaseResult,
   ListPurchasesFilters,
   ListPurchasesResult,
   PurchaseDto,
+  PurchaseImpactRequest,
   RecordPurchaseCommand,
   RecordPurchaseResult,
+  ReplayImpactDto,
+  UpdatePurchaseCommand,
+  UpdatePurchaseResult,
 } from "@kokoro/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -65,6 +71,52 @@ export function useRecordPurchase() {
     mutationFn: (command: RecordPurchaseCommand) =>
       api.post<RecordPurchaseResult>("/purchases", command),
     onSuccess: invalidate,
+  });
+}
+
+// --- Edit / delete / restore / impact preview (KOK-024 Phase G) -----------------------------
+//
+// These four expose plain, correctly-typed mutations only — the retry-with-confirm dance for the
+// R-5 replay-confirmation contract (a 409 CONFLICT carrying a ReplayImpactDto, see
+// packages/shared/src/costing.ts) is deliberately NOT wired in here. That orchestration belongs to
+// whatever UI composes these with `useReplayConfirmableMutation`
+// (apps/web/src/hooks/useReplayConfirmableMutation.ts), same precedent as usePreviewPurchaseImpact
+// below staying a plain dry-run mutation with no invalidation of its own.
+
+export function useUpdatePurchase(id: string) {
+  const invalidate = useInvalidatePurchases();
+  return useMutation({
+    mutationFn: (command: UpdatePurchaseCommand) =>
+      api.patch<UpdatePurchaseResult>(`/purchases/${id}`, command),
+    onSuccess: invalidate,
+  });
+}
+
+export function useDeletePurchase(id: string) {
+  const invalidate = useInvalidatePurchases();
+  return useMutation({
+    mutationFn: (command: DeletePurchaseCommand) =>
+      api.delete<DeletePurchaseResult>(`/purchases/${id}`, command),
+    onSuccess: invalidate,
+  });
+}
+
+export function useRestorePurchase(id: string) {
+  const invalidate = useInvalidatePurchases();
+  return useMutation({
+    mutationFn: (command: DeletePurchaseCommand) =>
+      api.post<UpdatePurchaseResult>(`/purchases/${id}/restore`, command),
+    onSuccess: invalidate,
+  });
+}
+
+/** Dry-run preview (no write, so no cache to invalidate) — used to render an ImpactConfirmDialog
+ * BEFORE the caller ever attempts the real edit/delete, or composed with
+ * `useReplayConfirmableMutation`'s own captured impact from a refused mutation. */
+export function usePreviewPurchaseImpact() {
+  return useMutation({
+    mutationFn: (request: PurchaseImpactRequest) =>
+      api.post<ReplayImpactDto>("/purchases/impact", request),
   });
 }
 

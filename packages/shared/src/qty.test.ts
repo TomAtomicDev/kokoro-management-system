@@ -1,7 +1,21 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import { UNITS } from "./enums";
-import { formatQty } from "./qty";
+import { formatQty, toMilliUnits } from "./qty";
+
+describe("toMilliUnits", () => {
+  it("passes safe integers through unchanged", () => {
+    expect(toMilliUnits(1500)).toBe(1500);
+    expect(toMilliUnits(0)).toBe(0);
+    expect(toMilliUnits(-1500)).toBe(-1500);
+  });
+
+  it("rejects non-integer / NaN / Infinity input", () => {
+    expect(() => toMilliUnits(1.5)).toThrow(RangeError);
+    expect(() => toMilliUnits(Number.NaN)).toThrow(RangeError);
+    expect(() => toMilliUnits(Number.POSITIVE_INFINITY)).toThrow(RangeError);
+  });
+});
 
 describe("formatQty", () => {
   it("formats each unit in its own stored unit (no auto-conversion)", () => {

@@ -12,8 +12,8 @@
 // execute" shape as buildAuditLogInsert — it only builds Drizzle statement objects and returns
 // them for the caller to push into its own array.
 
-import type { StockMovementType } from "@kokoro/shared";
-import { generateUuidV7, nowIso, roundHalfUpToInt } from "@kokoro/shared";
+import type { MilliCentavosPerUnit, StockMovementType } from "@kokoro/shared";
+import { generateUuidV7, nowIso, toMilliUnits, totalCentavos } from "@kokoro/shared";
 import { and, eq, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 
@@ -77,10 +77,10 @@ function assertValidMovementQty(type: StockMovementType, qty: number): void {
   }
 }
 
-function assertValidUnitCost(unitCost: number): void {
-  if (typeof unitCost !== "number" || !Number.isFinite(unitCost) || unitCost < 0) {
-    throw validationError("El costo unitario debe ser un número finito no negativo.", {
-      unitCost,
+function assertValidUnitCost(unitCostMc: MilliCentavosPerUnit): void {
+  if (typeof unitCostMc !== "number" || !Number.isSafeInteger(unitCostMc) || unitCostMc < 0) {
+    throw validationError("El costo unitario debe ser un entero seguro no negativo.", {
+      unitCostMc,
     });
   }
 }
@@ -88,20 +88,19 @@ function assertValidUnitCost(unitCost: number): void {
 /**
  * Builds (does not execute) the `stock_movements` INSERT for one movement, enforcing the sign
  * convention (Doc 03 §1-2) and computing `total_cost` internally so it can never drift from
- * `qty × unit_cost` — callers do not supply `total_cost`.
+ * `qty × unit_cost_mc` — callers do not supply `total_cost`.
  *
- * Per Doc 04 §3.4's column comments, `unit_cost` is "centavos per milli-unit at movement time"
- * and `total_cost` is "centavos, signed (qty × unit_cost rounded)": this is a DIRECT multiply of
- * signed milli-units by centavos-per-milli-unit, then round half-up. This is deliberately NOT
- * `mulMoneyByQty` from packages/shared/money.ts — that helper assumes a price quoted per WHOLE
- * unit and divides by 1000 internally, which would be off by a factor of 1000 for this column.
+ * Per Doc 04 §3.4's column comments (ADR-017), `unit_cost_mc` is "milli-centavos per
+ * WHOLE unit at movement time" and `total_cost` is "centavos, signed" — exactly what
+ * `totalCentavos` (packages/shared/money.ts) converts a rate + a milli-unit qty into, rounding
+ * half-up. `qty` is signed (in/out), so the signed `total_cost` falls out of `totalCentavos`
+ * directly with no separate sign handling.
  */
 function buildMovementInsert(input: StockMovementInput, createdAt: string, db: Db): Statement {
   assertValidMovementQty(input.type, input.qty);
-  assertValidUnitCost(input.unitCost);
+  assertValidUnitCost(input.unitCostMc);
 
-  const totalCost = roundHalfUpToInt(input.qty * input.unitCost);
-  assertSafeIntegerInput(totalCost, "totalCost");
+  const totalCost = totalCentavos(input.unitCostMc, toMilliUnits(input.qty));
 
   return db.insert(stockMovements).values({
     id: generateUuidV7(),
@@ -110,7 +109,7 @@ function buildMovementInsert(input: StockMovementInput, createdAt: string, db: D
     itemId: input.itemId,
     type: input.type,
     qty: input.qty,
-    unitCost: input.unitCost,
+    unitCostMc: input.unitCostMc,
     totalCost,
     sourceEventType: input.sourceEventType,
     sourceEventId: input.sourceEventId,

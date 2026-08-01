@@ -1,4 +1,4 @@
-// View/edit drawer for a single item (Doc 06 §4 DetailDrawer contract), plus the two things
+// View/edit drawer for a single item (Doc 06 Ã‚Â§4 DetailDrawer contract), plus the two things
 // unique to Catalog: the active toggle and alias chip management (Doc 07 SC-15).
 
 import { X } from "lucide-react";
@@ -55,7 +55,7 @@ export function ItemDetailDrawer({ itemId, open, onOpenChange }: ItemDetailDrawe
     setAliasError(null);
   }, [itemId]);
 
-  // ...then seed it once from the fetched item, but only the first time — a later refetch
+  // ...then seed it once from the fetched item, but only the first time Ã¢â‚¬â€ a later refetch
   // (e.g. after adding an alias invalidates the item query) must not clobber an in-progress,
   // unsaved edit to name/notes/etc.
   useEffect(() => {
@@ -105,10 +105,12 @@ export function ItemDetailDrawer({ itemId, open, onOpenChange }: ItemDetailDrawe
       onOpenChange={onOpenChange}
       title={item?.name ?? catalogLabels.editTitle}
       subtitle={item ? catalogLabels.kindLabels[item.kind] : undefined}
+      entityType="item"
+      entityId={item?.id}
       footer={
         item ? (
           <span>
-            Creado {new Date(item.createdAt).toLocaleDateString("es-BO")} · Actualizado{" "}
+            Creado {new Date(item.createdAt).toLocaleDateString("es-BO")} Ã‚Â· Actualizado{" "}
             {new Date(item.updatedAt).toLocaleDateString("es-BO")}
           </span>
         ) : undefined
@@ -133,8 +135,8 @@ export function ItemDetailDrawer({ itemId, open, onOpenChange }: ItemDetailDrawe
             onChange={setValues}
             disabled={updateMutation.isPending}
             derived={{
-              wac: item.wac,
-              replacementCost: item.replacementCost,
+              wacMc: item.wacMc,
+              replacementCostMc: item.replacementCostMc,
               replacementCostUpdatedAt: item.replacementCostUpdatedAt,
             }}
           />
@@ -149,7 +151,7 @@ export function ItemDetailDrawer({ itemId, open, onOpenChange }: ItemDetailDrawe
             </span>
             <div className="flex flex-wrap gap-1.5">
               {item.aliases.length === 0 ? (
-                <span className="text-muted-foreground text-sm">—</span>
+                <span className="text-muted-foreground text-sm">Ã¢â‚¬â€</span>
               ) : (
                 item.aliases.map((alias) => (
                   <Badge key={alias.id} variant="outline" className="gap-1 pr-1">

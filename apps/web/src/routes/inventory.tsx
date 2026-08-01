@@ -1,5 +1,5 @@
-// SC-08 · Inventory — /inventory. Header + a hand-rolled tab switcher (Stock / Salidas / Conteos,
-// no tabs primitive exists in components/ui yet and none is added for this — same "hand-rolled
+// SC-08 Â· Inventory â€” /inventory. Header + a hand-rolled tab switcher (Stock / Salidas / Conteos,
+// no tabs primitive exists in components/ui yet and none is added for this â€” same "hand-rolled
 // now, upgrade later if a second consumer justifies a dependency" call as EventTable's header
 // comment). Stock (KOK-017 frontend), Salidas (KOK-018 frontend), and Conteos (KOK-019 frontend)
 // all have real content.
@@ -10,6 +10,7 @@ import { useMemo, useState } from "react";
 import { CountDetailView } from "@/components/inventory/CountDetailView";
 import { CountForm } from "@/components/inventory/CountForm";
 import { CountsTable } from "@/components/inventory/CountsTable";
+import { ExitDetailDrawer } from "@/components/inventory/ExitDetailDrawer";
 import { ExitForm } from "@/components/inventory/ExitForm";
 import { ExitsTable } from "@/components/inventory/ExitsTable";
 import { KardexView } from "@/components/inventory/KardexView";
@@ -18,8 +19,15 @@ import { WasteSummaryCard } from "@/components/inventory/WasteSummaryCard";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { useToast } from "@/components/ui/toast";
 import { useItemsQuery } from "@/features/catalog/api";
-import { useCounts, useStock, useStockExits } from "@/features/inventory/api";
+import {
+  useCounts,
+  useRefreshReplacementCosts,
+  useStock,
+  useStockExits,
+} from "@/features/inventory/api";
+import { ApiError } from "@/lib/api";
 import { inventoryLabels } from "@/lib/i18n-inventory";
 import { cn } from "@/lib/utils";
 
@@ -68,6 +76,7 @@ export function InventoryRoute() {
   const [negativeOnly, setNegativeOnly] = useState(false);
   const [selected, setSelected] = useState<StockRowDto | null>(null);
   const [exitFormOpen, setExitFormOpen] = useState(false);
+  const [selectedExitId, setSelectedExitId] = useState<string | null>(null);
   const [countFormOpen, setCountFormOpen] = useState(false);
   const [selectedCountId, setSelectedCountId] = useState<string | null>(null);
 
@@ -76,6 +85,23 @@ export function InventoryRoute() {
     lowStockOnly: lowStockOnly || undefined,
     negativeOnly: negativeOnly || undefined,
   });
+
+  const toast = useToast();
+  const refreshReplacementCostsMutation = useRefreshReplacementCosts();
+  function handleRefreshReplacementCosts() {
+    refreshReplacementCostsMutation.mutate(undefined, {
+      onSuccess: (result) => {
+        toast.show({
+          message: inventoryLabels.replacementCostMcRefreshSuccess(result.refreshedItemIds.length),
+        });
+      },
+      onError: (err) => {
+        toast.show({
+          message: err instanceof ApiError ? err.message : inventoryLabels.errors.generic,
+        });
+      },
+    });
+  }
 
   // No `isActive` filter: exits can reference an item that was later deactivated, and the
   // Salidas table must still resolve its name/unit correctly for historical rows.
@@ -131,6 +157,16 @@ export function InventoryRoute() {
               />
               <span>{inventoryLabels.filterNegativeOnly}</span>
             </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="ml-auto"
+              onClick={handleRefreshReplacementCosts}
+              disabled={refreshReplacementCostsMutation.isPending}
+            >
+              {inventoryLabels.refreshReplacementCostsButton}
+            </Button>
           </div>
 
           <StockTable
@@ -161,9 +197,18 @@ export function InventoryRoute() {
             rows={exitsQuery.data?.exits ?? []}
             items={itemLookup}
             loading={exitsQuery.isLoading}
+            onRowClick={(row) => setSelectedExitId(row.id)}
           />
 
           <ExitForm open={exitFormOpen} onOpenChange={setExitFormOpen} />
+
+          <ExitDetailDrawer
+            exitId={selectedExitId}
+            open={selectedExitId !== null}
+            onOpenChange={(nextOpen) => {
+              if (!nextOpen) setSelectedExitId(null);
+            }}
+          />
         </div>
       ) : (
         <div className="flex flex-col gap-4">

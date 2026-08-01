@@ -17,7 +17,11 @@ import { CreateItemDialog } from "./CreateItemDialog";
 export interface ItemPickerProps {
   value: string | null;
   onChange: (itemId: string | null, item: ItemDto | null) => void;
-  kindFilter?: ItemKind;
+  /** A single kind narrows the server-side `GET /items?kind=` query (unchanged, original
+   * behavior). An array (KOK-025: recipes need "RAW_MATERIAL or SEMI_FINISHED") can't be passed
+   * to that endpoint — it only accepts one `kind` — so instead the unfiltered/search-matched
+   * result set is fetched and narrowed client-side; fine at this app's (solo-business) scale. */
+  kindFilter?: ItemKind | ItemKind[];
   placeholder?: string;
   disabled?: boolean;
   /** On by default — the inline "crear ítem" flow this component exists to provide. */
@@ -37,9 +41,11 @@ export function ItemPicker({
   const [createOpen, setCreateOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
+  const isMultiKind = Array.isArray(kindFilter);
+
   const selectedItemQuery = useItemQuery(value ?? undefined);
   const searchQuery = useItemsQuery({
-    kind: kindFilter,
+    kind: isMultiKind ? undefined : kindFilter,
     isActive: true,
     search: query.trim() || undefined,
   });
@@ -56,7 +62,10 @@ export function ItemPicker({
   }, [open]);
 
   const displayValue = open ? query : (selectedItemQuery.data?.name ?? "");
-  const results = searchQuery.data?.items ?? [];
+  const rawResults = searchQuery.data?.items ?? [];
+  const results = isMultiKind
+    ? rawResults.filter((item) => kindFilter.includes(item.kind))
+    : rawResults;
   const trimmedQuery = query.trim();
   const exactNameMatch = results.some(
     (item) => item.name.toLowerCase() === trimmedQuery.toLowerCase(),
@@ -126,7 +135,9 @@ export function ItemPicker({
           open={createOpen}
           onOpenChange={setCreateOpen}
           initialName={trimmedQuery}
-          kindFilter={kindFilter}
+          // CreateItemDialog only pre-selects a single ItemKind; with a multi-kind filter there's
+          // no single right default, so leave it unset and let the owner pick in the form.
+          kindFilter={isMultiKind ? undefined : kindFilter}
           onCreated={selectItem}
         />
       ) : null}

@@ -3,9 +3,14 @@
 // helpers, and the DDL enums (Doc 04). Internal helpers (numeric.ts) are
 // intentionally NOT re-exported.
 
+export * from "./audit";
 export * from "./auth";
+export * from "./backups";
 export * from "./catalog";
+export * from "./costing";
 export * from "./counts";
+export * from "./customers";
+export * from "./dashboard";
 export * from "./dates";
 export * from "./enums";
 export * from "./exits";
@@ -13,6 +18,12 @@ export * from "./finance";
 export * from "./inventory-views";
 export * from "./money";
 export * from "./onboarding";
+export * from "./orders";
+export * from "./pricing";
+export * from "./production-runs";
 export * from "./purchasing";
 export * from "./qty";
+export * from "./recipes";
+export * from "./sales";
+export * from "./sessions";
 export * from "./uuid";

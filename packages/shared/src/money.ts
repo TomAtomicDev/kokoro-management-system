@@ -1,21 +1,59 @@
-// Money primitives — the foundation of INV-6 (Doc 04 §2, ADR-011).
+// Money primitives — the foundation of INV-6 (Doc 04 §2, ADR-017).
 //
-// Representation: money is an INTEGER number of BOB centavos (Bs 12.50 → 1250).
-// We use a plain `number` (documented as centavos) rather than a nominal brand:
-// per the task's guidance this keeps every call site ergonomic, and the safety
-// that a brand would buy is instead enforced at runtime by `assertSafeInteger`
-// at each function boundary — non-integers, NaN and Infinity are rejected so a
-// stray float can never silently corrupt the books. Percentages are integer
-// basis points (30% → 3000). All arithmetic stays on integers; the only place
-// a fraction appears is inside a division that is immediately fed to
-// `roundHalfUpToInt` to produce a final centavos amount.
+// Representation: money is an INTEGER number of BOB centavos (Bs 12.50 → 1250),
+// and every per-unit rate is an INTEGER number of milli-centavos per WHOLE unit
+// (Bs 8.00/u → 800_000). One scale per concept; no concept has two.
+//
+// The money/rate/quantity types below are NOMINAL BRANDS (`number & { readonly
+// __brand }`), not bare `number`, because nothing else distinguishes two
+// same-shaped amounts on different scales — not the column, not the name, not
+// the TypeScript type — so mixing them would compile, run, and be wrong by a
+// factor of 1000 while looking plausible. Brands make that a compile error: a
+// bare number literal does not satisfy
+// `Centavos`/`BasisPoints`/`MilliCentavosPerUnit`, and crossing scales requires
+// the explicit conversion helpers below, which are the only place in the repo a
+// scale factor appears (enforced by `scripts/check-scale-literals.mjs`).
+// Runtime `assertSafeInteger` guards sit at every constructor and function
+// boundary — brands catch developer error, assertions catch bad input.
+//
+// All arithmetic stays on integers; the only place a fraction appears is
+// inside a division that is immediately fed to `roundHalfUpToInt` to produce
+// a final amount.
 
 import { assertSafeInteger, groupThousands } from "./numeric";
+import type { MilliUnits } from "./qty";
 
-/** Documentation alias: an integer number of BOB centavos. */
-export type Centavos = number;
-/** Documentation alias: an integer number of basis points (100% = 10000). */
-export type BasisPoints = number;
+/** An integer number of BOB centavos — a total, balance, or line amount. */
+export type Centavos = number & { readonly __brand: "Centavos" };
+/** An integer number of basis points (100% = 10000). */
+export type BasisPoints = number & { readonly __brand: "BasisPoints" };
+/**
+ * An integer number of milli-centavos per WHOLE unit (Doc 04 §2, ADR-017) —
+ * the single scale for every per-unit rate: sale price, WAC, replacement
+ * cost, a cost snapshot, theoretical unit cost. Bs 8.00/unit → `800_000`.
+ */
+export type MilliCentavosPerUnit = number & { readonly __brand: "MilliCentavosPerUnit" };
+
+/** Constructs a `Centavos` value, asserting it is a safe integer (INV-6). */
+export function toCentavos(value: number): Centavos {
+  assertSafeInteger(value, "centavos");
+  return value as Centavos;
+}
+
+/** Constructs a `BasisPoints` value, asserting it is a safe integer (INV-6). */
+export function toBasisPoints(value: number): BasisPoints {
+  assertSafeInteger(value, "basisPoints");
+  return value as BasisPoints;
+}
+
+/**
+ * Constructs a `MilliCentavosPerUnit` value, asserting it is a safe integer
+ * (INV-6).
+ */
+export function toMilliCentavosPerUnit(value: number): MilliCentavosPerUnit {
+  assertSafeInteger(value, "milliCentavosPerUnit");
+  return value as MilliCentavosPerUnit;
+}
 
 /**
  * The single half-up rounding primitive used "when producing a final money
@@ -48,7 +86,7 @@ export function addMoney(...amounts: Centavos[]): Centavos {
     sum += amount;
   }
   assertSafeInteger(sum, "sum");
-  return sum;
+  return sum as Centavos;
 }
 
 /** Subtract `b` centavos from `a` centavos. */
@@ -57,7 +95,7 @@ export function subMoney(a: Centavos, b: Centavos): Centavos {
   assertSafeInteger(b, "b");
   const result = a - b;
   assertSafeInteger(result, "result");
-  return result;
+  return result as Centavos;
 }
 
 /**
@@ -68,18 +106,38 @@ export function subMoney(a: Centavos, b: Centavos): Centavos {
 export function mulMoneyByBasisPoints(amount: Centavos, basisPoints: BasisPoints): Centavos {
   assertSafeInteger(amount, "amount");
   assertSafeInteger(basisPoints, "basisPoints");
-  return roundHalfUpToInt((amount * basisPoints) / 10000);
+  return roundHalfUpToInt((amount * basisPoints) / 10000) as Centavos;
 }
 
 /**
- * Multiply a per-unit price (centavos per whole unit) by a quantity expressed
- * in milli-units (see qty.ts), rounding half-up to whole centavos. e.g. a
- * price of Bs 8.00/unit for 1.5 units → mulMoneyByQty(800, 1500) → 1200.
+ * The only two scale-conversion helpers in the repo (Doc 04 §2, ADR-017): the
+ * sole place either a `/ 1_000_000` or `× 1_000_000` scale factor may appear
+ * in a cost or price expression. A bare `1000` / `1e6` anywhere else in such
+ * an expression is a review failure (D-5) — go through these instead.
  */
-export function mulMoneyByQty(unitPrice: Centavos, milliUnits: number): Centavos {
-  assertSafeInteger(unitPrice, "unitPrice");
-  assertSafeInteger(milliUnits, "milliUnits");
-  return roundHalfUpToInt((unitPrice * milliUnits) / 1000);
+
+/**
+ * Converts a per-WHOLE-unit rate (milli-centavos) and a quantity
+ * (milli-units) into a total money amount (centavos), rounding half-up to
+ * the whole centavo. e.g. a rate of Bs 8.00/unit (`800_000` mc) for 1.5
+ * units (`1500` mu) → `totalCentavos(800_000, 1500)` → `1200` (Bs 12.00).
+ */
+export function totalCentavos(rate: MilliCentavosPerUnit, qty: MilliUnits): Centavos {
+  assertSafeInteger(rate, "rate");
+  assertSafeInteger(qty, "qty");
+  return roundHalfUpToInt((rate * qty) / 1_000_000) as Centavos;
+}
+
+/**
+ * Derives the per-WHOLE-unit rate (milli-centavos) that a total money amount
+ * (centavos) over a quantity (milli-units) implies, rounding half-up — the
+ * inverse of `totalCentavos`. e.g. `rateFromTotal(1200, 1500)` → `800_000`
+ * (Bs 8.00/unit, recovered from Bs 12.00 over 1.5 units).
+ */
+export function rateFromTotal(total: Centavos, qty: MilliUnits): MilliCentavosPerUnit {
+  assertSafeInteger(total, "total");
+  assertSafeInteger(qty, "qty");
+  return roundHalfUpToInt((total * 1_000_000) / qty) as MilliCentavosPerUnit;
 }
 
 /**
@@ -149,7 +207,7 @@ export function allocateLargestRemainder(total: Centavos, weights: readonly numb
     leftover--;
   }
 
-  return result;
+  return result.map(toCentavos);
 }
 
 /**

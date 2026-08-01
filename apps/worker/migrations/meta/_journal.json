@@ -8,6 +8,69 @@
       "when": 1784009141871,
       "tag": "0001_init",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1784422569830,
+      "tag": "0002_costing_adjustments",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1784899273562,
+      "tag": "0003_allow_session_costing_trigger",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1784929836056,
+      "tag": "0004_allow_sale_costing_trigger",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1785340000000,
+      "tag": "0005_receivables_net_of_deposit",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1785350000000,
+      "tag": "0006_fix_price_health_view",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1785360000000,
+      "tag": "0007_wac_family_mc_scale",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1785456000000,
+      "tag": "0008_replacement_cost_mc_scale",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1785542400000,
+      "tag": "0009_sale_price_mc_scale",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1785628800000,
+      "tag": "0010_price_history_mc_scale",
+      "breakpoints": true
     }
   ]
 }

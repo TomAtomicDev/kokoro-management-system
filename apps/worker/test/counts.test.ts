@@ -393,7 +393,7 @@ describe("commitCount (UC-10 step 3)", () => {
     const itemAfterSecondPurchase = await db.query.items.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
     });
-    expect(itemAfterSecondPurchase?.wac).toBe(4);
+    expect(itemAfterSecondPurchase?.wacMc).toBe(4_000_000);
 
     await updateCountLine(
       db,
@@ -407,14 +407,15 @@ describe("commitCount (UC-10 step 3)", () => {
       where: (t, { and, eq: eqOp }) =>
         and(eqOp(t.sourceEventType, "inventory_count"), eqOp(t.itemId, item.id)),
     });
-    expect(movementRow?.unitCost).toBe(4); // WAC at COMMIT time, not the 2 it was at count-start
+    // WAC at COMMIT time (4_000_000), not the 2_000_000 it was at count-start.
+    expect(movementRow?.unitCostMc).toBe(4_000_000);
 
     // C-6-style invariant (mirrors exits.ts): valuing the ADJUST at current WAC must not itself
     // mutate that WAC.
     const itemAfterCommit = await db.query.items.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
     });
-    expect(itemAfterCommit?.wac).toBe(4);
+    expect(itemAfterCommit?.wacMc).toBe(4_000_000);
   });
 
   it("multi-item count: several deltas (mixed sign) update each item's stock independently", async () => {

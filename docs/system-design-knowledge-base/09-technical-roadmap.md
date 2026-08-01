@@ -1,16 +1,21 @@
 # 09 — Technical Roadmap
 
-Six phases. Each phase ends **deployed to production and usable** — the owner gets value from
-Phase 1 onward; Excel is retired incrementally, not big-bang. Durations assume AI-assisted solo
-development; they are sequencing guides, not commitments.
+Seven delivery phases plus two inserted remediation/depth phases (P3.5, P5.5 — half-numbers mark
+work added after the original plan, sequenced by execution order, not by when it was written).
+Each phase ends **deployed to production and usable** — the owner gets value from Phase 1 onward;
+Excel is retired incrementally, not big-bang. Durations assume AI-assisted solo development; they
+are sequencing guides, not commitments.
 
 ```
 P0 Foundations ─► P1 Money & Stock Ledger ─► P2 Production & Costing ─► P3 Sales & Orders
-                                                        │                     │
-                                                        └────────► P4 Telegram + AI Capture
-                                                                        │
-                                                                        ▼
-                                                              P5 Insights & Analytical AI ─► P6 Hardening
+                                                                              │
+                                                        P3.5 Numeric Foundation ◄┘
+                                                                │
+                                                                ▼
+                                                      P4 Telegram + AI Capture
+                                                                │
+                                                                ▼
+                       P5 Insights & Analytical AI ─► P5.5 Business Health Data ─► P6 Hardening
 ```
 
 ## Phase 0 — Foundations (≈1 week)
@@ -42,6 +47,20 @@ Catalog sales + receivables (SC-02/03), price_history, customers, custom-order l
 deposit liability (SC-04, O-1…O-5), price-health report v1 (SC-12).
 **Exit:** full Modality 1 + 2 operation in production; Excel fully retired.
 
+## Phase 3.5 — Numeric Foundation (≈0.5 week)
+
+Branded numeric scales in `packages/shared`, migration 0007 normalizing every per-unit rate to
+milli-centavos per whole unit, and the call-site cleanup that removes ~25 ad-hoc ×1000
+conversions (ADR-017). Inserted 2026-07-27 after two 1000× unit bugs shipped.
+**Exit:** no `REAL` in the schema, no ad-hoc money/quantity scale conversion outside
+`shared/money.ts`, WAC replay reproducible bit-for-bit.
+**Why here and not later:** P4 freezes field names into shared Zod schemas, prompt few-shots and
+golden eval fixtures, so a rename afterwards costs a re-blessing of the eval suite that D-7
+deliberately makes expensive; running the migration first lets the whole AI layer be authored
+once against final names. P5/P5.5 are then pure price-vs-cost arithmetic on top. And the
+migration rescales stored values, so it must land before the owner has real data — it is a
+one-way door the moment she does.
+
 ## Phase 4 — Telegram + AI Capture (≈2 weeks) — *the mobile experience*
 
 Telegram bot (webhook, dedupe, chat-id auth, `/start` linking), assistant runtime + tool
@@ -55,6 +74,16 @@ web QuickAdd bar reusing CAPTURE.
 QUERY pipeline + web chat with charts (SC-14), reports suite (SC-11, SC-13), time-profitability
 metrics (S-4, G3), dashboard v2 (full SC-01), AI Ops panel (SC-17), weekly digest job.
 **Exit:** G2/G3 delivered; owner reviews price health weekly from the dashboard.
+
+## Phase 5.5 — Business Health Data (≈1 week)
+
+Turns recorded events into decisions: money-at-risk ranking and price staleness on SC-12,
+contribution Pareto, Bs/hora per product, input cost index, real-vs-nominal position and weekly
+profit/Bs-h trends in SC-13's new "Salud del negocio" tab, plus the two health lines in the
+Monday digest. `replacement_cost_history` (KOK-073) starts recording immediately, ahead of any
+consumer, because that series cannot be backfilled.
+**Exit:** every G2/G3 number the owner sees is expressed in Bs or Bs/hour and links to the data
+behind it; no chart on screen approximates a series the system does not actually store.
 
 ## Phase 6 — Hardening & polish (ongoing, first pass ≈1 week)
 
@@ -70,6 +99,12 @@ OCR to prefill purchases, collaborator role.
 - P4 depends only on P1–P3 services existing (tools wrap them); the eval suite (P4) must exist
   **before** P5 prompt iteration.
 - R2 backup (P1) intentionally precedes any real data accumulation.
+- P3.5 blocks P4 (which freezes field names into eval fixtures), P5 and P5.5 (price-vs-cost
+  math), and KOK-036. It must land before the owner has any data, since migration 0007 rescales
+  stored values.
+- P5.5 depends on P5's report shell (SC-13 tabs) and on KOK-051 for the S-4 definitions, except
+  KOK-073, which is blocked only by P3.5 and must ship before go-live — it accumulates a series
+  that no later task can reconstruct, and the clock starts when real purchases do.
 
 ## Post-v1 candidate directions (not committed)
 

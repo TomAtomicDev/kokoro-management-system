@@ -19,11 +19,13 @@ import { PanelRoute } from "@/routes/panel";
 import { PriceHealthRoute } from "@/routes/price-health";
 import { ProductionRoute } from "@/routes/production";
 import { PurchasesRoute } from "@/routes/purchases";
+import { RecipesRoute } from "@/routes/recipes";
 import { ReportsRoute } from "@/routes/reports";
 import { SalesRoute } from "@/routes/sales";
 import { SessionsRoute } from "@/routes/sessions";
 import { SettingsRoute } from "@/routes/settings";
 import { SettingsAiRoute } from "@/routes/settings-ai";
+import { SettingsBackupsRoute } from "@/routes/settings-backups";
 import { SettingsCatalogRoute } from "@/routes/settings-catalog";
 
 // Code-based routing (not file-based): the true root is bare (just an <Outlet/>, TanStack
@@ -97,6 +99,16 @@ const purchasesRoute = createRoute({
   component: PurchasesRoute,
 });
 
+// Sibling of productionRoute, NOT a nested child — /production stays a bare placeholder route
+// (KOK-026 owns building the real nested Production layout later). Doc 06 §2's nav tree lists
+// only one top-level "Producción" entry; recipes is reached from within that screen via a link
+// card, not a second sidebar item (see nav-items.ts's AppPath union / primaryNav).
+const productionRecipesRoute = createRoute({
+  getParentRoute: () => authenticatedRoute,
+  path: "/production/recipes",
+  component: RecipesRoute,
+});
+
 const inventoryRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: "/inventory",
@@ -106,6 +118,15 @@ const inventoryRoute = createRoute({
 const sessionsRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: "/sessions",
+  // `?open=<id>` deep-links straight into one session's detail drawer (KOK-027's own addition,
+  // consumed by SessionsRoute via `getRouteApi("/sessions").useSearch()`) — the topbar SessionChip
+  // uses this to jump right into the close-session flow for the one currently OPEN session,
+  // mirroring loginRoute's `redirect` search param as the only other precedent for a validated
+  // search param in this router. Loosely typed on purpose, same as loginRoute (no zod dependency
+  // here, D-10).
+  validateSearch: (search: Record<string, unknown>): { open?: string } => ({
+    open: typeof search.open === "string" ? search.open : undefined,
+  }),
   component: SessionsRoute,
 });
 
@@ -151,6 +172,12 @@ const settingsCatalogRoute = createRoute({
   component: SettingsCatalogRoute,
 });
 
+const settingsBackupsRoute = createRoute({
+  getParentRoute: () => authenticatedRoute,
+  path: "/settings/backups",
+  component: SettingsBackupsRoute,
+});
+
 const onboardingRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: "/onboarding",
@@ -163,6 +190,7 @@ const routeTree = rootRoute.addChildren([
     salesRoute,
     ordersRoute,
     productionRoute,
+    productionRecipesRoute,
     purchasesRoute,
     inventoryRoute,
     sessionsRoute,
@@ -173,6 +201,7 @@ const routeTree = rootRoute.addChildren([
     settingsRoute,
     settingsAiRoute,
     settingsCatalogRoute,
+    settingsBackupsRoute,
     onboardingRoute,
   ]),
   loginRoute,
