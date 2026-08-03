@@ -69,7 +69,7 @@ export const recipesLabels = {
     G: "g",
     KG: "kg",
     ML: "ml",
-    L: "l",
+    L: "L",
     UNIT: "u",
   } satisfies Record<Unit, string>,
 
