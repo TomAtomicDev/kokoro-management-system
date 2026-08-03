@@ -17,6 +17,7 @@ export const onboardingLabels = {
   loading: "Cargando…",
 
   errors: {
+    tooManyDecimals: "Usa como máximo 2 decimales (centavos).",
     generic: "Ocurrió un error inesperado. Intenta de nuevo.",
     invalidAmount: "Ingresa un monto válido (0 o mayor).",
   },
