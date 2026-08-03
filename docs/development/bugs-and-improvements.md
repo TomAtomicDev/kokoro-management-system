@@ -70,7 +70,7 @@ Feasibility reflects the decisions recorded in [Resolved decisions](#resolved-de
 | BI-03  | Money field rejects 3 decimals with a misleading message   | balances | 🐞   | 🟢 Decided      | S    | 3   | P1         | ✅ Done | KOK-094 |
 | BI-04  | Catalog row errors always report "monto inválido"          | catalog  | 🐞   | 🟢 Direct       | S    | 3   | P1         | ✅ Done | KOK-095 |
 | BI-05  | No way to add a row to the initial catalog                 | catalog  | 🐞   | 🟢 Direct       | XS   | 2   | P1         | ✅ Done | KOK-089 |
-| BI-06  | Catalog validation ignores kind-conditional required rules | catalog  | 🧭   | 🟢 Decided      | M    | 4   | P1         | 📋 To Do | KOK-096 |
+| BI-06  | Catalog validation ignores kind-conditional required rules | catalog  | 🧭   | 🟢 Decided      | M    | 4   | P1         | ✅ Done | KOK-096 |
 | BI-07  | No way to go back a step                                   | flow     | 🧭   | 🟢 Direct       | S    | 3   | P1         | ✅ Done | KOK-093 |
 | BI-08  | Re-entering `/onboarding` after completion is unguarded    | flow     | 🐞   | 🟢 Direct       | S    | 2   | P1         | ✅ Done | KOK-091 |
 | BI-09  | Missing `PASTRY` category                                  | catalog  | ✨   | 🟢 Decided      | M    | 3   | P2         | ✅ Done | KOK-097 |
