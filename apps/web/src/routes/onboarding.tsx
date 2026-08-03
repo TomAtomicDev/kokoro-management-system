@@ -31,9 +31,9 @@ export function OnboardingRoute() {
   // ready by the time the owner reaches that step, mirroring routes/inventory.tsx's itemLookup.
   const itemsQuery = useItemsQuery({});
   const itemLookup = useMemo(() => {
-    const map = new Map<string, { name: string; unit: ItemDto["unit"] }>();
+    const map = new Map<string, { name: string; unit: ItemDto["unit"]; kind: ItemDto["kind"] }>();
     for (const item of itemsQuery.data?.items ?? []) {
-      map.set(item.id, { name: item.name, unit: item.unit });
+      map.set(item.id, { name: item.name, unit: item.unit, kind: item.kind });
     }
     return map;
   }, [itemsQuery.data]);
