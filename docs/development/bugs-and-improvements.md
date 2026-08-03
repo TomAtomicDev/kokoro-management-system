@@ -67,19 +67,19 @@ Feasibility reflects the decisions recorded in [Resolved decisions](#resolved-de
 | ------ | ---------------------------------------------------------- | -------- | ---- | --------------- | ---- | --- | ---------- | ------- | ---- |
 | BI-01  | Opening count writes stock in at unit cost 0               | count    | 🐞   | 🟢 Decided      | M    | 5   | **P0**     | ✅ Done | KOK-084 |
 | BI-02  | No initial unit cost captured for opening stock            | count    | ✨   | 🟢 Decided      | M    | 5   | **P0**     | ✅ Done | KOK-084 |
-| BI-03  | Money field rejects 3 decimals with a misleading message   | balances | 🐞   | 🟢 Decided      | S    | 3   | P1         | 📋 To Do | KOK-094 |
-| BI-04  | Catalog row errors always report "monto inválido"          | catalog  | 🐞   | 🟢 Direct       | S    | 3   | P1         | 📋 To Do | KOK-095 |
+| BI-03  | Money field rejects 3 decimals with a misleading message   | balances | 🐞   | 🟢 Decided      | S    | 3   | P1         | ✅ Done | KOK-094 |
+| BI-04  | Catalog row errors always report "monto inválido"          | catalog  | 🐞   | 🟢 Direct       | S    | 3   | P1         | ✅ Done | KOK-095 |
 | BI-05  | No way to add a row to the initial catalog                 | catalog  | 🐞   | 🟢 Direct       | XS   | 2   | P1         | ✅ Done | KOK-089 |
 | BI-06  | Catalog validation ignores kind-conditional required rules | catalog  | 🧭   | 🟢 Decided      | M    | 4   | P1         | 📋 To Do | KOK-096 |
 | BI-07  | No way to go back a step                                   | flow     | 🧭   | 🟢 Direct       | S    | 3   | P1         | ✅ Done | KOK-093 |
 | BI-08  | Re-entering `/onboarding` after completion is unguarded    | flow     | 🐞   | 🟢 Direct       | S    | 2   | P1         | ✅ Done | KOK-091 |
-| BI-09  | Missing `PASTRY` category                                  | catalog  | ✨   | 🟢 Decided      | M    | 3   | P2         | 📋 To Do | KOK-097 |
-| BI-10  | Missing `M` unit                                           | catalog  | ✨   | 🟢 Decided      | M    | 3   | P2         | 📋 To Do | KOK-097 |
+| BI-09  | Missing `PASTRY` category                                  | catalog  | ✨   | 🟢 Decided      | M    | 3   | P2         | ✅ Done | KOK-097 |
+| BI-10  | Missing `M` unit                                           | catalog  | ✨   | 🟢 Decided      | M    | 3   | P2         | ✅ Done | KOK-097 |
 | BI-11  | Owner-managed (create/archive) categories                  | catalog  | ✨   | 🔴 Design first | L    | 4   | P2         | 📋 To Do | —    |
 | BI-12  | Seed the three starter recipes                             | recipes  | ✨   | 🟢 Decided      | M    | 3   | P2         | 📋 To Do | KOK-098 |
 | BI-15  | "Unmetered" items (Agua) — perpetual negative stock        | catalog  | ✨   | 🔴 Design first | L    | 4   | P2         | 📋 To Do | —    |
-| BI-13  | Count table: group rows by item kind                       | count    | 🧭   | 🟢 Direct       | S    | 2   | P2         | 📋 To Do | KOK-092 |
-| BI-14  | Count table: drop "Esperado"/"Variación", show the unit    | count    | 🧭   | 🟢 Direct       | XS   | 2   | P2         | 📋 To Do | KOK-088 |
+| BI-13  | Count table: group rows by item kind                       | count    | 🧭   | 🟢 Direct       | S    | 2   | P2         | ✅ Done | KOK-092 |
+| BI-14  | Count table: drop "Esperado"/"Variación", show the unit    | count    | 🧭   | 🟢 Direct       | XS   | 2   | P2         | ✅ Done | KOK-088 |
 | BI-16  | Catalog table forces horizontal scroll                     | catalog  | 🧭   | 🟢 Direct       | XS   | 2   | P2         | ✅ Done | KOK-087 |
 | BI-17  | Catalog header columns misaligned with body columns        | catalog  | 🐞   | 🟢 Direct       | XS   | 1   | P2         | ✅ Done | KOK-085 |
 | BI-18  | Decimal separator convention never stated to the owner     | flow     | 🧭   | 🟢 Direct       | XS   | 2   | P2         | ✅ Done | KOK-090 |
