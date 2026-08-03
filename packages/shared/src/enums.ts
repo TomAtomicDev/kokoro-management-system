@@ -89,6 +89,7 @@ export const STOCK_MOVEMENT_TYPES = [
   "SALE_OUT",
   "EXIT_OUT",
   "ADJUST",
+  "OPENING_IN",
 ] as const;
 export type StockMovementType = (typeof STOCK_MOVEMENT_TYPES)[number];
 export const stockMovementTypeSchema = z.enum(STOCK_MOVEMENT_TYPES);

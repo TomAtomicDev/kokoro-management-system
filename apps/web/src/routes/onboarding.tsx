@@ -100,9 +100,10 @@ export function OnboardingRoute() {
   }
 
   const isReviewingCommittedStep = committedSteps.has(currentStep);
+  const shellWidth = currentStep === 3 ? "max-w-6xl" : "max-w-2xl";
 
   return (
-    <div className="mx-auto flex max-w-2xl flex-col gap-6">
+    <div className={`mx-auto flex w-full ${shellWidth} flex-col gap-6`}>
       <div>
         <h1 className="font-semibold text-2xl text-foreground">{onboardingLabels.title}</h1>
         <p className="text-muted-foreground text-sm">{onboardingLabels.subtitle}</p>

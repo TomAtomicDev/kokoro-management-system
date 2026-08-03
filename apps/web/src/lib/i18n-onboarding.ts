@@ -30,6 +30,7 @@ export const onboardingLabels = {
   balancesTitle: "Saldos iniciales",
   balancesBody:
     "Registra con cuánto dinero arrancas en cada cuenta. Esto marca el punto de partida de tus finanzas.",
+  decimalHelp: "Puedes usar coma o punto para los decimales (máx. 2).",
   fieldBank: "Banco",
   fieldCash: "Caja",
   submitBalances: "Guardar saldos",
@@ -44,6 +45,7 @@ export const onboardingLabels = {
   columnUnit: "Unidad",
   columnSalePrice: "Precio de venta (Bs)",
   columnMinStock: "Stock mínimo",
+  addRow: "Agregar ítem",
   removeRow: "Quitar",
   catalogEmpty: "Quitaste todos los ítems. Agrega al menos uno para continuar, u omite este paso.",
   submitCatalog: "Crear catálogo",
@@ -80,7 +82,16 @@ export const onboardingLabels = {
   countColumnItem: "Ítem",
   countColumnExpected: "Esperado",
   countColumnCounted: "Contado",
+  countColumnUnitCost: "Costo unitario",
   countColumnDelta: "Variación",
+  countUnitCostRequired: "Indica un costo unitario mayor que cero para valorar este stock inicial.",
+  unitAbbrev: {
+    G: "g",
+    KG: "kg",
+    ML: "ml",
+    L: "l",
+    UNIT: "u",
+  } satisfies Record<Unit, string>,
   noCountLines: "No hay ítems para contar todavía.",
   submitCount: "Confirmar y finalizar",
 

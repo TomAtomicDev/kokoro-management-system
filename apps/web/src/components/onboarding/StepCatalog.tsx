@@ -8,6 +8,7 @@
 // 1:1, so a parsed row can be handed to `bulkCreateItemsCommandSchema` with zero extra mapping.
 
 import {
+  generateUuidV7,
   ITEM_CATEGORIES,
   ITEM_KINDS,
   type ItemCategory,
@@ -18,7 +19,11 @@ import {
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 
-import { type ItemFormValues, parseItemFormValues } from "@/components/catalog/ItemForm";
+import {
+  emptyItemFormValues,
+  type ItemFormValues,
+  parseItemFormValues,
+} from "@/components/catalog/ItemForm";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -148,6 +153,10 @@ function fixtureToRow(item: FixtureItem, index: number): CatalogRow {
   };
 }
 
+function createBlankRow(): CatalogRow {
+  return { id: generateUuidV7(), ...emptyItemFormValues() };
+}
+
 export interface StepCatalogProps {
   onDone: () => void;
   onSkip: () => void;
@@ -192,6 +201,10 @@ export function StepCatalog({ onDone, onSkip, readOnly = false }: StepCatalogPro
     setRows((prev) => prev.filter((row) => row.id !== id));
   }
 
+  function addRow() {
+    setRows((prev) => [...prev, createBlankRow()]);
+  }
+
   async function handleSubmit() {
     setError(null);
 
@@ -220,9 +233,9 @@ export function StepCatalog({ onDone, onSkip, readOnly = false }: StepCatalogPro
         <p className="text-muted-foreground text-sm">{onboardingLabels.catalogBody}</p>
       </div>
 
-      <div className="overflow-x-auto rounded-lg border border-border">
-        <div className="min-w-[860px]">
-          <div className="grid grid-cols-[2fr_1.2fr_1.2fr_0.8fr_1fr_1fr_auto] gap-2 border-b border-border bg-card px-3 py-2 text-xs font-medium text-muted-foreground">
+      <div className="rounded-lg border border-border md:overflow-x-auto">
+        <div className="md:min-w-[860px]">
+          <div className="grid grid-cols-[2fr_1.2fr_1.2fr_0.8fr_1fr_1fr_4rem] gap-2 border-b border-border bg-card px-3 py-2 text-xs font-medium text-muted-foreground max-md:hidden">
             <span>{onboardingLabels.columnName}</span>
             <span>{onboardingLabels.columnKind}</span>
             <span>{onboardingLabels.columnCategory}</span>
@@ -234,72 +247,134 @@ export function StepCatalog({ onDone, onSkip, readOnly = false }: StepCatalogPro
           {rows.map((row) => (
             <div
               key={row.id}
-              className="grid grid-cols-[2fr_1.2fr_1.2fr_0.8fr_1fr_1fr_auto] items-center gap-2 border-b border-border px-3 py-2 text-sm last:border-0"
+              className="grid grid-cols-[2fr_1.2fr_1.2fr_0.8fr_1fr_1fr_4rem] items-center gap-2 border-b border-border px-3 py-2 text-sm last:border-0 max-md:mb-3 max-md:flex max-md:flex-col max-md:items-stretch max-md:gap-3 max-md:rounded-md max-md:border max-md:bg-card max-md:p-3 max-md:last:mb-0"
             >
-              <Input
-                value={row.name}
-                onChange={(e) => updateRow(row.id, "name", e.target.value)}
-                disabled={disabled}
-              />
-              <Select
-                value={row.kind}
-                onChange={(e) => updateRow(row.id, "kind", e.target.value as ItemKind)}
-                disabled={disabled}
+              <label
+                className="contents max-md:flex max-md:flex-col max-md:gap-1"
+                htmlFor={`catalog-${row.id}-name`}
               >
-                {ITEM_KINDS.map((k) => (
-                  <option key={k} value={k}>
-                    {onboardingLabels.kindLabels[k]}
-                  </option>
-                ))}
-              </Select>
-              <Select
-                value={row.category}
-                onChange={(e) => updateRow(row.id, "category", e.target.value as ItemCategory)}
-                disabled={disabled}
+                <span className="hidden font-medium text-muted-foreground text-xs max-md:block">
+                  {onboardingLabels.columnName}
+                </span>
+                <Input
+                  id={`catalog-${row.id}-name`}
+                  value={row.name}
+                  onChange={(e) => updateRow(row.id, "name", e.target.value)}
+                  disabled={disabled}
+                />
+              </label>
+              <label
+                className="contents max-md:flex max-md:flex-col max-md:gap-1"
+                htmlFor={`catalog-${row.id}-kind`}
               >
-                {ITEM_CATEGORIES.map((c) => (
-                  <option key={c} value={c}>
-                    {onboardingLabels.categoryLabels[c]}
-                  </option>
-                ))}
-              </Select>
-              <Select
-                value={row.unit}
-                onChange={(e) => updateRow(row.id, "unit", e.target.value as Unit)}
-                disabled={disabled}
+                <span className="hidden font-medium text-muted-foreground text-xs max-md:block">
+                  {onboardingLabels.columnKind}
+                </span>
+                <Select
+                  id={`catalog-${row.id}-kind`}
+                  value={row.kind}
+                  onChange={(e) => updateRow(row.id, "kind", e.target.value as ItemKind)}
+                  disabled={disabled}
+                >
+                  {ITEM_KINDS.map((k) => (
+                    <option key={k} value={k}>
+                      {onboardingLabels.kindLabels[k]}
+                    </option>
+                  ))}
+                </Select>
+              </label>
+              <label
+                className="contents max-md:flex max-md:flex-col max-md:gap-1"
+                htmlFor={`catalog-${row.id}-category`}
               >
-                {UNITS.map((u) => (
-                  <option key={u} value={u}>
-                    {onboardingLabels.unitLabels[u]}
-                  </option>
-                ))}
-              </Select>
-              <Input
-                inputMode="decimal"
-                placeholder="0.00"
-                value={row.salePrice}
-                onChange={(e) => updateRow(row.id, "salePrice", e.target.value)}
-                disabled={disabled}
-              />
-              <Input
-                inputMode="decimal"
-                placeholder="0"
-                value={row.minStockQty}
-                onChange={(e) => updateRow(row.id, "minStockQty", e.target.value)}
-                disabled={disabled}
-              />
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => removeRow(row.id)}
-                disabled={disabled}
+                <span className="hidden font-medium text-muted-foreground text-xs max-md:block">
+                  {onboardingLabels.columnCategory}
+                </span>
+                <Select
+                  id={`catalog-${row.id}-category`}
+                  value={row.category}
+                  onChange={(e) => updateRow(row.id, "category", e.target.value as ItemCategory)}
+                  disabled={disabled}
+                >
+                  {ITEM_CATEGORIES.map((c) => (
+                    <option key={c} value={c}>
+                      {onboardingLabels.categoryLabels[c]}
+                    </option>
+                  ))}
+                </Select>
+              </label>
+              <label
+                className="contents max-md:flex max-md:flex-col max-md:gap-1"
+                htmlFor={`catalog-${row.id}-unit`}
               >
-                {onboardingLabels.removeRow}
-              </Button>
+                <span className="hidden font-medium text-muted-foreground text-xs max-md:block">
+                  {onboardingLabels.columnUnit}
+                </span>
+                <Select
+                  id={`catalog-${row.id}-unit`}
+                  value={row.unit}
+                  onChange={(e) => updateRow(row.id, "unit", e.target.value as Unit)}
+                  disabled={disabled}
+                >
+                  {UNITS.map((u) => (
+                    <option key={u} value={u}>
+                      {onboardingLabels.unitLabels[u]}
+                    </option>
+                  ))}
+                </Select>
+              </label>
+              <label
+                className="contents max-md:flex max-md:flex-col max-md:gap-1"
+                htmlFor={`catalog-${row.id}-sale-price`}
+              >
+                <span className="hidden font-medium text-muted-foreground text-xs max-md:block">
+                  {onboardingLabels.columnSalePrice}
+                </span>
+                <Input
+                  id={`catalog-${row.id}-sale-price`}
+                  inputMode="decimal"
+                  placeholder="0.00"
+                  value={row.salePrice}
+                  onChange={(e) => updateRow(row.id, "salePrice", e.target.value)}
+                  disabled={disabled}
+                />
+              </label>
+              <label
+                className="contents max-md:flex max-md:flex-col max-md:gap-1"
+                htmlFor={`catalog-${row.id}-min-stock`}
+              >
+                <span className="hidden font-medium text-muted-foreground text-xs max-md:block">
+                  {onboardingLabels.columnMinStock}
+                </span>
+                <Input
+                  id={`catalog-${row.id}-min-stock`}
+                  inputMode="decimal"
+                  placeholder="0"
+                  value={row.minStockQty}
+                  onChange={(e) => updateRow(row.id, "minStockQty", e.target.value)}
+                  disabled={disabled}
+                />
+              </label>
+              <div className="max-md:flex max-md:justify-end">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => removeRow(row.id)}
+                  disabled={disabled}
+                >
+                  {onboardingLabels.removeRow}
+                </Button>
+              </div>
             </div>
           ))}
         </div>
+      </div>
+
+      <div className="flex justify-start">
+        <Button type="button" variant="outline" onClick={addRow} disabled={disabled}>
+          {onboardingLabels.addRow}
+        </Button>
       </div>
 
       {rows.length === 0 ? (

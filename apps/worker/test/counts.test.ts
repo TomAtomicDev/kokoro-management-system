@@ -317,6 +317,67 @@ describe("commitCount (UC-10 step 3)", () => {
     expect(minusMovement).toMatchObject({ type: "ADJUST", qty: -6 });
   });
 
+  it("values a first positive count as OPENING_IN, updates WAC, and requires a positive caller cost", async () => {
+    const db = createDb(env.DB);
+    const item = await seedItem(db, "Opening valuation item", "RAW_MATERIAL", "OTHER");
+    const started = await startCount(
+      db,
+      { category: "OTHER", occurredAt: NOW, businessDate: BUSINESS_DATE },
+      ACTOR,
+    );
+    const line = started.count.lines.find((candidate) => candidate.itemId === item.id);
+    expect(line?.expectedQty).toBe(0);
+    expect(line?.hasPriorMovements).toBe(false);
+
+    await updateCountLine(
+      db,
+      { countId: started.count.id, itemId: item.id, countedQty: 12_000 },
+      ACTOR,
+    );
+
+    await expect(commitCount(db, { countId: started.count.id }, ACTOR)).rejects.toMatchObject({
+      code: "VALIDATION",
+    });
+    await expect(
+      commitCount(
+        db,
+        {
+          countId: started.count.id,
+          lines: [{ itemId: item.id, unitCostMc: 0 }],
+        },
+        ACTOR,
+      ),
+    ).rejects.toMatchObject({ code: "VALIDATION" });
+
+    const committed = await commitCount(
+      db,
+      {
+        countId: started.count.id,
+        lines: [{ itemId: item.id, unitCostMc: 2_500_000 }],
+      },
+      ACTOR,
+    );
+    expect(committed.adjustments).toContainEqual({ itemId: item.id, delta: 12_000 });
+
+    const movement = await db.query.stockMovements.findFirst({
+      where: (t, { and, eq: eqOp }) =>
+        and(eqOp(t.sourceEventType, "inventory_count"), eqOp(t.itemId, item.id)),
+    });
+    expect(movement).toMatchObject({ type: "OPENING_IN", qty: 12_000, unitCostMc: 2_500_000 });
+
+    const storedItem = await db.query.items.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
+    });
+    expect(storedItem?.wacMc).toBe(2_500_000);
+    expect(storedItem?.replacementCostMc).toBe(0);
+
+    const financialRows = await db.query.financialTransactions.findMany({
+      where: (t, { and, eq: eqOp }) =>
+        and(eqOp(t.sourceEventType, "inventory_count"), eqOp(t.sourceEventId, started.count.id)),
+    });
+    expect(financialRows).toHaveLength(0);
+  });
+
   it("a perfect count (all lines zero-variance) commits successfully with an empty adjustments array and NO movements at all", async () => {
     const db = createDb(env.DB);
     const item = await seedItemWithStock(db, "Perfect count item", 10, "RAW_MATERIAL", "OTHER");
@@ -656,7 +717,14 @@ describe("property: count cycles interleaved with purchases keep item_stock cons
                 { countId: started.count.id, itemId: item.id, countedQty: round.countedQty },
                 ACTOR,
               );
-              await commitCount(db, { countId: started.count.id }, ACTOR);
+              const openingLines =
+                expectedQtyAtStart === 0 &&
+                round.interleavedPurchases.length === 0 &&
+                round.countedQty > 0 &&
+                ourLine?.hasPriorMovements === false
+                  ? [{ itemId: item.id, unitCostMc: 1_000_000 }]
+                  : [];
+              await commitCount(db, { countId: started.count.id, lines: openingLines }, ACTOR);
 
               // Frozen-snapshot semantics: delta is against expectedQtyAtStart, NEVER the live
               // stock at commit time (which interleavedPurchases above may have moved).
