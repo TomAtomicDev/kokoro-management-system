@@ -48,7 +48,15 @@ interface FixtureItem {
 // expects.
 const FIXTURE_ITEMS: FixtureItem[] = [
   {
-    name: "Masa madre",
+    name: "Masa madre refrigerada",
+    kind: "SEMI_FINISHED",
+    category: "BAKERY",
+    unit: "G",
+    salePrice: null,
+    minStockQty: null,
+  },
+  {
+    name: "Masa madre activada",
     kind: "SEMI_FINISHED",
     category: "BAKERY",
     unit: "G",
@@ -62,6 +70,30 @@ const FIXTURE_ITEMS: FixtureItem[] = [
     unit: "KG",
     salePrice: null,
     minStockQty: 10000,
+  },
+  {
+    name: "Agua",
+    kind: "RAW_MATERIAL",
+    category: "INGREDIENT",
+    unit: "L",
+    salePrice: null,
+    minStockQty: 0,
+  },
+  {
+    name: "Sal",
+    kind: "RAW_MATERIAL",
+    category: "INGREDIENT",
+    unit: "G",
+    salePrice: null,
+    minStockQty: 0,
+  },
+  {
+    name: "Pan blanco pequeño",
+    kind: "FINISHED",
+    category: "BAKERY",
+    unit: "UNIT",
+    salePrice: 1500,
+    minStockQty: null,
   },
   {
     name: "Leche",
