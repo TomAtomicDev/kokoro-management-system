@@ -33,9 +33,9 @@ export const items = sqliteTable(
     name: text("name").notNull().unique(),
     kind: text("kind", { enum: ["RAW_MATERIAL", "SEMI_FINISHED", "FINISHED"] }).notNull(),
     category: text("category", {
-      enum: ["INGREDIENT", "PACKAGING", "LABEL", "BAKERY", "DAIRY", "OTHER"],
+      enum: ["INGREDIENT", "PACKAGING", "LABEL", "BAKERY", "DAIRY", "PASTRY", "OTHER"],
     }).notNull(),
-    unit: text("unit", { enum: ["G", "KG", "ML", "L", "UNIT"] }).notNull(),
+    unit: text("unit", { enum: ["G", "KG", "ML", "L", "UNIT", "M"] }).notNull(),
     wacMc: integer("wac_mc").notNull().default(0),
     replacementCostMc: integer("replacement_cost_mc").notNull().default(0),
     replacementCostUpdatedAt: text("replacement_cost_updated_at"),
@@ -53,9 +53,9 @@ export const items = sqliteTable(
     ),
     categoryCheck: check(
       "items_category_check",
-      sql`${t.category} IN ('INGREDIENT','PACKAGING','LABEL','BAKERY','DAIRY','OTHER')`,
+      sql`${t.category} IN ('INGREDIENT','PACKAGING','LABEL','BAKERY','DAIRY','PASTRY','OTHER')`,
     ),
-    unitCheck: check("items_unit_check", sql`${t.unit} IN ('G','KG','ML','L','UNIT')`),
+    unitCheck: check("items_unit_check", sql`${t.unit} IN ('G','KG','ML','L','UNIT','M')`),
   }),
 );
 

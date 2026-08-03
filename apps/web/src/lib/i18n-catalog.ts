@@ -73,6 +73,7 @@ export const catalogLabels = {
     LABEL: "Etiqueta",
     BAKERY: "PanaderÃ­a",
     DAIRY: "LÃ¡cteo",
+    PASTRY: "Pastelería",
     OTHER: "Otro",
   },
   unitLabels: {
@@ -81,6 +82,7 @@ export const catalogLabels = {
     ML: "Mililitros (ml)",
     L: "Litros (L)",
     UNIT: "Unidad (u)",
+    M: "Metros (m)",
   },
 
   errors: {

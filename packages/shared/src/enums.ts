@@ -17,12 +17,13 @@ export const ITEM_CATEGORIES = [
   "LABEL",
   "BAKERY",
   "DAIRY",
+  "PASTRY",
   "OTHER",
 ] as const;
 export type ItemCategory = (typeof ITEM_CATEGORIES)[number];
 export const itemCategorySchema = z.enum(ITEM_CATEGORIES);
 
-export const UNITS = ["G", "KG", "ML", "L", "UNIT"] as const;
+export const UNITS = ["G", "KG", "ML", "L", "UNIT", "M"] as const;
 export type Unit = (typeof UNITS)[number];
 export const unitSchema = z.enum(UNITS);
 

@@ -71,6 +71,7 @@ export const recipesLabels = {
     ML: "ml",
     L: "L",
     UNIT: "u",
+    M: "m",
   } satisfies Record<Unit, string>,
 
   errors: {

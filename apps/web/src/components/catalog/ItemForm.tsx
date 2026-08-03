@@ -131,7 +131,14 @@ function Field({
 }
 
 /** Abbreviation for the "/ kg" style suffix on the derived cost figures below. */
-const UNIT_ABBREV: Record<Unit, string> = { G: "g", KG: "kg", ML: "ml", L: "L", UNIT: "u" };
+const UNIT_ABBREV: Record<Unit, string> = {
+  G: "g",
+  KG: "kg",
+  ML: "ml",
+  L: "L",
+  UNIT: "u",
+  M: "m",
+};
 
 export interface ItemFormProps {
   values: ItemFormValues;

@@ -62,8 +62,8 @@ CREATE TABLE items (
   name TEXT NOT NULL UNIQUE,                     -- display name (Spanish)
   kind TEXT NOT NULL CHECK (kind IN ('RAW_MATERIAL','SEMI_FINISHED','FINISHED')),
   category TEXT NOT NULL CHECK (category IN
-    ('INGREDIENT','PACKAGING','LABEL','BAKERY','DAIRY','OTHER')),
-  unit TEXT NOT NULL CHECK (unit IN ('G','KG','ML','L','UNIT')),
+    ('INGREDIENT','PACKAGING','LABEL','BAKERY','DAIRY','PASTRY','OTHER')),
+  unit TEXT NOT NULL CHECK (unit IN ('G','KG','ML','L','UNIT','M')),
   wac_mc INTEGER NOT NULL DEFAULT 0,             -- weighted avg cost, milli-centavos per whole unit (derived, C-1)
   replacement_cost_mc INTEGER NOT NULL DEFAULT 0,-- milli-centavos per whole unit (derived, C-3)
   replacement_cost_updated_at TEXT,

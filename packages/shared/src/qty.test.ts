@@ -24,6 +24,7 @@ describe("formatQty", () => {
     expect(formatQty(1500, "G")).toBe("1,5 g");
     expect(formatQty(2000, "L")).toBe("2 L");
     expect(formatQty(750, "ML")).toBe("0,75 ml");
+    expect(formatQty(1250, "M")).toBe("1,25 m");
   });
 
   it("trims trailing zeros and keeps up to milli precision", () => {
@@ -53,9 +54,9 @@ describe("formatQty", () => {
         fc.constantFrom(...UNITS),
         (milliUnits, unit) => {
           const s = formatQty(milliUnits, unit);
-          expect(s.endsWith(` ${{ G: "g", KG: "kg", ML: "ml", L: "L", UNIT: "u" }[unit]}`)).toBe(
-            true,
-          );
+          expect(
+            s.endsWith(` ${{ G: "g", KG: "kg", ML: "ml", L: "L", UNIT: "u", M: "m" }[unit]}`),
+          ).toBe(true);
           // decimal separator is a comma, never a dot
           const numeric = s.slice(0, s.lastIndexOf(" "));
           expect(numeric.includes(",") ? numeric.split(",").length : 2).toBe(2);
