@@ -88,7 +88,7 @@ export const onboardingLabels = {
     G: "g",
     KG: "kg",
     ML: "ml",
-    L: "l",
+    L: "L",
     UNIT: "u",
   } satisfies Record<Unit, string>,
   noCountLines: "No hay ítems para contar todavía.",
