@@ -20,6 +20,9 @@ export const onboardingLabels = {
     tooManyDecimals: "Usa como máximo 2 decimales (centavos).",
     generic: "Ocurrió un error inesperado. Intenta de nuevo.",
     invalidAmount: "Ingresa un monto válido (0 o mayor).",
+    nameRequired: "El nombre es obligatorio.",
+    salePriceInvalid: "Ingresa un precio de venta válido (0 o mayor).",
+    minStockQtyInvalid: "Ingresa un stock mínimo válido (0 o mayor).",
   },
 
   // --- Step 1: Contraseña (acknowledgment only, no form — the hash is a Worker secret) --------

@@ -4,8 +4,8 @@
 // remain. Reuses `ItemFormValues`/`parseItemFormValues` from ItemForm.tsx directly (per this task's
 // brief: "don't reinvent parsing rules") — each row is shaped exactly like a single ItemForm, so
 // the same salePrice-scale-2/minStockQty-scale-3 parsing this codebase already trusts applies here
-// unchanged, and `parseItemFormValues`'s output already matches `CreateItemCommand`'s field set
-// 1:1, so a parsed row can be handed to `bulkCreateItemsCommandSchema` with zero extra mapping.
+// unchanged, and the parser's successful `value` already matches `CreateItemCommand`'s field set
+// 1:1, so it can be handed to `bulkCreateItemsCommandSchema` with zero extra mapping.
 
 import {
   generateUuidV7,
@@ -21,6 +21,7 @@ import { useState } from "react";
 
 import {
   emptyItemFormValues,
+  type ItemFormParsed,
   type ItemFormValues,
   parseItemFormValues,
 } from "@/components/catalog/ItemForm";
@@ -166,6 +167,11 @@ export interface StepCatalogProps {
 export function StepCatalog({ onDone, onSkip, readOnly = false }: StepCatalogProps) {
   const [rows, setRows] = useState<CatalogRow[]>(() => FIXTURE_ITEMS.map(fixtureToRow));
   const [error, setError] = useState<string | null>(null);
+  const [rowError, setRowError] = useState<{
+    rowId: string;
+    field: "name" | "salePrice" | "minStockQty";
+    message: string;
+  } | null>(null);
 
   const mutation = useBulkCreateItems();
   const disabled = mutation.isPending;
@@ -195,10 +201,12 @@ export function StepCatalog({ onDone, onSkip, readOnly = false }: StepCatalogPro
 
   function updateRow<K extends keyof ItemFormValues>(id: string, key: K, value: ItemFormValues[K]) {
     setRows((prev) => prev.map((row) => (row.id === id ? { ...row, [key]: value } : row)));
+    setRowError((current) => (current?.rowId === id ? null : current));
   }
 
   function removeRow(id: string) {
     setRows((prev) => prev.filter((row) => row.id !== id));
+    setRowError((current) => (current?.rowId === id ? null : current));
   }
 
   function addRow() {
@@ -207,15 +215,20 @@ export function StepCatalog({ onDone, onSkip, readOnly = false }: StepCatalogPro
 
   async function handleSubmit() {
     setError(null);
+    setRowError(null);
 
-    const parsedItems = [];
+    const parsedItems: ItemFormParsed[] = [];
     for (const row of rows) {
       const parsed = parseItemFormValues(row);
-      if (!parsed) {
-        setError(`"${row.name || row.id}": ${onboardingLabels.errors.invalidAmount}`);
+      if (!parsed.ok) {
+        setRowError({
+          rowId: row.id,
+          field: parsed.field,
+          message: onboardingLabels.errors[parsed.code],
+        });
         return;
       }
-      parsedItems.push(parsed);
+      parsedItems.push(parsed.value);
     }
 
     try {
@@ -366,6 +379,16 @@ export function StepCatalog({ onDone, onSkip, readOnly = false }: StepCatalogPro
                   {onboardingLabels.removeRow}
                 </Button>
               </div>
+              {rowError?.rowId === row.id ? (
+                <p className="col-span-full text-negative text-xs max-md:w-full" role="alert">
+                  {rowError.field === "name"
+                    ? onboardingLabels.columnName
+                    : rowError.field === "salePrice"
+                      ? onboardingLabels.columnSalePrice
+                      : onboardingLabels.columnMinStock}
+                  : {rowError.message}
+                </p>
+              ) : null}
             </div>
           ))}
         </div>

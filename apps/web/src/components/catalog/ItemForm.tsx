@@ -81,33 +81,48 @@ export interface ItemFormParsed {
   notes: string | null;
 }
 
-/** Returns null for a field whose text didn't parse as a valid non-negative decimal. */
-export function parseItemFormValues(values: ItemFormValues): ItemFormParsed | null {
+export type ItemFormParseResult =
+  | { ok: true; value: ItemFormParsed }
+  | {
+      ok: false;
+      field: "name" | "salePrice" | "minStockQty";
+      code: "nameRequired" | "salePriceInvalid" | "minStockQtyInvalid";
+    };
+
+/** Returns a field-specific error when a value is missing or doesn't parse as a valid decimal. */
+export function parseItemFormValues(values: ItemFormValues): ItemFormParseResult {
   const name = values.name.trim();
-  if (name === "") return null;
+  if (name === "") return { ok: false, field: "name", code: "nameRequired" };
 
   let salePriceMc: MilliCentavosPerUnit | null = null;
   if (values.salePrice.trim() !== "") {
     const parsed = parseDecimalToInt(values.salePrice, 2);
-    if (parsed === null) return null;
+    if (parsed === null) {
+      return { ok: false, field: "salePrice", code: "salePriceInvalid" };
+    }
     salePriceMc = rateFromTotal(toCentavos(parsed), WHOLE_UNIT_MILLI_UNITS);
   }
 
   let minStockQty: number | null = null;
   if (values.minStockQty.trim() !== "") {
     const parsed = parseDecimalToInt(values.minStockQty, 3);
-    if (parsed === null) return null;
+    if (parsed === null) {
+      return { ok: false, field: "minStockQty", code: "minStockQtyInvalid" };
+    }
     minStockQty = parsed;
   }
 
   return {
-    name,
-    kind: values.kind,
-    category: values.category,
-    unit: values.unit,
-    salePriceMc,
-    minStockQty,
-    notes: values.notes.trim() === "" ? null : values.notes.trim(),
+    ok: true,
+    value: {
+      name,
+      kind: values.kind,
+      category: values.category,
+      unit: values.unit,
+      salePriceMc,
+      minStockQty,
+      notes: values.notes.trim() === "" ? null : values.notes.trim(),
+    },
   };
 }
 
