@@ -130,6 +130,9 @@ export const inventoryRoute = new Hono<{ Bindings: Env; Variables: Variables }>(
   })
   .post("/inventory/counts/:id/commit", async (c) => {
     const db = createDb(c.env.DB);
-    const body = commitCountCommandSchema.parse({ countId: c.req.param("id") });
+    const body = commitCountCommandSchema.parse({
+      ...(await c.req.json().catch(() => ({}))),
+      countId: c.req.param("id"),
+    });
     return c.json(await commitCount(db, body, ACTOR));
   });

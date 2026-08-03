@@ -71,6 +71,13 @@
       "when": 1785628800000,
       "tag": "0010_price_history_mc_scale",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1785715200000,
+      "tag": "0011_opening_in_movement_type",
+      "breakpoints": true
     }
   ]
 }

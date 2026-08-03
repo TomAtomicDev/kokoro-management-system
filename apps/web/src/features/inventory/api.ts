@@ -6,6 +6,7 @@
 // separate ones, mirroring purchasing's single PURCHASES_ROOT_KEY precedent).
 
 import type {
+  CommitCountCommand,
   CommitCountResult,
   DeleteStockExitCommand,
   DeleteStockExitResult,
@@ -259,8 +260,10 @@ export function useUpdateCountLine() {
 export function useCommitCount() {
   const invalidate = useInvalidateInventory();
   return useMutation({
-    mutationFn: (countId: string) =>
-      api.post<CommitCountResult>(`/inventory/counts/${countId}/commit`),
+    mutationFn: (input: CommitCountCommand | string) => {
+      const command = typeof input === "string" ? { countId: input } : input;
+      return api.post<CommitCountResult>(`/inventory/counts/${command.countId}/commit`, command);
+    },
     onSuccess: invalidate,
   });
 }

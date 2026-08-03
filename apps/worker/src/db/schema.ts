@@ -471,7 +471,15 @@ export const stockMovements = sqliteTable(
       .notNull()
       .references(() => items.id, { onDelete: "restrict" }),
     type: text("type", {
-      enum: ["PURCHASE_IN", "PRODUCTION_IN", "PRODUCTION_OUT", "SALE_OUT", "EXIT_OUT", "ADJUST"],
+      enum: [
+        "PURCHASE_IN",
+        "PRODUCTION_IN",
+        "PRODUCTION_OUT",
+        "SALE_OUT",
+        "EXIT_OUT",
+        "ADJUST",
+        "OPENING_IN",
+      ],
     }).notNull(),
     qty: integer("qty").notNull(),
     unitCostMc: integer("unit_cost_mc").notNull(),
@@ -483,7 +491,7 @@ export const stockMovements = sqliteTable(
   (t) => ({
     typeCheck: check(
       "stock_movements_type_check",
-      sql`${t.type} IN ('PURCHASE_IN','PRODUCTION_IN','PRODUCTION_OUT','SALE_OUT','EXIT_OUT','ADJUST')`,
+      sql`${t.type} IN ('PURCHASE_IN','PRODUCTION_IN','PRODUCTION_OUT','SALE_OUT','EXIT_OUT','ADJUST','OPENING_IN')`,
     ),
     ixItemDate: index("ix_movements_item_date").on(t.itemId, t.businessDate),
     ixSource: index("ix_movements_source").on(t.sourceEventType, t.sourceEventId),
