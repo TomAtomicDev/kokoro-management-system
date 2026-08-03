@@ -80,10 +80,8 @@ export const onboardingLabels = {
   countBody:
     "Cuenta el stock real de cada ítem para dejar tu inventario al día antes de empezar a operar.",
   countColumnItem: "Ítem",
-  countColumnExpected: "Esperado",
   countColumnCounted: "Contado",
   countColumnUnitCost: "Costo unitario",
-  countColumnDelta: "Variación",
   countUnitCostRequired: "Indica un costo unitario mayor que cero para valorar este stock inicial.",
   unitAbbrev: {
     G: "g",

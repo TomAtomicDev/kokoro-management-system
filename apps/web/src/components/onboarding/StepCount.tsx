@@ -7,7 +7,7 @@
 // (that's a slide-over triggered from the Inventory screen — awkward embedded inside a linear
 // wizard page), but follows the exact same data pattern: local `lineInputs` state seeded from the
 // count's lines, `parseDecimalToInt`/`formatIntAsDecimalInput` scale 3, blur-triggered
-// `useUpdateCountLine` calls, live-computed delta display.
+// `useUpdateCountLine` calls, and item-kind grouping.
 //
 // "Confirmar y finalizar" flushes any unsaved line edits (same reasoning as
 // CountDetailView.handleOpenConfirm: the owner may click confirm without blurring the last field
@@ -16,9 +16,9 @@
 // without also completing onboarding some other way, since that's the only signal gating the "/"
 // redirect) — the DRAFT count is simply left uncommitted, which has no effect on stock.
 
-import type { InventoryCountLineDto, Unit } from "@kokoro/shared";
+import type { InventoryCountLineDto, ItemKind, Unit } from "@kokoro/shared";
 import {
-  formatQty,
+  ITEM_KINDS,
   nowIso,
   rateFromTotal,
   toBusinessDate,
@@ -40,12 +40,11 @@ import { useCompleteOnboarding } from "@/features/onboarding/api";
 import { ApiError } from "@/lib/api";
 import { formatIntAsDecimalInput, parseDecimalToInt } from "@/lib/decimal";
 import { onboardingLabels } from "@/lib/i18n-onboarding";
-import { cn } from "@/lib/utils";
 
 export interface StepCountProps {
   /** itemId -> { name, unit }, built by the caller from useItemsQuery — same lookup
    * routes/inventory.tsx builds for CountDetailView. */
-  items: Map<string, { name: string; unit: Unit }>;
+  items: Map<string, { name: string; unit: Unit; kind: ItemKind }>;
 }
 
 export function StepCount({ items }: StepCountProps) {
@@ -203,6 +202,14 @@ export function StepCount({ items }: StepCountProps) {
   }
 
   const disabled = finishing || commitMutation.isPending || completeMutation.isPending;
+  const linesByKind = new Map<ItemKind, InventoryCountLineDto[]>();
+  for (const kind of ITEM_KINDS) linesByKind.set(kind, []);
+  if (count) {
+    for (const line of count.lines) {
+      const kind = items.get(line.itemId)?.kind;
+      if (kind) linesByKind.get(kind)?.push(line);
+    }
+  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -217,65 +224,73 @@ export function StepCount({ items }: StepCountProps) {
         <p className="text-muted-foreground text-sm">{onboardingLabels.noCountLines}</p>
       ) : (
         <div className="overflow-hidden rounded-lg border border-border">
-          <div className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-3 border-b border-border bg-card px-3 py-2 text-xs font-medium text-muted-foreground">
+          <div className="grid grid-cols-[1fr_auto_auto] gap-3 border-b border-border bg-card px-3 py-2 text-xs font-medium text-muted-foreground">
             <span>{onboardingLabels.countColumnItem}</span>
-            <span className="text-right">{onboardingLabels.countColumnExpected}</span>
             <span className="text-right">{onboardingLabels.countColumnCounted}</span>
             <span className="text-right">{onboardingLabels.countColumnUnitCost}</span>
-            <span className="text-right">{onboardingLabels.countColumnDelta}</span>
           </div>
-          {count.lines.map((line) => {
-            const info = items.get(line.itemId);
-            const unit = info?.unit ?? "UNIT";
-            const delta = effectiveCountedQty(line) - line.expectedQty;
-            const openingCostNeeded = needsOpeningCost(line);
+          {ITEM_KINDS.map((kind) => {
+            const lines = linesByKind.get(kind) ?? [];
+            if (lines.length === 0) return null;
+
             return (
-              <div
-                key={line.id}
-                className="grid grid-cols-[1fr_auto_auto_auto_auto] items-center gap-3 border-b border-border px-3 py-2 text-sm last:border-0"
-              >
-                <span className="text-foreground">{info?.name ?? "—"}</span>
-                <span className="numeric-cell text-right text-muted-foreground">
-                  {formatQty(line.expectedQty, unit)}
-                </span>
-                <Input
-                  className="w-24"
-                  inputMode="decimal"
-                  value={lineInputs[line.itemId] ?? ""}
-                  onChange={(e) =>
-                    setLineInputs((prev) => ({ ...prev, [line.itemId]: e.target.value }))
-                  }
-                  onBlur={() => handleBlur(line)}
-                  disabled={disabled}
-                />
-                {openingCostNeeded ? (
-                  <div className="flex items-center gap-1">
-                    <Input
-                      className="w-24"
-                      inputMode="decimal"
-                      placeholder="0,00"
-                      value={unitCostInputs[line.itemId] ?? ""}
-                      required={openingCostNeeded}
-                      aria-required={openingCostNeeded}
-                      onChange={(e) =>
-                        setUnitCostInputs((prev) => ({
-                          ...prev,
-                          [line.itemId]: e.target.value,
-                        }))
-                      }
-                      disabled={disabled}
-                      aria-label={`${onboardingLabels.countColumnUnitCost} ${info?.name ?? line.itemId}`}
-                    />
-                    <span className="text-muted-foreground text-xs">
-                      Bs/{onboardingLabels.unitAbbrev[unit]}
-                    </span>
-                  </div>
-                ) : (
-                  <span className="text-right text-muted-foreground">—</span>
-                )}
-                <span className={cn("numeric-cell text-right", delta < 0 && "text-negative")}>
-                  {formatQty(delta, unit)}
-                </span>
+              <div key={kind} className="border-b border-border last:border-0">
+                <h3 className="border-b border-border bg-muted px-3 py-2 font-medium text-foreground text-sm">
+                  {onboardingLabels.kindLabels[kind]}
+                </h3>
+                {lines.map((line) => {
+                  const info = items.get(line.itemId);
+                  const unit = info?.unit ?? "UNIT";
+                  const openingCostNeeded = needsOpeningCost(line);
+                  return (
+                    <div
+                      key={line.id}
+                      className="grid grid-cols-[1fr_auto_auto] items-center gap-3 border-b border-border px-3 py-2 text-sm last:border-0"
+                    >
+                      <span className="text-foreground">{info?.name ?? "—"}</span>
+                      <div className="flex items-center justify-end gap-1">
+                        <Input
+                          className="w-24"
+                          inputMode="decimal"
+                          value={lineInputs[line.itemId] ?? ""}
+                          onChange={(e) =>
+                            setLineInputs((prev) => ({ ...prev, [line.itemId]: e.target.value }))
+                          }
+                          onBlur={() => handleBlur(line)}
+                          disabled={disabled}
+                        />
+                        <span className="text-muted-foreground text-xs">
+                          {onboardingLabels.unitAbbrev[unit]}
+                        </span>
+                      </div>
+                      {openingCostNeeded ? (
+                        <div className="flex items-center gap-1">
+                          <Input
+                            className="w-24"
+                            inputMode="decimal"
+                            placeholder="0,00"
+                            value={unitCostInputs[line.itemId] ?? ""}
+                            required={openingCostNeeded}
+                            aria-required={openingCostNeeded}
+                            onChange={(e) =>
+                              setUnitCostInputs((prev) => ({
+                                ...prev,
+                                [line.itemId]: e.target.value,
+                              }))
+                            }
+                            disabled={disabled}
+                            aria-label={`${onboardingLabels.countColumnUnitCost} ${info?.name ?? line.itemId}`}
+                          />
+                          <span className="text-muted-foreground text-xs">
+                            Bs/{onboardingLabels.unitAbbrev[unit]}
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-right text-muted-foreground">—</span>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             );
           })}
