@@ -17,7 +17,14 @@
 // redirect) — the DRAFT count is simply left uncommitted, which has no effect on stock.
 
 import type { InventoryCountLineDto, Unit } from "@kokoro/shared";
-import { formatQty, nowIso, toBusinessDate } from "@kokoro/shared";
+import {
+  formatQty,
+  nowIso,
+  rateFromTotal,
+  toBusinessDate,
+  toCentavos,
+  WHOLE_UNIT_MILLI_UNITS,
+} from "@kokoro/shared";
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 
@@ -46,6 +53,7 @@ export function StepCount({ items }: StepCountProps) {
 
   const [countId, setCountId] = useState<string | null>(null);
   const [lineInputs, setLineInputs] = useState<Record<string, string>>({});
+  const [unitCostInputs, setUnitCostInputs] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [finishing, setFinishing] = useState(false);
 
@@ -105,6 +113,10 @@ export function StepCount({ items }: StepCountProps) {
     return parsed ?? line.countedQty;
   }
 
+  function needsOpeningCost(line: InventoryCountLineDto): boolean {
+    return !line.hasPriorMovements && effectiveCountedQty(line) > 0;
+  }
+
   function handleBlur(line: InventoryCountLineDto) {
     if (!count) return;
     const raw = lineInputs[line.itemId];
@@ -153,7 +165,23 @@ export function StepCount({ items }: StepCountProps) {
           });
         }),
       );
-      await commitMutation.mutateAsync(count.id);
+
+      const openingLines = [];
+      for (const line of count.lines) {
+        if (!needsOpeningCost(line)) continue;
+        const parsedCostCentavos = parseDecimalToInt(unitCostInputs[line.itemId] ?? "", 2);
+        if (parsedCostCentavos === null || parsedCostCentavos <= 0) {
+          setError(onboardingLabels.countUnitCostRequired);
+          setFinishing(false);
+          return;
+        }
+        openingLines.push({
+          itemId: line.itemId,
+          unitCostMc: rateFromTotal(toCentavos(parsedCostCentavos), WHOLE_UNIT_MILLI_UNITS),
+        });
+      }
+
+      await commitMutation.mutateAsync({ countId: count.id, lines: openingLines });
       await completeMutation.mutateAsync();
       navigate({ to: "/" });
     } catch (err) {
@@ -189,20 +217,22 @@ export function StepCount({ items }: StepCountProps) {
         <p className="text-muted-foreground text-sm">{onboardingLabels.noCountLines}</p>
       ) : (
         <div className="overflow-hidden rounded-lg border border-border">
-          <div className="grid grid-cols-[1fr_auto_auto_auto] gap-3 border-b border-border bg-card px-3 py-2 text-xs font-medium text-muted-foreground">
+          <div className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-3 border-b border-border bg-card px-3 py-2 text-xs font-medium text-muted-foreground">
             <span>{onboardingLabels.countColumnItem}</span>
             <span className="text-right">{onboardingLabels.countColumnExpected}</span>
             <span className="text-right">{onboardingLabels.countColumnCounted}</span>
+            <span className="text-right">{onboardingLabels.countColumnUnitCost}</span>
             <span className="text-right">{onboardingLabels.countColumnDelta}</span>
           </div>
           {count.lines.map((line) => {
             const info = items.get(line.itemId);
             const unit = info?.unit ?? "UNIT";
             const delta = effectiveCountedQty(line) - line.expectedQty;
+            const openingCostNeeded = needsOpeningCost(line);
             return (
               <div
                 key={line.id}
-                className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-3 border-b border-border px-3 py-2 text-sm last:border-0"
+                className="grid grid-cols-[1fr_auto_auto_auto_auto] items-center gap-3 border-b border-border px-3 py-2 text-sm last:border-0"
               >
                 <span className="text-foreground">{info?.name ?? "—"}</span>
                 <span className="numeric-cell text-right text-muted-foreground">
@@ -218,6 +248,31 @@ export function StepCount({ items }: StepCountProps) {
                   onBlur={() => handleBlur(line)}
                   disabled={disabled}
                 />
+                {openingCostNeeded ? (
+                  <div className="flex items-center gap-1">
+                    <Input
+                      className="w-24"
+                      inputMode="decimal"
+                      placeholder="0,00"
+                      value={unitCostInputs[line.itemId] ?? ""}
+                      required={openingCostNeeded}
+                      aria-required={openingCostNeeded}
+                      onChange={(e) =>
+                        setUnitCostInputs((prev) => ({
+                          ...prev,
+                          [line.itemId]: e.target.value,
+                        }))
+                      }
+                      disabled={disabled}
+                      aria-label={`${onboardingLabels.countColumnUnitCost} ${info?.name ?? line.itemId}`}
+                    />
+                    <span className="text-muted-foreground text-xs">
+                      Bs/{onboardingLabels.unitAbbrev[unit]}
+                    </span>
+                  </div>
+                ) : (
+                  <span className="text-right text-muted-foreground">—</span>
+                )}
                 <span className={cn("numeric-cell text-right", delta < 0 && "text-negative")}>
                   {formatQty(delta, unit)}
                 </span>

@@ -25,6 +25,7 @@ describe("enums mirror Doc 04 DDL verbatim", () => {
       "SALE_OUT",
       "EXIT_OUT",
       "ADJUST",
+      "OPENING_IN",
     ]);
   });
 

@@ -47,6 +47,7 @@ export const inventoryLabels = {
   } satisfies Record<Unit, string>,
 
   movementTypeLabels: {
+    OPENING_IN: "Stock inicial",
     PURCHASE_IN: "Compra",
     PRODUCTION_IN: "ProducciÃ³n (entrada)",
     PRODUCTION_OUT: "ProducciÃ³n (consumo)",

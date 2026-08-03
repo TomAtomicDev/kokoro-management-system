@@ -25,7 +25,7 @@ import type { StockMovementInput } from "./types.js";
 type Statement = BatchItem<"sqlite">;
 
 /**
- * Canonical direction per movement type (Doc 03 §1-2). PURCHASE_IN/PRODUCTION_IN are always
+ * Canonical direction per movement type (Doc 03 §1-2). OPENING_IN/PURCHASE_IN/PRODUCTION_IN are always
  * entries (qty > 0); PRODUCTION_OUT/SALE_OUT/EXIT_OUT are always exits (qty < 0); ADJUST
  * (inventory-count variance) may be either sign but never zero — Doc 10's KOK-019 note says
  * "zero-variance lines produce no movement", so a zero-qty movement reaching this module is a
@@ -33,6 +33,7 @@ type Statement = BatchItem<"sqlite">;
  * depends on this being enforced centrally here, not trusted per-caller).
  */
 const MOVEMENT_DIRECTION: Record<StockMovementType, "IN" | "OUT" | "EITHER"> = {
+  OPENING_IN: "IN",
   PURCHASE_IN: "IN",
   PRODUCTION_IN: "IN",
   PRODUCTION_OUT: "OUT",
