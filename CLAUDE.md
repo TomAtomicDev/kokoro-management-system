@@ -36,7 +36,34 @@ See the `add-event-type` skill for the 10-step playbook.
 - **Never modify:** applied migration files; `audit_log` write paths; invariant guard tests (`test/invariants/*` — fix code, not tests); prompt eval golden files without an explicit human-approved reason recorded in the PR description.
 - **When uncertain** between two implementations, choose the one that keeps `core/` pure/testable and put the doubt in the PR description — do not silently expand scope.
 - **Zero new lint suppressions:** generated code must compile with no new `// biome-ignore` comments; if one is required, include a justification comment.
+- **Linting from inside a `.claude/worktrees/*` checkout:** `biome.json`'s `!**/.claude` exclusion matches anywhere in the resolved path, so any worktree — being physically nested under `.claude/`— reports "0 files" for `pnpm run lint` / `biome check .`, regardless of cwd or VCS flags. This is not a bug to fix by editing `biome.json` (it's shared across every checkout, including the main one — do not add worktree-specific exceptions to it). Instead scope the check to explicit paths: `pnpm exec biome check <changed files...>` or `pnpm --filter <pkg> exec biome check src`. `pnpm run typecheck` and test runners are unaffected and work normally from a worktree.
 - **Money math:** any task touching money math MUST add/extend a property-based test (Doc 11 §2).
+
+## Codex and Git worktrees
+
+When Codex operates inside a linked Git worktree:
+
+- Codex may edit files and run tests.
+- Codex must not run `git add`, `git commit`, `git merge`, `git worktree remove`, or other commands that modify Git metadata.
+- A Git commit failure caused by `.git/worktrees/*/index.lock` is an expected sandbox limitation, not a task failure.
+- After Codex finishes successfully, Claude must inspect the diff, verify the reported tests, stage only the intended files, and create the commit itself.
+
+## Codex delegation reliability
+
+- **Do not forward non-trivial prompts through the `codex:codex-rescue` subagent's inline text
+  argument.** It constructs its own shell-quoted `node codex-companion.mjs task "..."` call, and
+  long or quote-heavy prompts can silently arrive empty — Codex just replies "what would you like
+  me to work on?" with no error surfaced, and the subagent reports success anyway. Write the prompt
+  to a file (`$CLAUDE_JOB_DIR/tmp/...`) and invoke `node codex-companion.mjs task --background
+  --write --prompt-file <path>` directly instead; this transport doesn't hit the bug.
+- **A dispatched Codex job outlives `/stop` and outlives the harness losing track of its job id.**
+  It runs as an independent OS process (`ps aux | grep codex`), so `codex-companion status` going
+  silent on a job id (e.g. after the shared session runtime restarts) does not mean the process
+  died — check the job's log file directly (`.claude/plugins/data/codex-openai-codex/state/*/jobs/*.log`)
+  before assuming a job needs redispatching. Conversely, once a task has been taken over and
+  committed manually, explicitly `kill` the corresponding process — it will otherwise keep editing
+  files unsupervised (observed: a stray process rewrote a migration's journal version after the
+  branch had already been committed and pushed).
 
 ## Definition of Done
 
