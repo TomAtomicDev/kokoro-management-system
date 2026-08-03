@@ -78,6 +78,7 @@ export const productionLabels = {
     ML: "ml",
     L: "L",
     UNIT: "u",
+    M: "m",
   } satisfies Record<Unit, string>,
 
   errors: {

@@ -36,6 +36,7 @@ export const inventoryLabels = {
     LABEL: "Etiqueta",
     BAKERY: "PanaderÃ­a",
     DAIRY: "LÃ¡cteo",
+    PASTRY: "Pastelería",
     OTHER: "Otro",
   } satisfies Record<ItemCategory, string>,
   unitAbbrev: {
@@ -44,6 +45,7 @@ export const inventoryLabels = {
     ML: "ml",
     L: "L",
     UNIT: "u",
+    M: "m",
   } satisfies Record<Unit, string>,
 
   movementTypeLabels: {

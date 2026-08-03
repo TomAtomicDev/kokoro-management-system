@@ -61,6 +61,7 @@ export const onboardingLabels = {
     LABEL: "Etiqueta",
     BAKERY: "Panadería",
     DAIRY: "Lácteo",
+    PASTRY: "Pastelería",
     OTHER: "Otro",
   } satisfies Record<ItemCategory, string>,
   unitLabels: {
@@ -69,6 +70,7 @@ export const onboardingLabels = {
     ML: "Mililitros (ml)",
     L: "Litros (L)",
     UNIT: "Unidad (u)",
+    M: "Metros (m)",
   } satisfies Record<Unit, string>,
 
   // --- Step 4: Recetas (static pointer card, Recipes/KOK-025 doesn't exist yet) -----------------
@@ -91,6 +93,7 @@ export const onboardingLabels = {
     ML: "ml",
     L: "l",
     UNIT: "u",
+    M: "m",
   } satisfies Record<Unit, string>,
   noCountLines: "No hay ítems para contar todavía.",
   submitCount: "Confirmar y finalizar",

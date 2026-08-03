@@ -33,6 +33,7 @@ const UNIT_LABELS: Record<Unit, string> = {
   ML: "ml",
   L: "L",
   UNIT: "u",
+  M: "m",
 };
 
 /**

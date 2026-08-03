@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   FINANCIAL_TRANSACTION_CATEGORIES,
+  ITEM_CATEGORIES,
   ITEM_KINDS,
   itemKindSchema,
   STOCK_MOVEMENT_TYPES,
@@ -14,7 +15,19 @@ describe("enums mirror Doc 04 DDL verbatim", () => {
   });
 
   it("units", () => {
-    expect(UNITS).toEqual(["G", "KG", "ML", "L", "UNIT"]);
+    expect(UNITS).toEqual(["G", "KG", "ML", "L", "UNIT", "M"]);
+  });
+
+  it("item categories", () => {
+    expect(ITEM_CATEGORIES).toEqual([
+      "INGREDIENT",
+      "PACKAGING",
+      "LABEL",
+      "BAKERY",
+      "DAIRY",
+      "PASTRY",
+      "OTHER",
+    ]);
   });
 
   it("stock movement types", () => {
