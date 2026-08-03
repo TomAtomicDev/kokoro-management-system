@@ -81,9 +81,13 @@ export const onboardingLabels = {
     M: "Metros (m)",
   } satisfies Record<Unit, string>,
 
-  // --- Step 4: Recetas (static pointer card, Recipes/KOK-025 doesn't exist yet) -----------------
-  recipesTitle: "Recetas",
-  recipesBody: "Configura tus recetas en Producción → Recetas cuando estés lista.",
+  // --- Step 4: Recetas --------------------------------------------------------------------------
+  recipesTitle: "Recetas iniciales",
+  recipesBody:
+    "Crea tres recetas base para empezar a producir. Si prefieres configurarlas después, puedes omitir este paso.",
+  recipesPreviewTitle: "Se crearán estas recetas:",
+  recipesMissingItems: "Faltan estos ítems del catálogo; puedes omitir este paso:",
+  submitRecipes: "Crear recetas iniciales",
 
   // --- Step 5: Conteo inicial -------------------------------------------------------------------
   countTitle: "Conteo inicial",

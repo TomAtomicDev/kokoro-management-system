@@ -27,8 +27,8 @@ export function OnboardingRoute() {
   const [maxReachedStep, setMaxReachedStep] = useState(1);
   const [committedSteps, setCommittedSteps] = useState<Set<number>>(() => new Set());
 
-  // Only step 5 (the count checklist) needs the item name/unit lookup — fetched here so it's
-  // ready by the time the owner reaches that step, mirroring routes/inventory.tsx's itemLookup.
+  // Steps 4 and 5 need the catalog item list — step 4 resolves starter recipe names and step 5
+  // needs the item name/unit lookup, fetched here so both are ready when reached.
   const itemsQuery = useItemsQuery({});
   const itemLookup = useMemo(() => {
     const map = new Map<string, { name: string; unit: ItemDto["unit"]; kind: ItemDto["kind"] }>();
@@ -138,7 +138,7 @@ export function OnboardingRoute() {
             readOnly={isReviewingCommittedStep}
           />
         ) : currentStep === 4 ? (
-          <StepRecipes onContinue={() => goToStep(5)} />
+          <StepRecipes items={itemsQuery.data?.items ?? []} onContinue={() => goToStep(5)} />
         ) : (
           <StepCount items={itemLookup} />
         )}
