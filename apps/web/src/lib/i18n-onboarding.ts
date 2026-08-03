@@ -85,4 +85,7 @@ export const onboardingLabels = {
 
   // --- Completion --------------------------------------------------------------------------------
   redirecting: "Listo, te llevamos al panel…",
+  completedTitle: "Configuración inicial completada",
+  completedBody: "Tu espacio ya está listo para trabajar.",
+  goToPanel: "Ir al panel",
 } as const;

@@ -5,6 +5,7 @@
 // own form state and mutations (see components/onboarding/Step*.tsx).
 
 import type { ItemDto } from "@kokoro/shared";
+import { Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 
 import { StepBalances } from "@/components/onboarding/StepBalances";
@@ -13,12 +14,15 @@ import { StepCount } from "@/components/onboarding/StepCount";
 import { StepPassword } from "@/components/onboarding/StepPassword";
 import { Stepper } from "@/components/onboarding/Stepper";
 import { StepRecipes } from "@/components/onboarding/StepRecipes";
+import { buttonVariants } from "@/components/ui/button";
 import { useItemsQuery } from "@/features/catalog/api";
+import { useOnboardingStatus } from "@/features/onboarding/api";
 import { onboardingLabels } from "@/lib/i18n-onboarding";
 
 const STEP_COUNT = 5;
 
 export function OnboardingRoute() {
+  const statusQuery = useOnboardingStatus();
   const [currentStep, setCurrentStep] = useState(1);
 
   // Only step 5 (the count checklist) needs the item name/unit lookup — fetched here so it's
@@ -31,6 +35,48 @@ export function OnboardingRoute() {
     }
     return map;
   }, [itemsQuery.data]);
+
+  if (statusQuery.isLoading) {
+    return (
+      <div className="mx-auto flex max-w-2xl flex-col gap-6">
+        <div className="rounded-lg border border-border bg-card p-5">
+          <p className="text-muted-foreground text-sm">{onboardingLabels.loading}</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (statusQuery.data?.completed) {
+    return (
+      <div className="mx-auto flex max-w-2xl flex-col gap-6">
+        <div className="rounded-lg border border-border bg-card p-5">
+          <div className="flex flex-col gap-4">
+            <div>
+              <h1 className="font-semibold text-2xl text-foreground">
+                {onboardingLabels.completedTitle}
+              </h1>
+              <p className="text-muted-foreground text-sm">{onboardingLabels.completedBody}</p>
+            </div>
+            <div>
+              <Link to="/" className={buttonVariants()}>
+                {onboardingLabels.goToPanel}
+              </Link>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (statusQuery.isError || !statusQuery.data) {
+    return (
+      <div className="mx-auto flex max-w-2xl flex-col gap-6">
+        <div className="rounded-lg border border-border bg-card p-5">
+          <p className="text-negative text-sm">{onboardingLabels.errors.generic}</p>
+        </div>
+      </div>
+    );
+  }
 
   const completedSteps = Array.from({ length: currentStep - 1 }, (_, i) => i + 1);
 
