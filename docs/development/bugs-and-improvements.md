@@ -76,7 +76,7 @@ Feasibility reflects the decisions recorded in [Resolved decisions](#resolved-de
 | BI-09  | Missing `PASTRY` category                                  | catalog  | ✨   | 🟢 Decided      | M    | 3   | P2         | ✅ Done | KOK-097 |
 | BI-10  | Missing `M` unit                                           | catalog  | ✨   | 🟢 Decided      | M    | 3   | P2         | ✅ Done | KOK-097 |
 | BI-11  | Owner-managed (create/archive) categories                  | catalog  | ✨   | 🔴 Design first | L    | 4   | P2         | 📋 To Do | —    |
-| BI-12  | Seed the three starter recipes                             | recipes  | ✨   | 🟢 Decided      | M    | 3   | P2         | 📋 To Do | KOK-098 |
+| BI-12  | Seed the three starter recipes                             | recipes  | ✨   | 🟢 Decided      | M    | 3   | P2         | ✅ Done | KOK-098 |
 | BI-15  | "Unmetered" items (Agua) — perpetual negative stock        | catalog  | ✨   | 🔴 Design first | L    | 4   | P2         | 📋 To Do | —    |
 | BI-13  | Count table: group rows by item kind                       | count    | 🧭   | 🟢 Direct       | S    | 2   | P2         | ✅ Done | KOK-092 |
 | BI-14  | Count table: drop "Esperado"/"Variación", show the unit    | count    | 🧭   | 🟢 Direct       | XS   | 2   | P2         | ✅ Done | KOK-088 |
