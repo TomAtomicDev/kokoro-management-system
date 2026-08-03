@@ -31,7 +31,7 @@ const UNIT_LABELS: Record<Unit, string> = {
   G: "g",
   KG: "kg",
   ML: "ml",
-  L: "l",
+  L: "L",
   UNIT: "u",
 };
 

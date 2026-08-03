@@ -69,6 +69,7 @@ export function StepBalances({ onDone, onSkip }: StepBalancesProps) {
             onChange={(e) => setBankInput(e.target.value)}
             disabled={disabled}
           />
+          <p className="text-muted-foreground text-xs">{onboardingLabels.decimalHelp}</p>
         </div>
         <div className="flex flex-col gap-1.5">
           <label className="font-medium text-foreground text-sm" htmlFor="ob-cash">

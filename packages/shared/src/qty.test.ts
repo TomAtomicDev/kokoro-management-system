@@ -22,7 +22,7 @@ describe("formatQty", () => {
     expect(formatQty(1500, "KG")).toBe("1,5 kg");
     expect(formatQty(12000, "UNIT")).toBe("12 u");
     expect(formatQty(1500, "G")).toBe("1,5 g");
-    expect(formatQty(2000, "L")).toBe("2 l");
+    expect(formatQty(2000, "L")).toBe("2 L");
     expect(formatQty(750, "ML")).toBe("0,75 ml");
   });
 
@@ -53,7 +53,7 @@ describe("formatQty", () => {
         fc.constantFrom(...UNITS),
         (milliUnits, unit) => {
           const s = formatQty(milliUnits, unit);
-          expect(s.endsWith(` ${{ G: "g", KG: "kg", ML: "ml", L: "l", UNIT: "u" }[unit]}`)).toBe(
+          expect(s.endsWith(` ${{ G: "g", KG: "kg", ML: "ml", L: "L", UNIT: "u" }[unit]}`)).toBe(
             true,
           );
           // decimal separator is a comma, never a dot
