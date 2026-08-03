@@ -162,6 +162,35 @@ describe("recordRecipe", () => {
     ).rejects.toMatchObject({ code: "VALIDATION" });
   });
 
+  it("rejects a line item that is the recipe's own output item with VALIDATION", async () => {
+    const db = createDb(env.DB);
+    // SEMI_FINISHED is a legal output kind AND a legal ingredient kind, so nothing about the
+    // per-line kind check (above) would catch a starter feeding itself — this is the KOK-029
+    // staging incident: a sourdough-starter recipe listing the starter as its own ingredient
+    // makes the C-3 recipe graph cyclical, silently zeroing replacement_cost_mc catalog-wide.
+    const starter = await createIngredientItem(db, 5, 5, "SEMI_FINISHED");
+    const flour = await createIngredientItem(db, 5, 5);
+
+    await expect(
+      recordRecipe(
+        db,
+        {
+          name: "Alimentar la masa madre",
+          outputItemId: starter.id,
+          expectedYieldQty: 1000,
+          estLaborMin: null,
+          isDefault: false,
+          notes: null,
+          lines: [
+            { itemId: starter.id, qty: 100 },
+            { itemId: flour.id, qty: 100 },
+          ],
+        },
+        ACTOR,
+      ),
+    ).rejects.toMatchObject({ code: "VALIDATION" });
+  });
+
   it("creating a second recipe with isDefault:true flips the first one's isDefault to false", async () => {
     const db = createDb(env.DB);
     const output = await createOutputItem(db);
@@ -278,6 +307,46 @@ describe("updateRecipe", () => {
         ACTOR,
       ),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  it("rejects editing a line item to be the recipe's own output item with VALIDATION", async () => {
+    const db = createDb(env.DB);
+    const starter = await createIngredientItem(db, 5, 5, "SEMI_FINISHED");
+    const flour = await createIngredientItem(db, 5, 5);
+
+    const created = await recordRecipe(
+      db,
+      {
+        name: "Alimentar la masa madre",
+        outputItemId: starter.id,
+        expectedYieldQty: 1000,
+        estLaborMin: null,
+        isDefault: false,
+        notes: null,
+        lines: [{ itemId: flour.id, qty: 100 }],
+      },
+      ACTOR,
+    );
+
+    await expect(
+      updateRecipe(
+        db,
+        created.recipe.id,
+        {
+          name: "Alimentar la masa madre",
+          outputItemId: starter.id,
+          expectedYieldQty: 1000,
+          estLaborMin: null,
+          isDefault: false,
+          notes: null,
+          lines: [
+            { itemId: starter.id, qty: 100 },
+            { itemId: flour.id, qty: 100 },
+          ],
+        },
+        ACTOR,
+      ),
+    ).rejects.toMatchObject({ code: "VALIDATION" });
   });
 });
 

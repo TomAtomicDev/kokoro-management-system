@@ -44,7 +44,12 @@ type RecipeLineRow = typeof recipeLines.$inferSelect;
  * Doc 04 §5 integrity rule (not a DB CHECK — enforced here): the output item must exist and be
  * SEMI_FINISHED or FINISHED (never RAW_MATERIAL — a raw material is not something you produce);
  * every line item must exist and be RAW_MATERIAL or SEMI_FINISHED (never FINISHED — a finished
- * product is not consumed as an ingredient).
+ * product is not consumed as an ingredient); and no line may reference the recipe's own
+ * `outputItemId` — a direct self-reference always makes the recipe graph cyclical (KOK-029's
+ * `topoOrderAffectedItems` would otherwise only catch it later, at nightly C-3 refresh time, as an
+ * opaque "recetas forman un ciclo" 409 covering every FINISHED/SEMI_FINISHED item, not just the
+ * offending one — see the incident this guarded against: a SEMI_FINISHED item like a sourdough
+ * starter listing itself as an ingredient of its own "feed the starter" recipe).
  */
 async function validateRecipeItemKinds(
   db: Db,
@@ -65,6 +70,11 @@ async function validateRecipeItemKinds(
   }
 
   for (const line of lines) {
+    if (line.itemId === outputItemId) {
+      throw validationError("Un ítem no puede ser ingrediente de su propia receta.", {
+        itemId: line.itemId,
+      });
+    }
     const itemRow = await db.query.items.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.id, line.itemId),
     });

@@ -458,6 +458,16 @@ error is invisible. Views stay for row-shaping and joins; they do no margin arit
 
 - Sale lines only reference `kind='FINISHED'` items; recipe output must not be RAW_MATERIAL;
   production consumption items must not be FINISHED **unless** flagged rework (v1: forbidden).
+- **A recipe line must not reference its own recipe's `output_item_id`** (`recordRecipe`/
+  `updateRecipe`'s `validateRecipeItemKinds`, KOK-029 amendment): a direct self-reference always
+  makes the C-3 recipe graph cyclical, so `planReplacementCostRefresh`'s `topoOrderAffectedItems`
+  refuses the ENTIRE nightly/on-demand refresh with a 409 — not just for the offending item, for
+  every SEMI_FINISHED/FINISHED item downstream of it — leaving `replacement_cost_mc` stuck at 0 for
+  the whole catalog until a human notices and fixes the recipe. Recurring-input scenarios (e.g. a
+  sourdough starter "fed" with a portion of itself) are not modeled recursively in v1: cost such a
+  recipe using only its non-self ingredients, or track the reused portion as a separate line item.
+  Deeper multi-item cycles (A's recipe uses B, B's recipe uses A) are not blocked at save time —
+  they still surface later as the same refresh-time 409.
 - `purchases.total = Σ purchase_lines.line_total`; `sales.total = Σ qty×unit_price_mc / 1e6` (recomputed
   server-side, client values ignored).
 - `custom_orders` transitions only along the state machine (O-1…O-3). There is no generic
