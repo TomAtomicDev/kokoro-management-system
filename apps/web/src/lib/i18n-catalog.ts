@@ -88,5 +88,7 @@ export const catalogLabels = {
   errors: {
     generic: "OcurriÃ³ un error inesperado. Intenta de nuevo.",
     nameRequired: "El nombre es obligatorio.",
+    salePriceInvalid: "Ingresa un precio de venta válido (0 o mayor).",
+    minStockQtyInvalid: "Ingresa un stock mínimo válido (0 o mayor).",
   },
 } as const;

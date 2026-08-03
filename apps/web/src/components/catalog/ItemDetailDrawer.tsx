@@ -70,13 +70,13 @@ export function ItemDetailDrawer({ itemId, open, onOpenChange }: ItemDetailDrawe
   async function handleSave() {
     if (!values || !itemId) return;
     const parsed = parseItemFormValues(values);
-    if (!parsed) {
-      setError(catalogLabels.errors.nameRequired);
+    if (!parsed.ok) {
+      setError(catalogLabels.errors[parsed.code]);
       return;
     }
     setError(null);
     try {
-      await updateMutation.mutateAsync({ id: itemId, ...parsed });
+      await updateMutation.mutateAsync({ id: itemId, ...parsed.value });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : catalogLabels.errors.generic);
     }
