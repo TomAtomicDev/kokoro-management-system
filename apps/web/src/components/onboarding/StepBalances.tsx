@@ -12,7 +12,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useSetOpeningBalances } from "@/features/onboarding/api";
 import { ApiError } from "@/lib/api";
-import { parseDecimalToInt } from "@/lib/decimal";
+import { exceedsScale, parseDecimalToInt } from "@/lib/decimal";
 import { onboardingLabels } from "@/lib/i18n-onboarding";
 
 export interface StepBalancesProps {
@@ -62,7 +62,14 @@ export function StepBalances({ onDone, onSkip, readOnly = false }: StepBalancesP
     const bankOpening = parseAmount(bankInput);
     const cashOpening = parseAmount(cashInput);
     if (bankOpening === null || cashOpening === null) {
-      setError(onboardingLabels.errors.invalidAmount);
+      const hasTooManyDecimals =
+        (bankOpening === null && exceedsScale(bankInput, 2)) ||
+        (cashOpening === null && exceedsScale(cashInput, 2));
+      setError(
+        hasTooManyDecimals
+          ? onboardingLabels.errors.tooManyDecimals
+          : onboardingLabels.errors.invalidAmount,
+      );
       return;
     }
 

@@ -6,19 +6,33 @@
 /**
  * Parses a decimal string (Bolivian input accepts either "," or "." as the separator) into an
  * integer at `scale` decimal places. Returns null for blank input or anything that isn't a
- * non-negative decimal with at most `scale` fractional digits.
+ * non-negative decimal with at most `scale` meaningful fractional digits (trailing zeroes are
+ * ignored).
  */
 export function parseDecimalToInt(input: string, scale: number): number | null {
   const trimmed = input.trim().replace(",", ".");
   if (trimmed === "") return null;
   if (!/^\d+(\.\d+)?$/.test(trimmed)) return null;
 
-  const [intPart = "0", fracPart = ""] = trimmed.split(".");
+  const [intPart = "0", originalFracPart = ""] = trimmed.split(".");
+  const fracPart =
+    originalFracPart.length > scale ? originalFracPart.replace(/0+$/, "") : originalFracPart;
   if (fracPart.length > scale) return null;
 
   const digits = `${intPart}${fracPart.padEnd(scale, "0")}`.replace(/^0+(?=\d)/, "");
   const value = Number(digits);
   return Number.isSafeInteger(value) ? value : null;
+}
+
+/** Returns whether a valid decimal has non-zero digits beyond the requested scale. */
+export function exceedsScale(input: string, scale: number): boolean {
+  const trimmed = input.trim().replace(",", ".");
+  if (trimmed === "" || !/^\d+(\.\d+)?$/.test(trimmed)) return false;
+
+  const [, originalFracPart = ""] = trimmed.split(".");
+  const fracPart =
+    originalFracPart.length > scale ? originalFracPart.replace(/0+$/, "") : originalFracPart;
+  return fracPart.length > scale;
 }
 
 /** Inverse of parseDecimalToInt — formats a stored integer back into an editable decimal string. */
