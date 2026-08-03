@@ -11,6 +11,7 @@ export const onboardingLabels = {
   stepLabels: ["Contraseña", "Saldos iniciales", "Catálogo inicial", "Recetas", "Conteo inicial"],
 
   continueButton: "Continuar",
+  backButton: "Volver",
   skipButton: "Omitir",
   cancel: "Cancelar",
   loading: "Cargando…",
@@ -96,4 +97,11 @@ export const onboardingLabels = {
 
   // --- Completion --------------------------------------------------------------------------------
   redirecting: "Listo, te llevamos al panel…",
+  completedTitle: "Configuración inicial completada",
+  completedBody: "Tu espacio ya está listo para trabajar.",
+  goToPanel: "Ir al panel",
+  alreadySaved: "Ya guardado",
+  savedBalancesBody: "Estos saldos ya fueron guardados y no se pueden volver a enviar desde aquí.",
+  savedCatalogBody: "Este catálogo ya fue guardado y no se puede volver a crear desde aquí.",
+  goToSettings: "Ir a Configuración",
 } as const;

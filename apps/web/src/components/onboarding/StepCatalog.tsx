@@ -16,6 +16,7 @@ import {
   UNITS,
   type Unit,
 } from "@kokoro/shared";
+import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 
 import {
@@ -23,7 +24,7 @@ import {
   type ItemFormValues,
   parseItemFormValues,
 } from "@/components/catalog/ItemForm";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { useBulkCreateItems } from "@/features/onboarding/api";
@@ -159,14 +160,38 @@ function createBlankRow(): CatalogRow {
 export interface StepCatalogProps {
   onDone: () => void;
   onSkip: () => void;
+  readOnly?: boolean;
 }
 
-export function StepCatalog({ onDone, onSkip }: StepCatalogProps) {
+export function StepCatalog({ onDone, onSkip, readOnly = false }: StepCatalogProps) {
   const [rows, setRows] = useState<CatalogRow[]>(() => FIXTURE_ITEMS.map(fixtureToRow));
   const [error, setError] = useState<string | null>(null);
 
   const mutation = useBulkCreateItems();
   const disabled = mutation.isPending;
+
+  if (readOnly) {
+    return (
+      <div className="flex flex-col gap-4">
+        <div>
+          <h2 className="font-medium text-foreground text-lg">{onboardingLabels.catalogTitle}</h2>
+          <p className="text-muted-foreground text-sm">{onboardingLabels.catalogBody}</p>
+        </div>
+        <div className="rounded-md border border-border bg-muted px-4 py-3 text-sm">
+          <p className="font-medium text-foreground">{onboardingLabels.alreadySaved}</p>
+          <p className="text-muted-foreground">{onboardingLabels.savedCatalogBody}</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Link to="/settings" className={buttonVariants({ variant: "outline" })}>
+            {onboardingLabels.goToSettings}
+          </Link>
+          <Button type="button" onClick={onDone}>
+            {onboardingLabels.continueButton}
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   function updateRow<K extends keyof ItemFormValues>(id: string, key: K, value: ItemFormValues[K]) {
     setRows((prev) => prev.map((row) => (row.id === id ? { ...row, [key]: value } : row)));
