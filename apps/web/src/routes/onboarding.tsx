@@ -14,7 +14,7 @@ import { StepCount } from "@/components/onboarding/StepCount";
 import { StepPassword } from "@/components/onboarding/StepPassword";
 import { Stepper } from "@/components/onboarding/Stepper";
 import { StepRecipes } from "@/components/onboarding/StepRecipes";
-import { buttonVariants } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { useItemsQuery } from "@/features/catalog/api";
 import { useOnboardingStatus } from "@/features/onboarding/api";
 import { onboardingLabels } from "@/lib/i18n-onboarding";
@@ -24,6 +24,8 @@ const STEP_COUNT = 5;
 export function OnboardingRoute() {
   const statusQuery = useOnboardingStatus();
   const [currentStep, setCurrentStep] = useState(1);
+  const [maxReachedStep, setMaxReachedStep] = useState(1);
+  const [committedSteps, setCommittedSteps] = useState<Set<number>>(() => new Set());
 
   // Only step 5 (the count checklist) needs the item name/unit lookup — fetched here so it's
   // ready by the time the owner reaches that step, mirroring routes/inventory.tsx's itemLookup.
@@ -78,11 +80,26 @@ export function OnboardingRoute() {
     );
   }
 
-  const completedSteps = Array.from({ length: currentStep - 1 }, (_, i) => i + 1);
+  const completedSteps = Array.from({ length: maxReachedStep - 1 }, (_, i) => i + 1).filter(
+    (step) => step !== currentStep,
+  );
 
   function goToStep(step: number) {
-    setCurrentStep(Math.min(step, STEP_COUNT));
+    const nextStep = Math.max(1, Math.min(step, STEP_COUNT));
+    setCurrentStep(nextStep);
+    setMaxReachedStep((previous) => Math.max(previous, nextStep));
   }
+
+  function commitStepAndGoTo(step: number, committedStep: number) {
+    setCommittedSteps((previous) => {
+      const next = new Set(previous);
+      next.add(committedStep);
+      return next;
+    });
+    goToStep(step);
+  }
+
+  const isReviewingCommittedStep = committedSteps.has(currentStep);
 
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-6">
@@ -98,12 +115,27 @@ export function OnboardingRoute() {
       />
 
       <div className="rounded-lg border border-border bg-card p-5">
+        {currentStep > 1 ? (
+          <div className="mb-4">
+            <Button type="button" variant="outline" onClick={() => goToStep(currentStep - 1)}>
+              {onboardingLabels.backButton}
+            </Button>
+          </div>
+        ) : null}
         {currentStep === 1 ? (
           <StepPassword onContinue={() => goToStep(2)} />
         ) : currentStep === 2 ? (
-          <StepBalances onDone={() => goToStep(3)} onSkip={() => goToStep(3)} />
+          <StepBalances
+            onDone={() => commitStepAndGoTo(3, 2)}
+            onSkip={() => goToStep(3)}
+            readOnly={isReviewingCommittedStep}
+          />
         ) : currentStep === 3 ? (
-          <StepCatalog onDone={() => goToStep(4)} onSkip={() => goToStep(4)} />
+          <StepCatalog
+            onDone={() => commitStepAndGoTo(4, 3)}
+            onSkip={() => goToStep(4)}
+            readOnly={isReviewingCommittedStep}
+          />
         ) : currentStep === 4 ? (
           <StepRecipes onContinue={() => goToStep(5)} />
         ) : (

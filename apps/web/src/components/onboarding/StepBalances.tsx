@@ -5,9 +5,10 @@
 // service's own message_es (e.g. "Ya se completó la configuración inicial…" if onboarding was
 // completed elsewhere), no need to special-case the CONFLICT code here.
 
+import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useSetOpeningBalances } from "@/features/onboarding/api";
 import { ApiError } from "@/lib/api";
@@ -17,15 +18,39 @@ import { onboardingLabels } from "@/lib/i18n-onboarding";
 export interface StepBalancesProps {
   onDone: () => void;
   onSkip: () => void;
+  readOnly?: boolean;
 }
 
-export function StepBalances({ onDone, onSkip }: StepBalancesProps) {
+export function StepBalances({ onDone, onSkip, readOnly = false }: StepBalancesProps) {
   const [bankInput, setBankInput] = useState("");
   const [cashInput, setCashInput] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   const mutation = useSetOpeningBalances();
   const disabled = mutation.isPending;
+
+  if (readOnly) {
+    return (
+      <div className="flex flex-col gap-4">
+        <div>
+          <h2 className="font-medium text-foreground text-lg">{onboardingLabels.balancesTitle}</h2>
+          <p className="text-muted-foreground text-sm">{onboardingLabels.balancesBody}</p>
+        </div>
+        <div className="rounded-md border border-border bg-muted px-4 py-3 text-sm">
+          <p className="font-medium text-foreground">{onboardingLabels.alreadySaved}</p>
+          <p className="text-muted-foreground">{onboardingLabels.savedBalancesBody}</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Link to="/settings" className={buttonVariants({ variant: "outline" })}>
+            {onboardingLabels.goToSettings}
+          </Link>
+          <Button type="button" onClick={onDone}>
+            {onboardingLabels.continueButton}
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   function parseAmount(raw: string): number | null {
     if (raw.trim() === "") return 0;
