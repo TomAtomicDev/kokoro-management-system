@@ -66,7 +66,7 @@ export const onboardingLabels = {
     G: "Gramos (g)",
     KG: "Kilogramos (kg)",
     ML: "Mililitros (ml)",
-    L: "Litros (L)",
+    L: "Litros (l)",
     UNIT: "Unidad (u)",
   } satisfies Record<Unit, string>,
 
