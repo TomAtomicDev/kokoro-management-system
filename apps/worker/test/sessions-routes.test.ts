@@ -326,6 +326,7 @@ describe("DELETE /api/sessions/:id and POST /api/sessions/:id/restore", () => {
         kind: "RAW_MATERIAL",
         category: "INGREDIENT",
         unit: "KG",
+        minStockQty: 0,
       }),
     });
     const item = (await itemRes.json()) as { id: string };

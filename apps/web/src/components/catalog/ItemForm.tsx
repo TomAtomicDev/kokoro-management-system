@@ -86,7 +86,14 @@ export type ItemFormParseResult =
   | {
       ok: false;
       field: "name" | "salePrice" | "minStockQty";
-      code: "nameRequired" | "salePriceInvalid" | "minStockQtyInvalid";
+      code:
+        | "nameRequired"
+        | "salePriceInvalid"
+        | "salePriceRequired"
+        | "salePriceForbidden"
+        | "minStockQtyInvalid"
+        | "minStockQtyRequired"
+        | "minStockQtyForbidden";
     };
 
 /** Returns a field-specific error when a value is missing or doesn't parse as a valid decimal. */
@@ -110,6 +117,25 @@ export function parseItemFormValues(values: ItemFormValues): ItemFormParseResult
       return { ok: false, field: "minStockQty", code: "minStockQtyInvalid" };
     }
     minStockQty = parsed;
+  }
+
+  if (values.kind === "FINISHED") {
+    if (salePriceMc === null) {
+      return { ok: false, field: "salePrice", code: "salePriceRequired" };
+    }
+    if (minStockQty !== null) {
+      return { ok: false, field: "minStockQty", code: "minStockQtyForbidden" };
+    }
+  } else {
+    if (salePriceMc !== null) {
+      return { ok: false, field: "salePrice", code: "salePriceForbidden" };
+    }
+    if (values.kind === "RAW_MATERIAL" && minStockQty === null) {
+      return { ok: false, field: "minStockQty", code: "minStockQtyRequired" };
+    }
+    if (values.kind === "SEMI_FINISHED" && minStockQty !== null) {
+      return { ok: false, field: "minStockQty", code: "minStockQtyForbidden" };
+    }
   }
 
   return {
@@ -171,18 +197,30 @@ export function ItemForm({ values, onChange, derived, disabled }: ItemFormProps)
   function set<K extends keyof ItemFormValues>(key: K, value: ItemFormValues[K]) {
     onChange({ ...values, [key]: value });
   }
+  function setKind(kind: ItemKind) {
+    onChange({
+      ...values,
+      kind,
+      salePrice: kind === "FINISHED" ? values.salePrice : "",
+      minStockQty: kind === "RAW_MATERIAL" ? values.minStockQty : "",
+    });
+  }
 
   return (
     <div className="flex flex-col gap-4">
       <Field label={catalogLabels.fieldName} htmlFor={`${formId}-name`}>
-        <Input
-          id={`${formId}-name`}
-          value={values.name}
-          onChange={(e) => set("name", e.target.value)}
-          disabled={disabled}
-          autoFocus
-          required
-        />
+        <div className="flex flex-col gap-1">
+          <Input
+            id={`${formId}-name`}
+            value={values.name}
+            onChange={(e) => set("name", e.target.value)}
+            disabled={disabled}
+            autoFocus
+            required
+            maxLength={200}
+          />
+          <span className="self-end text-muted-foreground text-xs">{values.name.length}/200</span>
+        </div>
       </Field>
 
       <div className="grid grid-cols-2 gap-3">
@@ -190,7 +228,7 @@ export function ItemForm({ values, onChange, derived, disabled }: ItemFormProps)
           <Select
             id={`${formId}-kind`}
             value={values.kind}
-            onChange={(e) => set("kind", e.target.value as ItemKind)}
+            onChange={(e) => setKind(e.target.value as ItemKind)}
             disabled={disabled}
           >
             {ITEM_KINDS.map((kind) => (
@@ -233,27 +271,31 @@ export function ItemForm({ values, onChange, derived, disabled }: ItemFormProps)
       </Field>
 
       <div className="grid grid-cols-2 gap-3">
-        <Field label={catalogLabels.fieldSalePrice} htmlFor={`${formId}-sale-price`}>
-          <Input
-            id={`${formId}-sale-price`}
-            inputMode="decimal"
-            placeholder="0.00"
-            value={values.salePrice}
-            onChange={(e) => set("salePrice", e.target.value)}
-            disabled={disabled}
-          />
-        </Field>
+        {values.kind === "FINISHED" ? (
+          <Field label={catalogLabels.fieldSalePrice} htmlFor={`${formId}-sale-price`}>
+            <Input
+              id={`${formId}-sale-price`}
+              inputMode="decimal"
+              placeholder="0.00"
+              value={values.salePrice}
+              onChange={(e) => set("salePrice", e.target.value)}
+              disabled={disabled}
+            />
+          </Field>
+        ) : null}
 
-        <Field label={catalogLabels.fieldMinStock} htmlFor={`${formId}-min-stock`}>
-          <Input
-            id={`${formId}-min-stock`}
-            inputMode="decimal"
-            placeholder="0"
-            value={values.minStockQty}
-            onChange={(e) => set("minStockQty", e.target.value)}
-            disabled={disabled}
-          />
-        </Field>
+        {values.kind === "RAW_MATERIAL" ? (
+          <Field label={catalogLabels.fieldMinStock} htmlFor={`${formId}-min-stock`}>
+            <Input
+              id={`${formId}-min-stock`}
+              inputMode="decimal"
+              placeholder="0"
+              value={values.minStockQty}
+              onChange={(e) => set("minStockQty", e.target.value)}
+              disabled={disabled}
+            />
+          </Field>
+        ) : null}
       </div>
 
       <Field label={catalogLabels.fieldNotes} htmlFor={`${formId}-notes`}>

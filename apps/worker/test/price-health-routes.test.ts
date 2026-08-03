@@ -7,7 +7,7 @@ import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
 import { createDb } from "../src/db/index.js";
-import { items } from "../src/db/schema.js";
+import { items, priceHistory } from "../src/db/schema.js";
 
 const DEV_PASSWORD = "test-password-123";
 
@@ -83,6 +83,7 @@ describe("GET /api/price-health", () => {
         kind: "RAW_MATERIAL",
         category: "INGREDIENT",
         unit: "KG",
+        minStockQty: 0,
       }),
     }).then((r) => r.json() as Promise<{ id: string }>);
 
@@ -117,8 +118,15 @@ describe("GET /api/price-health", () => {
         kind: "FINISHED",
         category: "BAKERY",
         unit: "UNIT",
+        salePriceMc: 0,
       }),
     }).then((r) => r.json() as Promise<{ id: string }>);
+
+    // Simulate a legacy row that predates KOK-096; existing rows are unaffected by the write
+    // validation, while new API creates must still provide a finished-item sale price.
+    const db = createDb(env.DB);
+    await db.update(items).set({ salePriceMc: null }).where(eq(items.id, unpriced.id));
+    await db.delete(priceHistory).where(eq(priceHistory.itemId, unpriced.id));
 
     const res = await SELF.fetch("https://example.com/api/price-health", {
       headers: authHeaders(auth),

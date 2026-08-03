@@ -56,6 +56,7 @@ describe("GET /api/audit/:entityType/:entityId", () => {
         kind: "RAW_MATERIAL",
         category: "INGREDIENT",
         unit: "KG",
+        minStockQty: 0,
       }),
     });
     const item = (await itemRes.json()) as { id: string };

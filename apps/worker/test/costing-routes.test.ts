@@ -60,6 +60,7 @@ describe("POST /api/costing/replacement-cost-refresh", () => {
         kind: "RAW_MATERIAL",
         category: "INGREDIENT",
         unit: "KG",
+        minStockQty: 0,
       }),
     });
     const flour = (await flourRes.json()) as { id: string };

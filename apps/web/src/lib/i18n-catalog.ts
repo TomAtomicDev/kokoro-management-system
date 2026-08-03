@@ -86,6 +86,10 @@ export const catalogLabels = {
   },
 
   errors: {
+    salePriceRequired: "El precio de venta es obligatorio para productos finales.",
+    salePriceForbidden: "El precio de venta no aplica a materias primas ni semielaborados.",
+    minStockQtyRequired: "El stock mínimo es obligatorio para materias primas.",
+    minStockQtyForbidden: "El stock mínimo no aplica a semielaborados ni productos finales.",
     generic: "OcurriÃ³ un error inesperado. Intenta de nuevo.",
     nameRequired: "El nombre es obligatorio.",
     salePriceInvalid: "Ingresa un precio de venta válido (0 o mayor).",
