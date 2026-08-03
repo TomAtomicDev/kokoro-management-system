@@ -65,27 +65,27 @@ Feasibility reflects the decisions recorded in [Resolved decisions](#resolved-de
 
 | ID     | Finding                                                   | Area     | Type | Feasibility     | Size | 🧠  | Importance | Status  | KOK  |
 | ------ | ---------------------------------------------------------- | -------- | ---- | --------------- | ---- | --- | ---------- | ------- | ---- |
-| BI-01  | Opening count writes stock in at unit cost 0               | count    | 🐞   | 🔴 Design first | M    | 5   | **P0**     | 📋 To Do | —    |
-| BI-02  | No initial unit cost captured for opening stock            | count    | ✨   | 🔴 Design first | M    | 5   | **P0**     | 📋 To Do | —    |
-| BI-03  | Money field rejects 3 decimals with a misleading message   | balances | 🐞   | 🟢 Decided      | S    | 3   | P1         | 📋 To Do | —    |
-| BI-04  | Catalog row errors always report "monto inválido"          | catalog  | 🐞   | 🟢 Direct       | S    | 3   | P1         | 📋 To Do | —    |
-| BI-05  | No way to add a row to the initial catalog                 | catalog  | 🐞   | 🟢 Direct       | XS   | 2   | P1         | 📋 To Do | —    |
-| BI-06  | Catalog validation ignores kind-conditional required rules | catalog  | 🧭   | 🟢 Decided      | M    | 4   | P1         | 📋 To Do | —    |
-| BI-07  | No way to go back a step                                   | flow     | 🧭   | 🟢 Direct       | S    | 3   | P1         | 📋 To Do | —    |
-| BI-08  | Re-entering `/onboarding` after completion is unguarded    | flow     | 🐞   | 🟢 Direct       | S    | 2   | P1         | 📋 To Do | —    |
-| BI-09  | Missing `PASTRY` category                                  | catalog  | ✨   | 🟢 Decided      | M    | 3   | P2         | 📋 To Do | —    |
-| BI-10  | Missing `M` unit                                           | catalog  | ✨   | 🟢 Decided      | M    | 3   | P2         | 📋 To Do | —    |
+| BI-01  | Opening count writes stock in at unit cost 0               | count    | 🐞   | 🟢 Decided      | M    | 5   | **P0**     | 📋 To Do | KOK-084 |
+| BI-02  | No initial unit cost captured for opening stock            | count    | ✨   | 🟢 Decided      | M    | 5   | **P0**     | 📋 To Do | KOK-084 |
+| BI-03  | Money field rejects 3 decimals with a misleading message   | balances | 🐞   | 🟢 Decided      | S    | 3   | P1         | 📋 To Do | KOK-094 |
+| BI-04  | Catalog row errors always report "monto inválido"          | catalog  | 🐞   | 🟢 Direct       | S    | 3   | P1         | 📋 To Do | KOK-095 |
+| BI-05  | No way to add a row to the initial catalog                 | catalog  | 🐞   | 🟢 Direct       | XS   | 2   | P1         | 📋 To Do | KOK-089 |
+| BI-06  | Catalog validation ignores kind-conditional required rules | catalog  | 🧭   | 🟢 Decided      | M    | 4   | P1         | 📋 To Do | KOK-096 |
+| BI-07  | No way to go back a step                                   | flow     | 🧭   | 🟢 Direct       | S    | 3   | P1         | 📋 To Do | KOK-093 |
+| BI-08  | Re-entering `/onboarding` after completion is unguarded    | flow     | 🐞   | 🟢 Direct       | S    | 2   | P1         | 📋 To Do | KOK-091 |
+| BI-09  | Missing `PASTRY` category                                  | catalog  | ✨   | 🟢 Decided      | M    | 3   | P2         | 📋 To Do | KOK-097 |
+| BI-10  | Missing `M` unit                                           | catalog  | ✨   | 🟢 Decided      | M    | 3   | P2         | 📋 To Do | KOK-097 |
 | BI-11  | Owner-managed (create/archive) categories                  | catalog  | ✨   | 🔴 Design first | L    | 4   | P2         | 📋 To Do | —    |
-| BI-12  | Seed the three starter recipes                             | recipes  | ✨   | 🟢 Decided      | M    | 3   | P2         | 📋 To Do | —    |
+| BI-12  | Seed the three starter recipes                             | recipes  | ✨   | 🟢 Decided      | M    | 3   | P2         | 📋 To Do | KOK-098 |
 | BI-15  | "Unmetered" items (Agua) — perpetual negative stock        | catalog  | ✨   | 🔴 Design first | L    | 4   | P2         | 📋 To Do | —    |
-| BI-13  | Count table: group rows by item kind                       | count    | 🧭   | 🟢 Direct       | S    | 2   | P2         | 📋 To Do | —    |
-| BI-14  | Count table: drop "Esperado"/"Variación", show the unit    | count    | 🧭   | 🟢 Direct       | XS   | 2   | P2         | 📋 To Do | —    |
-| BI-16  | Catalog table forces horizontal scroll                     | catalog  | 🧭   | 🟢 Direct       | XS   | 2   | P2         | 📋 To Do | —    |
-| BI-17  | Catalog header columns misaligned with body columns        | catalog  | 🐞   | 🟢 Direct       | XS   | 1   | P2         | 📋 To Do | —    |
-| BI-18  | Decimal separator convention never stated to the owner     | flow     | 🧭   | 🟢 Direct       | XS   | 2   | P2         | 📋 To Do | —    |
+| BI-13  | Count table: group rows by item kind                       | count    | 🧭   | 🟢 Direct       | S    | 2   | P2         | 📋 To Do | KOK-092 |
+| BI-14  | Count table: drop "Esperado"/"Variación", show the unit    | count    | 🧭   | 🟢 Direct       | XS   | 2   | P2         | 📋 To Do | KOK-088 |
+| BI-16  | Catalog table forces horizontal scroll                     | catalog  | 🧭   | 🟢 Direct       | XS   | 2   | P2         | 📋 To Do | KOK-087 |
+| BI-17  | Catalog header columns misaligned with body columns        | catalog  | 🐞   | 🟢 Direct       | XS   | 1   | P2         | 📋 To Do | KOK-085 |
+| BI-18  | Decimal separator convention never stated to the owner     | flow     | 🧭   | 🟢 Direct       | XS   | 2   | P2         | 📋 To Do | KOK-090 |
 | BI-19  | Explain *why* the opening count matters                    | count    | 🧭   | 🟢 Direct       | XS   | 2   | P2         | 📋 To Do | —    |
 | BI-20  | Defer all writes to a single "creating your data" commit   | flow     | 🧭   | 🟡 Needs a call | L    | 4   | P3         | 📋 To Do | —    |
-| BI-21  | Litre abbreviation "l" reads as digit 1                    | catalog  | 🧭   | 🟢 Direct       | XS   | 1   | P3         | 📋 To Do | —    |
+| BI-21  | Litre abbreviation "l" reads as digit 1                    | catalog  | 🧭   | 🟢 Direct       | XS   | 1   | P3         | 📋 To Do | KOK-086 |
 | BI-22  | Magnitude-scaled display units (`0,58 kg` → `580 g`)        | inventory| ✨   | 🔴 Design first | L    | 4   | P2         | 📋 To Do | —    |
 
 > **BI-12 ↔ BI-15 interaction, resolved.** BI-06b makes `minStockQty` mandatory for every
@@ -127,6 +127,16 @@ KB before code (D-1).
 **Recommended next step:** write the KB amendment (Doc 03 costing rules + Doc 04 §3.3) proposing an
 opening-valuation mechanism, and land BI-01/BI-02 together as one task. Property-based test required
 (CLAUDE.md, money math).
+
+> ✅ **Decided (Q9, 2026-08-03): a dedicated `OPENING_IN` movement type.** Landed as
+> [Doc 03 C-8](../system-design-knowledge-base/03-domain-model.md#4-costing-rules-normative) and the
+> `stock_movements` CHECK constraint in
+> [Doc 04 §3.4](../system-design-knowledge-base/04-data-model.md). `OPENING_IN` is a WAC entry type
+> like `PURCHASE_IN`/`PRODUCTION_IN` — it folds into C-1 and R-2 replay directly, so it doesn't need
+> the special-casing an ADJUST-based fix would (rejected: blurs C-6's "values at current WAC"
+> semantic) and doesn't pollute C-3's replacement-cost signal the way a synthetic purchase would
+> (rejected: conflates an administrative entry with a real supplier transaction). Tracked as
+> [KOK-084](../system-design-knowledge-base/10-implementation-backlog.md#phase-65--onboarding-hardening-gh-4).
 
 > ✅ **Data exposure resolved (Q1).** Production has not launched; only staging completed onboarding
 > with real opening stock. Staging is disposable, so this needs **no backfill migration and no
@@ -764,6 +774,7 @@ Recorded 2026-08-02 with the owner. These are inputs to the tasks above, not the
 | Q7a | BI-22 — which unit is canonical (stored)?           | **The large one (`KG`, `L`).** Decided on cost precision: small units round cheap items' `wac_mc` to 0. Supersedes Q6b.      |
 | Q7b | BI-22 — how is the display unit chosen?             | **Auto-scale by magnitude**, no per-item config. Accepts mixed units within a column; needs a KB amendment to `qty.ts`/Doc 04. |
 | Q8  | BI-10 — `M` or `CM`, given Q7a?                     | **`M` only.** Restores one rule across all three families: large member stored, small member display-only. Supersedes Q4.   |
+| Q9  | BI-01/02 — opening-valuation mechanism?             | **Dedicated `OPENING_IN` movement type** (Doc 03 C-8), a WAC entry type like `PURCHASE_IN`. Rejected: cost-stamped `ADJUST` (blurs C-6, needs replay special-casing) and synthetic opening `PURCHASE_IN` (pollutes C-3's replacement-cost signal). Tracked as KOK-084. |
 
 **No open questions remain.** Every unit family now canonicalises identically, and the one exception
 that Q4 would have created is gone:

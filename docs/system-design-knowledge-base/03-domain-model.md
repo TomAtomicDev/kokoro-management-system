@@ -40,14 +40,14 @@ better correction ergonomics for a solo operator (ADR-009).
 
 | Aggregate root | Contains | Notes |
 |----------------|----------|-------|
-| **Item** | aliases, costing state, stock summary | `kind`: RAW_MATERIAL / SEMI_FINISHED / FINISHED; `category`: INGREDIENT / PACKAGING / LABEL / BAKERY / DAIRY / OTHER. Packaging rule: high-value packaging = RAW_MATERIAL consumed by recipes; minor consumables are bought as OPERATING_EXPENSE with no item (hybrid, per original spec). |
+| **Item** | aliases, costing state, stock summary | `kind`: RAW_MATERIAL / SEMI_FINISHED / FINISHED; `category`: INGREDIENT / PACKAGING / LABEL / BAKERY / DAIRY / OTHER. Packaging rule: high-value packaging = RAW_MATERIAL consumed by recipes; minor consumables are bought as OPERATING_EXPENSE with no item (hybrid, per original spec). **`salePriceMc`/`minStockQty` are kind-exclusive** (KOK-096 KB amendment, closes BI-06): `salePriceMc` is required for FINISHED and forbidden (`null`) for RAW_MATERIAL/SEMI_FINISHED; `minStockQty` is required for RAW_MATERIAL and forbidden (`null`) for SEMI_FINISHED/FINISHED. "Required" means non-null, not non-zero — `minStockQty: 0` is valid and means "track this item, never alert on it." Enforced by `superRefine` on the create/update item command schemas (D-4: one contract for the catalog form, the onboarding wizard, and any assistant draft tool), never by tightening `minStockQtySchema`'s `.nonnegative()` to `.positive()`. Accepted trade-off: this rules out a low-stock alert on a finished good — a coherent thing to want, but it would require amending this rule rather than just filling in a field. |
 | **Recipe** | recipe lines (item + qty), expected yield, est. labor minutes | One output item per recipe; an item MAY have several recipes (variants); one is `is_default`. Deletion is a soft **deactivate** (`is_active = 0`), mirroring `items.is_active` — never a hard DELETE (a recipe already referenced by a production run is protected by `ON DELETE RESTRICT` on `production_runs.recipe_id` regardless). |
 | **Purchase** | purchase lines, payment info, optional session link, photo | Creates PURCHASE_IN movements + expense transaction; updates WAC + replacement cost. A line's `lineTotal` may be 0 (free/promotional stock); if the purchase's total across all lines is 0, no `financial_transactions` row is created (no cash moved) — `financial_transactions.amount` is always > 0. |
 | **ProductionRun** | consumed lines (actual), output (actual qty), indirect cost, optional session link | Recipe is a template: consumption defaults from recipe × batches, editable before commit. |
 | **Sale** | sale lines, channel (CATALOG / CUSTOM_ORDER), payment status, customer ref | Creates SALE_OUT movements (+ income transaction if paid). |
 | **CustomOrder** | order items (item or free-text + agreed price), deposit, delivery date/place, linked production runs & sale | State machine in §5. |
 | **StockExit** | item, qty, reason (WASTE / SELF_CONSUMPTION / GIFT_SAMPLE / SPOILAGE / OTHER) | Valued at current WAC; no financial transaction (cost already incurred) — reported as "invisible cost". |
-| **InventoryCount** | count lines (expected vs counted) | Commits ADJUST movements for variances. |
+| **InventoryCount** | count lines (expected vs counted) | Commits ADJUST movements for variances. A line for an item with zero prior `stock_movements` and a positive counted qty commits OPENING_IN instead (C-8) — an opening balance, not a correction. |
 | **FinancialTransaction** | — | Either derived (from sale/purchase/order/withdrawal) or standalone (operating expense, other income). Transfers are paired rows. |
 | **Session** | typed container: PRODUCTION / PURCHASE_TRIP / DELIVERY_RUN / ADMIN; hours, shared costs, linked events | See §6. |
 | **DailySnapshot** | — | System-generated; powers trends without heavy recomputation. |
@@ -95,10 +95,26 @@ better correction ergonomics for a solo operator (ADR-009).
   percentages over price. **Price-health alert** when
   `margin_replacement_pct < settings.min_margin_pct` (default 30%).
 - **C-6 Exit valuation**: exits and count adjustments value at current WAC; the value feeds the
-  waste report, not the financial ledger.
+  waste report, not the financial ledger. Exception: an opening-balance count line (C-8) *sets*
+  WAC rather than reading it.
 - **C-7 Labor is not capitalized** into product cost. Hours are tracked per session and reported
   as `Bs/hour = contribution / hours` (§6, ADR-010). Rationale: keeps costs objective and
   comparable, avoids circular wage assumptions; the owner's pay is what the business yields.
+- **C-8 Opening inventory valuation** (KOK-084 KB amendment, closes the BI-01/BI-02 gap in
+  `docs/development/bugs-and-improvements.md`): a count line for an item with **zero prior
+  `stock_movements`** and a **positive counted quantity** is an opening balance, not a correction.
+  It commits an `OPENING_IN` movement — not `ADJUST` — with a caller-supplied `unit_cost_mc` that
+  MUST be `> 0`, enforced at the command schema layer (D-4); the movement-builder's own validator
+  only rejects negative cost, not zero, so this cannot be left to that guard alone. `OPENING_IN` is
+  a WAC **entry** type, exactly like `PURCHASE_IN`/`PRODUCTION_IN`: it participates in C-1's fold
+  and in R-2's replay the same way, so a later backdated purchase against the same item re-costs
+  correctly instead of silently skipping the opening balance the way a same-cost `ADJUST` would.
+  It does **not** feed C-3's replacement-cost signal — `"last purchase unit cost"` means a real
+  supplier transaction, not an administrative opening entry — and it creates no
+  `financial_transactions` row, the same non-event as a zero-total purchase (§3): no cash moved. A
+  count line for an item that already has prior movement history is unaffected and stays a plain
+  `ADJUST` per C-6, valued at current WAC as always; only an item's *first-ever* positive count
+  line can be an opening balance.
 
 ## 5. Custom order lifecycle (Modality 2)
 

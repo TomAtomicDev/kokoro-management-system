@@ -299,7 +299,9 @@ CREATE TABLE stock_movements (                   -- THE KARDEX (system-owned, IN
   occurred_at TEXT NOT NULL, business_date TEXT NOT NULL,
   item_id TEXT NOT NULL REFERENCES items(id),
   type TEXT NOT NULL CHECK (type IN
-    ('PURCHASE_IN','PRODUCTION_IN','PRODUCTION_OUT','SALE_OUT','EXIT_OUT','ADJUST')),
+    ('PURCHASE_IN','PRODUCTION_IN','PRODUCTION_OUT','SALE_OUT','EXIT_OUT','ADJUST','OPENING_IN')),
+    -- OPENING_IN: opening-balance entry from an item's first positive count line (C-8, KOK-084);
+    -- a WAC entry type like PURCHASE_IN/PRODUCTION_IN, not a correction like ADJUST
   qty INTEGER NOT NULL,                          -- signed milli-units (+in / −out)
   unit_cost_mc INTEGER NOT NULL,                 -- milli-centavos per whole unit at movement time
   total_cost INTEGER NOT NULL,                   -- centavos, signed via totalCentavos(unit_cost_mc, qty)
