@@ -48,6 +48,7 @@ describe("POST /api/items + GET /api/items/:id", () => {
         kind: "RAW_MATERIAL",
         category: "INGREDIENT",
         unit: "KG",
+        minStockQty: 0,
       }),
     });
     expect(createRes.status).toBe(201);

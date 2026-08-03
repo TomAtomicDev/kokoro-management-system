@@ -25,27 +25,80 @@ const salePriceMcSchema = z
 /** Milli-units, matching qty.ts's representation (INV-6). */
 const minStockQtySchema = z.number().int().nonnegative().nullable().optional();
 
-export const createItemCommandSchema = z.object({
-  name: itemNameSchema,
-  kind: itemKindSchema,
-  category: itemCategorySchema,
-  unit: unitSchema,
-  salePriceMc: salePriceMcSchema,
-  minStockQty: minStockQtySchema,
-  notes: notesSchema,
-});
+const salePriceRequiredMessage = "El precio de venta es obligatorio para productos finales.";
+const salePriceForbiddenMessage =
+  "El precio de venta no aplica a materias primas ni semielaborados.";
+const minStockQtyRequiredMessage = "El stock mínimo es obligatorio para materias primas.";
+const minStockQtyForbiddenMessage =
+  "El stock mínimo no aplica a semielaborados ni productos finales.";
+
+function addKindExclusiveIssues(
+  value: {
+    kind?: ItemKind;
+    salePriceMc?: MilliCentavosPerUnit | null;
+    minStockQty?: number | null;
+  },
+  ctx: z.RefinementCtx,
+): void {
+  if (value.kind === undefined) return;
+
+  const hasSalePrice = value.salePriceMc !== undefined && value.salePriceMc !== null;
+  const hasMinStockQty = value.minStockQty !== undefined && value.minStockQty !== null;
+
+  if (value.kind === "FINISHED" && !hasSalePrice) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: salePriceRequiredMessage,
+      path: ["salePriceMc"],
+    });
+  } else if (value.kind !== "FINISHED" && hasSalePrice) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: salePriceForbiddenMessage,
+      path: ["salePriceMc"],
+    });
+  }
+
+  if (value.kind === "RAW_MATERIAL" && !hasMinStockQty) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: minStockQtyRequiredMessage,
+      path: ["minStockQty"],
+    });
+  } else if (value.kind !== "RAW_MATERIAL" && hasMinStockQty) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: minStockQtyForbiddenMessage,
+      path: ["minStockQty"],
+    });
+  }
+}
+
+export const createItemCommandSchema = z
+  .object({
+    name: itemNameSchema,
+    kind: itemKindSchema,
+    category: itemCategorySchema,
+    unit: unitSchema,
+    salePriceMc: salePriceMcSchema,
+    minStockQty: minStockQtySchema,
+    notes: notesSchema,
+  })
+  .superRefine((value, ctx) => addKindExclusiveIssues(value, ctx));
 export type CreateItemCommand = z.infer<typeof createItemCommandSchema>;
 
-export const updateItemCommandSchema = z.object({
-  id: z.string().min(1),
-  name: itemNameSchema.optional(),
-  kind: itemKindSchema.optional(),
-  category: itemCategorySchema.optional(),
-  unit: unitSchema.optional(),
-  salePriceMc: salePriceMcSchema,
-  minStockQty: minStockQtySchema,
-  notes: notesSchema,
-});
+export const updateItemCommandSchema = z
+  .object({
+    id: z.string().min(1),
+    name: itemNameSchema.optional(),
+    kind: itemKindSchema.optional(),
+    category: itemCategorySchema.optional(),
+    unit: unitSchema.optional(),
+    salePriceMc: salePriceMcSchema,
+    minStockQty: minStockQtySchema,
+    notes: notesSchema,
+  })
+  .superRefine((value, ctx) => addKindExclusiveIssues(value, ctx));
 export type UpdateItemCommand = z.infer<typeof updateItemCommandSchema>;
 
 export const setItemActiveCommandSchema = z.object({

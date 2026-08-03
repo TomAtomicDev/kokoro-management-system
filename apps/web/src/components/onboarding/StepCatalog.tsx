@@ -53,7 +53,7 @@ const FIXTURE_ITEMS: FixtureItem[] = [
     category: "BAKERY",
     unit: "G",
     salePrice: null,
-    minStockQty: 200000,
+    minStockQty: null,
   },
   {
     name: "Harina",
@@ -85,7 +85,7 @@ const FIXTURE_ITEMS: FixtureItem[] = [
     category: "BAKERY",
     unit: "UNIT",
     salePrice: 2500,
-    minStockQty: 5000,
+    minStockQty: null,
   },
   {
     name: "Rollos de canela",
@@ -93,7 +93,7 @@ const FIXTURE_ITEMS: FixtureItem[] = [
     category: "BAKERY",
     unit: "UNIT",
     salePrice: 1800,
-    minStockQty: 5000,
+    minStockQty: null,
   },
   {
     name: "Cuñapés",
@@ -101,7 +101,7 @@ const FIXTURE_ITEMS: FixtureItem[] = [
     category: "BAKERY",
     unit: "UNIT",
     salePrice: 1200,
-    minStockQty: 5000,
+    minStockQty: null,
   },
   {
     name: "Queso crema de kéfir",
@@ -109,7 +109,7 @@ const FIXTURE_ITEMS: FixtureItem[] = [
     category: "DAIRY",
     unit: "UNIT",
     salePrice: 3000,
-    minStockQty: 3000,
+    minStockQty: null,
   },
   {
     name: "Ghee",
@@ -117,7 +117,7 @@ const FIXTURE_ITEMS: FixtureItem[] = [
     category: "DAIRY",
     unit: "ML",
     salePrice: 4500,
-    minStockQty: 3000,
+    minStockQty: null,
   },
   {
     name: "Cajas",
@@ -204,6 +204,22 @@ export function StepCatalog({ onDone, onSkip, readOnly = false }: StepCatalogPro
     setRowError((current) => (current?.rowId === id ? null : current));
   }
 
+  function updateRowKind(id: string, kind: ItemKind) {
+    setRows((prev) =>
+      prev.map((row) =>
+        row.id === id
+          ? {
+              ...row,
+              kind,
+              salePrice: kind === "FINISHED" ? row.salePrice : "",
+              minStockQty: kind === "RAW_MATERIAL" ? row.minStockQty : "",
+            }
+          : row,
+      ),
+    );
+    setRowError((current) => (current?.rowId === id ? null : current));
+  }
+
   function removeRow(id: string) {
     setRows((prev) => prev.filter((row) => row.id !== id));
     setRowError((current) => (current?.rowId === id ? null : current));
@@ -286,7 +302,7 @@ export function StepCatalog({ onDone, onSkip, readOnly = false }: StepCatalogPro
                 <Select
                   id={`catalog-${row.id}-kind`}
                   value={row.kind}
-                  onChange={(e) => updateRow(row.id, "kind", e.target.value as ItemKind)}
+                  onChange={(e) => updateRowKind(row.id, e.target.value as ItemKind)}
                   disabled={disabled}
                 >
                   {ITEM_KINDS.map((k) => (
@@ -336,38 +352,46 @@ export function StepCatalog({ onDone, onSkip, readOnly = false }: StepCatalogPro
                   ))}
                 </Select>
               </label>
-              <label
-                className="contents max-md:flex max-md:flex-col max-md:gap-1"
-                htmlFor={`catalog-${row.id}-sale-price`}
-              >
-                <span className="hidden font-medium text-muted-foreground text-xs max-md:block">
-                  {onboardingLabels.columnSalePrice}
-                </span>
-                <Input
-                  id={`catalog-${row.id}-sale-price`}
-                  inputMode="decimal"
-                  placeholder="0.00"
-                  value={row.salePrice}
-                  onChange={(e) => updateRow(row.id, "salePrice", e.target.value)}
-                  disabled={disabled}
-                />
-              </label>
-              <label
-                className="contents max-md:flex max-md:flex-col max-md:gap-1"
-                htmlFor={`catalog-${row.id}-min-stock`}
-              >
-                <span className="hidden font-medium text-muted-foreground text-xs max-md:block">
-                  {onboardingLabels.columnMinStock}
-                </span>
-                <Input
-                  id={`catalog-${row.id}-min-stock`}
-                  inputMode="decimal"
-                  placeholder="0"
-                  value={row.minStockQty}
-                  onChange={(e) => updateRow(row.id, "minStockQty", e.target.value)}
-                  disabled={disabled}
-                />
-              </label>
+              {row.kind === "FINISHED" ? (
+                <label
+                  className="contents max-md:flex max-md:flex-col max-md:gap-1"
+                  htmlFor={`catalog-${row.id}-sale-price`}
+                >
+                  <span className="hidden font-medium text-muted-foreground text-xs max-md:block">
+                    {onboardingLabels.columnSalePrice}
+                  </span>
+                  <Input
+                    id={`catalog-${row.id}-sale-price`}
+                    inputMode="decimal"
+                    placeholder="0.00"
+                    value={row.salePrice}
+                    onChange={(e) => updateRow(row.id, "salePrice", e.target.value)}
+                    disabled={disabled}
+                  />
+                </label>
+              ) : (
+                <span aria-hidden="true" className="hidden md:block" />
+              )}
+              {row.kind === "RAW_MATERIAL" ? (
+                <label
+                  className="contents max-md:flex max-md:flex-col max-md:gap-1"
+                  htmlFor={`catalog-${row.id}-min-stock`}
+                >
+                  <span className="hidden font-medium text-muted-foreground text-xs max-md:block">
+                    {onboardingLabels.columnMinStock}
+                  </span>
+                  <Input
+                    id={`catalog-${row.id}-min-stock`}
+                    inputMode="decimal"
+                    placeholder="0"
+                    value={row.minStockQty}
+                    onChange={(e) => updateRow(row.id, "minStockQty", e.target.value)}
+                    disabled={disabled}
+                  />
+                </label>
+              ) : (
+                <span aria-hidden="true" className="hidden md:block" />
+              )}
               <div className="max-md:flex max-md:justify-end">
                 <Button
                   type="button"
