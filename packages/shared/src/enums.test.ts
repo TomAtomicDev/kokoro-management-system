@@ -11,7 +11,7 @@ import {
 
 describe("enums mirror Doc 04 DDL verbatim", () => {
   it("item kinds", () => {
-    expect(ITEM_KINDS).toEqual(["RAW_MATERIAL", "SEMI_FINISHED", "FINISHED"]);
+    expect(ITEM_KINDS).toEqual(["RAW_MATERIAL", "SEMI_FINISHED", "FINISHED", "PACKAGING"]);
   });
 
   it("units", () => {
@@ -21,8 +21,7 @@ describe("enums mirror Doc 04 DDL verbatim", () => {
   it("item categories", () => {
     expect(ITEM_CATEGORIES).toEqual([
       "INGREDIENT",
-      "PACKAGING",
-      "LABEL",
+      "NOT_EATABLE",
       "BAKERY",
       "DAIRY",
       "PASTRY",
