@@ -53,9 +53,13 @@ type TestDb = ReturnType<typeof createDb>;
 async function seedItem(
   db: TestDb,
   name: string,
-  kind: "RAW_MATERIAL" | "SEMI_FINISHED" | "FINISHED" = "RAW_MATERIAL",
+  kind: "RAW_MATERIAL" | "SEMI_FINISHED" | "FINISHED" | "PACKAGING" = "RAW_MATERIAL",
 ) {
-  return createItem(db, { name, kind, category: "INGREDIENT", unit: "KG" }, ACTOR);
+  return createItem(
+    db,
+    { name, kind, category: kind === "PACKAGING" ? "NOT_EATABLE" : "INGREDIENT", unit: "KG" },
+    ACTOR,
+  );
 }
 
 async function seedRecipe(
@@ -334,6 +338,29 @@ describe("recordProductionRun (UC-02)", () => {
           occurredAt: NOW,
           businessDate: BUSINESS_DATE,
           lines: [{ itemId: finishedItem.id, qty: 100 }],
+        },
+        ACTOR,
+      ),
+    ).rejects.toMatchObject({ code: "VALIDATION" });
+  });
+
+  it("rejects a consumption line referencing a PACKAGING item with VALIDATION (Doc 03 §3, PACKAGING is never a recipe/production input)", async () => {
+    const db = createDb(env.DB);
+    const packagingItem = await seedItem(db, "Production — empaque", "PACKAGING");
+    const output = await seedItem(db, "Production output — reject packaging", "SEMI_FINISHED");
+    const rawItem = await seedItem(db, "Production raw — reject packaging");
+    const recipe = await seedRecipe(db, output.id, [{ itemId: rawItem.id, qty: 100 }]);
+
+    await expect(
+      recordProductionRun(
+        db,
+        {
+          recipeId: recipe.id,
+          batches: 1,
+          actualOutputQty: 500,
+          occurredAt: NOW,
+          businessDate: BUSINESS_DATE,
+          lines: [{ itemId: packagingItem.id, qty: 100 }],
         },
         ACTOR,
       ),

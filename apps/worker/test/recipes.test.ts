@@ -136,6 +136,70 @@ describe("recordRecipe", () => {
     ).rejects.toMatchObject({ code: "VALIDATION" });
   });
 
+  it("rejects an output item of kind PACKAGING with VALIDATION (Doc 03 §3, PACKAGING is never a recipe output)", async () => {
+    const db = createDb(env.DB);
+    const packagingOutput = await createItem(
+      db,
+      {
+        name: `Bolsa ${crypto.randomUUID()}`,
+        kind: "PACKAGING",
+        category: "NOT_EATABLE",
+        unit: "UNIT",
+        minStockQty: 0,
+      },
+      ACTOR,
+    );
+    const flour = await createIngredientItem(db, 5, 5);
+
+    await expect(
+      recordRecipe(
+        db,
+        {
+          name: "Receta inválida",
+          outputItemId: packagingOutput.id,
+          expectedYieldQty: 1000,
+          estLaborMin: null,
+          isDefault: false,
+          notes: null,
+          lines: [{ itemId: flour.id, qty: 100 }],
+        },
+        ACTOR,
+      ),
+    ).rejects.toMatchObject({ code: "VALIDATION" });
+  });
+
+  it("rejects a line item of kind PACKAGING with VALIDATION (Doc 03 §3, PACKAGING is never a recipe input)", async () => {
+    const db = createDb(env.DB);
+    const output = await createOutputItem(db);
+    const packagingLine = await createItem(
+      db,
+      {
+        name: `Caja ${crypto.randomUUID()}`,
+        kind: "PACKAGING",
+        category: "NOT_EATABLE",
+        unit: "UNIT",
+        minStockQty: 0,
+      },
+      ACTOR,
+    );
+
+    await expect(
+      recordRecipe(
+        db,
+        {
+          name: "Receta inválida",
+          outputItemId: output.id,
+          expectedYieldQty: 1000,
+          estLaborMin: null,
+          isDefault: false,
+          notes: null,
+          lines: [{ itemId: packagingLine.id, qty: 100 }],
+        },
+        ACTOR,
+      ),
+    ).rejects.toMatchObject({ code: "VALIDATION" });
+  });
+
   it("rejects a line item of kind FINISHED with VALIDATION", async () => {
     const db = createDb(env.DB);
     const output = await createOutputItem(db);

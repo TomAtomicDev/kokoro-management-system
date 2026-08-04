@@ -166,9 +166,11 @@ async function findActiveRecipeRowOrThrow(db: Db, recipeId: string): Promise<Rec
 }
 
 /** Doc 04 §5 integrity rule, the consumption-side analogue of recipes.ts's
- * `validateRecipeItemKinds`: every consumed item must exist and be RAW_MATERIAL or SEMI_FINISHED —
- * never FINISHED, a finished product is not consumed as an ingredient. Defensive re-check (D-2):
- * core/ services never trust that a caller already validated this. */
+ * `validateRecipeItemKinds`: every consumed item must exist and be RAW_MATERIAL or SEMI_FINISHED
+ * (a positive whitelist, not just "not FINISHED" — PACKAGING is a purchased item too, but Doc 03
+ * §3's Item aggregate row is explicit that it is never a recipe/production input, only ever a
+ * `sale_lines` row).
+ * Defensive re-check (D-2): core/ services never trust that a caller already validated this. */
 async function validateProductionConsumptionItemKinds(
   db: Db,
   lines: readonly { itemId: string }[],
@@ -181,11 +183,11 @@ async function validateProductionConsumptionItemKinds(
     if (!itemRow) {
       throw notFound("No se encontró el ítem consumido.", { id: line.itemId });
     }
-    if (itemRow.kind === "FINISHED") {
-      throw validationError("Un insumo de producción no puede ser un producto terminado.", {
-        itemId: line.itemId,
-        kind: itemRow.kind,
-      });
+    if (itemRow.kind !== "RAW_MATERIAL" && itemRow.kind !== "SEMI_FINISHED") {
+      throw validationError(
+        "Un insumo de producción debe ser una materia prima o un semielaborado.",
+        { itemId: line.itemId, kind: itemRow.kind },
+      );
     }
     itemStates.set(line.itemId, {
       isUnmetered: itemRow.isUnmetered === 1,

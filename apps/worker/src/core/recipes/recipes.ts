@@ -42,9 +42,10 @@ type RecipeLineRow = typeof recipeLines.$inferSelect;
 
 /**
  * Doc 04 §5 integrity rule (not a DB CHECK — enforced here): the output item must exist and be
- * SEMI_FINISHED or FINISHED (never RAW_MATERIAL — a raw material is not something you produce);
- * every line item must exist and be RAW_MATERIAL or SEMI_FINISHED (never FINISHED — a finished
- * product is not consumed as an ingredient); and no line may reference the recipe's own
+ * SEMI_FINISHED or FINISHED (never RAW_MATERIAL — a raw material is not something you produce —
+ * nor PACKAGING, Doc 03 §3's Item aggregate row); every line item must exist and be RAW_MATERIAL
+ * or SEMI_FINISHED (never FINISHED — a finished product is not consumed as an ingredient — nor
+ * PACKAGING, same rule: it is only ever a `sale_lines` row); and no line may reference the recipe's own
  * `outputItemId` — a direct self-reference always makes the recipe graph cyclical (KOK-029's
  * `topoOrderAffectedItems` would otherwise only catch it later, at nightly C-3 refresh time, as an
  * opaque "recetas forman un ciclo" 409 covering every FINISHED/SEMI_FINISHED item, not just the
@@ -62,8 +63,8 @@ async function validateRecipeItemKinds(
   if (!outputItem) {
     throw notFound("No se encontró el ítem de salida.", { id: outputItemId });
   }
-  if (outputItem.kind === "RAW_MATERIAL") {
-    throw validationError("El ítem de salida no puede ser una materia prima.", {
+  if (outputItem.kind !== "SEMI_FINISHED" && outputItem.kind !== "FINISHED") {
+    throw validationError("El ítem de salida debe ser un semielaborado o un producto terminado.", {
       outputItemId,
       kind: outputItem.kind,
     });
@@ -81,11 +82,11 @@ async function validateRecipeItemKinds(
     if (!itemRow) {
       throw notFound("No se encontró el ítem de la línea de receta.", { id: line.itemId });
     }
-    if (itemRow.kind === "FINISHED") {
-      throw validationError("Un ingrediente de receta no puede ser un producto terminado.", {
-        itemId: line.itemId,
-        kind: itemRow.kind,
-      });
+    if (itemRow.kind !== "RAW_MATERIAL" && itemRow.kind !== "SEMI_FINISHED") {
+      throw validationError(
+        "Un ingrediente de receta debe ser una materia prima o un semielaborado.",
+        { itemId: line.itemId, kind: itemRow.kind },
+      );
     }
   }
 }
