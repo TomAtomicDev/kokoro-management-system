@@ -28,6 +28,7 @@ import {
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 
+import { StepGuidance } from "@/components/onboarding/StepGuidance";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -226,6 +227,12 @@ export function StepCount({ items, catalogCommitted }: StepCountProps) {
         <h2 className="font-medium text-foreground text-lg">{onboardingLabels.countTitle}</h2>
         <p className="text-muted-foreground text-sm">{onboardingLabels.countBody}</p>
       </div>
+
+      <StepGuidance
+        what={onboardingLabels.countGuidanceWhat}
+        why={onboardingLabels.countGuidanceWhy}
+        where={onboardingLabels.countGuidanceWhere}
+      />
 
       {!catalogCommitted ? (
         <p className="text-muted-foreground text-sm">{onboardingLabels.countNeedsCatalog}</p>

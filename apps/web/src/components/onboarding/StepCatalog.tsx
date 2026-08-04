@@ -27,6 +27,7 @@ import {
   type ItemFormValues,
   parseItemFormValues,
 } from "@/components/catalog/ItemForm";
+import { StepGuidance } from "@/components/onboarding/StepGuidance";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -246,6 +247,11 @@ export function StepCatalog({ onDone, onSkip, readOnly = false }: StepCatalogPro
           <h2 className="font-medium text-foreground text-lg">{onboardingLabels.catalogTitle}</h2>
           <p className="text-muted-foreground text-sm">{onboardingLabels.savedCatalogBody}</p>
         </div>
+        <StepGuidance
+          what={onboardingLabels.catalogGuidanceWhat}
+          why={onboardingLabels.catalogGuidanceWhy}
+          where={onboardingLabels.catalogGuidanceWhere}
+        />
         <div className="rounded-md border border-border bg-muted">
           <div className="flex flex-wrap items-center justify-between gap-2 border-border border-b px-4 py-3">
             <h3 className="font-medium text-foreground text-sm">
@@ -395,6 +401,12 @@ export function StepCatalog({ onDone, onSkip, readOnly = false }: StepCatalogPro
         <h2 className="font-medium text-foreground text-lg">{onboardingLabels.catalogTitle}</h2>
         <p className="text-muted-foreground text-sm">{onboardingLabels.catalogBody}</p>
       </div>
+
+      <StepGuidance
+        what={onboardingLabels.catalogGuidanceWhat}
+        why={onboardingLabels.catalogGuidanceWhy}
+        where={onboardingLabels.catalogGuidanceWhere}
+      />
 
       <div className="rounded-lg border border-border md:overflow-x-auto">
         <div className="md:min-w-[860px]">

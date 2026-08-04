@@ -4,6 +4,7 @@
 import type { ItemDto, RecipeLineCommand, RecordRecipeCommand } from "@kokoro/shared";
 import { useMemo, useState } from "react";
 
+import { StepGuidance } from "@/components/onboarding/StepGuidance";
 import { Button } from "@/components/ui/button";
 import { useRecordRecipe } from "@/features/recipes/api";
 import { ApiError } from "@/lib/api";
@@ -147,6 +148,12 @@ export function StepRecipes({ items, catalogCommitted, onContinue }: StepRecipes
         <h2 className="font-medium text-foreground text-lg">{onboardingLabels.recipesTitle}</h2>
         <p className="text-muted-foreground text-sm">{onboardingLabels.recipesBody}</p>
       </div>
+
+      <StepGuidance
+        what={onboardingLabels.recipesGuidanceWhat}
+        why={onboardingLabels.recipesGuidanceWhy}
+        where={onboardingLabels.recipesGuidanceWhere}
+      />
 
       <div className="rounded-md border border-border bg-muted px-4 py-3 text-sm text-foreground">
         <p className="font-medium">{onboardingLabels.recipesPreviewTitle}</p>
