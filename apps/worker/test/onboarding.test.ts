@@ -116,7 +116,7 @@ describe("bulkCreateItems", () => {
       {
         items: [
           { name: "Bulk item A", kind: "RAW_MATERIAL", category: "INGREDIENT", unit: "KG" },
-          { name: "Bulk item B", kind: "RAW_MATERIAL", category: "PACKAGING", unit: "UNIT" },
+          { name: "Bulk item B", kind: "PACKAGING", category: "NOT_EATABLE", unit: "UNIT" },
           { name: "Bulk item C", kind: "FINISHED", category: "BAKERY", unit: "UNIT" },
         ],
       },

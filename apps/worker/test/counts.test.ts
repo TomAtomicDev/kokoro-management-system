@@ -25,7 +25,7 @@ import { eq, inArray } from "drizzle-orm";
 import fc from "fast-check";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { createItem, setItemActive } from "../src/core/catalog/index.js";
+import { createItem, listItems, setItemActive, updateItem } from "../src/core/catalog/index.js";
 import {
   commitCount,
   getCount,
@@ -50,7 +50,7 @@ const BUSINESS_DATE = "2026-07-16";
 
 type TestDb = ReturnType<typeof createDb>;
 type ItemKind = "RAW_MATERIAL" | "SEMI_FINISHED" | "FINISHED";
-type ItemCategory = "INGREDIENT" | "PACKAGING" | "LABEL" | "BAKERY" | "DAIRY" | "OTHER";
+type ItemCategory = "INGREDIENT" | "NOT_EATABLE" | "BAKERY" | "DAIRY" | "PASTRY" | "OTHER";
 
 async function seedItem(
   db: TestDb,
@@ -156,14 +156,19 @@ describe("startCount (UC-10 step 1) — frozen-snapshot semantics", () => {
 
   it("scopes lines by kind/category (always isActive: true); unscoped includes all active items; inactive items never get lines", async () => {
     const db = createDb(env.DB);
-    const itemIngredient = await seedItem(db, "Scope ingredient item", "RAW_MATERIAL", "PACKAGING");
+    const itemIngredient = await seedItem(
+      db,
+      "Scope ingredient item",
+      "RAW_MATERIAL",
+      "NOT_EATABLE",
+    );
     const itemFinished = await seedItem(db, "Scope finished item", "FINISHED", "BAKERY");
-    const itemInactive = await seedItem(db, "Scope inactive item", "RAW_MATERIAL", "PACKAGING");
+    const itemInactive = await seedItem(db, "Scope inactive item", "RAW_MATERIAL", "NOT_EATABLE");
     await setItemActive(db, { id: itemInactive.id, isActive: false }, ACTOR);
 
     const categoryScoped = await startCount(
       db,
-      { category: "PACKAGING", occurredAt: NOW, businessDate: BUSINESS_DATE },
+      { category: "NOT_EATABLE", occurredAt: NOW, businessDate: BUSINESS_DATE },
       ACTOR,
     );
     const categoryItemIds = categoryScoped.count.lines.map((l) => l.itemId);
@@ -191,16 +196,41 @@ describe("startCount (UC-10 step 1) — frozen-snapshot semantics", () => {
     const db = createDb(env.DB);
     // A kind/category combo used ONLY in this test, deactivated immediately, so the resolved set
     // is guaranteed empty regardless of what other tests in this file have seeded.
-    const item = await seedItem(db, "Empty scope item", "SEMI_FINISHED", "LABEL");
+    const item = await seedItem(db, "Empty scope item", "SEMI_FINISHED", "NOT_EATABLE");
     await setItemActive(db, { id: item.id, isActive: false }, ACTOR);
 
     await expect(
       startCount(
         db,
-        { kind: "SEMI_FINISHED", category: "LABEL", occurredAt: NOW, businessDate: BUSINESS_DATE },
+        {
+          kind: "SEMI_FINISHED",
+          category: "NOT_EATABLE",
+          occurredAt: NOW,
+          businessDate: BUSINESS_DATE,
+        },
         ACTOR,
       ),
     ).rejects.toMatchObject({ code: "VALIDATION" });
+  });
+
+  it("excludes active unmetered items from the physical count item set", async () => {
+    const db = createDb(env.DB);
+    const unmetered = await seedItem(db, "Conteo agua no medible", "RAW_MATERIAL", "NOT_EATABLE");
+    await updateItem(db, { id: unmetered.id, isUnmetered: true }, ACTOR);
+    const storedUnmetered = await db.query.items.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.id, unmetered.id),
+    });
+    expect(storedUnmetered?.isUnmetered).toBe(1);
+    const listed = await listItems(db, { kind: "RAW_MATERIAL", isActive: true });
+    expect(listed.items.find((item) => item.id === unmetered.id)?.isUnmetered).toBe(true);
+
+    const started = await startCount(
+      db,
+      { kind: "RAW_MATERIAL", occurredAt: NOW, businessDate: BUSINESS_DATE },
+      ACTOR,
+    );
+
+    expect(started.count.lines.map((line) => line.itemId)).not.toContain(unmetered.id);
   });
 });
 
@@ -227,10 +257,10 @@ describe("updateCountLine (UC-10 step 2)", () => {
 
   it("rejects editing a line on an already-COMMITTED count with CONFLICT", async () => {
     const db = createDb(env.DB);
-    const item = await seedItem(db, "Committed edit item", "RAW_MATERIAL", "LABEL");
+    const item = await seedItem(db, "Committed edit item", "RAW_MATERIAL", "NOT_EATABLE");
     const started = await startCount(
       db,
-      { category: "LABEL", occurredAt: NOW, businessDate: BUSINESS_DATE },
+      { category: "NOT_EATABLE", occurredAt: NOW, businessDate: BUSINESS_DATE },
       ACTOR,
     );
     await commitCount(db, { countId: started.count.id }, ACTOR);
@@ -405,10 +435,10 @@ describe("commitCount (UC-10 step 3)", () => {
 
   it("rejects committing an already-COMMITTED count with CONFLICT (double-commit)", async () => {
     const db = createDb(env.DB);
-    await seedItem(db, "Double commit item", "RAW_MATERIAL", "LABEL");
+    await seedItem(db, "Double commit item", "RAW_MATERIAL", "NOT_EATABLE");
     const started = await startCount(
       db,
-      { category: "LABEL", occurredAt: NOW, businessDate: BUSINESS_DATE },
+      { category: "NOT_EATABLE", occurredAt: NOW, businessDate: BUSINESS_DATE },
       ACTOR,
     );
     await commitCount(db, { countId: started.count.id }, ACTOR);
@@ -522,10 +552,10 @@ describe("commitCount (UC-10 step 3)", () => {
 describe("reads: getCount / listCounts", () => {
   it("getCount returns the count with its lines; NOT_FOUND for a missing id", async () => {
     const db = createDb(env.DB);
-    await seedItem(db, "Read count item", "RAW_MATERIAL", "PACKAGING");
+    await seedItem(db, "Read count item", "RAW_MATERIAL", "NOT_EATABLE");
     const started = await startCount(
       db,
-      { category: "PACKAGING", occurredAt: NOW, businessDate: BUSINESS_DATE },
+      { category: "NOT_EATABLE", occurredAt: NOW, businessDate: BUSINESS_DATE },
       ACTOR,
     );
 
@@ -577,11 +607,11 @@ describe("batch atomicity (INV-1) for commitCount", () => {
       "Atomicity count item",
       10,
       "RAW_MATERIAL",
-      "PACKAGING",
+      "NOT_EATABLE",
     );
     const started = await startCount(
       db,
-      { category: "PACKAGING", occurredAt: NOW, businessDate: BUSINESS_DATE },
+      { category: "NOT_EATABLE", occurredAt: NOW, businessDate: BUSINESS_DATE },
       ACTOR,
     );
     await updateCountLine(

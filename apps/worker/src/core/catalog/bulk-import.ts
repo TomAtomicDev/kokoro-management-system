@@ -58,6 +58,7 @@ export async function bulkCreateItems(
     replacementCostUpdatedAt: null,
     salePriceMc: item.salePriceMc ?? null,
     minStockQty: item.minStockQty ?? null,
+    isUnmetered: item.isUnmetered ? 1 : 0,
     isActive: 1,
     notes: item.notes ?? null,
     createdAt: now,

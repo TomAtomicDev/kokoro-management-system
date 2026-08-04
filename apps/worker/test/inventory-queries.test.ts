@@ -42,8 +42,8 @@ async function seedItem(
   db: TestDb,
   name: string,
   overrides: Partial<{
-    kind: "RAW_MATERIAL" | "SEMI_FINISHED" | "FINISHED";
-    category: "INGREDIENT" | "PACKAGING" | "LABEL" | "BAKERY" | "DAIRY" | "OTHER";
+    kind: "RAW_MATERIAL" | "SEMI_FINISHED" | "FINISHED" | "PACKAGING";
+    category: "INGREDIENT" | "NOT_EATABLE" | "BAKERY" | "DAIRY" | "PASTRY" | "OTHER";
     unit: "G" | "KG" | "ML" | "L" | "UNIT";
     salePriceMc: MilliCentavosPerUnit | null;
     minStockQty: number | null;

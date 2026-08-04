@@ -130,6 +130,12 @@ async function buildRecordExitMovement(
 
   // C-6: value at the item's CURRENT WAC, snapshotted onto this exit's own unit_cost_snapshot_mc —
   // never recomputed via applyWacEntry (that's only for PURCHASE_IN/PRODUCTION_IN entries).
+  if (itemRow.isUnmetered === 1) {
+    throw validationError("Este ítem no se puede sacar: es un insumo no medido.", {
+      itemId: command.itemId,
+    });
+  }
+
   const currentWac = await getCurrentWac(db, command.itemId);
   const unitCostSnapshotMc = snapshotUnitCost(currentWac);
 

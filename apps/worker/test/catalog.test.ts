@@ -165,12 +165,18 @@ describe("listItems", () => {
     await addItemAlias(db, { itemId: flour.id, alias: "wholemeal" }, ACTOR);
     const box = await createItem(
       db,
-      { name: "Caja de cartÃ³n", kind: "RAW_MATERIAL", category: "PACKAGING", unit: "UNIT" },
+      {
+        name: "Caja de cartÃ³n",
+        kind: "PACKAGING",
+        category: "NOT_EATABLE",
+        unit: "UNIT",
+        minStockQty: 0,
+      },
       ACTOR,
     );
     await setItemActive(db, { id: box.id, isActive: false }, ACTOR);
 
-    const byCategory = await listItems(db, { category: "PACKAGING" });
+    const byCategory = await listItems(db, { category: "NOT_EATABLE" });
     expect(byCategory.items.map((i) => i.id)).toEqual([box.id]);
 
     const onlyActive = await listItems(db, { isActive: true });

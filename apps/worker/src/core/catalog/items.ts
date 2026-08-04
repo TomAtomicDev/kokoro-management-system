@@ -71,6 +71,7 @@ export async function createItem(
     replacementCostUpdatedAt: null,
     salePriceMc: command.salePriceMc ?? null,
     minStockQty: command.minStockQty ?? null,
+    isUnmetered: command.isUnmetered ? 1 : 0,
     isActive: 1,
     notes: command.notes ?? null,
     createdAt: now,
@@ -123,6 +124,7 @@ export async function updateItem(
     ...(command.unit !== undefined ? { unit: command.unit } : {}),
     ...(command.salePriceMc !== undefined ? { salePriceMc: command.salePriceMc } : {}),
     ...(command.minStockQty !== undefined ? { minStockQty: command.minStockQty } : {}),
+    ...(command.isUnmetered !== undefined ? { isUnmetered: command.isUnmetered ? 1 : 0 } : {}),
     ...(command.notes !== undefined ? { notes: command.notes } : {}),
     updatedAt: now,
   };

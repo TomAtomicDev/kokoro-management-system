@@ -26,6 +26,7 @@ export function toItemDto(row: ItemRow, aliases: ItemAliasRow[]): ItemDto {
     replacementCostUpdatedAt: row.replacementCostUpdatedAt,
     salePriceMc: row.salePriceMc === null ? null : toMilliCentavosPerUnit(row.salePriceMc),
     minStockQty: row.minStockQty,
+    isUnmetered: row.isUnmetered === 1,
     isActive: row.isActive === 1,
     notes: row.notes,
     createdAt: row.createdAt,
