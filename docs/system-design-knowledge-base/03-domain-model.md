@@ -142,7 +142,12 @@ non-food-raw-material bucket `LABEL` used to occupy. A PACKAGING item is purchas
     not apply either (there is no purchase). Instead `replacement_cost_mc` is set directly by the
     owner on the catalog form (an estimate — e.g. Bs/liter of tap water backed out from the
     monthly utility bill) and is what gets snapshotted onto its production consumption lines (C-4)
-    and used by any recipe's theoretical-cost preview (C-3b) that includes it.
+    and used by any recipe's theoretical-cost preview (C-3b) that includes it. The create/update
+    item commands accept `replacementCostMc` for this one case only (rejected for every other
+    kind/`isUnmetered` combination, same `superRefine` as `salePriceMc`/`minStockQty`); a manual
+    edit stamps `replacement_cost_updated_at` exactly like a purchase would, so the catalog's
+    "calculado" badge reflects when the owner's estimate was last touched, not a purchase that
+    never happened.
   - **Not physically counted.** `InventoryCount` item lists (`listItems`/`startCount`) exclude
     unmetered items — there is nothing to count.
   `minStockQty` stays required per the general RAW_MATERIAL rule but is inert for an unmetered

@@ -2,8 +2,10 @@
 // API route, the web forms, and any future AI draft tool for items/aliases all import these same
 // schemas ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â never redeclare field validation elsewhere.
 //
-// wac / replacementCostMc / replacementCostUpdatedAt are deliberately absent from every command
-// schema below: they are system-derived (Doc 03 C-1/C-3) and are never user-settable.
+// wac / replacementCostUpdatedAt are absent from every command schema below: they are
+// system-derived (Doc 03 C-1/C-3) and never user-settable. replacementCostMc is the one
+// exception (Doc 03 C-9): owner-editable, but only for an isUnmetered RAW_MATERIAL item, since
+// that's the only case where C-3's purchase-driven cost never runs.
 
 import { z } from "zod";
 
@@ -26,6 +28,15 @@ const salePriceMcSchema = z
 const minStockQtySchema = z.number().int().nonnegative().nullable().optional();
 /** RAW_MATERIAL-only (Doc 03 C-9, KOK-1xx): exempts the item from purchases/exits/kardex. */
 const isUnmeteredSchema = z.boolean().optional();
+/** Centavos, matching money.ts's Centavos representation (INV-6). Owner-editable only when
+ * isUnmetered=true (Doc 03 C-9) — every other kind/flag combination keeps this system-derived. */
+const replacementCostMcSchema = z
+  .number()
+  .int()
+  .nonnegative()
+  .transform(toMilliCentavosPerUnit)
+  .nullable()
+  .optional();
 
 const salePriceRequiredMessage = "El precio de venta es obligatorio para productos finales.";
 const salePriceForbiddenMessage =
@@ -34,7 +45,9 @@ const minStockQtyRequiredMessage =
   "El stock mínimo es obligatorio para materias primas y empaques.";
 const minStockQtyForbiddenMessage =
   "El stock mínimo no aplica a semielaborados ni productos finales.";
-const isUnmeteredForbiddenMessage = "\"No medido\" solo aplica a materias primas.";
+const isUnmeteredForbiddenMessage = '"No medido" solo aplica a materias primas.';
+const replacementCostMcForbiddenMessage =
+  "El costo de reposición solo es editable para materias primas no medidas.";
 
 function addKindExclusiveIssues(
   value: {
@@ -42,6 +55,7 @@ function addKindExclusiveIssues(
     salePriceMc?: MilliCentavosPerUnit | null;
     minStockQty?: number | null;
     isUnmetered?: boolean;
+    replacementCostMc?: MilliCentavosPerUnit | null;
   },
   ctx: z.RefinementCtx,
 ): void {
@@ -86,6 +100,16 @@ function addKindExclusiveIssues(
       path: ["isUnmetered"],
     });
   }
+
+  const hasReplacementCostMc =
+    value.replacementCostMc !== undefined && value.replacementCostMc !== null;
+  if (hasReplacementCostMc && !(value.kind === "RAW_MATERIAL" && value.isUnmetered)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: replacementCostMcForbiddenMessage,
+      path: ["replacementCostMc"],
+    });
+  }
 }
 
 export const createItemCommandSchema = z
@@ -97,6 +121,7 @@ export const createItemCommandSchema = z
     salePriceMc: salePriceMcSchema,
     minStockQty: minStockQtySchema,
     isUnmetered: isUnmeteredSchema,
+    replacementCostMc: replacementCostMcSchema,
     notes: notesSchema,
   })
   .superRefine((value, ctx) => addKindExclusiveIssues(value, ctx));
@@ -112,6 +137,7 @@ export const updateItemCommandSchema = z
     salePriceMc: salePriceMcSchema,
     minStockQty: minStockQtySchema,
     isUnmetered: isUnmeteredSchema,
+    replacementCostMc: replacementCostMcSchema,
     notes: notesSchema,
   })
   .superRefine((value, ctx) => addKindExclusiveIssues(value, ctx));

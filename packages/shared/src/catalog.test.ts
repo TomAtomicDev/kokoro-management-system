@@ -127,7 +127,7 @@ describe("createItemCommandSchema", () => {
     }
   });
 
-  it("does not accept wac/replacementCostMc as input fields (derived, not user-settable)", () => {
+  it("does not accept wac as an input field (derived, not user-settable)", () => {
     const result = createItemCommandSchema.safeParse({
       name: "Harina",
       kind: "RAW_MATERIAL",
@@ -139,6 +139,49 @@ describe("createItemCommandSchema", () => {
     expect(result.success).toBe(true);
     // wac is stripped â€” not part of the schema's shape, so it never reaches core/.
     expect((result as { data: Record<string, unknown> }).data.wac).toBeUndefined();
+  });
+
+  it("accepts replacementCostMc for an isUnmetered RAW_MATERIAL item (Doc 03 C-9)", () => {
+    const result = createItemCommandSchema.safeParse({
+      name: "Agua",
+      kind: "RAW_MATERIAL",
+      category: "INGREDIENT",
+      unit: "L",
+      minStockQty: 0,
+      isUnmetered: true,
+      replacementCostMc: 5,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects replacementCostMc for a metered RAW_MATERIAL item", () => {
+    const result = createItemCommandSchema.safeParse({
+      name: "Harina",
+      kind: "RAW_MATERIAL",
+      category: "INGREDIENT",
+      unit: "KG",
+      minStockQty: 0,
+      replacementCostMc: 5,
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.some((issue) => issue.path[0] === "replacementCostMc")).toBe(true);
+    }
+  });
+
+  it("rejects replacementCostMc for a non-RAW_MATERIAL kind even if isUnmetered were true", () => {
+    const result = createItemCommandSchema.safeParse({
+      name: "Bolsa",
+      kind: "PACKAGING",
+      category: "NOT_EATABLE",
+      unit: "UNIT",
+      minStockQty: 0,
+      replacementCostMc: 5,
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.some((issue) => issue.path[0] === "replacementCostMc")).toBe(true);
+    }
   });
 });
 

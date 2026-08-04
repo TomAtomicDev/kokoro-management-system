@@ -29,11 +29,11 @@ export const inventoryLabels = {
     RAW_MATERIAL: "Materia prima",
     SEMI_FINISHED: "Semielaborado",
     FINISHED: "Producto final",
+    PACKAGING: "Empaque",
   } satisfies Record<ItemKind, string>,
   categoryLabels: {
     INGREDIENT: "Ingrediente",
-    PACKAGING: "Empaque",
-    LABEL: "Etiqueta",
+    NOT_EATABLE: "No comestible",
     BAKERY: "PanaderÃ­a",
     DAIRY: "LÃ¡cteo",
     PASTRY: "Pastelería",
