@@ -44,6 +44,9 @@ interface FixtureItem {
   /** Milli-units (D-5) or null for "no alert". */
   minStockQty: number | null;
   isUnmetered?: boolean;
+  /** Centavos (D-5), same scale as `salePrice` above — despite the field's name, `fixtureToRow`
+   * feeds this straight into `formatIntAsDecimalInput(_, 2)` like every other money fixture field,
+   * not the raw MilliCentavosPerUnit rate ItemDto/seed-fixtures.sql use. */
   replacementCostMc?: number | null;
 }
 
@@ -75,9 +78,11 @@ const FIXTURE_ITEMS: FixtureItem[] = [
     minStockQty: 10000,
   },
   {
-    // Doc 03 C-9's canonical isUnmetered example: a metered utility, not purchased stock.
-    // 500 mc/L, the same rough Bolivia tap-water estimate as apps/worker/src/db/seed-fixtures.sql's
-    // item_agua row, kept in sync manually since this fixture list has no shared source with it.
+    // Doc 03 C-9's canonical isUnmetered example: a metered utility, not purchased stock. Bs
+    // 0.01/L (1 centavo, this form field's finest granularity) is a rough Bolivia tap-water
+    // estimate rounded UP from seed-fixtures.sql's item_agua row (Bs 0.005/L, expressed there in
+    // milli-centavos so it isn't floor-quantized) — kept approximately in sync manually since this
+    // fixture list has no shared source with that one.
     name: "Agua",
     kind: "RAW_MATERIAL",
     category: "INGREDIENT",
@@ -85,7 +90,7 @@ const FIXTURE_ITEMS: FixtureItem[] = [
     salePrice: null,
     minStockQty: 0,
     isUnmetered: true,
-    replacementCostMc: 500,
+    replacementCostMc: 1,
   },
   {
     name: "Sal",
