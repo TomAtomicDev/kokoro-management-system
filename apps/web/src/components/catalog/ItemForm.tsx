@@ -20,6 +20,7 @@ import { type ReactNode, useId } from "react";
 
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { formatIntAsDecimalInput, parseDecimalToInt } from "@/lib/decimal";
 import { catalogLabels } from "@/lib/i18n-catalog";
 
@@ -32,6 +33,9 @@ export interface ItemFormValues {
   salePrice: string;
   /** Decimal string in the item's own unit, e.g. "1.5" Ã¢â‚¬â€ empty string means "no alert". */
   minStockQty: string;
+  /** Decimal string in Bs per whole unit for RAW_MATERIAL items marked as unmetered. */
+  replacementCostMc: string;
+  isUnmetered: boolean;
   notes: string;
 }
 
@@ -43,6 +47,8 @@ export function emptyItemFormValues(defaults?: Partial<ItemFormValues>): ItemFor
     unit: defaults?.unit ?? "KG",
     salePrice: "",
     minStockQty: "",
+    replacementCostMc: "",
+    isUnmetered: false,
     notes: "",
   };
 }
@@ -54,6 +60,8 @@ export function itemFormValuesFromDto(item: {
   unit: Unit;
   salePriceMc: MilliCentavosPerUnit | null;
   minStockQty: number | null;
+  replacementCostMc: number;
+  isUnmetered: boolean;
   notes: string | null;
 }): ItemFormValues {
   return {
@@ -66,6 +74,11 @@ export function itemFormValuesFromDto(item: {
         ? ""
         : formatIntAsDecimalInput(totalCentavos(item.salePriceMc, WHOLE_UNIT_MILLI_UNITS), 2),
     minStockQty: item.minStockQty === null ? "" : formatIntAsDecimalInput(item.minStockQty, 3),
+    replacementCostMc: formatIntAsDecimalInput(
+      totalCentavos(toMilliCentavosPerUnit(item.replacementCostMc), WHOLE_UNIT_MILLI_UNITS),
+      2,
+    ),
+    isUnmetered: item.isUnmetered,
     notes: item.notes ?? "",
   };
 }
@@ -78,6 +91,8 @@ export interface ItemFormParsed {
   unit: Unit;
   salePriceMc: MilliCentavosPerUnit | null;
   minStockQty: number | null;
+  replacementCostMc: MilliCentavosPerUnit | null;
+  isUnmetered: boolean;
   notes: string | null;
 }
 
@@ -85,7 +100,7 @@ export type ItemFormParseResult =
   | { ok: true; value: ItemFormParsed }
   | {
       ok: false;
-      field: "name" | "salePrice" | "minStockQty";
+      field: "name" | "salePrice" | "minStockQty" | "replacementCostMc";
       code:
         | "nameRequired"
         | "salePriceInvalid"
@@ -93,7 +108,8 @@ export type ItemFormParseResult =
         | "salePriceForbidden"
         | "minStockQtyInvalid"
         | "minStockQtyRequired"
-        | "minStockQtyForbidden";
+        | "minStockQtyForbidden"
+        | "replacementCostMcInvalid";
     };
 
 /** Returns a field-specific error when a value is missing or doesn't parse as a valid decimal. */
@@ -119,6 +135,19 @@ export function parseItemFormValues(values: ItemFormValues): ItemFormParseResult
     minStockQty = parsed;
   }
 
+  let replacementCostMc: MilliCentavosPerUnit | null = null;
+  if (
+    values.kind === "RAW_MATERIAL" &&
+    values.isUnmetered &&
+    values.replacementCostMc.trim() !== ""
+  ) {
+    const parsed = parseDecimalToInt(values.replacementCostMc, 2);
+    if (parsed === null) {
+      return { ok: false, field: "replacementCostMc", code: "replacementCostMcInvalid" };
+    }
+    replacementCostMc = rateFromTotal(toCentavos(parsed), WHOLE_UNIT_MILLI_UNITS);
+  }
+
   if (values.kind === "FINISHED") {
     if (salePriceMc === null) {
       return { ok: false, field: "salePrice", code: "salePriceRequired" };
@@ -130,10 +159,10 @@ export function parseItemFormValues(values: ItemFormValues): ItemFormParseResult
     if (salePriceMc !== null) {
       return { ok: false, field: "salePrice", code: "salePriceForbidden" };
     }
-    if (values.kind === "RAW_MATERIAL" && minStockQty === null) {
+    if ((values.kind === "RAW_MATERIAL" || values.kind === "PACKAGING") && minStockQty === null) {
       return { ok: false, field: "minStockQty", code: "minStockQtyRequired" };
     }
-    if (values.kind === "SEMI_FINISHED" && minStockQty !== null) {
+    if (values.kind !== "RAW_MATERIAL" && values.kind !== "PACKAGING" && minStockQty !== null) {
       return { ok: false, field: "minStockQty", code: "minStockQtyForbidden" };
     }
   }
@@ -147,6 +176,8 @@ export function parseItemFormValues(values: ItemFormValues): ItemFormParseResult
       unit: values.unit,
       salePriceMc,
       minStockQty,
+      replacementCostMc,
+      isUnmetered: values.isUnmetered,
       notes: values.notes.trim() === "" ? null : values.notes.trim(),
     },
   };
@@ -202,7 +233,17 @@ export function ItemForm({ values, onChange, derived, disabled }: ItemFormProps)
       ...values,
       kind,
       salePrice: kind === "FINISHED" ? values.salePrice : "",
-      minStockQty: kind === "RAW_MATERIAL" ? values.minStockQty : "",
+      minStockQty: kind === "RAW_MATERIAL" || kind === "PACKAGING" ? values.minStockQty : "",
+      isUnmetered: kind === "RAW_MATERIAL" ? values.isUnmetered : false,
+      replacementCostMc: kind === "RAW_MATERIAL" ? values.replacementCostMc : "",
+    });
+  }
+  function setIsUnmetered(isUnmetered: boolean) {
+    onChange({
+      ...values,
+      isUnmetered,
+      minStockQty: isUnmetered ? "0" : values.minStockQty,
+      replacementCostMc: isUnmetered ? values.replacementCostMc : "",
     });
   }
 
@@ -255,6 +296,18 @@ export function ItemForm({ values, onChange, derived, disabled }: ItemFormProps)
         </Field>
       </div>
 
+      {values.kind === "RAW_MATERIAL" ? (
+        <div className="flex items-center gap-2 text-foreground text-sm">
+          <Switch
+            checked={values.isUnmetered}
+            onCheckedChange={setIsUnmetered}
+            disabled={disabled}
+            aria-label={catalogLabels.fieldIsUnmetered}
+          />
+          <span>{catalogLabels.fieldIsUnmetered}</span>
+        </div>
+      ) : null}
+
       <Field label={catalogLabels.fieldUnit} htmlFor={`${formId}-unit`}>
         <Select
           id={`${formId}-unit`}
@@ -284,7 +337,20 @@ export function ItemForm({ values, onChange, derived, disabled }: ItemFormProps)
           </Field>
         ) : null}
 
-        {values.kind === "RAW_MATERIAL" ? (
+        {values.kind === "RAW_MATERIAL" && values.isUnmetered ? (
+          <Field label={catalogLabels.fieldReplacementCost} htmlFor={`${formId}-replacement-cost`}>
+            <Input
+              id={`${formId}-replacement-cost`}
+              inputMode="decimal"
+              placeholder="0.00"
+              value={values.replacementCostMc}
+              onChange={(e) => set("replacementCostMc", e.target.value)}
+              disabled={disabled}
+            />
+          </Field>
+        ) : null}
+
+        {values.kind === "RAW_MATERIAL" || values.kind === "PACKAGING" ? (
           <Field label={catalogLabels.fieldMinStock} htmlFor={`${formId}-min-stock`}>
             <Input
               id={`${formId}-min-stock`}
@@ -292,7 +358,7 @@ export function ItemForm({ values, onChange, derived, disabled }: ItemFormProps)
               placeholder="0"
               value={values.minStockQty}
               onChange={(e) => set("minStockQty", e.target.value)}
-              disabled={disabled}
+              disabled={disabled || values.isUnmetered}
             />
           </Field>
         ) : null}
@@ -321,21 +387,23 @@ export function ItemForm({ values, onChange, derived, disabled }: ItemFormProps)
               / {UNIT_ABBREV[values.unit]}
             </span>
           </div>
-          <div className="flex items-center justify-between">
-            <span className="text-muted-foreground">
-              {catalogLabels.replacementCostMc}{" "}
-              <span className="text-xs">({catalogLabels.calculated})</span>
-            </span>
-            <span className="numeric-cell font-medium">
-              {formatMoney(
-                totalCentavos(
-                  toMilliCentavosPerUnit(derived.replacementCostMc),
-                  WHOLE_UNIT_MILLI_UNITS,
-                ),
-              )}{" "}
-              / {UNIT_ABBREV[values.unit]}
-            </span>
-          </div>
+          {!values.isUnmetered ? (
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">
+                {catalogLabels.replacementCostMc}{" "}
+                <span className="text-xs">({catalogLabels.calculated})</span>
+              </span>
+              <span className="numeric-cell font-medium">
+                {formatMoney(
+                  totalCentavos(
+                    toMilliCentavosPerUnit(derived.replacementCostMc),
+                    WHOLE_UNIT_MILLI_UNITS,
+                  ),
+                )}{" "}
+                / {UNIT_ABBREV[values.unit]}
+              </span>
+            </div>
+          ) : null}
         </div>
       ) : null}
     </div>

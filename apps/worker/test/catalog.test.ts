@@ -44,6 +44,27 @@ describe("createItem", () => {
     expect(auditRow).toMatchObject({ actor: ACTOR, entityType: "item" });
   });
 
+  it("sets replacementCostMc and stamps replacementCostUpdatedAt for an isUnmetered item (Doc 03 C-9)", async () => {
+    const db = createDb(env.DB);
+    const item = await createItem(
+      db,
+      {
+        name: "Agua",
+        kind: "RAW_MATERIAL",
+        category: "INGREDIENT",
+        unit: "L",
+        minStockQty: 0,
+        isUnmetered: true,
+        replacementCostMc: mc(5),
+      },
+      ACTOR,
+    );
+
+    expect(item.isUnmetered).toBe(true);
+    expect(item.replacementCostMc).toBe(mc(5));
+    expect(item.replacementCostUpdatedAt).not.toBeNull();
+  });
+
   it("rejects a duplicate name with CONFLICT", async () => {
     const db = createDb(env.DB);
     await createItem(
@@ -98,6 +119,50 @@ describe("updateItem", () => {
         code: "NOT_FOUND",
       },
     );
+  });
+
+  it("updates replacementCostMc and stamps replacementCostUpdatedAt for an isUnmetered item (Doc 03 C-9)", async () => {
+    const db = createDb(env.DB);
+    const created = await createItem(
+      db,
+      {
+        name: "Gas",
+        kind: "RAW_MATERIAL",
+        category: "INGREDIENT",
+        unit: "UNIT",
+        minStockQty: 0,
+        isUnmetered: true,
+        replacementCostMc: mc(10),
+      },
+      ACTOR,
+    );
+
+    const updated = await updateItem(db, { id: created.id, replacementCostMc: mc(20) }, ACTOR);
+
+    expect(updated.replacementCostMc).toBe(mc(20));
+    expect(updated.replacementCostUpdatedAt).not.toBeNull();
+  });
+
+  it("clearing replacementCostMc to null resets it to 0 and clears the timestamp", async () => {
+    const db = createDb(env.DB);
+    const created = await createItem(
+      db,
+      {
+        name: "Electricidad",
+        kind: "RAW_MATERIAL",
+        category: "INGREDIENT",
+        unit: "UNIT",
+        minStockQty: 0,
+        isUnmetered: true,
+        replacementCostMc: mc(10),
+      },
+      ACTOR,
+    );
+
+    const updated = await updateItem(db, { id: created.id, replacementCostMc: null }, ACTOR);
+
+    expect(updated.replacementCostMc).toBe(0);
+    expect(updated.replacementCostUpdatedAt).toBeNull();
   });
 });
 
@@ -165,12 +230,18 @@ describe("listItems", () => {
     await addItemAlias(db, { itemId: flour.id, alias: "wholemeal" }, ACTOR);
     const box = await createItem(
       db,
-      { name: "Caja de cartÃ³n", kind: "RAW_MATERIAL", category: "PACKAGING", unit: "UNIT" },
+      {
+        name: "Caja de cartÃ³n",
+        kind: "PACKAGING",
+        category: "NOT_EATABLE",
+        unit: "UNIT",
+        minStockQty: 0,
+      },
       ACTOR,
     );
     await setItemActive(db, { id: box.id, isActive: false }, ACTOR);
 
-    const byCategory = await listItems(db, { category: "PACKAGING" });
+    const byCategory = await listItems(db, { category: "NOT_EATABLE" });
     expect(byCategory.items.map((i) => i.id)).toEqual([box.id]);
 
     const onlyActive = await listItems(db, { isActive: true });

@@ -179,6 +179,46 @@ describe("recordExit (UC-09)", () => {
     expect(auditRow).toMatchObject({ actor: ACTOR, entityType: "stock_exits" });
   });
 
+  it("rejects an exit for an unmetered item before writing any stock exit or movement", async () => {
+    const db = createDb(env.DB);
+    const item = await createItem(
+      db,
+      {
+        name: "Agua no medible en salidas",
+        kind: "RAW_MATERIAL",
+        category: "NOT_EATABLE",
+        unit: "L",
+        minStockQty: 0,
+        isUnmetered: true,
+      },
+      ACTOR,
+    );
+
+    await expect(
+      recordExit(
+        db,
+        {
+          itemId: item.id,
+          qty: 100,
+          reason: "WASTE",
+          occurredAt: NOW,
+          businessDate: BUSINESS_DATE,
+        },
+        ACTOR,
+      ),
+    ).rejects.toMatchObject({
+      code: "VALIDATION",
+      message_es: "Este ítem no se puede sacar: es un insumo no medido.",
+    });
+
+    expect(await db.query.stockExits.findMany()).toHaveLength(0);
+    expect(
+      await db.query.stockMovements.findMany({
+        where: (t, { eq: eqOp }) => eqOp(t.itemId, item.id),
+      }),
+    ).toHaveLength(0);
+  });
+
   it.each([
     ["WASTE" as const],
     ["SELF_CONSUMPTION" as const],

@@ -149,9 +149,9 @@ function toSaleDto(row: SaleRow, lineRows: readonly SaleLineRow[]): SaleDto {
 /**
  * The current WAC to freeze onto each of a sale's lines, one lookup per DISTINCT item. Every line for
  * the same item snapshots the SAME value: a sale never mutates WAC (C-6 spirit), so the WAC does not
- * change between two lines of one sale. Validates each item exists AND is `kind='FINISHED'` (Doc 04
- * §5 / §3.3's service-enforced rule — there is no DB CHECK for it): selling a RAW_MATERIAL or
- * SEMI_FINISHED item is a VALIDATION error, not a NOT_FOUND.
+ * change between two lines of one sale. Validates each item exists AND is `kind='FINISHED'` or
+ * `kind='PACKAGING'` (Doc 04 §5 / §3.3's service-enforced rule — there is no DB CHECK for it):
+ * selling a RAW_MATERIAL or SEMI_FINISHED item is a VALIDATION error, not a NOT_FOUND.
  */
 async function resolveLineSnapshots(
   db: Db,
@@ -165,11 +165,14 @@ async function resolveLineSnapshots(
     if (!itemRow) {
       throw notFound("No se encontró el ítem.", { id: itemId });
     }
-    if (itemRow.kind !== "FINISHED") {
-      throw validationError("Solo se pueden vender ítems terminados (FINISHED).", {
-        itemId,
-        kind: itemRow.kind,
-      });
+    if (itemRow.kind !== "FINISHED" && itemRow.kind !== "PACKAGING") {
+      throw validationError(
+        "Solo se pueden vender ítems terminados (FINISHED) o de empaque (PACKAGING).",
+        {
+          itemId,
+          kind: itemRow.kind,
+        },
+      );
     }
     // C-6: value at the item's CURRENT WAC, snapshotted onto the sale line's own
     // unit_cost_snapshot_mc — never recomputed via applyWacEntry (that is only for entries).
@@ -288,8 +291,8 @@ async function buildSaleCreateMovements(
 
 /**
  * UC-03: record one multi-line catalog sale in one atomic batch (D-3). See this module's header for
- * the full statement list. FINISHED-only line validation, per-line WAC snapshot frozen at sale time,
- * SALE_OUT movements (negative stock allowed, INV-8), income transaction when PAID / receivable when
+ * the full statement list. FINISHED/PACKAGING line validation, per-line WAC snapshot frozen at sale
+ * time, SALE_OUT movements (negative stock allowed, INV-8), income transaction when PAID / receivable when
  * ON_CREDIT, and `total` server-recomputed as Σ(qty × unit_price) (Doc 04 §5).
  */
 export async function recordSale(

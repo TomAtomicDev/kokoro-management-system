@@ -63,7 +63,7 @@ const BUSINESS_DATE = "2026-07-16";
 
 type TestDb = ReturnType<typeof createDb>;
 
-/** A FINISHED item (the only kind a sale line may reference, Doc 04 §5). */
+/** A FINISHED item (one of the two kinds a catalog sale line may reference, Doc 04 §5). */
 async function seedFinishedItem(db: TestDb, name: string) {
   return createItem(db, { name, kind: "FINISHED", category: "BAKERY", unit: "UNIT" }, ACTOR);
 }
@@ -349,7 +349,90 @@ describe("recordSale — validation & INV-8", () => {
         },
         ACTOR,
       ),
-    ).rejects.toMatchObject({ code: "VALIDATION" });
+    ).rejects.toMatchObject({
+      code: "VALIDATION",
+      message_es: "Solo se pueden vender ítems terminados (FINISHED) o de empaque (PACKAGING).",
+    });
+  });
+
+  it("accepts FINISHED and PACKAGING lines, freezing each WAC and charging only the finished line", async () => {
+    const db = createDb(env.DB);
+    const finished = await seedStockedFinishedItem(
+      db,
+      "Sale — finished with packaging",
+      1000,
+      6000,
+    );
+    const packaging = await createItem(
+      db,
+      {
+        name: "Sale — packaging line",
+        kind: "PACKAGING",
+        category: "NOT_EATABLE",
+        unit: "UNIT",
+        minStockQty: 0,
+      },
+      ACTOR,
+    );
+    await recordPurchase(
+      db,
+      {
+        accountId: "acc_bank",
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        lines: [{ itemId: packaging.id, qty: 1000, lineTotal: 2000 }],
+      },
+      ACTOR,
+    );
+
+    const result = await recordSale(
+      db,
+      {
+        paymentStatus: "ON_CREDIT",
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        lines: [
+          { itemId: finished.id, qty: 200, unitPriceMc: 1_000_000 },
+          { itemId: packaging.id, qty: 200, unitPriceMc: 0 },
+        ],
+      },
+      ACTOR,
+    );
+
+    expect(result.sale.total).toBe(200);
+    expect(result.sale.lines).toEqual([
+      expect.objectContaining({
+        itemId: finished.id,
+        unitCostSnapshotMc: 6_000_000,
+        unitPriceMc: 1_000_000,
+      }),
+      expect.objectContaining({
+        itemId: packaging.id,
+        unitCostSnapshotMc: 2_000_000,
+        unitPriceMc: 0,
+      }),
+    ]);
+
+    const movementRows = await db.query.stockMovements.findMany({
+      where: (t, { eq: eqOp }) => eqOp(t.sourceEventId, result.sale.id),
+    });
+    expect(movementRows).toHaveLength(2);
+    expect(movementRows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          itemId: finished.id,
+          type: "SALE_OUT",
+          qty: -200,
+          unitCostMc: 6_000_000,
+        }),
+        expect.objectContaining({
+          itemId: packaging.id,
+          type: "SALE_OUT",
+          qty: -200,
+          unitCostMc: 2_000_000,
+        }),
+      ]),
+    );
   });
 
   it("rejects a nonexistent item with NOT_FOUND", async () => {

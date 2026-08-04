@@ -28,6 +28,7 @@ import {
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { useBulkCreateItems } from "@/features/onboarding/api";
 import { ApiError } from "@/lib/api";
 import { formatIntAsDecimalInput } from "@/lib/decimal";
@@ -42,6 +43,11 @@ interface FixtureItem {
   salePrice: number | null;
   /** Milli-units (D-5) or null for "no alert". */
   minStockQty: number | null;
+  isUnmetered?: boolean;
+  /** Centavos (D-5), same scale as `salePrice` above — despite the field's name, `fixtureToRow`
+   * feeds this straight into `formatIntAsDecimalInput(_, 2)` like every other money fixture field,
+   * not the raw MilliCentavosPerUnit rate ItemDto/seed-fixtures.sql use. */
+  replacementCostMc?: number | null;
 }
 
 // Doc 04 §7's dev fixture catalog — exact field values, already in the integer domains the API
@@ -72,12 +78,19 @@ const FIXTURE_ITEMS: FixtureItem[] = [
     minStockQty: 10000,
   },
   {
+    // Doc 03 C-9's canonical isUnmetered example: a metered utility, not purchased stock. Bs
+    // 0.01/L (1 centavo, this form field's finest granularity) is a rough Bolivia tap-water
+    // estimate rounded UP from seed-fixtures.sql's item_agua row (Bs 0.005/L, expressed there in
+    // milli-centavos so it isn't floor-quantized) — kept approximately in sync manually since this
+    // fixture list has no shared source with that one.
     name: "Agua",
     kind: "RAW_MATERIAL",
     category: "INGREDIENT",
     unit: "L",
     salePrice: null,
     minStockQty: 0,
+    isUnmetered: true,
+    replacementCostMc: 1,
   },
   {
     name: "Sal",
@@ -153,16 +166,16 @@ const FIXTURE_ITEMS: FixtureItem[] = [
   },
   {
     name: "Cajas",
-    kind: "RAW_MATERIAL",
-    category: "PACKAGING",
+    kind: "PACKAGING",
+    category: "NOT_EATABLE",
     unit: "UNIT",
     salePrice: null,
     minStockQty: 20000,
   },
   {
     name: "Etiquetas",
-    kind: "RAW_MATERIAL",
-    category: "LABEL",
+    kind: "PACKAGING",
+    category: "NOT_EATABLE",
     unit: "UNIT",
     salePrice: null,
     minStockQty: 50000,
@@ -182,6 +195,11 @@ function fixtureToRow(item: FixtureItem, index: number): CatalogRow {
     unit: item.unit,
     salePrice: item.salePrice === null ? "" : formatIntAsDecimalInput(item.salePrice, 2),
     minStockQty: item.minStockQty === null ? "" : formatIntAsDecimalInput(item.minStockQty, 3),
+    replacementCostMc:
+      item.replacementCostMc === undefined || item.replacementCostMc === null
+        ? ""
+        : formatIntAsDecimalInput(item.replacementCostMc, 2),
+    isUnmetered: item.isUnmetered ?? false,
     notes: "",
   };
 }
@@ -201,7 +219,7 @@ export function StepCatalog({ onDone, onSkip, readOnly = false }: StepCatalogPro
   const [error, setError] = useState<string | null>(null);
   const [rowError, setRowError] = useState<{
     rowId: string;
-    field: "name" | "salePrice" | "minStockQty";
+    field: "name" | "salePrice" | "minStockQty" | "replacementCostMc";
     message: string;
   } | null>(null);
 
@@ -244,7 +262,24 @@ export function StepCatalog({ onDone, onSkip, readOnly = false }: StepCatalogPro
               ...row,
               kind,
               salePrice: kind === "FINISHED" ? row.salePrice : "",
-              minStockQty: kind === "RAW_MATERIAL" ? row.minStockQty : "",
+              minStockQty: kind === "RAW_MATERIAL" || kind === "PACKAGING" ? row.minStockQty : "",
+              isUnmetered: kind === "RAW_MATERIAL" ? row.isUnmetered : false,
+              replacementCostMc: kind === "RAW_MATERIAL" ? row.replacementCostMc : "",
+            }
+          : row,
+      ),
+    );
+    setRowError((current) => (current?.rowId === id ? null : current));
+  }
+
+  function updateRowIsUnmetered(id: string, isUnmetered: boolean) {
+    setRows((prev) =>
+      prev.map((row) =>
+        row.id === id
+          ? {
+              ...row,
+              isUnmetered,
+              minStockQty: isUnmetered ? "0" : row.minStockQty,
             }
           : row,
       ),
@@ -296,19 +331,21 @@ export function StepCatalog({ onDone, onSkip, readOnly = false }: StepCatalogPro
 
       <div className="rounded-lg border border-border md:overflow-x-auto">
         <div className="md:min-w-[860px]">
-          <div className="grid grid-cols-[2fr_1.2fr_1.2fr_0.8fr_1fr_1fr_4rem] gap-2 border-b border-border bg-card px-3 py-2 text-xs font-medium text-muted-foreground max-md:hidden">
+          <div className="grid grid-cols-[2fr_1.2fr_1.2fr_0.8fr_1fr_1fr_1fr_1fr_4rem] gap-2 border-b border-border bg-card px-3 py-2 text-xs font-medium text-muted-foreground max-md:hidden">
             <span>{onboardingLabels.columnName}</span>
             <span>{onboardingLabels.columnKind}</span>
             <span>{onboardingLabels.columnCategory}</span>
             <span>{onboardingLabels.columnUnit}</span>
             <span>{onboardingLabels.columnSalePrice}</span>
             <span>{onboardingLabels.columnMinStock}</span>
+            <span>{onboardingLabels.columnIsUnmetered}</span>
+            <span>{onboardingLabels.columnReplacementCost}</span>
             <span />
           </div>
           {rows.map((row) => (
             <div
               key={row.id}
-              className="grid grid-cols-[2fr_1.2fr_1.2fr_0.8fr_1fr_1fr_4rem] items-center gap-2 border-b border-border px-3 py-2 text-sm last:border-0 max-md:mb-3 max-md:flex max-md:flex-col max-md:items-stretch max-md:gap-3 max-md:rounded-md max-md:border max-md:bg-card max-md:p-3 max-md:last:mb-0"
+              className="grid grid-cols-[2fr_1.2fr_1.2fr_0.8fr_1fr_1fr_1fr_1fr_4rem] items-center gap-2 border-b border-border px-3 py-2 text-sm last:border-0 max-md:mb-3 max-md:flex max-md:flex-col max-md:items-stretch max-md:gap-3 max-md:rounded-md max-md:border max-md:bg-card max-md:p-3 max-md:last:mb-0"
             >
               <label
                 className="contents max-md:flex max-md:flex-col max-md:gap-1"
@@ -404,7 +441,7 @@ export function StepCatalog({ onDone, onSkip, readOnly = false }: StepCatalogPro
               ) : (
                 <span aria-hidden="true" className="hidden md:block" />
               )}
-              {row.kind === "RAW_MATERIAL" ? (
+              {row.kind === "RAW_MATERIAL" || row.kind === "PACKAGING" ? (
                 <label
                   className="contents max-md:flex max-md:flex-col max-md:gap-1"
                   htmlFor={`catalog-${row.id}-min-stock`}
@@ -418,6 +455,41 @@ export function StepCatalog({ onDone, onSkip, readOnly = false }: StepCatalogPro
                     placeholder="0"
                     value={row.minStockQty}
                     onChange={(e) => updateRow(row.id, "minStockQty", e.target.value)}
+                    disabled={disabled || row.isUnmetered}
+                  />
+                </label>
+              ) : (
+                <span aria-hidden="true" className="hidden md:block" />
+              )}
+              {row.kind === "RAW_MATERIAL" ? (
+                <div className="flex items-center gap-2 text-foreground text-sm max-md:justify-between">
+                  <span className="hidden font-medium text-muted-foreground text-xs max-md:block">
+                    {onboardingLabels.columnIsUnmetered}
+                  </span>
+                  <Switch
+                    checked={row.isUnmetered}
+                    onCheckedChange={(checked) => updateRowIsUnmetered(row.id, checked)}
+                    disabled={disabled}
+                    aria-label={onboardingLabels.columnIsUnmetered}
+                  />
+                </div>
+              ) : (
+                <span aria-hidden="true" className="hidden md:block" />
+              )}
+              {row.kind === "RAW_MATERIAL" && row.isUnmetered ? (
+                <label
+                  className="contents max-md:flex max-md:flex-col max-md:gap-1"
+                  htmlFor={`catalog-${row.id}-replacement-cost`}
+                >
+                  <span className="hidden font-medium text-muted-foreground text-xs max-md:block">
+                    {onboardingLabels.columnReplacementCost}
+                  </span>
+                  <Input
+                    id={`catalog-${row.id}-replacement-cost`}
+                    inputMode="decimal"
+                    placeholder="0.00"
+                    value={row.replacementCostMc}
+                    onChange={(e) => updateRow(row.id, "replacementCostMc", e.target.value)}
                     disabled={disabled}
                   />
                 </label>
@@ -441,7 +513,9 @@ export function StepCatalog({ onDone, onSkip, readOnly = false }: StepCatalogPro
                     ? onboardingLabels.columnName
                     : rowError.field === "salePrice"
                       ? onboardingLabels.columnSalePrice
-                      : onboardingLabels.columnMinStock}
+                      : rowError.field === "minStockQty"
+                        ? onboardingLabels.columnMinStock
+                        : onboardingLabels.columnReplacementCost}
                   : {rowError.message}
                 </p>
               ) : null}

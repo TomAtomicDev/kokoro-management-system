@@ -42,11 +42,12 @@ async function seedItem(
   db: TestDb,
   name: string,
   overrides: Partial<{
-    kind: "RAW_MATERIAL" | "SEMI_FINISHED" | "FINISHED";
-    category: "INGREDIENT" | "PACKAGING" | "LABEL" | "BAKERY" | "DAIRY" | "OTHER";
+    kind: "RAW_MATERIAL" | "SEMI_FINISHED" | "FINISHED" | "PACKAGING";
+    category: "INGREDIENT" | "NOT_EATABLE" | "BAKERY" | "DAIRY" | "PASTRY" | "OTHER";
     unit: "G" | "KG" | "ML" | "L" | "UNIT";
     salePriceMc: MilliCentavosPerUnit | null;
     minStockQty: number | null;
+    isUnmetered: boolean;
   }> = {},
 ) {
   return createItem(
@@ -58,6 +59,7 @@ async function seedItem(
       unit: overrides.unit ?? "KG",
       salePriceMc: overrides.salePriceMc,
       minStockQty: overrides.minStockQty,
+      isUnmetered: overrides.isUnmetered,
     },
     ACTOR,
   );
@@ -209,6 +211,21 @@ describe("listStock (Doc 04 §4 v_stock, SC-08)", () => {
 
     const { stock } = await listStock(db);
     expect(stock.some((r) => r.itemId === item.id)).toBe(false);
+  });
+
+  it("excludes unmetered items from both plain and negative-only stock listings (C-9)", async () => {
+    const db = createDb(env.DB);
+    const item = await seedItem(db, "Unmetered stock view item", {
+      unit: "L",
+      minStockQty: 0,
+      isUnmetered: true,
+    });
+
+    const { stock } = await listStock(db);
+    expect(stock.some((r) => r.itemId === item.id)).toBe(false);
+
+    const { stock: negativeOnly } = await listStock(db, { negativeOnly: true });
+    expect(negativeOnly.some((r) => r.itemId === item.id)).toBe(false);
   });
 
   it("filters by kind", async () => {
@@ -381,6 +398,18 @@ describe("getStockConsistencyMismatches (INV-5 nightly sentinel, KOK-021)", () =
       },
       ACTOR,
     );
+
+    const mismatches = await getStockConsistencyMismatches(db);
+    expect(mismatches.some((m) => m.itemId === item.id)).toBe(false);
+  });
+
+  it("does not flag an unmetered item with no stock movements (C-9)", async () => {
+    const db = createDb(env.DB);
+    const item = await seedItem(db, "Unmetered consistency item", {
+      unit: "L",
+      minStockQty: 0,
+      isUnmetered: true,
+    });
 
     const mismatches = await getStockConsistencyMismatches(db);
     expect(mismatches.some((m) => m.itemId === item.id)).toBe(false);

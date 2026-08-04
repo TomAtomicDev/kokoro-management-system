@@ -5,7 +5,7 @@
 // core/inventory/core/costing — so it does its own defensive validation, builds every row itself,
 // and executes exactly ONE atomic `db.batch()` (D-3) per command containing:
 //   - the `production_runs` + `production_consumptions` inserts (the event itself)
-//   - PRODUCTION_OUT `stock_movements` for every consumption line + ONE PRODUCTION_IN for the
+//   - PRODUCTION_OUT `stock_movements` for every metered consumption line + ONE PRODUCTION_IN for the
 //     output, all in a single call to core/inventory's `buildStockMovementStatements` (a building
 //     block spliced into this batch, never its own)
 //   - ONE `items` UPDATE for the OUTPUT item only, carrying the C-1 WAC update (`applyWacEntry`,
@@ -19,9 +19,9 @@
 //     capture.
 //
 // UNLIKE PURCHASING, LIKE core/inventory/exits.ts (C-6 "invisible cost", that module's header):
-// the CONSUMPTION side of a run is valued at each item's CURRENT WAC (`getCurrentWac` +
-// `snapshotUnitCost`) and NEVER written back — `applyWacEntry` is only ever called for the single
-// OUTPUT item's PRODUCTION_IN entry. There is also NO financial side at all: `production_runs` has
+// the CONSUMPTION side of a run is valued at each metered item's CURRENT WAC (`getCurrentWac` +
+// `snapshotUnitCost`) or an unmetered item's replacement cost (C-9), and NEVER written back —
+// `applyWacEntry` is only ever called for the single OUTPUT item's PRODUCTION_IN entry. There is also NO financial side at all: `production_runs` has
 // no `accountId` column (confirmed against schema.ts), so this file never builds a
 // `financial_transactions` row or an account balance delta — skip that whole block purchasing has.
 //
@@ -109,6 +109,10 @@ type Statement = BatchItem<"sqlite">;
 type ProductionRunRow = typeof productionRuns.$inferSelect;
 type ProductionConsumptionRow = typeof productionConsumptions.$inferSelect;
 type RecipeRow = typeof recipes.$inferSelect;
+type ProductionConsumptionItemState = {
+  isUnmetered: boolean;
+  replacementCostMc: MilliCentavosPerUnit;
+};
 
 function toProductionRunDto(
   row: ProductionRunRow,
@@ -162,13 +166,16 @@ async function findActiveRecipeRowOrThrow(db: Db, recipeId: string): Promise<Rec
 }
 
 /** Doc 04 §5 integrity rule, the consumption-side analogue of recipes.ts's
- * `validateRecipeItemKinds`: every consumed item must exist and be RAW_MATERIAL or SEMI_FINISHED —
- * never FINISHED, a finished product is not consumed as an ingredient. Defensive re-check (D-2):
- * core/ services never trust that a caller already validated this. */
+ * `validateRecipeItemKinds`: every consumed item must exist and be RAW_MATERIAL or SEMI_FINISHED
+ * (a positive whitelist, not just "not FINISHED" — PACKAGING is a purchased item too, but Doc 03
+ * §3's Item aggregate row is explicit that it is never a recipe/production input, only ever a
+ * `sale_lines` row).
+ * Defensive re-check (D-2): core/ services never trust that a caller already validated this. */
 async function validateProductionConsumptionItemKinds(
   db: Db,
   lines: readonly { itemId: string }[],
-): Promise<void> {
+): Promise<Map<string, ProductionConsumptionItemState>> {
+  const itemStates = new Map<string, ProductionConsumptionItemState>();
   for (const line of lines) {
     const itemRow = await db.query.items.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.id, line.itemId),
@@ -176,13 +183,18 @@ async function validateProductionConsumptionItemKinds(
     if (!itemRow) {
       throw notFound("No se encontró el ítem consumido.", { id: line.itemId });
     }
-    if (itemRow.kind === "FINISHED") {
-      throw validationError("Un insumo de producción no puede ser un producto terminado.", {
-        itemId: line.itemId,
-        kind: itemRow.kind,
-      });
+    if (itemRow.kind !== "RAW_MATERIAL" && itemRow.kind !== "SEMI_FINISHED") {
+      throw validationError(
+        "Un insumo de producción debe ser una materia prima o un semielaborado.",
+        { itemId: line.itemId, kind: itemRow.kind },
+      );
     }
+    itemStates.set(line.itemId, {
+      isUnmetered: itemRow.isUnmetered === 1,
+      replacementCostMc: toMilliCentavosPerUnit(itemRow.replacementCostMc),
+    });
   }
+  return itemStates;
 }
 
 /**
@@ -193,7 +205,7 @@ async function validateProductionConsumptionItemKinds(
  * cost lands on the same number this module would have booked for the same consumption/costs. See
  * this module's header for the full rounding-point rationale (INV-6).
  */
-function computeProductionCosts(
+export function computeProductionCosts(
   consumptions: readonly { qty: number; unitCostSnapshotMc: MilliCentavosPerUnit }[],
   indirectCost: number,
   allocatedSessionCost: number,
@@ -221,13 +233,14 @@ function computeProductionCosts(
   return { directCost, totalCost, outputUnitCostMc };
 }
 
-/** Turns a run's post-state consumption rows + output into its kardex movements: N PRODUCTION_OUT
- * (one per consumption line, sign-flipped at this boundary only, mirroring exits.ts's identical
+/** Turns a run's post-state consumption rows + output into its kardex movements: PRODUCTION_OUT
+ * for each metered consumption line (sign-flipped at this boundary only, mirroring exits.ts's identical
  * convention) + ONE PRODUCTION_IN for the output. Shared by the create path, the update path, and
  * `restoreProductionRun` (which rebuilds these from the run's UNCHANGED stored consumption rows) —
  * one construction, never a second implementation that could quietly disagree (this module's header
  * / purchasing.ts's identical `buildPurchaseInMovementsFromLines` precedent). */
-function buildProductionMovementsFromConsumptions(
+async function buildProductionMovementsFromConsumptions(
+  db: Db,
   runId: string,
   consumptions: readonly ProductionConsumptionRow[],
   outputItemId: string,
@@ -235,17 +248,29 @@ function buildProductionMovementsFromConsumptions(
   outputUnitCostMc: MilliCentavosPerUnit,
   occurredAt: string,
   businessDate: string,
-): StockMovementInput[] {
-  const movements: StockMovementInput[] = consumptions.map((c) => ({
-    itemId: c.itemId,
-    occurredAt,
-    businessDate,
-    type: "PRODUCTION_OUT",
-    qty: -c.qty,
-    unitCostMc: toMilliCentavosPerUnit(c.unitCostSnapshotMc),
-    sourceEventType: "production_run",
-    sourceEventId: runId,
-  }));
+): Promise<StockMovementInput[]> {
+  const itemIds = [...new Set(consumptions.map((c) => c.itemId))];
+  const unmeteredItemIds = new Set<string>();
+  if (itemIds.length > 0) {
+    const itemRows = await db.query.items.findMany({
+      where: (t, { inArray }) => inArray(t.id, itemIds),
+    });
+    for (const item of itemRows) {
+      if (item.isUnmetered === 1) unmeteredItemIds.add(item.id);
+    }
+  }
+  const movements: StockMovementInput[] = consumptions
+    .filter((c) => !unmeteredItemIds.has(c.itemId))
+    .map((c) => ({
+      itemId: c.itemId,
+      occurredAt,
+      businessDate,
+      type: "PRODUCTION_OUT",
+      qty: -c.qty,
+      unitCostMc: toMilliCentavosPerUnit(c.unitCostSnapshotMc),
+      sourceEventType: "production_run",
+      sourceEventId: runId,
+    }));
   movements.push({
     itemId: outputItemId,
     occurredAt,
@@ -283,7 +308,7 @@ async function buildProductionRunCreateInputs(
   }
 
   const recipe = await findActiveRecipeRowOrThrow(db, command.recipeId);
-  await validateProductionConsumptionItemKinds(db, command.lines);
+  const consumptionItemStates = await validateProductionConsumptionItemKinds(db, command.lines);
 
   const runId = generateUuidV7();
   const now = nowIso();
@@ -293,7 +318,13 @@ async function buildProductionRunCreateInputs(
   // the single OUTPUT entry below).
   const consumptionRows: ProductionConsumptionRow[] = [];
   for (const line of command.lines) {
-    const unitCostSnapshotMc = snapshotUnitCost(await getCurrentWac(db, line.itemId));
+    const itemState = consumptionItemStates.get(line.itemId);
+    if (!itemState) {
+      throw validationError("Estado interno de consumo inconsistente.", { itemId: line.itemId });
+    }
+    const unitCostSnapshotMc = snapshotUnitCost(
+      itemState.isUnmetered ? itemState.replacementCostMc : await getCurrentWac(db, line.itemId),
+    );
     consumptionRows.push({
       id: generateUuidV7(),
       productionRunId: runId,
@@ -335,7 +366,8 @@ async function buildProductionRunCreateInputs(
     outputUnitCostMc,
   );
 
-  const movements = buildProductionMovementsFromConsumptions(
+  const movements = await buildProductionMovementsFromConsumptions(
+    db,
     runId,
     consumptionRows,
     recipe.outputItemId,
@@ -768,7 +800,7 @@ async function buildProductionRunUpdateInputs(
     id,
   );
   const recipe = await findActiveRecipeRowOrThrow(db, command.recipeId);
-  await validateProductionConsumptionItemKinds(db, command.lines);
+  const consumptionItemStates = await validateProductionConsumptionItemKinds(db, command.lines);
 
   const now = nowIso();
 
@@ -793,7 +825,13 @@ async function buildProductionRunUpdateInputs(
           ? snapshotUnitCost(await getCurrentWac(db, line.itemId))
           : toMilliCentavosPerUnit(matched.unitCostSnapshotMc);
     } else {
-      unitCostSnapshotMc = snapshotUnitCost(await getCurrentWac(db, line.itemId));
+      const itemState = consumptionItemStates.get(line.itemId);
+      if (!itemState) {
+        throw validationError("Estado interno de consumo inconsistente.", { itemId: line.itemId });
+      }
+      unitCostSnapshotMc = snapshotUnitCost(
+        itemState.isUnmetered ? itemState.replacementCostMc : await getCurrentWac(db, line.itemId),
+      );
     }
     newConsumptions.push({
       id: generateUuidV7(),
@@ -835,7 +873,8 @@ async function buildProductionRunUpdateInputs(
     updatedAt: now,
   };
 
-  const newMovements = buildProductionMovementsFromConsumptions(
+  const newMovements = await buildProductionMovementsFromConsumptions(
+    db,
     id,
     newConsumptions,
     newRow.outputItemId,
@@ -979,7 +1018,8 @@ export async function restoreProductionRun(
     toCentavos(existing.totalCost),
     toMilliUnits(existing.actualOutputQty),
   );
-  const newMovements = buildProductionMovementsFromConsumptions(
+  const newMovements = await buildProductionMovementsFromConsumptions(
+    db,
     id,
     existingConsumptions,
     existing.outputItemId,
@@ -1169,7 +1209,8 @@ export async function planSessionCostAllocation(
       toCentavos(newTotalCost),
       toMilliUnits(run.actualOutputQty),
     );
-    const newMovements = buildProductionMovementsFromConsumptions(
+    const newMovements = await buildProductionMovementsFromConsumptions(
+      db,
       run.id,
       consumptions,
       run.outputItemId,

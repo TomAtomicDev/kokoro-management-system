@@ -92,7 +92,7 @@ interface ItemPurchaseState {
   /** Unit cost of the LAST line processed so far for this item. Overwritten on every line that
    * touches this item, so after the full pass it holds the last line's value regardless of how
    * many lines (or their position among other items' lines) touched this item ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â C-3: "for
-   * RAW_MATERIAL, replacement_cost_mc = last purchase unit cost. */
+   * RAW_MATERIAL/PACKAGING, replacement_cost_mc = last purchase unit cost. */
   lastUnitCost: MilliCentavosPerUnit;
 }
 
@@ -184,6 +184,9 @@ async function buildPurchaseCreateMovements(db: Db, command: RecordPurchaseComma
     });
     if (!itemRow) {
       throw notFound("No se encontrÃƒÆ’Ã‚Â³ el ÃƒÆ’Ã‚Â­tem.", { id: itemId });
+    }
+    if (itemRow.isUnmetered === 1) {
+      throw validationError("Este ítem no se compra: es un insumo no medido.", { itemId });
     }
     const stockRow = await db.query.itemStock.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.itemId, itemId),
@@ -304,11 +307,11 @@ export async function recordPurchase(
   const replayOwnedItemIds = new Set(plan.replayedItemIds);
 
   // C-3, "last by business_date" (Doc 03 Ãƒâ€šÃ‚Â§4): a backdated purchase must not roll a replacement cost
-  // back to an older price. Only RAW_MATERIAL is asked (C-3 restricts the rule to it), and only
+  // back to an older price. Only purchased items (RAW_MATERIAL/PACKAGING) are asked (C-3), and only
   // when the purchase could actually be backdated ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â the same-day path never queries.
   const replacementCostMcSupersededItemIds = new Set<string>();
   for (const [itemId, state] of itemStates) {
-    if (state.kind !== "RAW_MATERIAL") continue;
+    if (state.kind !== "RAW_MATERIAL" && state.kind !== "PACKAGING") continue;
     if (await hasLaterDatedPurchaseForItem(db, itemId, command.businessDate)) {
       replacementCostMcSupersededItemIds.add(itemId);
     }
@@ -317,7 +320,7 @@ export async function recordPurchase(
   // At most ONE `items` UPDATE per distinct item touched (D-3, and the invariant the "threads WAC
   // across two lines" test pins), carrying whichever of the two columns this service still owns:
   //   - `wac`: its FINAL threaded C-1 value, UNLESS the replay owns this item (above).
-  //   - `replacement_cost`: RAW_MATERIAL only, unless a later-dated purchase already supersedes it.
+  //   - `replacement_cost`: RAW_MATERIAL/PACKAGING, unless a later-dated purchase already supersedes it.
   // An item where the replay owns the WAC and C-3 is superseded needs no statement at all.
   const itemUpdateStatements: Statement[] = [];
   for (const [itemId, state] of itemStates) {
@@ -325,7 +328,10 @@ export async function recordPurchase(
     if (!replayOwnedItemIds.has(itemId)) {
       values.wacMc = state.wacMc;
     }
-    if (state.kind === "RAW_MATERIAL" && !replacementCostMcSupersededItemIds.has(itemId)) {
+    if (
+      (state.kind === "RAW_MATERIAL" || state.kind === "PACKAGING") &&
+      !replacementCostMcSupersededItemIds.has(itemId)
+    ) {
       values.replacementCostMc = state.lastUnitCost;
       values.replacementCostUpdatedAt = now;
     }

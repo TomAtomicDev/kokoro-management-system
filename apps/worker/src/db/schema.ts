@@ -31,9 +31,11 @@ export const items = sqliteTable(
   {
     id: text("id").primaryKey(),
     name: text("name").notNull().unique(),
-    kind: text("kind", { enum: ["RAW_MATERIAL", "SEMI_FINISHED", "FINISHED"] }).notNull(),
+    kind: text("kind", {
+      enum: ["RAW_MATERIAL", "SEMI_FINISHED", "FINISHED", "PACKAGING"],
+    }).notNull(),
     category: text("category", {
-      enum: ["INGREDIENT", "PACKAGING", "LABEL", "BAKERY", "DAIRY", "PASTRY", "OTHER"],
+      enum: ["INGREDIENT", "NOT_EATABLE", "BAKERY", "DAIRY", "PASTRY", "OTHER"],
     }).notNull(),
     unit: text("unit", { enum: ["G", "KG", "ML", "L", "UNIT", "M"] }).notNull(),
     wacMc: integer("wac_mc").notNull().default(0),
@@ -41,6 +43,7 @@ export const items = sqliteTable(
     replacementCostUpdatedAt: text("replacement_cost_updated_at"),
     salePriceMc: integer("sale_price_mc"),
     minStockQty: integer("min_stock_qty"),
+    isUnmetered: integer("is_unmetered").notNull().default(0),
     isActive: integer("is_active").notNull().default(1),
     notes: text("notes"),
     createdAt: text("created_at").notNull(),
@@ -49,11 +52,11 @@ export const items = sqliteTable(
   (t) => ({
     kindCheck: check(
       "items_kind_check",
-      sql`${t.kind} IN ('RAW_MATERIAL','SEMI_FINISHED','FINISHED')`,
+      sql`${t.kind} IN ('RAW_MATERIAL','SEMI_FINISHED','FINISHED','PACKAGING')`,
     ),
     categoryCheck: check(
       "items_category_check",
-      sql`${t.category} IN ('INGREDIENT','PACKAGING','LABEL','BAKERY','DAIRY','PASTRY','OTHER')`,
+      sql`${t.category} IN ('INGREDIENT','NOT_EATABLE','BAKERY','DAIRY','PASTRY','OTHER')`,
     ),
     unitCheck: check("items_unit_check", sql`${t.unit} IN ('G','KG','ML','L','UNIT','M')`),
   }),

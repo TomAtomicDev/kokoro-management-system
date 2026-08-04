@@ -173,6 +173,76 @@ describe("recordPurchase (UC-01)", () => {
     expect(auditRow).toMatchObject({ actor: ACTOR, entityType: "purchases" });
   });
 
+  it("rejects a purchase line for an unmetered item before writing any purchase or movement", async () => {
+    const db = createDb(env.DB);
+    const item = await createItem(
+      db,
+      {
+        name: "Agua no medible en compras",
+        kind: "RAW_MATERIAL",
+        category: "NOT_EATABLE",
+        unit: "L",
+        minStockQty: 0,
+        isUnmetered: true,
+      },
+      ACTOR,
+    );
+
+    await expect(
+      recordPurchase(
+        db,
+        {
+          accountId: "acc_bank",
+          occurredAt: NOW,
+          businessDate: BUSINESS_DATE,
+          lines: [{ itemId: item.id, qty: 1000, lineTotal: 1000 }],
+        },
+        ACTOR,
+      ),
+    ).rejects.toMatchObject({
+      code: "VALIDATION",
+      message_es: "Este ítem no se compra: es un insumo no medido.",
+    });
+
+    expect(await db.query.purchases.findMany()).toHaveLength(0);
+    expect(
+      await db.query.stockMovements.findMany({
+        where: (t, { eq: eqOp }) => eqOp(t.itemId, item.id),
+      }),
+    ).toHaveLength(0);
+  });
+
+  it("updates replacement cost for PACKAGING purchases just like RAW_MATERIAL purchases", async () => {
+    const db = createDb(env.DB);
+    const packaging = await createItem(
+      db,
+      {
+        name: "Caja de cartón para compra",
+        kind: "PACKAGING",
+        category: "NOT_EATABLE",
+        unit: "UNIT",
+        minStockQty: 0,
+      },
+      ACTOR,
+    );
+
+    await recordPurchase(
+      db,
+      {
+        accountId: "acc_bank",
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        lines: [{ itemId: packaging.id, qty: 1000, lineTotal: 2000 }],
+      },
+      ACTOR,
+    );
+
+    const row = await db.query.items.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.id, packaging.id),
+    });
+    expect(row).toMatchObject({ wacMc: 2_000_000, replacementCostMc: 2_000_000 });
+  });
+
   it("records a multi-line purchase across different items, updating each item's stock/WAC independently", async () => {
     const db = createDb(env.DB);
     const itemA = await seedItem(db, "Multi-line item A");

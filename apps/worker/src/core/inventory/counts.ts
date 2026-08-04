@@ -130,11 +130,12 @@ export async function startCount(
   command: StartCountCommand,
   actor: AuditActor,
 ): Promise<StartCountResult> {
-  const { items: resolvedItems } = await listItems(db, {
+  const { items: listedItems } = await listItems(db, {
     kind: command.kind,
     category: command.category,
     isActive: true,
   });
+  const resolvedItems = listedItems.filter((item) => !item.isUnmetered);
   if (resolvedItems.length === 0) {
     throw validationError("No hay ítems activos que coincidan con el alcance del conteo.", {
       kind: command.kind,

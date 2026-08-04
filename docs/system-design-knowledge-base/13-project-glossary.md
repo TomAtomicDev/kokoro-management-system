@@ -8,7 +8,7 @@ term exactly**. When speaking with the owner, use Spanish. Enum literals per Doc
 | English (code) | Spanish (UI) | Definition |
 |----------------|--------------|------------|
 | Item | Ítem / Producto | Any physical thing tracked in inventory: raw material, semi-finished, or finished good. |
-| Item kind | Tipo | `RAW_MATERIAL` (materia prima), `SEMI_FINISHED` (semielaborado: masa madre, kéfir base, masa en frío), `FINISHED` (producto final). |
+| Item kind | Tipo | `RAW_MATERIAL` (materia prima), `SEMI_FINISHED` (semielaborado: masa madre, kéfir base, masa en frío), `FINISHED` (producto final), `PACKAGING` (empaque: bolsas, etiquetas — nunca insumo de receta, KOK-1xx). |
 | Recipe | Receta | Transformation formula: ingredient quantities per batch → one output item with an expected yield. |
 | Expected yield | Rendimiento esperado | The recipe's planned output quantity for one batch (`recipes.expected_yield_qty`); the denominator of theoretical unit cost (C-3b). Distinct from actual yield (below), which is what a production run actually gets. |
 | Theoretical cost | Costo teórico | A recipe's cost per output unit computed from its lines and `expected_yield`, at WAC or at replacement cost (C-3b) — a live preview, not a cached/committed figure. Distinct from a production run's actual unit cost (C-4), which uses real consumption and actual yield. |
@@ -80,7 +80,8 @@ term exactly**. When speaking with the owner, use Spanish. Enum literals per Doc
 Masa madre (sourdough starter — SEMI_FINISHED), fermento, kéfir base (SEMI_FINISHED), masa en
 frío (cold-fermenting dough — SEMI_FINISHED), pan de masa madre, rollos de canela, cuñapés,
 kéfir puro, kéfir con frutas, queso crema de kéfir, mantequilla ghee (from milk butter, not
-kefir), empaques (PACKAGING), etiquetas (LABEL).
+kefir), empaques y etiquetas (kind PACKAGING, not a category — KOK-1xx), agua (RAW_MATERIAL,
+`isUnmetered` — KOK-1xx, C-9).
 
 ## Naming rules
 

@@ -75,9 +75,9 @@ Feasibility reflects the decisions recorded in [Resolved decisions](#resolved-de
 | BI-08  | Re-entering `/onboarding` after completion is unguarded    | flow     | 🐞   | 🟢 Direct       | S    | 2   | P1         | ✅ Done | KOK-091 |
 | BI-09  | Missing `PASTRY` category                                  | catalog  | ✨   | 🟢 Decided      | M    | 3   | P2         | ✅ Done | KOK-097 |
 | BI-10  | Missing `M` unit                                           | catalog  | ✨   | 🟢 Decided      | M    | 3   | P2         | ✅ Done | KOK-097 |
-| BI-11  | Owner-managed (create/archive) categories                  | catalog  | ✨   | 🔴 Design first | L    | 4   | P2         | 📋 To Do | —    |
+| BI-11  | `PACKAGING` kind + sale-time packaging lines (re-scoped)   | catalog  | ✨   | 🟢 Decided      | L    | 4   | P2         | 📋 To Do | —    |
 | BI-12  | Seed the three starter recipes                             | recipes  | ✨   | 🟢 Decided      | M    | 3   | P2         | ✅ Done | KOK-098 |
-| BI-15  | "Unmetered" items (Agua) — perpetual negative stock        | catalog  | ✨   | 🔴 Design first | L    | 4   | P2         | 📋 To Do | —    |
+| BI-15  | "Unmetered" items (Agua) — `isUnmetered` flag               | catalog  | ✨   | 🟢 Decided      | L    | 4   | P2         | 📋 To Do | —    |
 | BI-13  | Count table: group rows by item kind                       | count    | 🧭   | 🟢 Direct       | S    | 2   | P2         | ✅ Done | KOK-092 |
 | BI-14  | Count table: drop "Esperado"/"Variación", show the unit    | count    | 🧭   | 🟢 Direct       | XS   | 2   | P2         | ✅ Done | KOK-088 |
 | BI-16  | Catalog table forces horizontal scroll                     | catalog  | 🧭   | 🟢 Direct       | XS   | 2   | P2         | ✅ Done | KOK-087 |
@@ -390,21 +390,39 @@ figure that is rounded to an integer.
 
 ---
 
-### BI-11 · Owner-managed (create/archive) categories — ✨ P2
+### BI-11 · `PACKAGING` kind + sale-time packaging lines — ✨ P2
 
-**Reported:** *"Debería ser posible crear/archivar otras categorías."*
+**Reported:** *"Debería ser posible crear/archivar otras categorías."* Re-scoped after discussion
+(2026-08-03): the owner's actual complaint wasn't "let me invent arbitrary categories" (that
+remains a separate, larger, still-undecided idea — free-form owner-managed categories with a real
+`item_categories` table, FK, archive flag, and loss of the `categoryLabels satisfies
+Record<ItemCategory, string>` exhaustiveness guarantee in `i18n-onboarding.ts` — parked, not
+pursued here) but two concrete things:
 
-Distinct from BI-09 and much larger. Categories are a compile-time enum backed by a SQL `CHECK`
-constraint; user-managed categories means a real `item_categories` table, an FK from `items`,
-dropping the check, an archive flag, CRUD service + route + screen, and a decision about what
-archiving does to items already in that category.
+1. The flat 7-value `ItemCategory` enum mixes two unrelated axes: "what is this" (INGREDIENT /
+   PACKAGING / LABEL) and "product line" (BAKERY / DAIRY / PASTRY), unconstrained by `kind`.
+2. Packaging is consumed by recipes at production time today, which means self-consuming or
+   wasting a `FINISHED` item also (invisibly) drains packaging stock that was never actually used
+   to wrap that particular unit.
 
-This also removes a guarantee the codebase currently leans on: `categoryLabels` is
-`satisfies Record<ItemCategory, string>` (`i18n-onboarding.ts`), i.e. exhaustive Spanish labels are
-type-enforced today. With owner-created categories the label becomes owner-supplied free text.
+**✅ Decided:** `PACKAGING` becomes a **4th `ItemKind`**, not a category — purchased and stocked
+like `RAW_MATERIAL` (WAC, replacement cost, mandatory `minStockQty`) but never a recipe input, and
+consumed only as a second `sale_lines` row (alongside the FINISHED product line) at the moment of
+an actual sale, ordinarily priced `0`. This is additive to `sale_lines`'/`recipe_lines`' existing
+mechanics — no new tables. Self-consumption/waste of a FINISHED item now correctly leaves
+packaging stock untouched, as a consequence of the model rather than a special case. Full rule set
+in [Doc 03 §3/§4](../system-design-knowledge-base/03-domain-model.md) (Item aggregate, C-3) and
+[Doc 04 §3.1](../system-design-knowledge-base/04-data-model.md) (`items`, `sale_lines`,
+`recipe_lines`).
 
-**Recommendation:** ship BI-09/BI-10 now (they unblock the owner immediately), and treat BI-11 as a
-separate design task. Do not attempt them together.
+**✅ Decided:** `ItemCategory` drops `PACKAGING` (now redundant with the new kind) and drops
+`LABEL`, replaced by `NOT_EATABLE` ("No comestible") — a broader non-food-raw-material bucket
+(labels, tape, cleaning supplies) now that packaging itself has its own kind. Remaining values:
+`INGREDIENT`, `NOT_EATABLE`, `BAKERY`, `DAIRY`, `PASTRY`, `OTHER`.
+
+**Deferred, not built now:** auto-suggesting a FINISHED item's usual packaging at sale time (would
+need a new "default packaging per item" table/relation). The owner adds packaging lines manually
+for now — simplest correct MVP; revisit if manual entry proves to be forgotten in practice.
 
 ---
 
@@ -537,7 +555,20 @@ The cleaner model is an item flag (e.g. `is_unmetered`) that exempts the item fr
 while keeping its unit cost available to recipe costing. That is a real design task touching Doc 03
 and the costing engine — hence 🔴.
 
-**Recommendation:** do not implement the large-number workaround. Write the design first.
+**✅ Decided (2026-08-03):** implement the `isUnmetered` flag, not the large-number workaround.
+RAW_MATERIAL-only. It blocks `PURCHASE_IN` and `StockExit` against the item entirely (there is no
+discrete unit to buy or waste), removes it from the kardex (no `PRODUCTION_OUT` movement, no
+`negative_since`, excluded from INV-5 and from `listStock`'s stock views), and switches its cost
+basis from WAC (which would stay `0` forever — it's never purchased) to `replacement_cost_mc`,
+which becomes owner-editable directly instead of purchase-derived. Production consumption of an
+unmetered line still counts its cost into the output item's C-4 `direct` total — the water is real
+cost, just not real stock. Full rule set: new **C-9** in
+[Doc 03 §4](../system-design-knowledge-base/03-domain-model.md) and the `is_unmetered` column in
+[Doc 04 §3.1](../system-design-knowledge-base/04-data-model.md). Once shipped, `Agua`'s fixture
+(BI-12) should set `isUnmetered: true` with a manually-entered `replacementCostMc` (e.g. an
+estimate backed out of the monthly water bill) instead of relying on a WAC that a never-purchased
+item can never actually accumulate — this is BI-15's "remaining problem" referenced above, now
+closed by design.
 
 **What actually happens once BI-12 seeds Agua (verified).** Production will *not* fail —
 `movements.ts:142` is explicit: *"INV-8 is explicit that stock MAY go negative: this function never

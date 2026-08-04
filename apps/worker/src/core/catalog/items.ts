@@ -67,10 +67,11 @@ export async function createItem(
     category: command.category,
     unit: command.unit,
     wacMc: toMilliCentavosPerUnit(0),
-    replacementCostMc: 0,
-    replacementCostUpdatedAt: null,
+    replacementCostMc: command.replacementCostMc ?? 0,
+    replacementCostUpdatedAt: command.replacementCostMc != null ? now : null,
     salePriceMc: command.salePriceMc ?? null,
     minStockQty: command.minStockQty ?? null,
+    isUnmetered: command.isUnmetered ? 1 : 0,
     isActive: 1,
     notes: command.notes ?? null,
     createdAt: now,
@@ -123,6 +124,13 @@ export async function updateItem(
     ...(command.unit !== undefined ? { unit: command.unit } : {}),
     ...(command.salePriceMc !== undefined ? { salePriceMc: command.salePriceMc } : {}),
     ...(command.minStockQty !== undefined ? { minStockQty: command.minStockQty } : {}),
+    ...(command.isUnmetered !== undefined ? { isUnmetered: command.isUnmetered ? 1 : 0 } : {}),
+    ...(command.replacementCostMc !== undefined
+      ? {
+          replacementCostMc: command.replacementCostMc ?? 0,
+          replacementCostUpdatedAt: command.replacementCostMc === null ? null : now,
+        }
+      : {}),
     ...(command.notes !== undefined ? { notes: command.notes } : {}),
     updatedAt: now,
   };

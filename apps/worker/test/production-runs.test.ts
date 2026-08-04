@@ -16,12 +16,15 @@
 // Storage is isolated per test FILE, not per test — the `beforeEach` below restores the guarantee
 // this file's tests were written against.
 import { env } from "cloudflare:test";
+import { addMoney, toMilliCentavosPerUnit, toMilliUnits, totalCentavos } from "@kokoro/shared";
 import { eq } from "drizzle-orm";
+import fc from "fast-check";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { createItem } from "../src/core/catalog/index.js";
+import { createItem, updateItem } from "../src/core/catalog/index.js";
 import { recordExit } from "../src/core/inventory/exits.js";
 import {
+  computeProductionCosts,
   deleteProductionRun,
   getProductionRun,
   listProductionRuns,
@@ -30,6 +33,7 @@ import {
   restoreProductionRun,
   updateProductionRun,
 } from "../src/core/production/index.js";
+import { recordPurchase } from "../src/core/purchasing/index.js";
 import { recordRecipe, setRecipeActive } from "../src/core/recipes/index.js";
 import { createDb } from "../src/db/index.js";
 import {
@@ -49,9 +53,13 @@ type TestDb = ReturnType<typeof createDb>;
 async function seedItem(
   db: TestDb,
   name: string,
-  kind: "RAW_MATERIAL" | "SEMI_FINISHED" | "FINISHED" = "RAW_MATERIAL",
+  kind: "RAW_MATERIAL" | "SEMI_FINISHED" | "FINISHED" | "PACKAGING" = "RAW_MATERIAL",
 ) {
-  return createItem(db, { name, kind, category: "INGREDIENT", unit: "KG" }, ACTOR);
+  return createItem(
+    db,
+    { name, kind, category: kind === "PACKAGING" ? "NOT_EATABLE" : "INGREDIENT", unit: "KG" },
+    ACTOR,
+  );
 }
 
 async function seedRecipe(
@@ -213,6 +221,106 @@ describe("recordProductionRun (UC-02)", () => {
     expect(auditRow).toMatchObject({ actor: ACTOR, entityType: "production_runs" });
   });
 
+  it("prices an unmetered consumption from replacement cost and emits no PRODUCTION_OUT movement", async () => {
+    const db = createDb(env.DB);
+    const unmetered = await seedItem(db, "Agua no medible para producción");
+    const output = await seedItem(db, "Producto con agua no medible", "SEMI_FINISHED");
+
+    await recordPurchase(
+      db,
+      {
+        accountId: "acc_bank",
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        lines: [{ itemId: unmetered.id, qty: 1000, lineTotal: 500_000 }],
+      },
+      ACTOR,
+    );
+    await recordPurchase(
+      db,
+      {
+        accountId: "acc_bank",
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        lines: [{ itemId: unmetered.id, qty: 1000, lineTotal: 300_000 }],
+      },
+      ACTOR,
+    );
+    await updateItem(db, { id: unmetered.id, isUnmetered: true }, ACTOR);
+
+    const recipe = await seedRecipe(db, output.id, [{ itemId: unmetered.id, qty: 100 }]);
+    const result = await recordProductionRun(
+      db,
+      {
+        recipeId: recipe.id,
+        batches: 1,
+        actualOutputQty: 1000,
+        lines: [{ itemId: unmetered.id, qty: 100 }],
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+      },
+      ACTOR,
+    );
+
+    const storedItem = await db.query.items.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.id, unmetered.id),
+    });
+    expect(storedItem).toMatchObject({ wacMc: 400_000_000, replacementCostMc: 300_000_000 });
+
+    const consumption = (await runConsumptions(db, result.productionRun.id))[0];
+    expect(consumption).toMatchObject({
+      itemId: unmetered.id,
+      unitCostSnapshotMc: 300_000_000,
+    });
+    expect(result.productionRun.directCost).toBe(
+      totalCentavos(toMilliCentavosPerUnit(300_000_000), toMilliUnits(100)),
+    );
+
+    const movements = await runMovements(db, result.productionRun.id);
+    expect(movements.filter((movement) => movement.type === "PRODUCTION_OUT")).toHaveLength(0);
+    expect(movements).toHaveLength(1);
+    expect(movements[0]).toMatchObject({
+      type: "PRODUCTION_IN",
+      itemId: output.id,
+      qty: 1000,
+    });
+  });
+
+  it("keeps C-4 direct cost equal to every integer qty × selected WAC/replacement rate", () => {
+    fc.assert(
+      fc.property(
+        fc.array(
+          fc.record({
+            qty: fc.integer({ min: 1, max: 1_000_000 }),
+            wacMc: fc.integer({ min: 0, max: 10_000_000 }),
+            replacementCostMc: fc.integer({ min: 0, max: 10_000_000 }),
+            isUnmetered: fc.boolean(),
+          }),
+          { minLength: 1, maxLength: 20 },
+        ),
+        (lines) => {
+          const consumptions = lines.map((line) => ({
+            qty: line.qty,
+            unitCostSnapshotMc: toMilliCentavosPerUnit(
+              line.isUnmetered ? line.replacementCostMc : line.wacMc,
+            ),
+          }));
+          const expectedDirectCost = addMoney(
+            ...consumptions.map((line) =>
+              totalCentavos(line.unitCostSnapshotMc, toMilliUnits(line.qty)),
+            ),
+          );
+          const costs = computeProductionCosts(consumptions, 0, 0, 1_000_000);
+
+          expect(costs.directCost).toBe(expectedDirectCost);
+          expect(Number.isSafeInteger(costs.directCost)).toBe(true);
+          expect(Number.isSafeInteger(costs.totalCost)).toBe(true);
+          expect(Number.isSafeInteger(costs.outputUnitCostMc)).toBe(true);
+        },
+      ),
+    );
+  });
+
   it("rejects a consumption line referencing a FINISHED item with VALIDATION", async () => {
     const db = createDb(env.DB);
     const finishedItem = await seedItem(db, "Production — producto terminado", "FINISHED");
@@ -230,6 +338,29 @@ describe("recordProductionRun (UC-02)", () => {
           occurredAt: NOW,
           businessDate: BUSINESS_DATE,
           lines: [{ itemId: finishedItem.id, qty: 100 }],
+        },
+        ACTOR,
+      ),
+    ).rejects.toMatchObject({ code: "VALIDATION" });
+  });
+
+  it("rejects a consumption line referencing a PACKAGING item with VALIDATION (Doc 03 §3, PACKAGING is never a recipe/production input)", async () => {
+    const db = createDb(env.DB);
+    const packagingItem = await seedItem(db, "Production — empaque", "PACKAGING");
+    const output = await seedItem(db, "Production output — reject packaging", "SEMI_FINISHED");
+    const rawItem = await seedItem(db, "Production raw — reject packaging");
+    const recipe = await seedRecipe(db, output.id, [{ itemId: rawItem.id, qty: 100 }]);
+
+    await expect(
+      recordProductionRun(
+        db,
+        {
+          recipeId: recipe.id,
+          batches: 1,
+          actualOutputQty: 500,
+          occurredAt: NOW,
+          businessDate: BUSINESS_DATE,
+          lines: [{ itemId: packagingItem.id, qty: 100 }],
         },
         ACTOR,
       ),
