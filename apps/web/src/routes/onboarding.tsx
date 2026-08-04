@@ -80,9 +80,8 @@ export function OnboardingRoute() {
     );
   }
 
-  const completedSteps = Array.from({ length: maxReachedStep - 1 }, (_, i) => i + 1).filter(
-    (step) => step !== currentStep,
-  );
+  const reachedSteps = Array.from({ length: maxReachedStep }, (_, i) => i + 1);
+  const completedSteps = Array.from(committedSteps).filter((step) => step !== currentStep);
 
   function goToStep(step: number) {
     const nextStep = Math.max(1, Math.min(step, STEP_COUNT));
@@ -99,6 +98,7 @@ export function OnboardingRoute() {
     goToStep(step);
   }
 
+  const catalogCommitted = committedSteps.has(3);
   const isReviewingCommittedStep = committedSteps.has(currentStep);
   const shellWidth = currentStep === 3 ? "max-w-6xl" : "max-w-2xl";
 
@@ -112,7 +112,9 @@ export function OnboardingRoute() {
       <Stepper
         currentStep={currentStep}
         completedSteps={completedSteps}
+        reachedSteps={reachedSteps}
         stepLabels={onboardingLabels.stepLabels}
+        onStepClick={goToStep}
       />
 
       <div className="rounded-lg border border-border bg-card p-5">
@@ -138,9 +140,13 @@ export function OnboardingRoute() {
             readOnly={isReviewingCommittedStep}
           />
         ) : currentStep === 4 ? (
-          <StepRecipes items={itemsQuery.data?.items ?? []} onContinue={() => goToStep(5)} />
+          <StepRecipes
+            items={itemsQuery.data?.items ?? []}
+            catalogCommitted={catalogCommitted}
+            onContinue={() => goToStep(5)}
+          />
         ) : (
-          <StepCount items={itemLookup} />
+          <StepCount items={itemLookup} catalogCommitted={catalogCommitted} />
         )}
       </div>
     </div>

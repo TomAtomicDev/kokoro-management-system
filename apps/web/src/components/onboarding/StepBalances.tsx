@@ -8,9 +8,11 @@
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 
+import { StepGuidance } from "@/components/onboarding/StepGuidance";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useSetOpeningBalances } from "@/features/onboarding/api";
+import { useSessionDraft } from "@/features/onboarding/use-session-draft";
 import { ApiError } from "@/lib/api";
 import { exceedsScale, parseDecimalToInt } from "@/lib/decimal";
 import { onboardingLabels } from "@/lib/i18n-onboarding";
@@ -22,8 +24,8 @@ export interface StepBalancesProps {
 }
 
 export function StepBalances({ onDone, onSkip, readOnly = false }: StepBalancesProps) {
-  const [bankInput, setBankInput] = useState("");
-  const [cashInput, setCashInput] = useState("");
+  const [bankInput, setBankInput] = useSessionDraft("balances-bank", "");
+  const [cashInput, setCashInput] = useSessionDraft("balances-cash", "");
   const [error, setError] = useState<string | null>(null);
 
   const mutation = useSetOpeningBalances();
@@ -36,6 +38,11 @@ export function StepBalances({ onDone, onSkip, readOnly = false }: StepBalancesP
           <h2 className="font-medium text-foreground text-lg">{onboardingLabels.balancesTitle}</h2>
           <p className="text-muted-foreground text-sm">{onboardingLabels.balancesBody}</p>
         </div>
+        <StepGuidance
+          what={onboardingLabels.balancesGuidanceWhat}
+          why={onboardingLabels.balancesGuidanceWhy}
+          where={onboardingLabels.balancesGuidanceWhere}
+        />
         <div className="rounded-md border border-border bg-muted px-4 py-3 text-sm">
           <p className="font-medium text-foreground">{onboardingLabels.alreadySaved}</p>
           <p className="text-muted-foreground">{onboardingLabels.savedBalancesBody}</p>
@@ -87,6 +94,12 @@ export function StepBalances({ onDone, onSkip, readOnly = false }: StepBalancesP
         <h2 className="font-medium text-foreground text-lg">{onboardingLabels.balancesTitle}</h2>
         <p className="text-muted-foreground text-sm">{onboardingLabels.balancesBody}</p>
       </div>
+
+      <StepGuidance
+        what={onboardingLabels.balancesGuidanceWhat}
+        why={onboardingLabels.balancesGuidanceWhy}
+        where={onboardingLabels.balancesGuidanceWhere}
+      />
 
       <div className="grid grid-cols-2 gap-3">
         <div className="flex flex-col gap-1.5">

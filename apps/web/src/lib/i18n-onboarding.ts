@@ -11,6 +11,9 @@ export const onboardingLabels = {
   stepLabels: ["Contraseña", "Saldos iniciales", "Catálogo inicial", "Recetas", "Conteo inicial"],
 
   continueButton: "Continuar",
+  guidanceWhatLabel: "Qué hacer",
+  guidanceWhyLabel: "Por qué importa",
+  guidanceWhereLabel: "Dónde ajustarlo después",
   backButton: "Volver",
   skipButton: "Omitir",
   cancel: "Cancelar",
@@ -35,10 +38,27 @@ export const onboardingLabels = {
   passwordBody: "Tu contraseña ya está configurada ✓",
   passwordHelp: "Si necesitas cambiarla más adelante, contacta al equipo técnico.",
 
+  passwordOverviewTitle: "Deja todo listo para empezar",
+  passwordOverviewBody:
+    "En estos cinco pasos vas a revisar lo básico de tu operación antes de empezar a registrar tu día a día.",
+  passwordStepDescriptions: [
+    "Confirmar que tu contraseña está configurada.",
+    "Registrar los saldos con los que arrancas.",
+    "Revisar los ítems, precios y categorías de tu catálogo.",
+    "Confirmar las recetas que conectan tu catálogo con producción.",
+    "Contar el stock físico que tienes ahora.",
+  ],
+  passwordOverviewNavigation:
+    "Puedes moverte libremente entre los pasos para conocerlos antes de guardar. No tienes que dejar todo perfecto en la primera vuelta.",
+
   // --- Step 2: Saldos iniciales -----------------------------------------------------------------
   balancesTitle: "Saldos iniciales",
   balancesBody:
     "Registra con cuánto dinero arrancas en cada cuenta. Esto marca el punto de partida de tus finanzas.",
+  balancesGuidanceWhat: "Mira cuánto tienes ahora en el banco y en caja.",
+  balancesGuidanceWhy:
+    "Es el punto de partida de tus reportes financieros; un error acá se arrastra.",
+  balancesGuidanceWhere: "Después puedes ajustarlo desde Finanzas.",
   decimalHelp: "Puedes usar coma o punto para los decimales (máx. 2).",
   fieldBank: "Banco",
   fieldCash: "Caja",
@@ -48,6 +68,11 @@ export const onboardingLabels = {
   catalogTitle: "Catálogo inicial",
   catalogBody:
     "Revisa esta lista de ítems sugerida para empezar. Puedes editar, quitar o dejarla tal cual antes de crearla.",
+  catalogGuidanceWhat: "Revisa nombres, precios y categorías según tu negocio real.",
+  catalogGuidanceWhy:
+    "Define qué registrarás en compras, ventas y producción; un tipo incorrecto causa errores después.",
+  catalogGuidanceWhere:
+    "Puedes seguir editándolo aquí cuando quieras o desde Configuración → Catálogo.",
   columnName: "Nombre",
   columnKind: "Tipo",
   columnCategory: "Categoría",
@@ -60,6 +85,11 @@ export const onboardingLabels = {
   removeRow: "Quitar",
   catalogEmpty: "Quitaste todos los ítems. Agrega al menos uno para continuar, u omite este paso.",
   submitCatalog: "Crear catálogo",
+
+  catalogSavedTitle: "Ítems guardados",
+  catalogSavedLoading: "Cargando ítems guardados…",
+  catalogSavedEmpty: "Todavía no hay ítems guardados.",
+  catalogSavedError: "No se pudo cargar el catálogo. Intenta de nuevo.",
 
   kindLabels: {
     RAW_MATERIAL: "Materia prima",
@@ -86,8 +116,15 @@ export const onboardingLabels = {
 
   // --- Step 4: Recetas --------------------------------------------------------------------------
   recipesTitle: "Recetas iniciales",
+  recipesNeedsCatalog:
+    "Guarda el catálogo en el paso 3 para ver la vista previa real de las recetas.",
   recipesBody:
     "Crea tres recetas base para empezar a producir. Si prefieres configurarlas después, puedes omitir este paso.",
+  recipesGuidanceWhat:
+    "Revisa las recetas sugeridas y confirma que sus ítems ya estén en tu catálogo.",
+  recipesGuidanceWhy:
+    "Conectan el catálogo con la producción; sin ellas no puedes registrar esas corridas.",
+  recipesGuidanceWhere: "Después puedes ajustarlas desde Producción → Recetas.",
   recipesPreviewTitle: "Se crearán estas recetas:",
   recipesMissingItems: "Faltan estos ítems del catálogo; puedes omitir este paso:",
   submitRecipes: "Crear recetas iniciales",
@@ -96,6 +133,10 @@ export const onboardingLabels = {
   countTitle: "Conteo inicial",
   countBody:
     "Cuenta el stock real de cada ítem para dejar tu inventario al día antes de empezar a operar.",
+  countGuidanceWhat: "Cuenta el stock físico real de cada ítem ahora.",
+  countGuidanceWhy:
+    "Será tu inventario inicial; si no coincide, tus reportes de stock arrancarán mal.",
+  countGuidanceWhere: "Después puedes ajustarlo con conteos regulares desde Inventario.",
   countColumnItem: "Ítem",
   countColumnCounted: "Contado",
   countColumnUnitCost: "Costo unitario",
@@ -109,6 +150,7 @@ export const onboardingLabels = {
     M: "m",
   } satisfies Record<Unit, string>,
   noCountLines: "No hay ítems para contar todavía.",
+  countNeedsCatalog: "Guarda el catálogo en el paso 3 antes de hacer el conteo inicial.",
   submitCount: "Confirmar y finalizar",
 
   // --- Completion --------------------------------------------------------------------------------
@@ -118,6 +160,6 @@ export const onboardingLabels = {
   goToPanel: "Ir al panel",
   alreadySaved: "Ya guardado",
   savedBalancesBody: "Estos saldos ya fueron guardados y no se pueden volver a enviar desde aquí.",
-  savedCatalogBody: "Este catálogo ya fue guardado y no se puede volver a crear desde aquí.",
+  savedCatalogBody: "Estos ítems ya están guardados. Puedes editarlos o agregar nuevos desde aquí.",
   goToSettings: "Ir a Configuración",
 } as const;

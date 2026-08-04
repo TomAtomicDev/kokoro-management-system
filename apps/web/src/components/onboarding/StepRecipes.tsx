@@ -4,6 +4,7 @@
 import type { ItemDto, RecipeLineCommand, RecordRecipeCommand } from "@kokoro/shared";
 import { useMemo, useState } from "react";
 
+import { StepGuidance } from "@/components/onboarding/StepGuidance";
 import { Button } from "@/components/ui/button";
 import { useRecordRecipe } from "@/features/recipes/api";
 import { ApiError } from "@/lib/api";
@@ -96,10 +97,11 @@ function resolveRecipeCommand(
 
 export interface StepRecipesProps {
   items: ItemDto[];
+  catalogCommitted: boolean;
   onContinue: () => void;
 }
 
-export function StepRecipes({ items, onContinue }: StepRecipesProps) {
+export function StepRecipes({ items, catalogCommitted, onContinue }: StepRecipesProps) {
   const [error, setError] = useState<string | null>(null);
   const mutation = useRecordRecipe();
   const itemsByName = useMemo(
@@ -147,6 +149,12 @@ export function StepRecipes({ items, onContinue }: StepRecipesProps) {
         <p className="text-muted-foreground text-sm">{onboardingLabels.recipesBody}</p>
       </div>
 
+      <StepGuidance
+        what={onboardingLabels.recipesGuidanceWhat}
+        why={onboardingLabels.recipesGuidanceWhy}
+        where={onboardingLabels.recipesGuidanceWhere}
+      />
+
       <div className="rounded-md border border-border bg-muted px-4 py-3 text-sm text-foreground">
         <p className="font-medium">{onboardingLabels.recipesPreviewTitle}</p>
         <ul className="mt-2 flex flex-col gap-1">
@@ -161,7 +169,11 @@ export function StepRecipes({ items, onContinue }: StepRecipesProps) {
 
       {missingItemNames.length > 0 ? (
         <div className="rounded-md border border-border bg-muted px-4 py-3 text-sm" role="status">
-          <p className="text-foreground">{onboardingLabels.recipesMissingItems}</p>
+          <p className="text-foreground">
+            {catalogCommitted
+              ? onboardingLabels.recipesMissingItems
+              : onboardingLabels.recipesNeedsCatalog}
+          </p>
           <p className="mt-1 text-muted-foreground">{missingItemNames.join(", ")}</p>
         </div>
       ) : null}
