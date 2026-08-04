@@ -166,10 +166,13 @@ async function resolveLineSnapshots(
       throw notFound("No se encontró el ítem.", { id: itemId });
     }
     if (itemRow.kind !== "FINISHED" && itemRow.kind !== "PACKAGING") {
-      throw validationError("Solo se pueden vender ítems terminados (FINISHED) o de empaque (PACKAGING).", {
-        itemId,
-        kind: itemRow.kind,
-      });
+      throw validationError(
+        "Solo se pueden vender ítems terminados (FINISHED) o de empaque (PACKAGING).",
+        {
+          itemId,
+          kind: itemRow.kind,
+        },
+      );
     }
     // C-6: value at the item's CURRENT WAC, snapshotted onto the sale line's own
     // unit_cost_snapshot_mc — never recomputed via applyWacEntry (that is only for entries).
