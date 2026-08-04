@@ -86,6 +86,8 @@ export const onboardingLabels = {
 
   // --- Step 4: Recetas --------------------------------------------------------------------------
   recipesTitle: "Recetas iniciales",
+  recipesNeedsCatalog:
+    "Guarda el catálogo en el paso 3 para ver la vista previa real de las recetas.",
   recipesBody:
     "Crea tres recetas base para empezar a producir. Si prefieres configurarlas después, puedes omitir este paso.",
   recipesPreviewTitle: "Se crearán estas recetas:",
@@ -109,6 +111,7 @@ export const onboardingLabels = {
     M: "m",
   } satisfies Record<Unit, string>,
   noCountLines: "No hay ítems para contar todavía.",
+  countNeedsCatalog: "Guarda el catálogo en el paso 3 antes de hacer el conteo inicial.",
   submitCount: "Confirmar y finalizar",
 
   // --- Completion --------------------------------------------------------------------------------

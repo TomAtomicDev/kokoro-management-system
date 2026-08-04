@@ -100,7 +100,7 @@ export interface StepRecipesProps {
   onContinue: () => void;
 }
 
-export function StepRecipes({ items, onContinue }: StepRecipesProps) {
+export function StepRecipes({ items, catalogCommitted, onContinue }: StepRecipesProps) {
   const [error, setError] = useState<string | null>(null);
   const mutation = useRecordRecipe();
   const itemsByName = useMemo(
@@ -162,7 +162,11 @@ export function StepRecipes({ items, onContinue }: StepRecipesProps) {
 
       {missingItemNames.length > 0 ? (
         <div className="rounded-md border border-border bg-muted px-4 py-3 text-sm" role="status">
-          <p className="text-foreground">{onboardingLabels.recipesMissingItems}</p>
+          <p className="text-foreground">
+            {catalogCommitted
+              ? onboardingLabels.recipesMissingItems
+              : onboardingLabels.recipesNeedsCatalog}
+          </p>
           <p className="mt-1 text-muted-foreground">{missingItemNames.join(", ")}</p>
         </div>
       ) : null}

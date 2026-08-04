@@ -11,6 +11,7 @@ import { useState } from "react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useSetOpeningBalances } from "@/features/onboarding/api";
+import { useSessionDraft } from "@/features/onboarding/use-session-draft";
 import { ApiError } from "@/lib/api";
 import { exceedsScale, parseDecimalToInt } from "@/lib/decimal";
 import { onboardingLabels } from "@/lib/i18n-onboarding";
@@ -22,8 +23,8 @@ export interface StepBalancesProps {
 }
 
 export function StepBalances({ onDone, onSkip, readOnly = false }: StepBalancesProps) {
-  const [bankInput, setBankInput] = useState("");
-  const [cashInput, setCashInput] = useState("");
+  const [bankInput, setBankInput] = useSessionDraft("balances-bank", "");
+  const [cashInput, setCashInput] = useSessionDraft("balances-cash", "");
   const [error, setError] = useState<string | null>(null);
 
   const mutation = useSetOpeningBalances();

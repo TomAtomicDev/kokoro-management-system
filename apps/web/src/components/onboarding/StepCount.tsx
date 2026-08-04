@@ -37,6 +37,7 @@ import {
   useUpdateCountLine,
 } from "@/features/inventory/api";
 import { useCompleteOnboarding } from "@/features/onboarding/api";
+import { useSessionDraft } from "@/features/onboarding/use-session-draft";
 import { ApiError } from "@/lib/api";
 import { formatIntAsDecimalInput, parseDecimalToInt } from "@/lib/decimal";
 import { onboardingLabels } from "@/lib/i18n-onboarding";
@@ -48,12 +49,18 @@ export interface StepCountProps {
   catalogCommitted: boolean;
 }
 
-export function StepCount({ items }: StepCountProps) {
+export function StepCount({ items, catalogCommitted }: StepCountProps) {
   const navigate = useNavigate();
 
   const [countId, setCountId] = useState<string | null>(null);
-  const [lineInputs, setLineInputs] = useState<Record<string, string>>({});
-  const [unitCostInputs, setUnitCostInputs] = useState<Record<string, string>>({});
+  const [lineInputs, setLineInputs] = useSessionDraft<Record<string, string>>(
+    "count-line-inputs",
+    {},
+  );
+  const [unitCostInputs, setUnitCostInputs] = useSessionDraft<Record<string, string>>(
+    "count-unit-cost-inputs",
+    {},
+  );
   const [error, setError] = useState<string | null>(null);
   const [finishing, setFinishing] = useState(false);
 
@@ -64,8 +71,9 @@ export function StepCount({ items }: StepCountProps) {
   const commitMutation = useCommitCount();
   const completeMutation = useCompleteOnboarding();
 
-  // Run exactly once on mount to auto-start the count — intentionally excluded from deps
-  // (mutateAsync is stable, and the ref guard below prevents a double-start regardless).
+  // Run once after the catalog is committed to auto-start the count. The dependency allows a
+  // pre-save visit to wait and legitimately rerun when catalogCommitted flips to true; the ref
+  // guard still latches the start so it only ever happens once.
   //
   // Deliberately `mutateAsync` in an async IIFE, NOT `mutate(vars, { onSuccess, onError })`:
   // verified live (KOK-020 smoke test) that under React 19 StrictMode's synthetic double-effect
@@ -75,9 +83,9 @@ export function StepCount({ items }: StepCountProps) {
   // Promise is tied to the request itself, not the observer's currently-attached callbacks, so it
   // is immune to that race.
   const startedRef = useRef(false);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: run-once-on-mount, see comment above.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: catalogCommitted is intentionally the only dependency; mutateAsync is stable and startedRef prevents duplicate starts.
   useEffect(() => {
-    if (startedRef.current) return;
+    if (startedRef.current || !catalogCommitted) return;
     startedRef.current = true;
     (async () => {
       try {
@@ -90,7 +98,7 @@ export function StepCount({ items }: StepCountProps) {
         setError(err instanceof ApiError ? err.message : onboardingLabels.errors.generic);
       }
     })();
-  }, []);
+  }, [catalogCommitted]);
 
   // Seed local edit state from the server once per count — same guard CountDetailView.tsx uses so
   // a background refetch following our own line edits never stomps an in-progress keystroke.
@@ -104,7 +112,7 @@ export function StepCount({ items }: StepCountProps) {
       );
       seededCountId.current = count.id;
     }
-  }, [count]);
+  }, [count, setLineInputs]);
 
   function effectiveCountedQty(line: InventoryCountLineDto): number {
     const raw = lineInputs[line.itemId];
@@ -219,7 +227,9 @@ export function StepCount({ items }: StepCountProps) {
         <p className="text-muted-foreground text-sm">{onboardingLabels.countBody}</p>
       </div>
 
-      {countQuery.isLoading || !count ? (
+      {!catalogCommitted ? (
+        <p className="text-muted-foreground text-sm">{onboardingLabels.countNeedsCatalog}</p>
+      ) : countQuery.isLoading || !count ? (
         <p className="text-muted-foreground text-sm">{onboardingLabels.loading}</p>
       ) : count.lines.length === 0 ? (
         <p className="text-muted-foreground text-sm">{onboardingLabels.noCountLines}</p>
@@ -304,7 +314,11 @@ export function StepCount({ items }: StepCountProps) {
         <Button type="button" variant="outline" onClick={handleSkip} disabled={disabled}>
           {onboardingLabels.skipButton}
         </Button>
-        <Button type="button" onClick={handleConfirm} disabled={disabled || !count}>
+        <Button
+          type="button"
+          onClick={handleConfirm}
+          disabled={disabled || !catalogCommitted || !count}
+        >
           {onboardingLabels.submitCount}
         </Button>
       </div>
