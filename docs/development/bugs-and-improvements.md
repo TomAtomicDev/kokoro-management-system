@@ -86,7 +86,7 @@ Feasibility reflects the decisions recorded in [Resolved decisions](#resolved-de
 | BI-19  | ~~Explain *why* the opening count matters~~ — folded into BI-20 | count | 🧭   | 🟢 Direct       | XS   | 2   | P2         | ⏭️ Deferred | →BI-20 |
 | BI-20  | Onboarding flow rework — decouple navigation from saving   | flow     | 🧭   | 🟢 Decided      | M    | 3   | P2         | 📋 To Do | KOK-099 |
 | BI-21  | Litre abbreviation "l" reads as digit 1                    | catalog  | 🧭   | 🟢 Direct       | XS   | 1   | P3         | ✅ Done | KOK-086 |
-| BI-22  | Canonical measurement units + magnitude-scaled display/input    | inventory| ✨   | 🟢 Decided      | L    | 4   | P2         | 📋 To Do | KOK-101 |
+| BI-22  | Canonical measurement units + magnitude-scaled display/input    | inventory| ✨   | 🟢 Decided      | L    | 4   | P2         | ✅ Done | KOK-101 |
 
 > **BI-12 ↔ BI-15 interaction, resolved.** BI-06b makes `minStockQty` mandatory for every
 > `RAW_MATERIAL` and BI-12's fixture adds `Agua` as one, which briefly looked unsatisfiable. The

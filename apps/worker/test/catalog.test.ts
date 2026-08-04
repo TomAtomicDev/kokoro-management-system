@@ -171,7 +171,7 @@ describe("setItemActive", () => {
     const db = createDb(env.DB);
     const created = await createItem(
       db,
-      { name: "Levadura fresca", kind: "RAW_MATERIAL", category: "INGREDIENT", unit: "G" },
+      { name: "Levadura fresca", kind: "RAW_MATERIAL", category: "INGREDIENT", unit: "KG" },
       ACTOR,
     );
 
@@ -311,7 +311,7 @@ describe("mergeItems", () => {
     const db = createDb(env.DB);
     const item = await createItem(
       db,
-      { name: "Vainilla", kind: "RAW_MATERIAL", category: "INGREDIENT", unit: "ML" },
+      { name: "Vainilla", kind: "RAW_MATERIAL", category: "INGREDIENT", unit: "L" },
       ACTOR,
     );
     await expect(

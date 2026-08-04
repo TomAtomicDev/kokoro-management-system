@@ -29,7 +29,7 @@ export const ITEM_CATEGORIES = [
 export type ItemCategory = (typeof ITEM_CATEGORIES)[number];
 export const itemCategorySchema = z.enum(ITEM_CATEGORIES);
 
-export const UNITS = ["G", "KG", "ML", "L", "UNIT", "M"] as const;
+export const UNITS = ["KG", "L", "M", "UNIT"] as const;
 export type Unit = (typeof UNITS)[number];
 export const unitSchema = z.enum(UNITS);
 

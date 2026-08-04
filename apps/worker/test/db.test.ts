@@ -96,6 +96,31 @@ describe("migration 0001", () => {
     ).rejects.toThrow();
   });
 
+  it.each(["G", "ML", "CM"])("rejects non-canonical unit %s via items_unit_check", async (unit) => {
+    await expect(
+      env.DB.prepare(
+        `INSERT INTO items (id, name, kind, category, unit, created_at, updated_at)
+           VALUES (?, ?, 'RAW_MATERIAL', 'INGREDIENT', ?, '2026-01-01', '2026-01-01')`,
+      )
+        .bind(`item_noncanonical_${unit}`, `Non-canonical ${unit}`, unit)
+        .run(),
+    ).rejects.toThrow();
+  });
+
+  it.each(["KG", "L", "M", "UNIT"])(
+    "accepts canonical unit %s via items_unit_check",
+    async (unit) => {
+      await expect(
+        env.DB.prepare(
+          `INSERT INTO items (id, name, kind, category, unit, created_at, updated_at)
+           VALUES (?, ?, 'RAW_MATERIAL', 'INGREDIENT', ?, '2026-01-01', '2026-01-01')`,
+        )
+          .bind(`item_canonical_${unit}`, `Canonical ${unit}`, unit)
+          .run(),
+      ).resolves.toBeDefined();
+    },
+  );
+
   it("v_stock computes stock_value = qty_on_hand x wac_mc / 1e6 and flags low stock", async () => {
     const now = "2026-07-14T10:00:00.000Z";
     await env.DB.batch([

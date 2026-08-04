@@ -63,7 +63,7 @@ CREATE TABLE items (
   kind TEXT NOT NULL CHECK (kind IN ('RAW_MATERIAL','SEMI_FINISHED','FINISHED','PACKAGING')),
   category TEXT NOT NULL CHECK (category IN
     ('INGREDIENT','NOT_EATABLE','BAKERY','DAIRY','PASTRY','OTHER')),
-  unit TEXT NOT NULL CHECK (unit IN ('G','KG','ML','L','UNIT','M')),
+  unit TEXT NOT NULL CHECK (unit IN ('KG','L','M','UNIT')),
   wac_mc INTEGER NOT NULL DEFAULT 0,             -- weighted avg cost, milli-centavos per whole unit (derived, C-1)
   replacement_cost_mc INTEGER NOT NULL DEFAULT 0,-- milli-centavos per whole unit (derived, C-3; owner-entered when is_unmetered, C-9)
   replacement_cost_updated_at TEXT,
@@ -125,6 +125,12 @@ CREATE TABLE replacement_cost_history (
 -- not a business event, so INV-10 does not apply. This table exists because the series cannot be
 -- backfilled — see KOK-073.
 ```
+
+Item units are canonical per measurement family: mass persists as `KG` (small input/display `g`,
+1 g = 1 milli-KG), volume as `L` (`ml`, 1 ml = 1 milli-L), length as `M` (`cm`, 1 cm = 10
+milli-M), and count as `UNIT` with no smaller member. These input/display conversions are
+implemented centrally in `packages/shared/src/qty.ts`; per-unit rates always retain the canonical
+denominator.
 
 ### 3.2 Sessions
 

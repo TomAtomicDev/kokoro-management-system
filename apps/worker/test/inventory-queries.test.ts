@@ -17,7 +17,7 @@
 // asserting on the full table.
 
 import { env } from "cloudflare:test";
-import { type MilliCentavosPerUnit, toMilliCentavosPerUnit } from "@kokoro/shared";
+import { type MilliCentavosPerUnit, toMilliCentavosPerUnit, type Unit } from "@kokoro/shared";
 import { eq } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -44,7 +44,7 @@ async function seedItem(
   overrides: Partial<{
     kind: "RAW_MATERIAL" | "SEMI_FINISHED" | "FINISHED" | "PACKAGING";
     category: "INGREDIENT" | "NOT_EATABLE" | "BAKERY" | "DAIRY" | "PASTRY" | "OTHER";
-    unit: "G" | "KG" | "ML" | "L" | "UNIT";
+    unit: Unit;
     salePriceMc: MilliCentavosPerUnit | null;
     minStockQty: number | null;
     isUnmetered: boolean;
