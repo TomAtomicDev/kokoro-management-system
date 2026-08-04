@@ -35,8 +35,11 @@ is where that question lives.
 
 ## SC-03 · Sale form (modal/drawer)
 
-`LineEditor` (FINISHED items only, price prefilled from `items.sale_price`, editable),
-payment_status, method+account when PAID, optional customer/session. Warnings: stock going
+Two `LineEditor` sections (KOK-1xx): **products** (FINISHED items, price prefilled from
+`items.sale_price`, editable) and **packaging** (PACKAGING items, price prefilled `0` — the owner
+is not charging separately for the bag/label — editable for the rare priced case). Both post as
+`sale_lines`, same WAC-snapshot and `SALE_OUT` mechanics regardless of kind. payment_status,
+method+account when PAID, optional customer/session. Warnings: stock going
 negative (amber, INV-8); price vs. replacement cost as a live `MarginBadge` (C-5, KOK-036) as the
 price is typed, reading `GET /pricing-settings` for the threshold — replaces the earlier plain-text
 "below replacement cost" warning. Shows a neutral "Costo pendiente" label instead of the badge when
@@ -62,7 +65,8 @@ editable** → actual output qty → indirect cost. Shows live computed unit cos
 ## SC-06 · Recipes — `/production/recipes` (UC-15)
 
 Recipe list by output item; editor: output item, expected yield, `LineEditor` of ingredients
-(RAW_MATERIAL/SEMI_FINISHED + packaging), est labor min, default toggle. Panel: current
+(RAW_MATERIAL/SEMI_FINISHED only — PACKAGING is never offered here, KOK-1xx), est labor min,
+default toggle. Panel: current
 theoretical cost at WAC and at replacement cost per output unit (C-3) with margin preview
 against sale price.
 
@@ -170,8 +174,12 @@ user asks to record something from chat (same confirmation rule A-1).
 
 ## SC-15 · Catalog — `/settings/catalog` (UC-15)
 
-Items table (kind/category filters): name, unit, kind, category, price (FINISHED), min stock,
-aliases (chips, editable), active toggle. Merge-duplicates utility (re-points FKs, one-way).
+Items table (kind/category filters, kind now includes PACKAGING): name, unit, kind, category,
+price (FINISHED), min stock, aliases (chips, editable), active toggle. RAW_MATERIAL item form
+adds a "No medido" (`isUnmetered`) toggle (KOK-1xx, C-9) — when on, `minStockQty` is fixed to `0`
+and `replacementCostMc` becomes a directly-editable field (no purchase ever sets it). Unmetered
+items are excluded from `InventoryCount` screens. Merge-duplicates utility (re-points FKs,
+one-way).
 
 ## SC-16 · Settings — `/settings` (UC-20)
 

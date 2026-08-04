@@ -24,19 +24,24 @@ const salePriceMcSchema = z
   .optional();
 /** Milli-units, matching qty.ts's representation (INV-6). */
 const minStockQtySchema = z.number().int().nonnegative().nullable().optional();
+/** RAW_MATERIAL-only (Doc 03 C-9, KOK-1xx): exempts the item from purchases/exits/kardex. */
+const isUnmeteredSchema = z.boolean().optional();
 
 const salePriceRequiredMessage = "El precio de venta es obligatorio para productos finales.";
 const salePriceForbiddenMessage =
-  "El precio de venta no aplica a materias primas ni semielaborados.";
-const minStockQtyRequiredMessage = "El stock mínimo es obligatorio para materias primas.";
+  "El precio de venta no aplica a materias primas, semielaborados ni empaques.";
+const minStockQtyRequiredMessage =
+  "El stock mínimo es obligatorio para materias primas y empaques.";
 const minStockQtyForbiddenMessage =
   "El stock mínimo no aplica a semielaborados ni productos finales.";
+const isUnmeteredForbiddenMessage = "\"No medido\" solo aplica a materias primas.";
 
 function addKindExclusiveIssues(
   value: {
     kind?: ItemKind;
     salePriceMc?: MilliCentavosPerUnit | null;
     minStockQty?: number | null;
+    isUnmetered?: boolean;
   },
   ctx: z.RefinementCtx,
 ): void {
@@ -44,6 +49,7 @@ function addKindExclusiveIssues(
 
   const hasSalePrice = value.salePriceMc !== undefined && value.salePriceMc !== null;
   const hasMinStockQty = value.minStockQty !== undefined && value.minStockQty !== null;
+  const stocksLikeRawMaterial = value.kind === "RAW_MATERIAL" || value.kind === "PACKAGING";
 
   if (value.kind === "FINISHED" && !hasSalePrice) {
     ctx.addIssue({
@@ -59,17 +65,25 @@ function addKindExclusiveIssues(
     });
   }
 
-  if (value.kind === "RAW_MATERIAL" && !hasMinStockQty) {
+  if (stocksLikeRawMaterial && !hasMinStockQty) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       message: minStockQtyRequiredMessage,
       path: ["minStockQty"],
     });
-  } else if (value.kind !== "RAW_MATERIAL" && hasMinStockQty) {
+  } else if (!stocksLikeRawMaterial && hasMinStockQty) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       message: minStockQtyForbiddenMessage,
       path: ["minStockQty"],
+    });
+  }
+
+  if (value.kind !== "RAW_MATERIAL" && value.isUnmetered) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: isUnmeteredForbiddenMessage,
+      path: ["isUnmetered"],
     });
   }
 }
@@ -82,6 +96,7 @@ export const createItemCommandSchema = z
     unit: unitSchema,
     salePriceMc: salePriceMcSchema,
     minStockQty: minStockQtySchema,
+    isUnmetered: isUnmeteredSchema,
     notes: notesSchema,
   })
   .superRefine((value, ctx) => addKindExclusiveIssues(value, ctx));
@@ -96,6 +111,7 @@ export const updateItemCommandSchema = z
     unit: unitSchema.optional(),
     salePriceMc: salePriceMcSchema,
     minStockQty: minStockQtySchema,
+    isUnmetered: isUnmeteredSchema,
     notes: notesSchema,
   })
   .superRefine((value, ctx) => addKindExclusiveIssues(value, ctx));
@@ -165,6 +181,7 @@ export interface ItemDto {
   replacementCostUpdatedAt: string | null;
   salePriceMc: MilliCentavosPerUnit | null;
   minStockQty: number | null;
+  isUnmetered: boolean;
   isActive: boolean;
   notes: string | null;
   createdAt: string;

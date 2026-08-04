@@ -40,7 +40,7 @@ better correction ergonomics for a solo operator (ADR-009).
 
 | Aggregate root | Contains | Notes |
 |----------------|----------|-------|
-| **Item** | aliases, costing state, stock summary | `kind`: RAW_MATERIAL / SEMI_FINISHED / FINISHED; `category`: INGREDIENT / PACKAGING / LABEL / BAKERY / DAIRY / OTHER. Packaging rule: high-value packaging = RAW_MATERIAL consumed by recipes; minor consumables are bought as OPERATING_EXPENSE with no item (hybrid, per original spec). **`salePriceMc`/`minStockQty` are kind-exclusive** (KOK-096 KB amendment, closes BI-06): `salePriceMc` is required for FINISHED and forbidden (`null`) for RAW_MATERIAL/SEMI_FINISHED; `minStockQty` is required for RAW_MATERIAL and forbidden (`null`) for SEMI_FINISHED/FINISHED. "Required" means non-null, not non-zero — `minStockQty: 0` is valid and means "track this item, never alert on it." Enforced by `superRefine` on the create/update item command schemas (D-4: one contract for the catalog form, the onboarding wizard, and any assistant draft tool), never by tightening `minStockQtySchema`'s `.nonnegative()` to `.positive()`. Accepted trade-off: this rules out a low-stock alert on a finished good — a coherent thing to want, but it would require amending this rule rather than just filling in a field. |
+| **Item** | aliases, costing state, stock summary | `kind`: RAW_MATERIAL / SEMI_FINISHED / FINISHED / PACKAGING; `category`: INGREDIENT / NOT_EATABLE / BAKERY / DAIRY / PASTRY / OTHER (filtering only, no business rule keys off it). **PACKAGING (KOK-1xx KB amendment, closes BI-11)**: promoted from a `category` value to its own `kind`, superseding the old "high-value packaging = RAW_MATERIAL consumed by recipes" rule. A PACKAGING item is purchased and stocked exactly like RAW_MATERIAL (WAC, replacement cost, `minStockQty`) but is **never a recipe input** — `recipes.ts`'s item-kind whitelist stays RAW_MATERIAL/SEMI_FINISHED-only, so a PACKAGING item cannot be added to a recipe even by mistake. Instead it is consumed as a second kind of `sale_lines` row, alongside the FINISHED product line, at the moment of an actual sale (§SC-03). This decouples "was this unit produced" from "was this unit packaged for a customer": a `ProductionRun` of a FINISHED item never touches packaging stock, and neither does a `StockExit` (WASTE/SELF_CONSUMPTION/GIFT_SAMPLE/SPOILAGE) — self-consuming or discarding a baked good does not consume a bag, so packaging stock is only ever debited when a real sale happens. Minor consumables still may be bought as OPERATING_EXPENSE with no item at all (hybrid, per original spec) when tracking them individually isn't worth it. **`salePriceMc`/`minStockQty` are kind-exclusive** (KOK-096, extended by KOK-1xx for PACKAGING): `salePriceMc` is required for FINISHED and forbidden (`null`) for RAW_MATERIAL/SEMI_FINISHED/PACKAGING (a PACKAGING item has no list price — its `sale_lines.unit_price_mc` is ordinarily `0`, the owner is not charging separately for the bag, but that field stays editable per line for the rare case, e.g. a priced gift box); `minStockQty` is required for RAW_MATERIAL/PACKAGING and forbidden (`null`) for SEMI_FINISHED/FINISHED. "Required" means non-null, not non-zero — `minStockQty: 0` is valid and means "track this item, never alert on it." Enforced by `superRefine` on the create/update item command schemas (D-4: one contract for the catalog form, the onboarding wizard, and any assistant draft tool), never by tightening `minStockQtySchema`'s `.nonnegative()` to `.positive()`. Accepted trade-off: this rules out a low-stock alert on a finished good — a coherent thing to want, but it would require amending this rule rather than just filling in a field. **`isUnmetered` is RAW_MATERIAL-only** (C-9, KOK-1xx KB amendment, closes BI-15) — forbidden/false for every other kind. |
 | **Recipe** | recipe lines (item + qty), expected yield, est. labor minutes | One output item per recipe; an item MAY have several recipes (variants); one is `is_default`. Deletion is a soft **deactivate** (`is_active = 0`), mirroring `items.is_active` — never a hard DELETE (a recipe already referenced by a production run is protected by `ON DELETE RESTRICT` on `production_runs.recipe_id` regardless). |
 | **Purchase** | purchase lines, payment info, optional session link, photo | Creates PURCHASE_IN movements + expense transaction; updates WAC + replacement cost. A line's `lineTotal` may be 0 (free/promotional stock); if the purchase's total across all lines is 0, no `financial_transactions` row is created (no cash moved) — `financial_transactions.amount` is always > 0. |
 | **ProductionRun** | consumed lines (actual), output (actual qty), indirect cost, optional session link | Recipe is a template: consumption defaults from recipe × batches, editable before commit. |
@@ -59,7 +59,9 @@ better correction ergonomics for a solo operator (ADR-009).
   Exits consume at current `wac` and never change it.
 - **C-2 Purchase cost** per line: `unit_cost = line_total / qty` (freight/session shared costs are
   NOT capitalized into items; they go to OPERATING_EXPENSE — simplicity over precision, ADR-010).
-- **C-3 Replacement cost**: for RAW_MATERIAL, `replacement_cost = last purchase unit cost`, where
+- **C-3 Replacement cost**: for RAW_MATERIAL and PACKAGING (KOK-1xx: both are *purchased*, not
+  manufactured, items — PACKAGING follows the same rule as RAW_MATERIAL here), `replacement_cost =
+  last purchase unit cost`, where
   **"last" means last by `business_date`, not last recorded** (ties on the same `business_date`
   break by capture order, so the most recently recorded of that day wins). A purchase therefore
   updates `replacement_cost` only when no purchase of that item carries a LATER `business_date`;
@@ -115,6 +117,34 @@ better correction ergonomics for a solo operator (ADR-009).
   count line for an item that already has prior movement history is unaffected and stays a plain
   `ADJUST` per C-6, valued at current WAC as always; only an item's *first-ever* positive count
   line can be an opening balance.
+- **C-9 Unmetered items** (KOK-1xx KB amendment, closes BI-15): a RAW_MATERIAL item MAY be flagged
+  `isUnmetered` (e.g. `Agua`) when recipes consume it but it is never purchased as discrete stock
+  — it is a metered utility (water, gas), not inventory. The flag changes five things:
+  - **No PURCHASE_IN.** `recordPurchase` rejects a line against an unmetered item with a
+    `VALIDATION` error, mirroring the existing `kind !== 'FINISHED'` gate on sales
+    (`sales/index.ts`).
+  - **No StockExit.** WASTE/SELF_CONSUMPTION/GIFT_SAMPLE/SPOILAGE against an unmetered item is
+    rejected the same way — there is no discrete unit to waste, gift, or self-consume.
+  - **No kardex participation.** Production consumption of an unmetered line still contributes
+    `qty × replacement_cost_mc` to C-4's `direct` total (the output item's cost is real), but does
+    **not** emit a `PRODUCTION_OUT` stock_movement. An unmetered item therefore carries no
+    `qty_on_hand` worth reading, no `negative_since`, and is excluded (not merely
+    always-passing) from INV-5's nightly consistency check and from `listStock`'s
+    negative-stock/low-stock surfacing — a permanent, correctly-zero row would otherwise read as
+    "in stock, untouched," which is misleading for something that is never stocked at all.
+  - **Cost basis is `replacement_cost_mc`, owner-entered, not WAC.** C-1's WAC fold only runs on
+    entries (PURCHASE_IN/PRODUCTION_IN/OPENING_IN); an unmetered item never receives one, so
+    `wac_mc` stays `0` forever and cannot be its cost basis. C-3's "last purchase unit cost" does
+    not apply either (there is no purchase). Instead `replacement_cost_mc` is set directly by the
+    owner on the catalog form (an estimate — e.g. Bs/liter of tap water backed out from the
+    monthly utility bill) and is what gets snapshotted onto its production consumption lines (C-4)
+    and used by any recipe's theoretical-cost preview (C-3b) that includes it.
+  - **Not physically counted.** `InventoryCount` item lists (`listItems`/`startCount`) exclude
+    unmetered items — there is nothing to count.
+  `minStockQty` stays required per the general RAW_MATERIAL rule but is inert for an unmetered
+  item (no kardex participation ⇒ no low-stock check ever fires); the natural value is `0`
+  (precedent: `Agua`, BI-12). `isUnmetered` is forbidden (`false`) for SEMI_FINISHED, FINISHED,
+  and PACKAGING.
 
 ## 5. Custom order lifecycle (Modality 2)
 

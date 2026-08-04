@@ -60,15 +60,16 @@ Rules:
 CREATE TABLE items (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL UNIQUE,                     -- display name (Spanish)
-  kind TEXT NOT NULL CHECK (kind IN ('RAW_MATERIAL','SEMI_FINISHED','FINISHED')),
+  kind TEXT NOT NULL CHECK (kind IN ('RAW_MATERIAL','SEMI_FINISHED','FINISHED','PACKAGING')),
   category TEXT NOT NULL CHECK (category IN
-    ('INGREDIENT','PACKAGING','LABEL','BAKERY','DAIRY','PASTRY','OTHER')),
+    ('INGREDIENT','NOT_EATABLE','BAKERY','DAIRY','PASTRY','OTHER')),
   unit TEXT NOT NULL CHECK (unit IN ('G','KG','ML','L','UNIT','M')),
   wac_mc INTEGER NOT NULL DEFAULT 0,             -- weighted avg cost, milli-centavos per whole unit (derived, C-1)
-  replacement_cost_mc INTEGER NOT NULL DEFAULT 0,-- milli-centavos per whole unit (derived, C-3)
+  replacement_cost_mc INTEGER NOT NULL DEFAULT 0,-- milli-centavos per whole unit (derived, C-3; owner-entered when is_unmetered, C-9)
   replacement_cost_updated_at TEXT,
   sale_price_mc INTEGER,                         -- milli-centavos per whole unit; NULL unless sellable (FINISHED)
-  min_stock_qty INTEGER,                         -- milli-units; NULL = no alert
+  min_stock_qty INTEGER,                         -- milli-units; NULL = no alert; required for RAW_MATERIAL/PACKAGING
+  is_unmetered INTEGER NOT NULL DEFAULT 0,       -- RAW_MATERIAL only (C-9): no PURCHASE_IN/StockExit/kardex; cost = replacement_cost_mc
   is_active INTEGER NOT NULL DEFAULT 1,
   notes TEXT,
   created_at TEXT NOT NULL, updated_at TEXT NOT NULL
@@ -98,7 +99,7 @@ CREATE UNIQUE INDEX ux_recipes_default
 CREATE TABLE recipe_lines (
   id TEXT PRIMARY KEY,
   recipe_id TEXT NOT NULL REFERENCES recipes(id) ON DELETE CASCADE,
-  item_id TEXT NOT NULL REFERENCES items(id),    -- ingredient or high-value packaging
+  item_id TEXT NOT NULL REFERENCES items(id),    -- RAW_MATERIAL or SEMI_FINISHED only (recipes.ts); PACKAGING is never a recipe input (KOK-1xx, see Doc 03 §3)
   qty INTEGER NOT NULL CHECK (qty > 0)           -- milli-units per 1 batch
 );
 
@@ -228,7 +229,7 @@ CREATE TABLE sales (
 CREATE TABLE sale_lines (
   id TEXT PRIMARY KEY,
   sale_id TEXT NOT NULL REFERENCES sales(id) ON DELETE CASCADE,
-  item_id TEXT NOT NULL REFERENCES items(id),    -- FINISHED only (service-enforced)
+  item_id TEXT NOT NULL REFERENCES items(id),    -- FINISHED or PACKAGING only (service-enforced, KOK-1xx); PACKAGING lines are ordinarily unit_price_mc=0
   qty INTEGER NOT NULL CHECK (qty > 0),
   unit_price_mc INTEGER NOT NULL,                -- milli-centavos per whole unit (editable vs list price)
   unit_cost_snapshot_mc INTEGER NOT NULL         -- WAC at sale → per-line margin forever
