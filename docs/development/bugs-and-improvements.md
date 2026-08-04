@@ -75,24 +75,24 @@ Feasibility reflects the decisions recorded in [Resolved decisions](#resolved-de
 | BI-08  | Re-entering `/onboarding` after completion is unguarded    | flow     | 🐞   | 🟢 Direct       | S    | 2   | P1         | ✅ Done | KOK-091 |
 | BI-09  | Missing `PASTRY` category                                  | catalog  | ✨   | 🟢 Decided      | M    | 3   | P2         | ✅ Done | KOK-097 |
 | BI-10  | Missing `M` unit                                           | catalog  | ✨   | 🟢 Decided      | M    | 3   | P2         | ✅ Done | KOK-097 |
-| BI-11  | `PACKAGING` kind + sale-time packaging lines (re-scoped)   | catalog  | ✨   | 🟢 Decided      | L    | 4   | P2         | 📋 To Do | —    |
+| BI-11  | `PACKAGING` kind + sale-time packaging lines (re-scoped)   | catalog  | ✨   | 🟢 Decided      | L    | 5   | P2         | ✅ Done | KOK-100 |
 | BI-12  | Seed the three starter recipes                             | recipes  | ✨   | 🟢 Decided      | M    | 3   | P2         | ✅ Done | KOK-098 |
-| BI-15  | "Unmetered" items (Agua) — `isUnmetered` flag               | catalog  | ✨   | 🟢 Decided      | L    | 4   | P2         | 📋 To Do | —    |
+| BI-15  | "Unmetered" items (Agua) — `isUnmetered` flag               | catalog  | ✨   | 🟢 Decided      | L    | 5   | P2         | ✅ Done | KOK-100 |
 | BI-13  | Count table: group rows by item kind                       | count    | 🧭   | 🟢 Direct       | S    | 2   | P2         | ✅ Done | KOK-092 |
 | BI-14  | Count table: drop "Esperado"/"Variación", show the unit    | count    | 🧭   | 🟢 Direct       | XS   | 2   | P2         | ✅ Done | KOK-088 |
 | BI-16  | Catalog table forces horizontal scroll                     | catalog  | 🧭   | 🟢 Direct       | XS   | 2   | P2         | ✅ Done | KOK-087 |
 | BI-17  | Catalog header columns misaligned with body columns        | catalog  | 🐞   | 🟢 Direct       | XS   | 1   | P2         | ✅ Done | KOK-085 |
 | BI-18  | Decimal separator convention never stated to the owner     | flow     | 🧭   | 🟢 Direct       | XS   | 2   | P2         | ✅ Done | KOK-090 |
-| BI-19  | Explain *why* the opening count matters                    | count    | 🧭   | 🟢 Direct       | XS   | 2   | P2         | 📋 To Do | —    |
-| BI-20  | Defer all writes to a single "creating your data" commit   | flow     | 🧭   | 🟡 Needs a call | L    | 4   | P3         | 📋 To Do | —    |
+| BI-19  | ~~Explain *why* the opening count matters~~ — folded into BI-20 | count | 🧭   | 🟢 Direct       | XS   | 2   | P2         | ⏭️ Deferred | →BI-20 |
+| BI-20  | Onboarding flow rework — decouple navigation from saving   | flow     | 🧭   | 🟢 Decided      | M    | 3   | P2         | 📋 To Do | KOK-099 |
 | BI-21  | Litre abbreviation "l" reads as digit 1                    | catalog  | 🧭   | 🟢 Direct       | XS   | 1   | P3         | ✅ Done | KOK-086 |
 | BI-22  | Magnitude-scaled display units (`0,58 kg` → `580 g`)        | inventory| ✨   | 🔴 Design first | L    | 4   | P2         | 📋 To Do | —    |
 
 > **BI-12 ↔ BI-15 interaction, resolved.** BI-06b makes `minStockQty` mandatory for every
 > `RAW_MATERIAL` and BI-12's fixture adds `Agua` as one, which briefly looked unsatisfiable. The
 > rule that `0` is a valid minimum settles it: Agua seeds with `minStockQty: 0`. BI-15 therefore
-> does **not** block BI-12 and stays P2 — but its underlying problem is unchanged, and it gets
-> worse the longer Agua is in the catalog. See BI-15.
+> did **not** block BI-12. Its underlying problem (Agua's WAC never accumulating) is now closed too
+> — see BI-15, shipped as KOK-100.
 
 ---
 
@@ -424,6 +424,8 @@ in [Doc 03 §3/§4](../system-design-knowledge-base/03-domain-model.md) (Item ag
 need a new "default packaging per item" table/relation). The owner adds packaging lines manually
 for now — simplest correct MVP; revisit if manual entry proves to be forgotten in practice.
 
+**✅ Shipped — KOK-100 (PR #15, merged 2026-08-04).**
+
 ---
 
 ### BI-12 · Seed the three starter recipes — ✨ P2
@@ -587,6 +589,10 @@ rejects a negative result."* So the seeded recipes run fine, and instead:
 None of this blocks anything, which is exactly why it is easy to leave sitting. It is a slow leak in
 the numbers rather than a failure.
 
+**✅ Shipped — KOK-100 (PR #15, merged 2026-08-04).** Agua's fixture now seeds with
+`isUnmetered: true` and an owner-entered `replacementCostMc`, closing the drift described above at
+its source rather than living with it.
+
 ---
 
 ### BI-16 · Catalog table forces horizontal scroll — 🧭 P2
@@ -636,7 +642,7 @@ multi-comma caveat noted in BI-03.
 
 ---
 
-### BI-19 · Explain *why* the opening count matters — 🧭 P2
+### BI-19 · Explain *why* the opening count matters — ⏭️ Deferred → BI-20
 
 **Reported:** *"En lo posible dar instrucciones al usuario sobre qué tiene que hacer para obtener
 estos datos y porqué esta etapa es muy importante."*
@@ -645,34 +651,68 @@ Current copy is one line: *"Cuenta el stock real de cada ítem para dejar tu inv
 de empezar a operar"* (`i18n-onboarding.ts`, `countBody`). It says what to do, never what it costs to
 do it carelessly — that every later cost and margin figure is anchored to these numbers.
 
-Copy-only change, but it should land **with** BI-01/BI-02, since the strongest reason to be careful
-here is the unit-cost capture those introduce. Spanish tone review per Definition of Done §4.
+**Folded into BI-20.** The owner's follow-up conversation on BI-20 generalized this exact ask — qué
+hacer / por qué importa / cómo se corrige después — to every step, not only the count. Shipping one
+wizard-wide copy pattern is cheaper than shipping this alone and redoing the copy when BI-20 lands.
+See BI-20 point 6.
 
 ---
 
-### BI-20 · Defer all writes to a single "creating your data" commit — 🧭 P3
+### BI-20 · Onboarding flow rework — decouple navigation from saving — 🧭 P2
 
 **Reported:** *"Se debería guardar los datos en los estados react y solo al final mandar todo al
 backend y en la pantalla mostrar un 'Creando el estado inicial de la DB'."*
 
-This is the owner's structural proposal, and it correctly diagnoses the real problem: the wizard
-commits step-by-step (`POST /onboarding/opening-balances` at step 2, `POST /onboarding/catalog` at
-step 3, count start on step 5 mount), so a half-finished wizard leaves half-written state and steps
-cannot be revisited.
+The owner's original proposal correctly diagnosed the real problem: the wizard commits step-by-step
+(`POST /onboarding/opening-balances` at step 2, `POST /onboarding/catalog` at step 3, a
+`recordRecipe` loop at step 4, count start on step 5 mount), so a half-finished wizard leaves
+half-written state — and, before BI-07/BI-08 shipped, steps couldn't even be revisited.
 
-**Ranked P3 despite being the largest item, deliberately.** BI-07 and BI-08 deliver most of the
-felt benefit (go back; don't re-enter a completed wizard) for a fraction of the cost. Full deferral
-is a rewrite of all five steps plus a new bulk endpoint, and it collides with two constraints:
+**The literal "one final commit" proposal is rejected**, for the two reasons already on record:
 
 - **INV-1 / D-3 — one atomic batch per command.** A single "commit everything" endpoint spanning
-  balances + items + recipes + a committed count is not one command; it is several. Whether it can
-  be one `db.batch()` — and whether it *should* be — needs deciding before design.
+  balances + items + recipes + a committed count is not one command; it would be several disguised
+  as one, or a new multi-entity batch with no matching `core/` service boundary.
 - Step 5's count is inherently server-backed: `startCount` computes `expectedQty` from items that
-  must already exist. Holding it purely client-side means rethinking that step, not just deferring
-  its POST.
+  must already exist in the database. Holding it purely client-side means redesigning that step's
+  correctness model, not just deferring its POST.
 
-**Recommendation:** ship BI-07 + BI-08 first, then re-evaluate. The remaining pain may not justify
-an L.
+**Replacement design (Q10-Q14), settled 2026-08-04.** Keeps every step's existing atomic write, and
+instead decouples *moving through the wizard* from *saving a step's data*:
+
+1. **Navigation and saving become separate actions.** "Continuar" no longer implies "Guardar" — the
+   owner can walk all five steps to see the whole picture first, then come back and fill in real data
+   step by step. The Stepper becomes clickable to any already-reached step (today it's presentational
+   only — `Stepper.tsx` has no `onClick`).
+2. **A step's save button is gated by real data dependencies, not by wizard position.** Recetas and
+   Stock (Conteo) both require Catálogo saved; neither requires the other. A recipe only references
+   catalog items that must already exist (`resolveRecipeCommand` returns `null` on a missing item),
+   and the count only needs catalog items resolved — there is no Catálogo → Recetas → Stock chain in
+   the data model, so the UI must not invent one.
+3. **Catálogo gets a live editor once saved, replacing the read-only lock.** Revisiting step 3 after
+   saving shows the real items (`useItemsQuery`), with inline add/edit backed by the same
+   single-item `core/catalog` create/update service Ajustes → Catálogo already uses — not the bulk
+   endpoint, so revisiting never risks a duplicate submission. Saldos (step 2) keeps its current
+   read-only-after-save treatment; editing an opening balance afterward is ordinary account
+   management, not something the wizard needs to own (see point 6's copy instead).
+4. **Unsaved input must survive navigating away and back.** Each step's draft values move out of the
+   step component's local state (e.g. `StepBalances`'s `bankInput`/`cashInput` today) to the
+   wizard/route level or `sessionStorage`, so browsing ahead to preview a later step and coming back
+   doesn't discard what was typed. This is the one piece of the owner's original "hold it in React
+   state first" instinct that survives — scoped per step now, not to the whole wizard.
+5. **Step 1 becomes a real overview**, not just the password-acknowledgment card it is today
+   (`StepPassword.tsx`) — what onboarding covers and why, before the owner commits to anything.
+6. **Every step gets three-part guidance copy**: qué hacer para conseguir el dato, por qué revisarlo
+   con cuidado antes de guardar, y una línea de qué pantalla de la plataforma usar para ajustarlo
+   después de terminado el onboarding — referencia al uso normal de la app (Ajustes, Cuentas, etc.),
+   no una promesa de edición dentro del wizard salvo en Catálogo (punto 3). **Absorbe BI-19** (la
+   versión específica de conteo de este mismo pedido) como caso general; no hace falta un pase de
+   copy aparte para esa tarea.
+
+**Sizing:** 🟢 Decided, **M** — not the L the literal proposal would have been. No new bulk endpoint,
+no batch-atomicity redesign; the work is lifting draft state to the route level, making the Stepper
+navigable, building the catalog live-editor, wiring the two save-gates, and one copy pass across five
+steps.
 
 ---
 
@@ -774,14 +814,19 @@ BI-12, after BI-06 and BI-09/BI-10 have landed — it depends on the corrected f
 kind-conditional matrix being settled. Fully specified now (Q5a/Q5b/Q6a/Q6c/Q7a). It ships
 *correctly* without BI-22; recipe lines just read `"0,58 kg"` until the display layer lands.
 
-**6 — Design tasks, each needing a written proposal before an estimate is trusted.**
-BI-11, BI-15, BI-20, BI-22. Two notes on ordering:
+**6 — Onboarding flow rework, now fully specified.**
+BI-20 (absorbs BI-19). No longer a design task — Q10-Q14 settle navigation/saving, the
+sequence-gating rule, catalog editability, and the copy pattern. Independent of the other findings
+above; can be picked up whenever the wizard work is scheduled.
+
+**7 — Design tasks, each needing a written proposal before an estimate is trusted.**
+BI-22 is the only one left here. BI-11 and BI-15 were designed and shipped together as KOK-100
+(PR #15, 2026-08-04) — see their sections above.
 
 - **BI-22 should settle before BI-02 builds its unit-cost input**, since point 4 of its design (cost
   columns must *not* auto-scale) is a constraint on that input's rendering. It does not block
   BI-01/BI-02 — Q7a already gives them a sane canonical unit — but a late reversal would mean
   reworking the cost display.
-- **BI-15** rises in priority the longer Agua sits in the catalog accumulating negative stock.
 
 ---
 
@@ -807,6 +852,18 @@ Recorded 2026-08-02 with the owner. These are inputs to the tasks above, not the
 | Q8  | BI-10 — `M` or `CM`, given Q7a?                     | **`M` only.** Restores one rule across all three families: large member stored, small member display-only. Supersedes Q4.   |
 | Q9  | BI-01/02 — opening-valuation mechanism?             | **Dedicated `OPENING_IN` movement type** (Doc 03 C-8), a WAC entry type like `PURCHASE_IN`. Rejected: cost-stamped `ADJUST` (blurs C-6, needs replay special-casing) and synthetic opening `PURCHASE_IN` (pollutes C-3's replacement-cost signal). Tracked as KOK-084. |
 
+**Recorded 2026-08-04, BI-20 follow-up with the owner.** These replace BI-20's original "defer
+everything to one final commit" proposal with a scoped alternative, and are also the source of
+BI-19's fold-in.
+
+| #   | Question                                                           | Decision                                                                                                                    |
+| --- | --------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| Q10 | BI-20 — full deferral to one final commit, or something narrower? | **Narrower.** Decouple step *navigation* from *saving* instead of deferring every write to one commit at the end. Each step keeps its existing atomic command (D-3 stays satisfied); no new multi-entity batch endpoint. |
+| Q11 | BI-20 — what gates a step's save button?                          | **Only real data dependencies, not wizard position.** Recetas and Stock both require Catálogo saved; neither requires the other — a recipe only references catalog items that must already exist, and the count only needs catalog items resolved, so a Catálogo → Recetas → Stock chain isn't backed by any actual dependency. |
+| Q12 | BI-20 — can already-saved data be edited from inside the wizard?  | **Catálogo only, via a live editor.** Revisiting step 3 after saving shows the real items, add/edit backed by the same single-item `core/catalog` service Ajustes → Catálogo already uses — no new bulk endpoint. Saldos (step 2) does not get in-wizard editing; its copy points to the real Cuentas/Ajustes screen instead (Q14). |
+| Q13 | BI-20 — does unsaved input survive navigating away and back?      | **Yes, it must.** Each step's draft values move out of the step component's local state to the wizard/route level (or `sessionStorage`), so clicking through steps before saving doesn't discard typed values. The Stepper becomes clickable to any already-reached step. |
+| Q14 | BI-20 — per-step guidance copy, and does it fold in BI-19?        | **Yes, absorbs BI-19.** Every step gets three parts: qué hacer para conseguir el dato, por qué revisarlo con cuidado antes de guardar, y una línea de qué pantalla de la plataforma usar para ajustarlo después de terminado el onboarding — no una promesa de edición dentro del wizard, salvo en Catálogo (Q12). |
+
 **No open questions remain.** Every unit family now canonicalises identically, and the one exception
 that Q4 would have created is gone:
 
@@ -816,5 +873,7 @@ that Q4 would have created is gone:
 | volume    | `L`    | `ml`                 | Q7a        |
 | length    | `M`    | `cm`                 | Q8         |
 
-Remaining work is either ready to build or is a 🔴 design task (BI-11, BI-15, BI-20, BI-22) whose
-next step is a written proposal rather than an answer from the owner.
+Remaining work is either ready to build or is a 🔴 design task (BI-22) whose next step is a written
+proposal rather than an answer from the owner. BI-20 is no longer in that bucket — its design is
+settled (Q10-Q14) and it is ready to spec as a `KOK-xxx` task; BI-19 folds into it. BI-11 and BI-15
+are no longer in it either — both were designed and shipped as KOK-100.
