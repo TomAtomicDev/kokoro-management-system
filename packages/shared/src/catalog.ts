@@ -14,7 +14,7 @@ import { itemCategorySchema, itemKindSchema, unitSchema } from "./enums.js";
 import { type MilliCentavosPerUnit, toMilliCentavosPerUnit } from "./money.js";
 
 const itemNameSchema = z.string().trim().min(1, "El nombre es obligatorio.").max(200);
-const aliasSchema = z.string().trim().min(1, "El alias no puede estar vacÃƒÆ’Ã‚Â­o.").max(200);
+const aliasSchema = z.string().trim().min(1, "El alias no puede estar vacío.").max(200);
 const notesSchema = z.string().trim().max(2000).nullable().optional();
 /** Centavos, matching money.ts's Centavos representation (INV-6). */
 const salePriceMcSchema = z
@@ -167,7 +167,7 @@ export const mergeItemsCommandSchema = z
     targetItemId: z.string().min(1),
   })
   .refine((v) => v.sourceItemId !== v.targetItemId, {
-    message: "No puedes fusionar un ÃƒÆ’Ã‚Â­tem consigo mismo.",
+    message: "No puedes fusionar un ítem consigo mismo.",
     path: ["targetItemId"],
   });
 export type MergeItemsCommand = z.infer<typeof mergeItemsCommandSchema>;

@@ -89,7 +89,7 @@ describe("planReplacementCostRefresh (C-3, SEMI_FINISHED/FINISHED)", () => {
   it("propagates through a multi-level BOM in dependency order (RAW_MATERIAL -> SEMI_FINISHED -> FINISHED) within one run", async () => {
     const db = createDb(env.DB);
     const flour = await seedItem(db, "RAW_MATERIAL", 12);
-    const masa = await seedItem(db, "SEMI_FINISHED"); // starts at 0 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â must refresh BEFORE pan reads it
+    const masa = await seedItem(db, "SEMI_FINISHED"); // starts at 0 — must refresh BEFORE pan reads it
     const pan = await seedItem(db, "FINISHED");
     await seedDefaultRecipe(db, masa.id, 1000, [{ itemId: flour.id, qty: 500 }]);
     await seedDefaultRecipe(db, pan.id, 500, [{ itemId: masa.id, qty: 500 }]);
@@ -121,7 +121,7 @@ describe("planReplacementCostRefresh (C-3, SEMI_FINISHED/FINISHED)", () => {
     expect(row.replacementCostMc).toBe(999);
   });
 
-  it("never refreshes RAW_MATERIAL items ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â C-3's other branch (last purchase unit cost) owns them", async () => {
+  it("never refreshes RAW_MATERIAL items — C-3's other branch (last purchase unit cost) owns them", async () => {
     const db = createDb(env.DB);
     const flour = await seedItem(db, "RAW_MATERIAL", 12);
 

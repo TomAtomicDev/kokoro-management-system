@@ -50,7 +50,7 @@ const EXPECTED_VIEWS = [
 ];
 
 describe("migration 0001", () => {
-  it("creates every table from Doc 04 Â§3", async () => {
+  it("creates every table from Doc 04 §3", async () => {
     const { results } = await env.DB.prepare(
       "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name",
     ).all<{ name: string }>();
@@ -60,7 +60,7 @@ describe("migration 0001", () => {
     }
   });
 
-  it("creates every view from Doc 04 Â§4", async () => {
+  it("creates every view from Doc 04 §4", async () => {
     const { results } = await env.DB.prepare(
       "SELECT name FROM sqlite_master WHERE type = 'view' ORDER BY name",
     ).all<{ name: string }>();
@@ -70,7 +70,7 @@ describe("migration 0001", () => {
     }
   });
 
-  it("seeds the two financial accounts (Doc 04 Â§7)", async () => {
+  it("seeds the two financial accounts (Doc 04 §7)", async () => {
     const { results } = await env.DB.prepare(
       "SELECT id, type, balance FROM financial_accounts ORDER BY id",
     ).all<{ id: string; type: string; balance: number }>();
@@ -80,7 +80,7 @@ describe("migration 0001", () => {
     ]);
   });
 
-  it("seeds app_settings defaults (Doc 04 Â§7)", async () => {
+  it("seeds app_settings defaults (Doc 04 §7)", async () => {
     const row = await env.DB.prepare(
       "SELECT value FROM app_settings WHERE key = 'min_margin_pct'",
     ).first<{ value: string }>();

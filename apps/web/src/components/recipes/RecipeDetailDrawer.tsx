@@ -87,7 +87,7 @@ export function RecipeDetailDrawer({ recipeId, open, onOpenChange }: RecipeDetai
         footer={
           recipe ? (
             <span>
-              Creado {new Date(recipe.createdAt).toLocaleDateString("es-BO")} Â· Actualizado{" "}
+              Creado {new Date(recipe.createdAt).toLocaleDateString("es-BO")} · Actualizado{" "}
               {new Date(recipe.updatedAt).toLocaleDateString("es-BO")}
             </span>
           ) : undefined

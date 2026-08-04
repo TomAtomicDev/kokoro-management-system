@@ -123,7 +123,7 @@ describe("recordRecipe", () => {
       recordRecipe(
         db,
         {
-          name: "Receta invÃ¡lida",
+          name: "Receta inválida",
           outputItemId: rawOutput.id,
           expectedYieldQty: 1000,
           estLaborMin: null,
@@ -213,7 +213,7 @@ describe("recordRecipe", () => {
       recordRecipe(
         db,
         {
-          name: "Receta invÃ¡lida",
+          name: "Receta inválida",
           outputItemId: output.id,
           expectedYieldQty: 1000,
           estLaborMin: null,

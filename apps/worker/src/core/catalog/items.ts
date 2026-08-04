@@ -56,7 +56,7 @@ export async function createItem(
 ): Promise<ItemDto> {
   const duplicate = await findItemRowByName(db, command.name);
   if (duplicate) {
-    throw conflict(`Ya existe un ÃƒÆ’Ã‚Â­tem llamado "${command.name}".`, { field: "name" });
+    throw conflict(`Ya existe un ítem llamado "${command.name}".`, { field: "name" });
   }
 
   const now = nowIso();
@@ -106,13 +106,13 @@ export async function updateItem(
     where: (t, { eq: eqOp }) => eqOp(t.id, command.id),
   });
   if (!existingRow) {
-    throw notFound("No se encontrÃƒÆ’Ã‚Â³ el ÃƒÆ’Ã‚Â­tem.", { id: command.id });
+    throw notFound("No se encontró el ítem.", { id: command.id });
   }
 
   if (command.name !== undefined && command.name !== existingRow.name) {
     const duplicate = await findItemRowByName(db, command.name, command.id);
     if (duplicate) {
-      throw conflict(`Ya existe un ÃƒÆ’Ã‚Â­tem llamado "${command.name}".`, { field: "name" });
+      throw conflict(`Ya existe un ítem llamado "${command.name}".`, { field: "name" });
     }
   }
 
@@ -172,7 +172,7 @@ export async function setItemActive(
     where: (t, { eq: eqOp }) => eqOp(t.id, command.id),
   });
   if (!existingRow) {
-    throw notFound("No se encontrÃƒÆ’Ã‚Â³ el ÃƒÆ’Ã‚Â­tem.", { id: command.id });
+    throw notFound("No se encontró el ítem.", { id: command.id });
   }
 
   const now = nowIso();
@@ -200,7 +200,7 @@ export async function getItem(db: Db, id: string): Promise<ItemDto> {
     where: (t, { eq: eqOp }) => eqOp(t.id, id),
   });
   if (!row) {
-    throw notFound("No se encontrÃƒÆ’Ã‚Â³ el ÃƒÆ’Ã‚Â­tem.", { id });
+    throw notFound("No se encontró el ítem.", { id });
   }
   const aliases = await fetchAliasesForItem(db, id);
   return toItemDto(row, aliases);

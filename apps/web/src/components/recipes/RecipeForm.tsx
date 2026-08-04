@@ -213,9 +213,7 @@ export function RecipeForm({ open, onOpenChange, recipe, settings }: RecipeFormP
     const qty = parseDecimalToInt(line.qty, 3);
     if (qty === null || qty <= 0) {
       return (
-        <span className="text-subtle-foreground text-xs">
-          {recipesLabels.lineContribution}: â€”
-        </span>
+        <span className="text-subtle-foreground text-xs">{recipesLabels.lineContribution}: —</span>
       );
     }
     // Use the same ADR-017 rate-to-total conversion as the server-side recipe costing path.

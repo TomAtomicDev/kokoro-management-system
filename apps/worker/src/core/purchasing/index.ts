@@ -169,7 +169,7 @@ async function buildPurchaseCreateMovements(db: Db, command: RecordPurchaseComma
   // Defensive re-check (core/ services never trust a caller already ran Zod, D-2) ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â mirrors
   // recordPurchaseCommandSchema's `.min(1)` on `lines`.
   if (command.lines.length === 0) {
-    throw validationError("Se requiere al menos una lÃƒÆ’Ã‚Â­nea de compra.", {});
+    throw validationError("Se requiere al menos una línea de compra.", {});
   }
 
   const account = await findActiveAccountRowOrThrow(db, command.accountId);
@@ -183,7 +183,7 @@ async function buildPurchaseCreateMovements(db: Db, command: RecordPurchaseComma
       where: (t, { eq: eqOp }) => eqOp(t.id, itemId),
     });
     if (!itemRow) {
-      throw notFound("No se encontrÃƒÆ’Ã‚Â³ el ÃƒÆ’Ã‚Â­tem.", { id: itemId });
+      throw notFound("No se encontró el ítem.", { id: itemId });
     }
     if (itemRow.isUnmetered === 1) {
       throw validationError("Este ítem no se compra: es un insumo no medido.", { itemId });
@@ -744,7 +744,7 @@ async function commitPurchaseMutation(db: Db, plan: PurchaseMutationPlan): Promi
         ? "Eliminar esta compra cambia costos ya calculados de ventas o salidas registradas. Revisa el impacto y confirma para eliminarla."
         : plan.action === "restore"
           ? "Restaurar esta compra cambia costos ya calculados de ventas o salidas registradas. Revisa el impacto y confirma para restaurarla."
-          : "Esta ediciÃƒÆ’Ã‚Â³n cambia costos ya calculados de ventas o salidas registradas. Revisa el impacto y confirma para guardarla.",
+          : "Esta edición cambia costos ya calculados de ventas o salidas registradas. Revisa el impacto y confirma para guardarla.",
       { reason: REPLAY_CONFIRMATION_REQUIRED, impact: costingPlan.impact },
     );
   }
@@ -788,7 +788,7 @@ async function commitPurchaseMutation(db: Db, plan: PurchaseMutationPlan): Promi
       where: (t, { eq: eqOp }) => eqOp(t.id, itemId),
     });
     if (!itemRow) {
-      throw notFound("No se encontrÃƒÆ’Ã‚Â³ el ÃƒÆ’Ã‚Â­tem.", { id: itemId });
+      throw notFound("No se encontró el ítem.", { id: itemId });
     }
 
     const values: Partial<typeof items.$inferInsert> = {};
@@ -902,7 +902,7 @@ async function loadPurchaseForMutation(
       andOp(eqOp(t.id, id), isNullOp(t.deletedAt)),
   });
   if (!row) {
-    throw notFound("No se encontrÃƒÆ’Ã‚Â³ la compra.", { id });
+    throw notFound("No se encontró la compra.", { id });
   }
   const lines = await db.query.purchaseLines.findMany({
     where: (t, { eq: eqOp }) => eqOp(t.purchaseId, id),
@@ -939,7 +939,7 @@ async function readAccountDtoOrThrow(db: Db, accountId: string) {
     where: (t, { eq: eqOp }) => eqOp(t.id, accountId),
   });
   if (!row) {
-    throw notFound("No se encontrÃƒÆ’Ã‚Â³ la cuenta.", { accountId });
+    throw notFound("No se encontró la cuenta.", { accountId });
   }
   return toAccountDto(row);
 }
@@ -987,7 +987,7 @@ async function buildPurchaseUpdateMutationInputs(
 }> {
   // Defensive re-check (core/ services never trust a caller already ran Zod, D-2).
   if (command.lines.length === 0) {
-    throw validationError("Se requiere al menos una lÃƒÆ’Ã‚Â­nea de compra.", {});
+    throw validationError("Se requiere al menos una línea de compra.", {});
   }
 
   const { row: existing, lines: existingLines } = await loadPurchaseForMutation(db, id);
@@ -1140,7 +1140,7 @@ async function loadPurchaseForRestore(
       andOp(eqOp(t.id, id), isNotNull(t.deletedAt)),
   });
   if (!row) {
-    throw notFound("No se encontrÃƒÆ’Ã‚Â³ la compra eliminada.", { id });
+    throw notFound("No se encontró la compra eliminada.", { id });
   }
   const lines = await db.query.purchaseLines.findMany({
     where: (t, { eq: eqOp }) => eqOp(t.purchaseId, id),
@@ -1210,7 +1210,7 @@ export async function getPurchase(db: Db, id: string): Promise<PurchaseDto> {
     where: (t, { and, eq: eqOp, isNull }) => and(eqOp(t.id, id), isNull(t.deletedAt)),
   });
   if (!row) {
-    throw notFound("No se encontrÃƒÆ’Ã‚Â³ la compra.", { id });
+    throw notFound("No se encontró la compra.", { id });
   }
   const lineRows = await db.query.purchaseLines.findMany({
     where: (t, { eq: eqOp }) => eqOp(t.purchaseId, id),

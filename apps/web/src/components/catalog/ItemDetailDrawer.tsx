@@ -110,7 +110,7 @@ export function ItemDetailDrawer({ itemId, open, onOpenChange }: ItemDetailDrawe
       footer={
         item ? (
           <span>
-            Creado {new Date(item.createdAt).toLocaleDateString("es-BO")} Ã‚Â· Actualizado{" "}
+            Creado {new Date(item.createdAt).toLocaleDateString("es-BO")} · Actualizado{" "}
             {new Date(item.updatedAt).toLocaleDateString("es-BO")}
           </span>
         ) : undefined
@@ -151,7 +151,7 @@ export function ItemDetailDrawer({ itemId, open, onOpenChange }: ItemDetailDrawe
             </span>
             <div className="flex flex-wrap gap-1.5">
               {item.aliases.length === 0 ? (
-                <span className="text-muted-foreground text-sm">Ã¢â‚¬â€</span>
+                <span className="text-muted-foreground text-sm">—</span>
               ) : (
                 item.aliases.map((alias) => (
                   <Badge key={alias.id} variant="outline" className="gap-1 pr-1">

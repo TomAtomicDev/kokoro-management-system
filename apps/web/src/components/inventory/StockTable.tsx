@@ -77,7 +77,7 @@ export function StockTable({ rows, loading, onRowClick }: StockTableProps) {
       id: "minStock",
       header: inventoryLabels.columnMinStock,
       numeric: true,
-      cell: (row) => (row.minStockQty === null ? "â€”" : formatQty(row.minStockQty, row.unit)),
+      cell: (row) => (row.minStockQty === null ? "—" : formatQty(row.minStockQty, row.unit)),
     },
     {
       id: "wac",

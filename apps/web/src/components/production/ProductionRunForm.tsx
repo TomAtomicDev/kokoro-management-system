@@ -289,7 +289,7 @@ export function ProductionRunForm({ open, onOpenChange, productionRun }: Product
     if (qty === null || qty <= 0) {
       return (
         <span className="text-subtle-foreground text-xs">
-          {productionLabels.lineContribution}: â€”
+          {productionLabels.lineContribution}: —
         </span>
       );
     }
@@ -358,7 +358,7 @@ export function ProductionRunForm({ open, onOpenChange, productionRun }: Product
       value:
         actualOutputQtyPreview !== null && outputItem
           ? formatQty(actualOutputQtyPreview, outputItem.unit)
-          : "â€”",
+          : "—",
     },
   ];
 
@@ -534,7 +534,7 @@ export function ProductionRunForm({ open, onOpenChange, productionRun }: Product
               <span className="numeric-cell text-foreground text-sm">
                 {outputUnitCostPreviewMc !== null
                   ? formatMoney(totalCentavos(outputUnitCostPreviewMc, WHOLE_UNIT_MILLI_UNITS))
-                  : "â€”"}
+                  : "—"}
               </span>
             </div>
           </div>

@@ -93,7 +93,7 @@ describe("GET /api/price-health", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { rows: PriceHealthRow[]; minMarginPct: number };
 
-    expect(body.minMarginPct).toBe(3000); // seeded default (Doc 04 Â§7)
+    expect(body.minMarginPct).toBe(3000); // seeded default (Doc 04 §7)
     expect(body.rows.map((r) => r.itemId)).not.toContain(rawMaterial.id); // FINISHED-only
 
     const row = body.rows.find((r) => r.itemId === cake.id);

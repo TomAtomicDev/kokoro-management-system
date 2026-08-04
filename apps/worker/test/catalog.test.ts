@@ -69,14 +69,14 @@ describe("createItem", () => {
     const db = createDb(env.DB);
     await createItem(
       db,
-      { name: "AzÃºcar blanca", kind: "RAW_MATERIAL", category: "INGREDIENT", unit: "KG" },
+      { name: "Azúcar blanca", kind: "RAW_MATERIAL", category: "INGREDIENT", unit: "KG" },
       ACTOR,
     );
 
     await expect(
       createItem(
         db,
-        { name: "AzÃºcar blanca", kind: "RAW_MATERIAL", category: "INGREDIENT", unit: "KG" },
+        { name: "Azúcar blanca", kind: "RAW_MATERIAL", category: "INGREDIENT", unit: "KG" },
         ACTOR,
       ),
     ).rejects.toMatchObject({ code: "CONFLICT" });
@@ -231,7 +231,7 @@ describe("listItems", () => {
     const box = await createItem(
       db,
       {
-        name: "Caja de cartÃ³n",
+        name: "Caja de cartón",
         kind: "PACKAGING",
         category: "NOT_EATABLE",
         unit: "UNIT",
@@ -347,7 +347,7 @@ describe("price_history (KOK-035, Doc 07 SC-12)", () => {
     const db = createDb(env.DB);
     const item = await createItem(
       db,
-      { name: "Sin precio aÃºn", kind: "FINISHED", category: "BAKERY", unit: "UNIT" },
+      { name: "Sin precio aún", kind: "FINISHED", category: "BAKERY", unit: "UNIT" },
       ACTOR,
     );
 

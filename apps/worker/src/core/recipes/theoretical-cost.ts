@@ -34,7 +34,7 @@ function assertSafeIntegerInput(value: number, label: string): void {
 
 function assertFiniteNonNegative(value: number, label: string): void {
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
-    throw validationError(`${label} debe ser un nÃºmero finito no negativo.`, { [label]: value });
+    throw validationError(`${label} debe ser un número finito no negativo.`, { [label]: value });
   }
 }
 
@@ -73,7 +73,7 @@ export function computeTheoreticalCostPerOutputUnit(
   for (const line of lines) {
     assertSafeIntegerInput(line.qty, "qty");
     if (line.qty <= 0) {
-      throw validationError("La cantidad de la lÃ­nea debe ser un entero positivo.", {
+      throw validationError("La cantidad de la línea debe ser un entero positivo.", {
         qty: line.qty,
       });
     }

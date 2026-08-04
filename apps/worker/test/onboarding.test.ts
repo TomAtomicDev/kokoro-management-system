@@ -36,7 +36,7 @@ beforeEach(async () => {
   }
 });
 
-describe("core/settings Ã¢â‚¬â€ getSetting/setSetting", () => {
+describe("core/settings — getSetting/setSetting", () => {
   it("returns null for a never-set key", async () => {
     const db = createDb(env.DB);
     expect(await getSetting(db, "does_not_exist_key")).toBeNull();
@@ -60,7 +60,7 @@ describe("core/settings Ã¢â‚¬â€ getSetting/setSetting", () => {
   });
 });
 
-describe("core/settings Ã¢â‚¬â€ onboarding status semantics", () => {
+describe("core/settings — onboarding status semantics", () => {
   it("no setting -> not completed; after setSetting -> completed", async () => {
     const db = createDb(env.DB);
     expect(await getSetting(db, ONBOARDING_KEY)).toBeNull();

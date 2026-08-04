@@ -15,13 +15,13 @@ import type {
 
 export const inventoryLabels = {
   title: "Inventario",
-  subtitle: "Stock actual, alertas y movimientos por Ã­tem.",
+  subtitle: "Stock actual, alertas y movimientos por ítem.",
 
   tabStock: "Stock",
   tabSalidas: "Salidas",
   tabConteos: "Conteos",
 
-  comingSoonSalidas: "Registro de salidas â€” prÃ³ximamente.",
+  comingSoonSalidas: "Registro de salidas — próximamente.",
 
   // `satisfies Record<Enum, string>` guarantees every enum member has a translation â€” a missing
   // case fails `tsc`, not a blank cell at runtime (same precedent as i18n-finance.ts).
@@ -34,8 +34,8 @@ export const inventoryLabels = {
   categoryLabels: {
     INGREDIENT: "Ingrediente",
     NOT_EATABLE: "No comestible",
-    BAKERY: "PanaderÃ­a",
-    DAIRY: "LÃ¡cteo",
+    BAKERY: "Panadería",
+    DAIRY: "Lácteo",
     PASTRY: "Pastelería",
     OTHER: "Otro",
   } satisfies Record<ItemCategory, string>,
@@ -51,22 +51,22 @@ export const inventoryLabels = {
   movementTypeLabels: {
     OPENING_IN: "Stock inicial",
     PURCHASE_IN: "Compra",
-    PRODUCTION_IN: "ProducciÃ³n (entrada)",
-    PRODUCTION_OUT: "ProducciÃ³n (consumo)",
+    PRODUCTION_IN: "Producción (entrada)",
+    PRODUCTION_OUT: "Producción (consumo)",
     SALE_OUT: "Venta",
     EXIT_OUT: "Salida",
     ADJUST: "Ajuste",
   } satisfies Record<StockMovementType, string>,
 
   // Stock table columns.
-  columnName: "Ãtem",
+  columnName: "Ítem",
   columnKind: "Tipo",
-  columnCategory: "CategorÃ­a",
+  columnCategory: "Categoría",
   columnUnit: "Unidad",
   columnOnHand: "En stock",
-  columnMinStock: "Stock mÃ­nimo",
+  columnMinStock: "Stock mínimo",
   columnWac: "Costo promedio",
-  columnReplacementCost: "Costo de reposiciÃ³n",
+  columnReplacementCost: "Costo de reposición",
   columnStockValue: "Valor de inventario",
 
   flagLowStock: "Stock bajo",
@@ -76,18 +76,18 @@ export const inventoryLabels = {
   filterNegativeOnly: "Solo negativo",
   filterKindAll: "Todos los tipos",
 
-  noStock: "No hay Ã­tems que coincidan con el filtro.",
-  loading: "Cargandoâ€¦",
+  noStock: "No hay ítems que coincidan con el filtro.",
+  loading: "Cargando…",
   calculated: "calculado",
-  stockValueFormula: "cantidad en stock Ã— costo promedio ponderado",
+  stockValueFormula: "cantidad en stock × costo promedio ponderado",
 
   // --- Replacement-cost refresh (KOK-029, Doc 03 Â§4 C-3) -----------------------------------
-  refreshReplacementCostsButton: "Recalcular costos de reposiciÃ³n",
+  refreshReplacementCostsButton: "Recalcular costos de reposición",
   /** `count` is `ReplacementCostRefreshResultDto.refreshedItemIds.length`. */
   replacementCostMcRefreshSuccess: (count: number) =>
     count === 1
-      ? "Se actualizÃ³ el costo de reposiciÃ³n de 1 Ã­tem."
-      : `Se actualizaron los costos de reposiciÃ³n de ${count} Ã­tems.`,
+      ? "Se actualizó el costo de reposición de 1 ítem."
+      : `Se actualizaron los costos de reposición de ${count} ítems.`,
 
   // Kardex drawer.
   kardexTitlePrefix: "Kardex",
@@ -98,7 +98,7 @@ export const inventoryLabels = {
   kardexColumnTotalCost: "Costo total",
   kardexColumnBalance: "Saldo",
   kardexColumnSource: "Origen",
-  noMovements: "No hay movimientos registrados para este Ã­tem.",
+  noMovements: "No hay movimientos registrados para este ítem.",
 
   sourceEventLabels: {
     purchase: "Compra",
@@ -117,7 +117,7 @@ export const inventoryLabels = {
   recordExitTitle: "Registrar salida",
   recordExitButton: "Registrar salida",
 
-  fieldItem: "Ãtem",
+  fieldItem: "Ítem",
   fieldQty: "Cantidad",
   fieldReason: "Motivo",
   fieldDate: "Fecha",
@@ -128,13 +128,13 @@ export const inventoryLabels = {
   cancel: "Cancelar",
 
   errors: {
-    itemRequired: "Selecciona un Ã­tem.",
-    invalidQty: "La cantidad debe ser un nÃºmero mayor a 0.",
-    generic: "OcurriÃ³ un error inesperado. Intenta de nuevo.",
+    itemRequired: "Selecciona un ítem.",
+    invalidQty: "La cantidad debe ser un número mayor a 0.",
+    generic: "Ocurrió un error inesperado. Intenta de nuevo.",
   },
 
   exitsColumnDate: "Fecha",
-  exitsColumnItem: "Ãtem",
+  exitsColumnItem: "Ítem",
   exitsColumnQty: "Cantidad",
   exitsColumnReason: "Motivo",
   exitsColumnValuedCost: "Costo valorado",
@@ -157,26 +157,26 @@ export const inventoryLabels = {
   startCountSubmit: "Iniciar conteo",
 
   fieldCountKind: "Tipo",
-  fieldCountCategory: "CategorÃ­a",
-  filterCategoryAll: "Todas las categorÃ­as",
+  fieldCountCategory: "Categoría",
+  filterCategoryAll: "Todas las categorías",
 
   countsColumnDate: "Fecha",
   countsColumnStatus: "Estado",
-  countsColumnLines: "Ãtems",
-  countsColumnVariance: "Con variaciÃ³n",
+  countsColumnLines: "Ítems",
+  countsColumnVariance: "Con variación",
   noCounts: "No hay conteos registrados.",
 
   countDetailTitlePrefix: "Conteo",
-  countColumnItem: "Ãtem",
+  countColumnItem: "Ítem",
   countColumnExpected: "Esperado",
   countColumnCounted: "Contado",
-  countColumnDelta: "VariaciÃ³n",
-  noCountLines: "Este conteo no tiene Ã­tems.",
+  countColumnDelta: "Variación",
+  noCountLines: "Este conteo no tiene ítems.",
 
   confirmCountButton: "Confirmar conteo",
   confirmCountDialogTitle: "Confirmar conteo",
-  confirmCountSummaryIntro: "Se registrarÃ¡n los siguientes ajustes de inventario:",
-  confirmCountNoVariance: "No hay variaciones â€” el conteo coincide con el stock esperado.",
+  confirmCountSummaryIntro: "Se registrarán los siguientes ajustes de inventario:",
+  confirmCountNoVariance: "No hay variaciones — el conteo coincide con el stock esperado.",
   confirmCountBack: "Volver",
   confirmCountSubmit: "Confirmar y ajustar stock",
 
@@ -193,25 +193,25 @@ export const inventoryLabels = {
   /** Doc 06 principle 6: an ordinary delete gets no confirm-dialog wall, only the toast below. */
   exitDeletedUndo: "Salida eliminada.",
   undoExit: "Deshacer",
-  restoreExitFailed: "No se pudo deshacer la eliminaciÃ³n. Intenta de nuevo.",
+  restoreExitFailed: "No se pudo deshacer la eliminación. Intenta de nuevo.",
 
   /** ImpactConfirmDialog copy â€” only shown when the server refuses with
    * REPLAY_CONFIRMATION_REQUIRED (a backdated edit/delete that moves already-booked cost). */
-  impactEditExitTitle: "Â¿Guardar los cambios?",
+  impactEditExitTitle: "¿Guardar los cambios?",
   impactEditExitDescription:
-    "Esta salida tiene una fecha anterior a movimientos ya registrados de este Ã­tem. Guardar los cambios recalcularÃ¡ el costo de esos movimientos.",
-  impactDeleteExitTitle: "Â¿Eliminar esta salida?",
+    "Esta salida tiene una fecha anterior a movimientos ya registrados de este ítem. Guardar los cambios recalculará el costo de esos movimientos.",
+  impactDeleteExitTitle: "¿Eliminar esta salida?",
   impactDeleteExitDescription:
-    "Esta salida tiene una fecha anterior a movimientos ya registrados de este Ã­tem. Eliminarla recalcularÃ¡ el costo de esos movimientos.",
+    "Esta salida tiene una fecha anterior a movimientos ya registrados de este ítem. Eliminarla recalculará el costo de esos movimientos.",
   /** Shown only if "Deshacer" itself comes back with REPLAY_CONFIRMATION_REQUIRED â€” restoring a
    * backdated exit re-weights C-1 for every later entry of that item exactly like create/edit. */
-  impactRestoreExitTitle: "Â¿Deshacer esta eliminaciÃ³n?",
+  impactRestoreExitTitle: "¿Deshacer esta eliminación?",
   impactRestoreExitDescription:
-    "Esta salida tiene una fecha anterior a movimientos ya registrados de este Ã­tem. Deshacer la eliminaciÃ³n recalcularÃ¡ el costo de esos movimientos.",
+    "Esta salida tiene una fecha anterior a movimientos ya registrados de este ítem. Deshacer la eliminación recalculará el costo de esos movimientos.",
 
   /** KOK-065: shown when a genuinely backdated NEW exit trips the same R-5 gate a backdated edit
    * does (INV-11 on create) â€” closes the dead-end where this refusal had no confirm path. */
-  impactCreateExitTitle: "Â¿Registrar esta salida?",
+  impactCreateExitTitle: "¿Registrar esta salida?",
   impactCreateExitDescription:
-    "Esta salida tiene una fecha anterior a movimientos ya registrados de este Ã­tem. Registrarla recalcularÃ¡ el costo de esos movimientos.",
+    "Esta salida tiene una fecha anterior a movimientos ya registrados de este ítem. Registrarla recalculará el costo de esos movimientos.",
 } as const;

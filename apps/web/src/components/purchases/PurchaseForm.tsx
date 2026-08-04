@@ -256,7 +256,7 @@ export function PurchaseForm({ open, onOpenChange, accounts, purchase }: Purchas
     const lineTotal = parseDecimalToInt(line.amount, 2);
     if (qty === null || qty <= 0 || lineTotal === null) {
       return (
-        <span className="text-subtle-foreground text-xs">{purchasesLabels.unitCostLabel}: â€”</span>
+        <span className="text-subtle-foreground text-xs">{purchasesLabels.unitCostLabel}: —</span>
       );
     }
 
