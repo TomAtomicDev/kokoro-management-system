@@ -96,6 +96,7 @@ function resolveRecipeCommand(
 
 export interface StepRecipesProps {
   items: ItemDto[];
+  catalogCommitted: boolean;
   onContinue: () => void;
 }
 

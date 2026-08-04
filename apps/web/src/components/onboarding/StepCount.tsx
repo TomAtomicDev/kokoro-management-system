@@ -45,6 +45,7 @@ export interface StepCountProps {
   /** itemId -> { name, unit }, built by the caller from useItemsQuery — same lookup
    * routes/inventory.tsx builds for CountDetailView. */
   items: Map<string, { name: string; unit: Unit; kind: ItemKind }>;
+  catalogCommitted: boolean;
 }
 
 export function StepCount({ items }: StepCountProps) {
