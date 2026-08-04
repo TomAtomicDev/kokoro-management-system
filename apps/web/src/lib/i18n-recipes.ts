@@ -3,7 +3,7 @@
 // TODO: migrate into packages/shared/i18n/es.ts once that module exists (KOK-006+), same as
 // i18n-purchases.ts / i18n-catalog.ts.
 
-import type { QtyDisplayUnit, Unit } from "@kokoro/shared";
+import type { QtyDisplayUnit } from "@kokoro/shared";
 
 export const qtyDisplayUnitLabels = {
   G: "Gramos (g)",
@@ -74,14 +74,6 @@ export const recipesLabels = {
   edit: "Editar",
   deactivate: "Desactivar",
   reactivate: "Reactivar",
-
-  /** Abbreviation for the "/ kg" style suffix — mirrors purchasesLabels.unitAbbrev. */
-  unitAbbrev: {
-    KG: "kg",
-    L: "L",
-    UNIT: "u",
-    M: "m",
-  } satisfies Record<Unit, string>,
 
   errors: {
     generic: "Ocurrió un error inesperado. Intenta de nuevo.",
