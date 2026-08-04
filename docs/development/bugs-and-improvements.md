@@ -86,7 +86,7 @@ Feasibility reflects the decisions recorded in [Resolved decisions](#resolved-de
 | BI-19  | ~~Explain *why* the opening count matters~~ — folded into BI-20 | count | 🧭   | 🟢 Direct       | XS   | 2   | P2         | ⏭️ Deferred | →BI-20 |
 | BI-20  | Onboarding flow rework — decouple navigation from saving   | flow     | 🧭   | 🟢 Decided      | M    | 3   | P2         | 📋 To Do | KOK-099 |
 | BI-21  | Litre abbreviation "l" reads as digit 1                    | catalog  | 🧭   | 🟢 Direct       | XS   | 1   | P3         | ✅ Done | KOK-086 |
-| BI-22  | Magnitude-scaled display units (`0,58 kg` → `580 g`)        | inventory| ✨   | 🔴 Design first | L    | 4   | P2         | 📋 To Do | —    |
+| BI-22  | Canonical measurement units + magnitude-scaled display/input    | inventory| ✨   | 🟢 Decided      | L    | 4   | P2         | 📋 To Do | KOK-101 |
 
 > **BI-12 ↔ BI-15 interaction, resolved.** BI-06b makes `minStockQty` mandatory for every
 > `RAW_MATERIAL` and BI-12's fixture adds `Agua` as one, which briefly looked unsatisfiable. The
@@ -382,7 +382,7 @@ stored  500 milli-m  → "50 cm"     (< 1 whole unit → small member)
 Label `"Metros (m)"` in `i18n-onboarding.ts` / `i18n-catalog.ts`, plus `UNIT_LABELS` in `qty.ts:30`.
 
 Consistent with Q7a on both axes: milli-unit granularity is 1 mm (ample for cordel and cinta), and
-cost resolution at ~2 Bs/m is `200000` mc/m rather than `2000` mc/cm — a 1000× improvement on a
+cost resolution at ~2 Bs/m is `200000` mc/m rather than `2000` mc/cm — a 100× improvement on a
 figure that is rounded to an integer.
 
 > Until BI-22 lands, a sub-metre length renders as `"0,5 m"` rather than `"50 cm"`. Correct, just
@@ -730,64 +730,81 @@ which is what `formatQty` renders in every table. Fix both.
 
 ---
 
-### BI-22 · Magnitude-scaled display units — ✨ P2
+### BI-22 · Canonical measurement units + magnitude-scaled display/input — ✨ P2
 
 **Requested:** *"en el catálogo inicial el usuario debería elegir la unidad útil para recetas, pero
 para compras y lecturas de stock, poder insertar/leer kg o Lt ergonómicamente."*
 
-With Q7a settling the stored unit as the large one, the remaining need is the reverse direction:
-`580` milli-kg of flour in a recipe must not read as `"0,58 kg"`.
+The original symptom is that `580` milli-kg of flour is rendered as `"0,58 kg"`, while a recipe is
+normally written as `"580 g"`. The deeper problem is dimensional consistency: allowing some items
+to store `G`/`ML` makes their WAC and other per-unit rates read as `Bs/g` or `Bs/ml`, while equivalent
+items use `Bs/kg` or `Bs/L`. Uniform cost denominators take priority over preserving a small stored
+unit.
 
-**✅ Decided (Q7b): auto-scale by magnitude.** `formatQty` chooses the unit from the value's size
-rather than from a stored preference — no per-item configuration, no migration.
+**✅ Decided (Q7a/Q7b/Q7c/Q8): one persisted canonical unit per family; small units are input and
+display only.** No per-item display preference is stored.
+
+| Family | Persisted quantity/rate unit | Input/display alternative | Internal conversion |
+| ------ | ---------------------------- | ------------------------- | ------------------- |
+| mass   | `KG`                         | `g`                       | 1 g = 1 milli-KG    |
+| volume | `L`                          | `ml`                      | 1 ml = 1 milli-L    |
+| length | `M`                          | `cm`                      | 1 cm = 10 milli-M   |
+| count  | `UNIT`                       | —                         | never scales        |
+
+`G`, `ML`, and `CM` are not persisted item units. They belong to a separate input/display-unit
+vocabulary. Every per-unit rate — WAC, replacement cost, price, snapshots, and theoretical cost —
+therefore remains denominated in `Bs/kg`, `Bs/L`, `Bs/m`, or `Bs/u`; unit-cost displays never
+auto-scale.
+
+**Magnitude rule for quantities.** `formatQty` selects the display member from the absolute value
+while preserving the sign:
+
+- zero uses the persisted canonical unit;
+- `0 < abs(qty) < 1` canonical unit uses the family's small display unit;
+- `abs(qty) >= 1` canonical unit uses the canonical display unit;
+- `UNIT` always renders as `u`.
 
 ```
-formatQty(580,    KG) → "580 g"     (< 1 whole unit → small unit of the family)
-formatQty(25000,  KG) → "25 kg"
-formatQty(345,    L)  → "345 ml"
-formatQty(12000,  L)  → "12 L"
+formatQty(0,       KG) → "0 kg"
+formatQty(580,     KG) → "580 g"
+formatQty(1000,    KG) → "1 kg"
+formatQty(25000,   KG) → "25 kg"
+formatQty(-580,    KG) → "-580 g"
+formatQty(-25000,  KG) → "-25 kg"
+formatQty(580,     M)  → "58 cm"
+formatQty(999,     M)  → "99,9 cm"
+formatQty(1000,    M)  → "1 m"
 ```
 
-**This contradicts a documented invariant and needs a KB amendment (D-1).** `qty.ts:5-9` currently
-states the opposite outright: *"We do NOT auto-convert between units (e.g. never silently promote
-G → KG): a value is always displayed in the item's stored unit… This is the spec-faithful choice."*
-That paragraph, and the corresponding Doc 04 §2 / INV-6 text, must be amended in the same PR. Note
-this is a **display-layer** conversion only — storage stays milli-units of one canonical unit, so
-INV-6's integer invariant itself is untouched.
+**Recipe input and edit rules.** Ingredient quantities and expected yield expose an explicit
+canonical/small unit selector. A new field defaults to the small unit when the family has one.
+The selected unit stays stable while the owner types; it is converted to canonical milli-units
+only on submit and is never persisted as a preference. On edit, infer the selector from the saved
+magnitude: below one canonical unit uses the small member, otherwise the canonical member. Changing
+an ingredient or the output item always clears its quantity, recalculates the valid units, and
+restores the small-unit default.
 
-**Blast radius is the reason this is L.** `formatQty` is the single rendering path for every
-quantity in the product: stock tables, the kardex, movements, counts, inventory views, Telegram
-cards, and assistant output. Changing what it returns changes all of them at once.
+**Contract and rollout.** This is no longer display-only. The shared persisted `Unit` contract and
+the `items.unit` CHECK must allow only `KG`, `L`, `M`, and `UNIT`; the KB amendment, a new table-
+rebuild migration, shared schemas/enums, catalog UI, fixtures, and tests ship together (D-4/D-6).
+Production has not launched and staging is disposable, so do not build a historical unit-conversion
+or backfill path: reset/reseed staging. Fixture items currently stored in `G` (including `Sal` and
+the two `Masa madre` states) become `KG`; equivalent `ML` fixtures become `L`. Applied migrations
+remain immutable.
 
-**Design work still required before coding:**
+**Scale-literal guard.** `scripts/check-scale-literals.mjs` already scans `qty.ts` and correctly
+rejects bare `1000`/`1e6` arithmetic outside `money.ts`. BI-22 must not weaken or special-case that
+guard. Put unit-family factors and conversions behind named constants/helpers in `qty.ts`; the
+`m↔cm` factor is 100 at the human-unit level and 10 milli-M per cm, not 1000. Extend `qty.test.ts`
+with exhaustive boundary and property tests, including zero, both signs, every family, exact
+input↔canonical round trips, and the `999`/`1000` boundaries.
 
-1. **A unit-family map.** After Q8 all three families canonicalise the same way — the large member
-   is stored, the small member is display-only, factor 1000×. `UNIT` has no family and never scales.
-
-   | Canonical (stored) | Display below 1 whole unit |
-   | ------------------ | -------------------------- |
-   | `KG`               | `g`                        |
-   | `L`                | `ml`                       |
-   | `M`                | `cm`                       |
-
-   `G` and `ML` remain valid *stored* units for items genuinely counted that way (`Sal`, the two
-   `Masa madre` states) — they simply have no smaller member to scale down to.
-2. **The threshold rule.** "Below one whole unit, drop to the small unit" is the obvious rule and
-   handles every case here, but it needs to be written down and tested at the boundary
-   (`999` milli-kg → `"999 g"`, `1000` → `"1 kg"`).
-3. **Input, which auto-scaling does not solve.** Q7a makes purchase entry native (`25` kg), so the
-   originally-reported problem is gone. But *recipe* entry is now the awkward side: typing `0.58`
-   to mean 580 g. A bare number in an input is ambiguous — `580` could be kg or g — so recipe forms
-   need an explicit unit selector next to the quantity, defaulting to the small unit. This is the
-   one piece of BI-22 that is genuinely new UI rather than a formatting change.
-4. **Do not auto-scale unit costs.** A cost column must stay in one unit to be comparable down the
-   page; `"4,30 Bs/kg"` next to `"0,43 Bs/g"` is unreadable. BI-02's opening-cost input and every
-   WAC display should render per *canonical* unit regardless of the quantity's magnitude.
-
-> ⚠️ **Accepted cost:** a stock column will mix units row to row — `Harina 25 kg` above
-> `Sal 500 g` — so the column can no longer be eyeball-summed or sorted by the rendered text. This
-> was chosen knowingly over a per-item display unit, which would have kept columns homogeneous at
-> the price of a migration and an extra catalog field.
+**Blast radius is the reason this remains L.** `formatQty` changes quantity rendering across stock,
+kardex, movements, counts, inventory, recipes, production, purchases, and sales; canonicalising the
+persisted enum additionally crosses shared contracts, D1 schema, fixtures, and catalog/recipe UI.
+The accepted presentation cost remains mixed units in quantity columns (`25 kg`, `580 g`), chosen
+over per-item preferences. Sorting and arithmetic must continue to use canonical integer values,
+never rendered text.
 
 ---
 
@@ -819,14 +836,11 @@ BI-20 (absorbs BI-19). No longer a design task — Q10-Q14 settle navigation/sav
 sequence-gating rule, catalog editability, and the copy pattern. Independent of the other findings
 above; can be picked up whenever the wizard work is scheduled.
 
-**7 — Design tasks, each needing a written proposal before an estimate is trusted.**
-BI-22 is the only one left here. BI-11 and BI-15 were designed and shipped together as KOK-100
-(PR #15, 2026-08-04) — see their sections above.
-
-- **BI-22 should settle before BI-02 builds its unit-cost input**, since point 4 of its design (cost
-  columns must *not* auto-scale) is a constraint on that input's rendering. It does not block
-  BI-01/BI-02 — Q7a already gives them a sane canonical unit — but a late reversal would mean
-  reworking the cost display.
+**7 — Canonical units and ergonomic quantity entry.**
+BI-22 is now fully decided (Q7a–Q7c/Q8) and tracked as KOK-101. It canonicalises
+persisted measurement units before adding magnitude-scaled quantity rendering and explicit recipe
+unit selectors. Unit-cost inputs and displays must use the same canonical denominator and must not
+auto-scale. BI-11 and BI-15 were designed and shipped together as KOK-100 (PR #15, 2026-08-04).
 
 ---
 
@@ -847,9 +861,10 @@ Recorded 2026-08-02 with the owner. These are inputs to the tasks above, not the
 | Q6a | BI-12 — sale price for `Pan blanco pequeño`?        | **15 Bs** ⇒ `salePrice: 1500` centavos.                                                                                     |
 | ~~Q6b~~ | ~~BI-12 — `Harina` in `KG` or `G`?~~            | ~~`G`, `minStockQty` → `10000000`.~~ **Superseded by Q7a** — Harina stays `KG`, no fixture unit changes.                     |
 | Q6c | BI-12 — `minStockQty` for `Sal`?                    | **`0`**, seeded as an editable suggestion like every other fixture value.                                                    |
-| Q7a | BI-22 — which unit is canonical (stored)?           | **The large one (`KG`, `L`).** Decided on cost precision: small units round cheap items' `wac_mc` to 0. Supersedes Q6b.      |
-| Q7b | BI-22 — how is the display unit chosen?             | **Auto-scale by magnitude**, no per-item config. Accepts mixed units within a column; needs a KB amendment to `qty.ts`/Doc 04. |
-| Q8  | BI-10 — `M` or `CM`, given Q7a?                     | **`M` only.** Restores one rule across all three families: large member stored, small member display-only. Supersedes Q4.   |
+| Q7a | BI-22 — which unit is canonical (stored)?           | **Exactly one per family: `KG`, `L`, `M`, `UNIT`.** `G`/`ML`/`CM` are input/display-only. This keeps every rate in `Bs/kg`, `Bs/L`, `Bs/m`, or `Bs/u`; staging is reset/reseed instead of backfilled. Supersedes Q6b. |
+| Q7b | BI-22 — how is the display unit chosen?             | **Auto-scale by absolute magnitude**, no per-item config: zero stays canonical; non-zero values below one canonical unit use `g`/`ml`/`cm`; values at or above one use `kg`/`L`/`m`; signs are preserved. Cost displays never scale. |
+| Q7c | BI-22 — how do recipe inputs and edits choose units? | **Explicit selector for ingredient qty and expected yield.** New/change defaults small and clears the number whenever ingredient/output changes; editing infers small below one canonical unit and canonical otherwise; the chosen display unit is not persisted. |
+| Q8  | BI-10 — `M` or `CM`, given Q7a?                     | **`M` only in storage; `cm` for input/display below 1 m.** The conversion is 1 cm = 10 milli-M (100 cm = 1 m), not the 1000× mass/volume relationship. Supersedes Q4. |
 | Q9  | BI-01/02 — opening-valuation mechanism?             | **Dedicated `OPENING_IN` movement type** (Doc 03 C-8), a WAC entry type like `PURCHASE_IN`. Rejected: cost-stamped `ADJUST` (blurs C-6, needs replay special-casing) and synthetic opening `PURCHASE_IN` (pollutes C-3's replacement-cost signal). Tracked as KOK-084. |
 
 **Recorded 2026-08-04, BI-20 follow-up with the owner.** These replace BI-20's original "defer
@@ -864,16 +879,16 @@ BI-19's fold-in.
 | Q13 | BI-20 — does unsaved input survive navigating away and back?      | **Yes, it must.** Each step's draft values move out of the step component's local state to the wizard/route level (or `sessionStorage`), so clicking through steps before saving doesn't discard typed values. The Stepper becomes clickable to any already-reached step. |
 | Q14 | BI-20 — per-step guidance copy, and does it fold in BI-19?        | **Yes, absorbs BI-19.** Every step gets three parts: qué hacer para conseguir el dato, por qué revisarlo con cuidado antes de guardar, y una línea de qué pantalla de la plataforma usar para ajustarlo después de terminado el onboarding — no una promesa de edición dentro del wizard, salvo en Catálogo (Q12). |
 
-**No open questions remain.** Every unit family now canonicalises identically, and the one exception
-that Q4 would have created is gone:
+**No open questions remain.** Every measurement family has one persisted canonical unit and an
+optional presentation/input unit; conversion factors differ by family and are centralized rather
+than assumed to be uniformly 1000×:
 
-| Family    | Stored | Display below 1 unit | Decided by |
-| --------- | ------ | -------------------- | ---------- |
-| mass      | `KG`   | `g`                  | Q7a        |
-| volume    | `L`    | `ml`                 | Q7a        |
-| length    | `M`    | `cm`                 | Q8         |
+| Family    | Stored | Display below 1 unit | Milli-units per displayed small unit | Decided by |
+| --------- | ------ | -------------------- | ------------------------------------ | ---------- |
+| mass      | `KG`   | `g`                  | 1 milli-KG                           | Q7a/Q7b    |
+| volume    | `L`    | `ml`                 | 1 milli-L                            | Q7a/Q7b    |
+| length    | `M`    | `cm`                 | 10 milli-M                           | Q7a/Q8     |
+| count     | `UNIT` | —                    | —                                    | Q7a        |
 
-Remaining work is either ready to build or is a 🔴 design task (BI-22) whose next step is a written
-proposal rather than an answer from the owner. BI-20 is no longer in that bucket — its design is
-settled (Q10-Q14) and it is ready to spec as a `KOK-xxx` task; BI-19 folds into it. BI-11 and BI-15
-are no longer in it either — both were designed and shipped as KOK-100.
+BI-22 is tracked as KOK-101; BI-20 is tracked as KOK-099 and absorbs BI-19. BI-11 and BI-15 were
+designed and shipped as KOK-100.

@@ -6,6 +6,7 @@ Kokoro Management is an operations, inventory, costing, and cash-flow system for
 
 These constraints are non-negotiable. Every code change must respect them.
 
+
 | ID   | Rule                                                                                                                                                                                                                    |
 | ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | D-1  | **The KB is law.** Business rules come from Docs 03–04; never invent one. If a needed rule is missing or contradictory, STOP and propose a KB amendment in the same PR (docs change + code change together).            |
@@ -19,9 +20,10 @@ These constraints are non-negotiable. Every code change must respect them.
 | D-9  | **UI strings in `i18n/es.ts`**, Spanish; identifiers/comments/commits in English.                                                                                                                                       |
 | D-10 | **No new dependencies without an ADR note.** Prefer stdlib/platform (Web Crypto, Intl) over packages.                                                                                                                   |
 
+
 ## Repository Conventions
 
-- **Formatting & Linting:** Biome (single tool). CI gate: `biome check`, `tsc --noEmit`, tests.
+- **Formatting &amp; Linting:** Biome (single tool). CI gate: `biome check`, `tsc --noEmit`, tests.
 - **TypeScript:** `strict: true`, `noUncheckedIndexedAccess: true`. No `any`; use `unknown` + narrowing. Exported functions have explicit return types.
 - **Naming:** files `kebab-case.ts`; types `PascalCase`; DB per Doc 04 §1; commands use `record*/update*/delete*` verbs; queries use `get*/list*`.
 - **Error handling:** Services throw typed `DomainError` with `code`, `message_es`, and `details`. Routes map to HTTP (400 validation, 401 unauthorized, 404 not found, 409 conflict/state-machine, 429 rate-limited, 500 server error). `message_es` is user-facing.
@@ -39,32 +41,6 @@ See the `add-event-type` skill for the 10-step playbook.
 - **Linting from inside a `.claude/worktrees/*` checkout:** `biome.json`'s `!**/.claude` exclusion matches anywhere in the resolved path, so any worktree — being physically nested under `.claude/`— reports "0 files" for `pnpm run lint` / `biome check .`, regardless of cwd or VCS flags. This is not a bug to fix by editing `biome.json` (it's shared across every checkout, including the main one — do not add worktree-specific exceptions to it). Instead scope the check to explicit paths: `pnpm exec biome check <changed files...>` or `pnpm --filter <pkg> exec biome check src`. `pnpm run typecheck` and test runners are unaffected and work normally from a worktree.
 - **Money math:** any task touching money math MUST add/extend a property-based test (Doc 11 §2).
 
-## Codex and Git worktrees
-
-When Codex operates inside a linked Git worktree:
-
-- Codex may edit files and run tests.
-- Codex must not run `git add`, `git commit`, `git merge`, `git worktree remove`, or other commands that modify Git metadata.
-- A Git commit failure caused by `.git/worktrees/*/index.lock` is an expected sandbox limitation, not a task failure.
-- After Codex finishes successfully, Claude must inspect the diff, verify the reported tests, stage only the intended files, and create the commit itself.
-
-## Codex delegation reliability
-
-- **Do not forward non-trivial prompts through the `codex:codex-rescue` subagent's inline text
-  argument.** It constructs its own shell-quoted `node codex-companion.mjs task "..."` call, and
-  long or quote-heavy prompts can silently arrive empty — Codex just replies "what would you like
-  me to work on?" with no error surfaced, and the subagent reports success anyway. Write the prompt
-  to a file (`$CLAUDE_JOB_DIR/tmp/...`) and invoke `node codex-companion.mjs task --background
-  --write --prompt-file <path>` directly instead; this transport doesn't hit the bug.
-- **A dispatched Codex job outlives `/stop` and outlives the harness losing track of its job id.**
-  It runs as an independent OS process (`ps aux | grep codex`), so `codex-companion status` going
-  silent on a job id (e.g. after the shared session runtime restarts) does not mean the process
-  died — check the job's log file directly (`.claude/plugins/data/codex-openai-codex/state/*/jobs/*.log`)
-  before assuming a job needs redispatching. Conversely, once a task has been taken over and
-  committed manually, explicitly `kill` the corresponding process — it will otherwise keep editing
-  files unsupervised (observed: a stray process rewrote a migration's journal version after the
-  branch had already been committed and pushed).
-
 ## Definition of Done
 
 Every backlog task ships only when:
@@ -72,7 +48,7 @@ Every backlog task ships only when:
 1. Code + tests green locally (`pnpm check` = lint + types + unit + integration).
 2. Invariant tests pass; new derived data covered by the nightly consistency check where applicable (INV-5).
 3. Docs updated (D-6/D-7 as applicable).
-4. Spanish UI strings reviewed for tone (concise, warm, no tech jargon).
+4. Spanish UI strings reviewed for tone (concise, warm, no tech jargon), none mojibake.
 5. Deployed to staging, smoke-tested via Playwright suite; manual exercises on staging Telegram bot when the task touches them.
 
 For local UI verification against the dev server (before staging), use the `verify-ui` skill.
@@ -91,3 +67,4 @@ Rules:
 - If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
 - Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
 - After modifying code and not-committing, run `graphify update .` to keep the graph current (AST-only, no API cost). When using git to commit, checkout, merge it will be updated automatically.
+
