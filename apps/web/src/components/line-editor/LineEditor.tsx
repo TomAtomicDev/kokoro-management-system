@@ -51,6 +51,8 @@ export interface LineEditorProps<T extends LineEditorLine> {
    * recipes' per-line cost contribution) — composes without this component knowing what it
    * renders. */
   renderExtraColumns?: (line: T, index: number) => ReactNode;
+  /** Lets a caller atomically add domain-specific resets to an item change. */
+  onItemChange?: (index: number, itemId: string | null) => Partial<T> | undefined;
   disabled?: boolean;
   /** Passed straight through to each row's ItemPicker. An array means "any of these kinds"
    * (ItemPicker filters client-side since `GET /items` only accepts one `kind`). */
@@ -66,6 +68,7 @@ export function LineEditor<T extends LineEditorLine>({
   createLine,
   labels,
   renderExtraColumns,
+  onItemChange,
   disabled,
   itemKindFilter,
   showAmount = true,
@@ -97,7 +100,10 @@ export function LineEditor<T extends LineEditorLine>({
             <div className="flex-1 sm:min-w-40">
               <ItemPicker
                 value={line.itemId}
-                onChange={(itemId) => updateLine(index, { itemId } as Partial<T>)}
+                onChange={(itemId) => {
+                  const extraPatch = onItemChange?.(index, itemId);
+                  updateLine(index, { itemId, ...extraPatch } as Partial<T>);
+                }}
                 kindFilter={itemKindFilter}
                 disabled={disabled}
                 placeholder={labels.item}

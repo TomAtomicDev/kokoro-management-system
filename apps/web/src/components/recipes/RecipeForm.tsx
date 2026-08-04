@@ -10,16 +10,21 @@
 // D-5's whole point), this form simply shows no panel until the recipe has been saved once â€” the
 // list/detail views pick it up immediately after (RecipeDetailDrawer / RecipesTable).
 
-import type { ItemDto, RecipeDto, RecipeSettingsDto } from "@kokoro/shared";
+import type { ItemDto, QtyDisplayUnit, RecipeDto, RecipeSettingsDto } from "@kokoro/shared";
 import {
+  compatibleUnitsFor,
+  convertDisplayValueToMilliUnits,
+  convertMilliUnitsToDisplayValue,
+  defaultDisplayUnitFor,
   formatMoney,
+  inferDisplayUnitFromMilliUnits,
   recordRecipeCommandSchema,
   toCentavos,
   toMilliCentavosPerUnit,
   toMilliUnits,
   totalCentavos,
 } from "@kokoro/shared";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { ItemPicker } from "@/components/catalog/ItemPicker";
 import { CalcTrace, type CalcTraceInput } from "@/components/common/CalcTrace";
@@ -28,12 +33,13 @@ import { MarginBadge } from "@/components/pricing/MarginBadge";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { useItemsQuery } from "@/features/catalog/api";
 import { useRecordRecipe, useUpdateRecipe } from "@/features/recipes/api";
 import { ApiError } from "@/lib/api";
-import { formatIntAsDecimalInput, parseDecimalToInt } from "@/lib/decimal";
-import { recipesLabels } from "@/lib/i18n-recipes";
+import { formatIntAsDecimalInput, parseDecimalToNumber } from "@/lib/decimal";
+import { qtyDisplayUnitLabels, recipesLabels } from "@/lib/i18n-recipes";
 
 export interface RecipeFormProps {
   open: boolean;
@@ -50,27 +56,45 @@ interface RecipeLineValue extends LineEditorLine {
   itemId: string | null;
   /** Milli-units decimal string (scale 3) â€” same convention as PurchaseForm's line qty. */
   qty: string;
+  unit: QtyDisplayUnit | null;
 }
 
 function emptyLine(): RecipeLineValue {
-  return { itemId: null, qty: "" };
+  return { itemId: null, qty: "", unit: null };
 }
 
 /** Pure mapping, same rationale as PurchaseForm's `purchaseToFormState`. */
-function recipeToFormState(recipe: RecipeDto) {
+function recipeToFormState(recipe: RecipeDto, itemsById: ReadonlyMap<string, ItemDto>) {
+  const outputItem = itemsById.get(recipe.outputItemId);
+  const expectedYieldUnit = outputItem
+    ? inferDisplayUnitFromMilliUnits(recipe.expectedYieldQty, outputItem.unit)
+    : null;
   return {
     name: recipe.name,
     outputItemId: recipe.outputItemId,
-    expectedYieldQty: formatIntAsDecimalInput(recipe.expectedYieldQty, 3),
+    expectedYieldQty:
+      outputItem && expectedYieldUnit
+        ? String(
+            convertMilliUnitsToDisplayValue(
+              recipe.expectedYieldQty,
+              expectedYieldUnit,
+              outputItem.unit,
+            ),
+          )
+        : "",
+    expectedYieldUnit,
     estLaborMin: recipe.estLaborMin === null ? "" : String(recipe.estLaborMin),
     isDefault: recipe.isDefault,
     notes: recipe.notes ?? "",
-    lines: recipe.lines.map(
-      (line): RecipeLineValue => ({
+    lines: recipe.lines.map((line): RecipeLineValue => {
+      const item = itemsById.get(line.itemId);
+      const unit = item ? inferDisplayUnitFromMilliUnits(line.qty, item.unit) : null;
+      return {
         itemId: line.itemId,
-        qty: formatIntAsDecimalInput(line.qty, 3),
-      }),
-    ),
+        qty: item && unit ? String(convertMilliUnitsToDisplayValue(line.qty, unit, item.unit)) : "",
+        unit,
+      };
+    }),
   };
 }
 
@@ -91,11 +115,13 @@ export function RecipeForm({ open, onOpenChange, recipe, settings }: RecipeFormP
   const [outputItemId, setOutputItemId] = useState<string | null>(null);
   const [outputItem, setOutputItem] = useState<ItemDto | null>(null);
   const [expectedYieldQty, setExpectedYieldQty] = useState("");
+  const [expectedYieldUnit, setExpectedYieldUnit] = useState<QtyDisplayUnit | null>(null);
   const [estLaborMin, setEstLaborMin] = useState("");
   const [isDefault, setIsDefault] = useState(false);
   const [notes, setNotes] = useState("");
   const [lines, setLines] = useState<RecipeLineValue[]>([emptyLine()]);
   const [error, setError] = useState<string | null>(null);
+  const formResetKey = useRef<string | null>(null);
 
   const createMutation = useRecordRecipe();
   // Called unconditionally (rules of hooks) even in create mode â€” `recipe?.id` is only "" then,
@@ -116,35 +142,42 @@ export function RecipeForm({ open, onOpenChange, recipe, settings }: RecipeFormP
   const effectiveOutputItem =
     outputItem ?? (outputItemId ? (itemsById.get(outputItemId) ?? null) : null);
 
-  // Reset only on the open transition (or a switch to a different recipe while open) â€” mirrors
-  // PurchaseForm's `purchase?.id` precedent so a background refetch of the SAME recipe never
-  // clobbers in-progress edits.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: see comment above.
+  // Reset on open/recipe changes, then once more when item units become available. The reset key
+  // prevents later background item refetches from clobbering in-progress edits.
   useEffect(() => {
-    if (open) {
-      if (recipe) {
-        const initial = recipeToFormState(recipe);
-        setName(initial.name);
-        setOutputItemId(initial.outputItemId);
-        setOutputItem(null);
-        setExpectedYieldQty(initial.expectedYieldQty);
-        setEstLaborMin(initial.estLaborMin);
-        setIsDefault(initial.isDefault);
-        setNotes(initial.notes);
-        setLines(initial.lines.length > 0 ? initial.lines : [emptyLine()]);
-      } else {
-        setName("");
-        setOutputItemId(null);
-        setOutputItem(null);
-        setExpectedYieldQty("");
-        setEstLaborMin("");
-        setIsDefault(false);
-        setNotes("");
-        setLines([emptyLine()]);
-      }
-      setError(null);
+    if (!open) {
+      formResetKey.current = null;
+      return;
     }
-  }, [open, recipe?.id]);
+
+    const resetKey = recipe ? `${recipe.id}:${itemsQuery.data ? "ready" : "pending"}` : "create";
+    if (formResetKey.current === resetKey) return;
+    formResetKey.current = resetKey;
+
+    if (recipe) {
+      const initial = recipeToFormState(recipe, itemsById);
+      setName(initial.name);
+      setOutputItemId(initial.outputItemId);
+      setOutputItem(null);
+      setExpectedYieldQty(initial.expectedYieldQty);
+      setExpectedYieldUnit(initial.expectedYieldUnit);
+      setEstLaborMin(initial.estLaborMin);
+      setIsDefault(initial.isDefault);
+      setNotes(initial.notes);
+      setLines(initial.lines.length > 0 ? initial.lines : [emptyLine()]);
+    } else {
+      setName("");
+      setOutputItemId(null);
+      setOutputItem(null);
+      setExpectedYieldQty("");
+      setExpectedYieldUnit(null);
+      setEstLaborMin("");
+      setIsDefault(false);
+      setNotes("");
+      setLines([emptyLine()]);
+    }
+    setError(null);
+  }, [open, recipe, itemsById, itemsQuery.data]);
 
   const disabled = isEditMode ? updateMutation.isPending : createMutation.isPending;
 
@@ -155,8 +188,29 @@ export function RecipeForm({ open, onOpenChange, recipe, settings }: RecipeFormP
       return;
     }
 
-    const yieldQty = parseDecimalToInt(expectedYieldQty, 3);
-    if (yieldQty === null || yieldQty <= 0) {
+    const yieldDisplayValue = parseDecimalToNumber(expectedYieldQty);
+    if (yieldDisplayValue === null || yieldDisplayValue <= 0) {
+      setError(recipesLabels.errors.yieldRequired);
+      return;
+    }
+
+    if (!effectiveOutputItem || !expectedYieldUnit) {
+      setError(recipesLabels.errors.invalidQtyUnit);
+      return;
+    }
+
+    let yieldQty: number;
+    try {
+      yieldQty = convertDisplayValueToMilliUnits(
+        yieldDisplayValue,
+        expectedYieldUnit,
+        effectiveOutputItem.unit,
+      );
+    } catch {
+      setError(recipesLabels.errors.invalidQtyUnit);
+      return;
+    }
+    if (yieldQty <= 0) {
       setError(recipesLabels.errors.yieldRequired);
       return;
     }
@@ -173,8 +227,20 @@ export function RecipeForm({ open, onOpenChange, recipe, settings }: RecipeFormP
 
     const parsedLines: { itemId: string; qty: number }[] = [];
     for (const line of lines) {
-      const qty = parseDecimalToInt(line.qty, 3);
-      if (!line.itemId || qty === null || qty <= 0) {
+      const item = line.itemId ? itemsById.get(line.itemId) : undefined;
+      const displayValue = parseDecimalToNumber(line.qty);
+      if (!line.itemId || !item || !line.unit || displayValue === null || displayValue <= 0) {
+        setError(recipesLabels.errors.invalidLine);
+        return;
+      }
+      let qty: number;
+      try {
+        qty = convertDisplayValueToMilliUnits(displayValue, line.unit, item.unit);
+      } catch {
+        setError(recipesLabels.errors.invalidQtyUnit);
+        return;
+      }
+      if (qty <= 0) {
         setError(recipesLabels.errors.invalidLine);
         return;
       }
@@ -207,27 +273,49 @@ export function RecipeForm({ open, onOpenChange, recipe, settings }: RecipeFormP
     }
   }
 
-  function renderLineExtra(line: RecipeLineValue) {
+  function updateLineUnit(index: number, unit: QtyDisplayUnit) {
+    setLines((currentLines) =>
+      currentLines.map((line, lineIndex) => (lineIndex === index ? { ...line, unit } : line)),
+    );
+  }
+
+  function renderLineExtra(line: RecipeLineValue, index: number) {
     const item = line.itemId ? itemsById.get(line.itemId) : undefined;
     if (!item) return null;
-    const qty = parseDecimalToInt(line.qty, 3);
-    if (qty === null || qty <= 0) {
-      return (
-        <span className="text-subtle-foreground text-xs">{recipesLabels.lineContribution}: —</span>
-      );
+    const displayValue = parseDecimalToNumber(line.qty);
+    let qty: number | null = null;
+    if (displayValue !== null && displayValue > 0 && line.unit) {
+      try {
+        qty = convertDisplayValueToMilliUnits(displayValue, line.unit, item.unit);
+      } catch {
+        qty = null;
+      }
     }
-    // Use the same ADR-017 rate-to-total conversion as the server-side recipe costing path.
-    const contribution = totalCentavos(
-      toMilliCentavosPerUnit(item.replacementCostMc),
-      toMilliUnits(qty),
-    );
+    const contribution =
+      qty && qty > 0
+        ? totalCentavos(toMilliCentavosPerUnit(item.replacementCostMc), toMilliUnits(qty))
+        : null;
     return (
-      <span className="text-muted-foreground text-xs">
-        {recipesLabels.lineContribution}:{" "}
-        <span className="numeric-cell font-medium text-foreground">
-          {formatMoney(contribution)}
+      <div className="flex flex-col gap-1.5">
+        <Select
+          aria-label={`${recipesLabels.lineQty} — ${recipesLabels.unit}`}
+          value={line.unit ?? ""}
+          onChange={(event) => updateLineUnit(index, event.target.value as QtyDisplayUnit)}
+          disabled={disabled}
+        >
+          {compatibleUnitsFor(item.unit).map((unit) => (
+            <option key={unit} value={unit}>
+              {qtyDisplayUnitLabels[unit]}
+            </option>
+          ))}
+        </Select>
+        <span className="text-muted-foreground text-xs">
+          {recipesLabels.lineContribution}:{" "}
+          <span className="numeric-cell font-medium text-foreground">
+            {contribution === null ? "—" : formatMoney(contribution)}
+          </span>
         </span>
-      </span>
+      </div>
     );
   }
 
@@ -287,6 +375,8 @@ export function RecipeForm({ open, onOpenChange, recipe, settings }: RecipeFormP
             onChange={(id, item) => {
               setOutputItemId(id);
               setOutputItem(item);
+              setExpectedYieldQty("");
+              setExpectedYieldUnit(item ? defaultDisplayUnitFor(item.unit) : null);
             }}
             kindFilter={["SEMI_FINISHED", "FINISHED"]}
             placeholder={recipesLabels.outputItemPlaceholder}
@@ -299,19 +389,31 @@ export function RecipeForm({ open, onOpenChange, recipe, settings }: RecipeFormP
             <label className="font-medium text-foreground" htmlFor="rf-yield">
               {recipesLabels.fieldYield}
             </label>
-            <Input
-              id="rf-yield"
-              inputMode="decimal"
-              placeholder="0"
-              value={expectedYieldQty}
-              onChange={(e) => setExpectedYieldQty(e.target.value)}
-              disabled={disabled}
-            />
-            {effectiveOutputItem ? (
-              <span className="text-muted-foreground text-xs">
-                {recipesLabels.unitAbbrev[effectiveOutputItem.unit]}
-              </span>
-            ) : null}
+            <div className="flex gap-2">
+              <Input
+                id="rf-yield"
+                inputMode="decimal"
+                placeholder="0"
+                value={expectedYieldQty}
+                onChange={(e) => setExpectedYieldQty(e.target.value)}
+                disabled={disabled}
+              />
+              {effectiveOutputItem ? (
+                <Select
+                  aria-label={`${recipesLabels.fieldYield} — ${recipesLabels.unit}`}
+                  value={expectedYieldUnit ?? ""}
+                  onChange={(event) => setExpectedYieldUnit(event.target.value as QtyDisplayUnit)}
+                  disabled={disabled}
+                  className="w-44"
+                >
+                  {compatibleUnitsFor(effectiveOutputItem.unit).map((unit) => (
+                    <option key={unit} value={unit}>
+                      {qtyDisplayUnitLabels[unit]}
+                    </option>
+                  ))}
+                </Select>
+              ) : null}
+            </div>
           </div>
           <div className="flex flex-col gap-1.5">
             <label className="font-medium text-foreground" htmlFor="rf-labor">
@@ -360,6 +462,10 @@ export function RecipeForm({ open, onOpenChange, recipe, settings }: RecipeFormP
             disabled={disabled}
             showAmount={false}
             itemKindFilter={["RAW_MATERIAL", "SEMI_FINISHED"]}
+            onItemChange={(_index, itemId) => {
+              const item = itemId ? itemsById.get(itemId) : undefined;
+              return { qty: "", unit: item ? defaultDisplayUnitFor(item.unit) : null };
+            }}
             labels={{
               item: recipesLabels.lineItem,
               qty: recipesLabels.lineQty,

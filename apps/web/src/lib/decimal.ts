@@ -24,6 +24,16 @@ export function parseDecimalToInt(input: string, scale: number): number | null {
   return Number.isSafeInteger(value) ? value : null;
 }
 
+/** Parses a non-negative decimal string without applying a fixed integer scale. */
+export function parseDecimalToNumber(input: string): number | null {
+  const trimmed = input.trim().replace(",", ".");
+  if (trimmed === "") return null;
+  if (!/^\d+(\.\d+)?$/.test(trimmed)) return null;
+
+  const value = Number(trimmed);
+  return Number.isFinite(value) ? value : null;
+}
+
 /** Returns whether a valid decimal has non-zero digits beyond the requested scale. */
 export function exceedsScale(input: string, scale: number): boolean {
   const trimmed = input.trim().replace(",", ".");

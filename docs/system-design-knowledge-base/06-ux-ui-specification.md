@@ -134,7 +134,7 @@ a scarce semantic accent (≤ ~5-8% of any screen), never decoration.** Full rat
 | Component | Purpose / contract |
 |-----------|--------------------|
 | `MoneyText` | Formats centavos → `Bs 1.234,50`; props: `signed`, `colorBySign` |
-| `QtyText` | milli-units + unit → `1,5 kg`, `12 u` |
+| `QtyText` | milli-units + canonical unit → magnitude-scaled quantity (`580 g`, `1,5 kg`, `12 u`); recipe quantity inputs pair the number with an explicit compatible-unit selector, default small on new/change, infer from saved magnitude on edit, keep the selection stable while typing, and convert to canonical milli-units only on submit |
 | `MarginBadge` | margin% with C-5 threshold colors — used wherever **replacement-cost** margin is shown (SC-03, SC-06, SC-12); SC-02's sales list shows a different, historical metric (margin off the frozen `unit_cost_snapshot`) and stays a neutral, unbadged figure — coloring it against the C-5 threshold would misrepresent what it measures (KOK-036) |
 | `ItemPicker` | combobox over items + aliases, filter by kind; inline "crear ítem" |
 | `CustomerPicker` | combobox + inline create |

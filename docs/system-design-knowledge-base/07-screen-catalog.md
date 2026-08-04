@@ -70,6 +70,12 @@ default toggle. Panel: current
 theoretical cost at WAC and at replacement cost per output unit (C-3) with margin preview
 against sale price.
 
+Expected yield and every ingredient quantity include an explicit selector limited to units
+compatible with the resolved item's canonical unit. New or changed items clear the number and
+default to the small unit when available; edit mode infers the initial unit from saved magnitude.
+The selector remains stable while typing, and submit converts the display value to canonical
+milli-units without adding the display unit to the recipe command.
+
 ## SC-07 · Purchases list — `/purchases` (UC-01, UC-18)
 
 Table: fecha, proveedor, items, total, cuenta, sesión, foto icon (R2 signed URL viewer). Row →
