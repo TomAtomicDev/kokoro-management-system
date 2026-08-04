@@ -15,7 +15,7 @@ describe("enums mirror Doc 04 DDL verbatim", () => {
   });
 
   it("units", () => {
-    expect(UNITS).toEqual(["G", "KG", "ML", "L", "UNIT", "M"]);
+    expect(UNITS).toEqual(["KG", "L", "M", "UNIT"]);
   });
 
   it("item categories", () => {

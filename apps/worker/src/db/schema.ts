@@ -37,7 +37,7 @@ export const items = sqliteTable(
     category: text("category", {
       enum: ["INGREDIENT", "NOT_EATABLE", "BAKERY", "DAIRY", "PASTRY", "OTHER"],
     }).notNull(),
-    unit: text("unit", { enum: ["G", "KG", "ML", "L", "UNIT", "M"] }).notNull(),
+    unit: text("unit", { enum: ["KG", "L", "M", "UNIT"] }).notNull(),
     wacMc: integer("wac_mc").notNull().default(0),
     replacementCostMc: integer("replacement_cost_mc").notNull().default(0),
     replacementCostUpdatedAt: text("replacement_cost_updated_at"),
@@ -58,7 +58,7 @@ export const items = sqliteTable(
       "items_category_check",
       sql`${t.category} IN ('INGREDIENT','NOT_EATABLE','BAKERY','DAIRY','PASTRY','OTHER')`,
     ),
-    unitCheck: check("items_unit_check", sql`${t.unit} IN ('G','KG','ML','L','UNIT','M')`),
+    unitCheck: check("items_unit_check", sql`${t.unit} IN ('KG','L','M','UNIT')`),
   }),
 );
 
