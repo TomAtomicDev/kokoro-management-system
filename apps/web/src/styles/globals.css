@@ -314,6 +314,7 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  /* biome-ignore-start lint/complexity/noImportantStyles: must always win over component-level animation/transition rules regardless of specificity, or prefers-reduced-motion silently stops working for some components. */
   *,
   *::before,
   *::after {
@@ -322,4 +323,5 @@ body {
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+  /* biome-ignore-end lint/complexity/noImportantStyles: see start comment above. */
 }

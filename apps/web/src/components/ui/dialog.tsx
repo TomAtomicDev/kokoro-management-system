@@ -54,7 +54,6 @@ export function Dialog({
   const panel = (
     <div
       ref={contentRef}
-      // biome-ignore lint/a11y/useSemanticElements: see the comment above const panel.
       role="dialog"
       aria-modal="true"
       tabIndex={-1}
