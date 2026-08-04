@@ -134,7 +134,7 @@ function toKardexRowDto(row: KardexViewRow): KardexRowDto {
  * 0/1 in SQLite, so `DESC` puts the 1s (flagged) first; same for `is_low_stock DESC`.
  */
 export async function listStock(db: Db, filters: ListStockFilters = {}): Promise<ListStockResult> {
-  const conditions: SQL[] = [];
+  const conditions: SQL[] = [sql`item_id NOT IN (SELECT id FROM items WHERE is_unmetered = 1)`];
   if (filters.kind) conditions.push(sql`kind = ${filters.kind}`);
   if (filters.lowStockOnly) conditions.push(sql`is_low_stock = 1`);
   if (filters.negativeOnly) conditions.push(sql`negative_since IS NOT NULL`);
@@ -199,7 +199,9 @@ export async function listKardex(db: Db, filters: ListKardexFilters): Promise<Li
  */
 export async function getStockValueTotal(db: Db): Promise<number> {
   const rows = await db.all<{ total: number | null }>(
-    sql`SELECT COALESCE(SUM(stock_value), 0) AS total FROM v_stock`,
+    sql`SELECT COALESCE(SUM(stock_value), 0) AS total
+        FROM v_stock
+        WHERE item_id NOT IN (SELECT id FROM items WHERE is_unmetered = 1)`,
   );
   return rows[0]?.total ?? 0;
 }
@@ -230,7 +232,8 @@ export async function getStockConsistencyMismatches(db: Db): Promise<StockMismat
       GROUP BY item_id
     ) m ON m.item_id = i.id
     LEFT JOIN item_stock s ON s.item_id = i.id
-    WHERE COALESCE(m.expected_qty, 0) != COALESCE(s.qty_on_hand, 0)
+    WHERE i.is_unmetered = 0
+      AND COALESCE(m.expected_qty, 0) != COALESCE(s.qty_on_hand, 0)
     ORDER BY i.name ASC
   `);
 
