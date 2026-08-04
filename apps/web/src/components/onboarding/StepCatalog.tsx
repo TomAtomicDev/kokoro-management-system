@@ -5,7 +5,10 @@
 // brief: "don't reinvent parsing rules") — each row is shaped exactly like a single ItemForm, so
 // the same salePrice-scale-2/minStockQty-scale-3 parsing this codebase already trusts applies here
 // unchanged, and the parser's successful `value` already matches `CreateItemCommand`'s field set
-// 1:1, so it can be handed to `bulkCreateItemsCommandSchema` with zero extra mapping.
+// 1:1, so it can be handed to `bulkCreateItemsCommandSchema` with zero extra mapping. Once
+// committed (KOK-099), the `readOnly` branch below switches to a live editor instead: the real
+// saved items via `useItemsQuery`, with add/edit backed by the single-item `core/catalog`
+// create/update service (`CreateItemDialog`/`ItemDetailDrawer`) — never the bulk endpoint again.
 
 import {
   generateUuidV7,
