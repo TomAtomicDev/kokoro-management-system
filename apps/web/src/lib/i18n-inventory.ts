@@ -40,9 +40,7 @@ export const inventoryLabels = {
     OTHER: "Otro",
   } satisfies Record<ItemCategory, string>,
   unitAbbrev: {
-    G: "g",
     KG: "kg",
-    ML: "ml",
     L: "L",
     UNIT: "u",
     M: "m",

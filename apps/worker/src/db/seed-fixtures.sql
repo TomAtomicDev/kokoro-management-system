@@ -10,7 +10,7 @@
 -- Agua is intentionally owner-editable: 500 milli-centavos/L = Bs 0.005/L (about Bs 5/m³),
 -- a rough Bolivia utility estimate rather than a tariff-derived value.
 INSERT INTO items (id, name, kind, category, unit, wac_mc, replacement_cost_mc, sale_price_mc, min_stock_qty, is_unmetered, is_active, notes, created_at, updated_at) VALUES
-  ('item_masa_madre',   'Masa madre',              'SEMI_FINISHED', 'BAKERY',     'G',    8000000, 8000000, NULL, 200000, 0, 1, NULL, '2026-07-01T08:00:00.000Z', '2026-07-01T08:00:00.000Z'),
+  ('item_masa_madre',   'Masa madre',              'SEMI_FINISHED', 'BAKERY',     'KG',   8000000000, 8000000000, NULL, 200, 0, 1, NULL, '2026-07-01T08:00:00.000Z', '2026-07-01T08:00:00.000Z'),
   ('item_harina',       'Harina',                  'RAW_MATERIAL',  'INGREDIENT', 'KG',   12000000, 12000000, NULL, 10000,  0, 1, NULL, '2026-07-01T08:00:00.000Z', '2026-07-01T08:00:00.000Z'),
   ('item_leche',        'Leche',                   'RAW_MATERIAL',  'DAIRY',      'L',    8000000, 8000000, NULL, 5000,   0, 1, NULL, '2026-07-01T08:00:00.000Z', '2026-07-01T08:00:00.000Z'),
   ('item_kefir',        'Kéfir',                   'RAW_MATERIAL',  'DAIRY',      'L',    10000000, 10000000, NULL, 2000,   0, 1, NULL, '2026-07-01T08:00:00.000Z', '2026-07-01T08:00:00.000Z'),
@@ -18,7 +18,7 @@ INSERT INTO items (id, name, kind, category, unit, wac_mc, replacement_cost_mc, 
   ('item_rollos_canela', 'Rollos de canela',       'FINISHED',      'BAKERY',     'UNIT', 0, 0, 1800000, 5000,   0, 1, NULL, '2026-07-01T08:00:00.000Z', '2026-07-01T08:00:00.000Z'),
   ('item_cunapes',       'Cuñapés',                'FINISHED',      'BAKERY',     'UNIT', 0, 0, 1200000, 5000,   0, 1, NULL, '2026-07-01T08:00:00.000Z', '2026-07-01T08:00:00.000Z'),
   ('item_queso_kefir',   'Queso crema de kéfir',   'FINISHED',      'DAIRY',      'UNIT', 0, 0, 3000000, 3000,   0, 1, NULL, '2026-07-01T08:00:00.000Z', '2026-07-01T08:00:00.000Z'),
-  ('item_ghee',          'Ghee',                   'FINISHED',      'DAIRY',      'ML',   0, 0, 4500000, 3000,   0, 1, NULL, '2026-07-01T08:00:00.000Z', '2026-07-01T08:00:00.000Z'),
+  ('item_ghee',          'Ghee',                   'FINISHED',      'DAIRY',      'L',    0, 0, 4500000000, 3,  0, 1, NULL, '2026-07-01T08:00:00.000Z', '2026-07-01T08:00:00.000Z'),
   ('item_agua',          'Agua',                   'RAW_MATERIAL',  'INGREDIENT', 'L',    0, 500, NULL, 0,        1, 1, NULL, '2026-07-01T08:00:00.000Z', '2026-07-01T08:00:00.000Z'),
   ('item_cajas',         'Cajas',                  'PACKAGING',     'NOT_EATABLE','UNIT', 2500000, 2500000, NULL, 20000,  0, 1, NULL, '2026-07-01T08:00:00.000Z', '2026-07-01T08:00:00.000Z'),
   ('item_etiquetas',     'Etiquetas',              'PACKAGING',     'NOT_EATABLE','UNIT', 500000, 500000, NULL, 50000,   0, 1, NULL, '2026-07-01T08:00:00.000Z', '2026-07-01T08:00:00.000Z');
@@ -34,14 +34,14 @@ INSERT INTO recipes (id, name, output_item_id, expected_yield_qty, est_labor_min
   ('recipe_rollos_canela',    'Rollos de canela',     'item_rollos_canela',   12000, 150, 1, 1, NULL, '2026-07-01T08:00:00.000Z', '2026-07-01T08:00:00.000Z'),
   ('recipe_cunapes',          'Cuñapés',               'item_cunapes',         20000, 90,  1, 1, NULL, '2026-07-01T08:00:00.000Z', '2026-07-01T08:00:00.000Z'),
   ('recipe_queso_kefir',      'Queso crema de kéfir',  'item_queso_kefir',     3000,  30,  1, 1, NULL, '2026-07-01T08:00:00.000Z', '2026-07-01T08:00:00.000Z'),
-  ('recipe_ghee',             'Ghee',                  'item_ghee',            2000,  120, 1, 1, NULL, '2026-07-01T08:00:00.000Z', '2026-07-01T08:00:00.000Z');
+  ('recipe_ghee',             'Ghee',                  'item_ghee',            2,     120, 1, 1, NULL, '2026-07-01T08:00:00.000Z', '2026-07-01T08:00:00.000Z');
 
 INSERT INTO recipe_lines (id, recipe_id, item_id, qty) VALUES
   ('rl_pan_harina',    'recipe_pan_masa_madre', 'item_harina',      3000),
-  ('rl_pan_masa',      'recipe_pan_masa_madre', 'item_masa_madre',  600),
+  ('rl_pan_masa',      'recipe_pan_masa_madre', 'item_masa_madre',  1), -- BI-22 G-to-KG fixture conversion rounds the legacy sub-gram value up to 1 g.
   ('rl_pan_caja',      'recipe_pan_masa_madre', 'item_cajas',       6000),
   ('rl_rollos_harina', 'recipe_rollos_canela',  'item_harina',      2500),
-  ('rl_rollos_masa',   'recipe_rollos_canela',  'item_masa_madre',  400),
+  ('rl_rollos_masa',   'recipe_rollos_canela',  'item_masa_madre',  1), -- BI-22 G-to-KG fixture conversion rounds the legacy sub-gram value up to 1 g.
   ('rl_rollos_leche',  'recipe_rollos_canela',  'item_leche',       500),
   ('rl_cunapes_harina','recipe_cunapes',        'item_harina',      2000),
   ('rl_cunapes_leche', 'recipe_cunapes',        'item_leche',       1000),

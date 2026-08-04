@@ -79,9 +79,7 @@ export const catalogLabels = {
     OTHER: "Otro",
   },
   unitLabels: {
-    G: "Gramos (g)",
     KG: "Kilogramos (kg)",
-    ML: "Mililitros (ml)",
     L: "Litros (L)",
     UNIT: "Unidad (u)",
     M: "Metros (m)",

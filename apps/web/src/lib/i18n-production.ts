@@ -73,9 +73,7 @@ export const productionLabels = {
 
   /** Abbreviation for the "/ kg" style suffix — mirrors purchasesLabels.unitAbbrev. */
   unitAbbrev: {
-    G: "g",
     KG: "kg",
-    ML: "ml",
     L: "L",
     UNIT: "u",
     M: "m",

@@ -106,9 +106,7 @@ export const onboardingLabels = {
     OTHER: "Otro",
   } satisfies Record<ItemCategory, string>,
   unitLabels: {
-    G: "Gramos (g)",
     KG: "Kilogramos (kg)",
-    ML: "Mililitros (ml)",
     L: "Litros (L)",
     UNIT: "Unidad (u)",
     M: "Metros (m)",
@@ -142,9 +140,7 @@ export const onboardingLabels = {
   countColumnUnitCost: "Costo unitario",
   countUnitCostRequired: "Indica un costo unitario mayor que cero para valorar este stock inicial.",
   unitAbbrev: {
-    G: "g",
     KG: "kg",
-    ML: "ml",
     L: "L",
     UNIT: "u",
     M: "m",
