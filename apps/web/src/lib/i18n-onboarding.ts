@@ -61,6 +61,11 @@ export const onboardingLabels = {
   catalogEmpty: "Quitaste todos los ítems. Agrega al menos uno para continuar, u omite este paso.",
   submitCatalog: "Crear catálogo",
 
+  catalogSavedTitle: "Ítems guardados",
+  catalogSavedLoading: "Cargando ítems guardados…",
+  catalogSavedEmpty: "Todavía no hay ítems guardados.",
+  catalogSavedError: "No se pudo cargar el catálogo. Intenta de nuevo.",
+
   kindLabels: {
     RAW_MATERIAL: "Materia prima",
     SEMI_FINISHED: "Semielaborado",
@@ -121,6 +126,6 @@ export const onboardingLabels = {
   goToPanel: "Ir al panel",
   alreadySaved: "Ya guardado",
   savedBalancesBody: "Estos saldos ya fueron guardados y no se pueden volver a enviar desde aquí.",
-  savedCatalogBody: "Este catálogo ya fue guardado y no se puede volver a crear desde aquí.",
+  savedCatalogBody: "Estos ítems ya están guardados. Puedes editarlos o agregar nuevos desde aquí.",
   goToSettings: "Ir a Configuración",
 } as const;

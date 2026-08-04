@@ -19,6 +19,8 @@ import {
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 
+import { CreateItemDialog } from "@/components/catalog/CreateItemDialog";
+import { ItemDetailDrawer } from "@/components/catalog/ItemDetailDrawer";
 import {
   emptyItemFormValues,
   type ItemFormParsed,
@@ -29,9 +31,12 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { useItemsQuery } from "@/features/catalog/api";
 import { useBulkCreateItems } from "@/features/onboarding/api";
+import { useSessionDraft } from "@/features/onboarding/use-session-draft";
 import { ApiError } from "@/lib/api";
 import { formatIntAsDecimalInput } from "@/lib/decimal";
+import { catalogLabels } from "@/lib/i18n-catalog";
 import { onboardingLabels } from "@/lib/i18n-onboarding";
 
 interface FixtureItem {
@@ -215,27 +220,81 @@ export interface StepCatalogProps {
 }
 
 export function StepCatalog({ onDone, onSkip, readOnly = false }: StepCatalogProps) {
-  const [rows, setRows] = useState<CatalogRow[]>(() => FIXTURE_ITEMS.map(fixtureToRow));
+  const [rows, setRows] = useSessionDraft<CatalogRow[]>(
+    "catalog-rows",
+    FIXTURE_ITEMS.map(fixtureToRow),
+  );
   const [error, setError] = useState<string | null>(null);
   const [rowError, setRowError] = useState<{
     rowId: string;
     field: "name" | "salePrice" | "minStockQty" | "replacementCostMc";
     message: string;
   } | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [detailItemId, setDetailItemId] = useState<string | null>(null);
 
+  const itemsQuery = useItemsQuery();
   const mutation = useBulkCreateItems();
   const disabled = mutation.isPending;
 
   if (readOnly) {
+    const items = itemsQuery.data?.items ?? [];
+
     return (
       <div className="flex flex-col gap-4">
         <div>
           <h2 className="font-medium text-foreground text-lg">{onboardingLabels.catalogTitle}</h2>
-          <p className="text-muted-foreground text-sm">{onboardingLabels.catalogBody}</p>
+          <p className="text-muted-foreground text-sm">{onboardingLabels.savedCatalogBody}</p>
         </div>
-        <div className="rounded-md border border-border bg-muted px-4 py-3 text-sm">
-          <p className="font-medium text-foreground">{onboardingLabels.alreadySaved}</p>
-          <p className="text-muted-foreground">{onboardingLabels.savedCatalogBody}</p>
+        <div className="rounded-md border border-border bg-muted">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-border border-b px-4 py-3">
+            <h3 className="font-medium text-foreground text-sm">
+              {onboardingLabels.catalogSavedTitle}
+            </h3>
+            <Button type="button" variant="outline" onClick={() => setCreateOpen(true)}>
+              {catalogLabels.newItem}
+            </Button>
+          </div>
+          {itemsQuery.isLoading ? (
+            <p className="px-4 py-3 text-muted-foreground text-sm">
+              {onboardingLabels.catalogSavedLoading}
+            </p>
+          ) : itemsQuery.isError ? (
+            <p className="px-4 py-3 text-negative text-sm" role="alert">
+              {onboardingLabels.catalogSavedError}
+            </p>
+          ) : items.length === 0 ? (
+            <p className="px-4 py-3 text-muted-foreground text-sm">
+              {onboardingLabels.catalogSavedEmpty}
+            </p>
+          ) : (
+            <div className="divide-y divide-border">
+              {items.map((item) => (
+                <div
+                  key={item.id}
+                  className="flex flex-wrap items-center justify-between gap-3 px-4 py-3"
+                >
+                  <div className="min-w-0">
+                    <p className="font-medium text-foreground text-sm">{item.name}</p>
+                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-muted-foreground text-xs">
+                      <span>{onboardingLabels.kindLabels[item.kind]}</span>
+                      <span>{onboardingLabels.categoryLabels[item.category]}</span>
+                      <span>{onboardingLabels.unitLabels[item.unit]}</span>
+                    </div>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setDetailItemId(item.id)}
+                    aria-label={catalogLabels.editTitle}
+                  >
+                    {catalogLabels.editTitle}
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
         <div className="flex flex-wrap gap-2">
           <Link to="/settings" className={buttonVariants({ variant: "outline" })}>
@@ -245,6 +304,14 @@ export function StepCatalog({ onDone, onSkip, readOnly = false }: StepCatalogPro
             {onboardingLabels.continueButton}
           </Button>
         </div>
+        <CreateItemDialog open={createOpen} onOpenChange={setCreateOpen} />
+        <ItemDetailDrawer
+          itemId={detailItemId}
+          open={detailItemId !== null}
+          onOpenChange={(open) => {
+            if (!open) setDetailItemId(null);
+          }}
+        />
       </div>
     );
   }
