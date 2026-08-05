@@ -87,6 +87,7 @@ Feasibility reflects the decisions recorded in [Resolved decisions](#resolved-de
 | BI-20  | Onboarding flow rework — decouple navigation from saving   | flow     | 🧭   | 🟢 Decided      | M    | 3   | P2         | 📋 To Do | KOK-099 |
 | BI-21  | Litre abbreviation "l" reads as digit 1                    | catalog  | 🧭   | 🟢 Direct       | XS   | 1   | P3         | ✅ Done | KOK-086 |
 | BI-22  | Canonical measurement units + magnitude-scaled display/input    | inventory| ✨   | 🟢 Decided      | L    | 4   | P2         | ✅ Done | KOK-101 |
+| BI-23  | Cost-rate inputs capped at 2 decimals; rejection errors don't explain why | catalog/count | 🐞 | 🟢 Direct | M | 4 | P1 | 📋 To Do | KOK-102 |
 
 > **BI-12 ↔ BI-15 interaction, resolved.** BI-06b makes `minStockQty` mandatory for every
 > `RAW_MATERIAL` and BI-12's fixture adds `Agua` as one, which briefly looked unsatisfiable. The
@@ -805,6 +806,86 @@ persisted enum additionally crosses shared contracts, D1 schema, fixtures, and c
 The accepted presentation cost remains mixed units in quantity columns (`25 kg`, `580 g`), chosen
 over per-item preferences. Sorting and arithmetic must continue to use canonical integer values,
 never rendered text.
+
+---
+
+### BI-23 · Cost-rate inputs capped at 2 decimals; rejection errors don't explain why — 🐞 P1
+
+**Reported (owner, 2026-08-04):** the owner cannot enter more than 2 decimal places for "costo de
+reposición" (replacement cost) or the opening-count "costo unitario inicial", and this isn't limited
+to onboarding — it should be fixed everywhere a cost field exists. Concrete example: `Agua` needs a
+replacement cost of `0.002307 Bs/L` — 6 decimal places, because a genuinely cheap-per-unit input can
+have a real cost that's a tiny fraction of a centavo. Follow-up ask: when a value is rejected for
+having too many decimals or an unsupported number format, the error message should say so instead of
+a generic "invalid amount" message.
+
+**Verified root cause — not just a UI cap, a lossy unit conversion.** Every cost-rate input in the
+app parses at `scale=2` and then round-trips through money helpers meant for whole-centavo amounts,
+which is what actually destroys the precision. Widening the `scale` argument alone would not be
+enough without also removing this detour:
+
+- `ItemForm.tsx:144` (`replacementCostMc`, shared by Settings → Catálogo *and* onboarding's
+  `StepCatalog.tsx` via `parseItemFormValues`) — `parseDecimalToInt(values.replacementCostMc, 2)`
+  produces a plain centavo integer, which is then passed through
+  `rateFromTotal(toCentavos(parsed), WHOLE_UNIT_MILLI_UNITS)` (`:148`) to derive the
+  `MilliCentavosPerUnit` rate. That conversion is only lossless at whole-centavo granularity — it
+  cannot represent anything finer than Bs 0.01 per whole unit, i.e. it throws away all 3 of the extra
+  decimal digits ADR-017's milli-centavo scale actually supports.
+- `ItemForm.tsx:77-80` mirrors the same detour on the *read* side
+  (`formatIntAsDecimalInput(totalCentavos(...), 2)`), so even an item whose `replacement_cost_mc`
+  column already holds sub-centavo precision (e.g. seeded directly via a migration or the API) would
+  render truncated the moment the owner opens the edit form.
+- `StepCatalog.tsx:210` has its own separate hardcoded `formatIntAsDecimalInput(item.replacementCostMc,
+  2)` call for the fixture-row display — same cap, different call site, must be fixed in lockstep
+  with `ItemForm.tsx`.
+- `StepCount.tsx:181` and `:189` (the `OPENING_IN` unit-cost input from BI-02/KOK-084) is the exact
+  same pattern: `parseDecimalToInt(unitCostInputs[...], 2)` → `toCentavos` → `rateFromTotal(...,
+  WHOLE_UNIT_MILLI_UNITS)`. This is the water example verbatim — BI-02 already noted that "unit costs
+  are stored as milli-centavos per whole unit, which is exactly the extra precision being asked for,"
+  but KOK-084 shipped the field through the same scale-2 detour as everything else, so that extra
+  precision was never actually reachable.
+
+**What is *not* affected, deliberately.** `salePriceMc` (`ItemForm.tsx:122`, `:75`,
+`UpdatePriceDialog.tsx:60`) uses the identical detour, but it is not a cost — it is the price charged
+to a customer, and Bolivian cash transactions don't go finer than a centavo. Widening it would let
+the owner type a price nothing can actually be charged. Leave it at scale 2; only touch fields that
+represent a *cost basis* (`replacementCostMc`, opening `unitCostMc`).
+
+**Fix.** Parse these two fields directly into the `MilliCentavosPerUnit` domain at `scale=5` via
+`toMilliCentavosPerUnit(parseDecimalToInt(input, 5))`, and drop the `toCentavos`/`rateFromTotal`
+detour entirely for them — that helper exists to convert a *total* into a *rate* (division), which
+these fields don't need since the owner is directly entering the rate itself. Mirror the same
+`scale=5` on the formatting side (`ItemForm.tsx:77-80`, `StepCatalog.tsx:210`). This reaches the real
+ceiling the system already supports (Bs 0.00001 per unit, ADR-017) with no schema or migration
+change — it is a web-only fix.
+
+**Explicit limit, stated up front so it isn't a surprise at submit time:** 5 decimal places of Bs is
+the ceiling this fix delivers, not 6. `0.002307 Bs/L` will still round to `0.00231 Bs/L` — ADR-017's
+milli-centavo scale is the finest unit the database, the shared schemas, and every `_mc` column
+support today; there is no sixth digit to store. If the business genuinely needs finer-than-milli-
+centavo precision, that is a materially bigger change — widening `money.ts`'s scale touches every
+`_mc` column, the scale-literal guard (`scripts/check-scale-literals.mjs`), and every derived
+cost/margin calculation — and needs its own KB amendment to ADR-017 (D-1), not folded into this task.
+
+**Error messaging (owner follow-up, same conversation).** Today a rejected `replacementCostMc` or
+opening `unitCostMc` value surfaces a generic sign/magnitude message —
+`i18n-catalog.ts`'s `replacementCostMcInvalid` ("Ingresa un costo de reposición válido (0 o mayor)")
+and `i18n-onboarding.ts`'s identical string, or `StepCount.tsx`'s `countUnitCostRequired` — the exact
+same defect BI-03/KOK-094 already fixed for money amounts. Apply the same fix here: use
+`exceedsScale(input, 5)` to distinguish "too many decimals" from "not a valid non-negative number,"
+and add a precision-specific message (e.g. *"Usa como máximo 5 decimales."*) for the former in both
+`i18n-catalog.ts` and `i18n-onboarding.ts`. `StepCount.tsx`'s `countUnitCostRequired` currently
+conflates "field left blank," "zero or negative," and "too many decimals" into one string — split it
+so a genuine precision mistake doesn't read as "you forgot to enter a cost." Add brief helper text
+next to both inputs stating the 5-decimal ceiling explicitly (mirroring KOK-090's decimal-separator
+helper text), so the owner discovers the higher ceiling instead of assuming 2 decimals out of habit
+formed elsewhere in the app.
+
+**Property-based test required** (CLAUDE.md guardrail: any task touching money math must add/extend
+one) — pin down that `parseDecimalToInt(input, 5)` → `toMilliCentavosPerUnit` round-trips exactly for
+every representable value, and that `exceedsScale`/error-message selection agrees with
+`parseDecimalToInt`'s null/non-null verdict for the same input (no case where one says "too many
+decimals" and the other silently accepts, or vice versa).
 
 ---
 
