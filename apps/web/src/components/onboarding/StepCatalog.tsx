@@ -16,6 +16,8 @@ import {
   ITEM_KINDS,
   type ItemCategory,
   type ItemKind,
+  type MilliCentavosPerUnit,
+  toMilliCentavosPerUnit,
   UNITS,
   type Unit,
 } from "@kokoro/shared";
@@ -39,6 +41,7 @@ import { useItemsQuery } from "@/features/catalog/api";
 import { useBulkCreateItems } from "@/features/onboarding/api";
 import { useSessionDraft } from "@/features/onboarding/use-session-draft";
 import { ApiError } from "@/lib/api";
+import { formatCostRateInput } from "@/lib/cost-rate";
 import { formatIntAsDecimalInput } from "@/lib/decimal";
 import { catalogLabels } from "@/lib/i18n-catalog";
 import { onboardingLabels } from "@/lib/i18n-onboarding";
@@ -53,10 +56,8 @@ interface FixtureItem {
   /** Milli-units (D-5) or null for "no alert". */
   minStockQty: number | null;
   isUnmetered?: boolean;
-  /** Centavos (D-5), same scale as `salePrice` above — despite the field's name, `fixtureToRow`
-   * feeds this straight into `formatIntAsDecimalInput(_, 2)` like every other money fixture field,
-   * not the raw MilliCentavosPerUnit rate ItemDto/seed-fixtures.sql use. */
-  replacementCostMc?: number | null;
+  /** Milli-centavos per whole unit (D-5), matching ItemDto and the seed fixture. */
+  replacementCostMc?: MilliCentavosPerUnit | null;
 }
 
 // Doc 04 §7's dev fixture catalog — exact field values, already in the integer domains the API
@@ -87,11 +88,8 @@ const FIXTURE_ITEMS: FixtureItem[] = [
     minStockQty: 10000,
   },
   {
-    // Doc 03 C-9's canonical isUnmetered example: a metered utility, not purchased stock. Bs
-    // 0.01/L (1 centavo, this form field's finest granularity) is a rough Bolivia tap-water
-    // estimate rounded UP from seed-fixtures.sql's item_agua row (Bs 0.005/L, expressed there in
-    // milli-centavos so it isn't floor-quantized) — kept approximately in sync manually since this
-    // fixture list has no shared source with that one.
+    // Doc 03 C-9's canonical isUnmetered example: a metered utility, not purchased stock. The
+    // Bs 0.005/L replacement cost matches seed-fixtures.sql's item_agua row exactly.
     name: "Agua",
     kind: "RAW_MATERIAL",
     category: "INGREDIENT",
@@ -99,7 +97,7 @@ const FIXTURE_ITEMS: FixtureItem[] = [
     salePrice: null,
     minStockQty: 0,
     isUnmetered: true,
-    replacementCostMc: 1,
+    replacementCostMc: toMilliCentavosPerUnit(500),
   },
   {
     name: "Sal",
@@ -207,7 +205,7 @@ function fixtureToRow(item: FixtureItem, index: number): CatalogRow {
     replacementCostMc:
       item.replacementCostMc === undefined || item.replacementCostMc === null
         ? ""
-        : formatIntAsDecimalInput(item.replacementCostMc, 2),
+        : formatCostRateInput(item.replacementCostMc),
     isUnmetered: item.isUnmetered ?? false,
     notes: "",
   };
@@ -560,7 +558,7 @@ export function StepCatalog({ onDone, onSkip, readOnly = false }: StepCatalogPro
               )}
               {row.kind === "RAW_MATERIAL" && row.isUnmetered ? (
                 <label
-                  className="contents max-md:flex max-md:flex-col max-md:gap-1"
+                  className="flex flex-col gap-1"
                   htmlFor={`catalog-${row.id}-replacement-cost`}
                 >
                   <span className="hidden font-medium text-muted-foreground text-xs max-md:block">
@@ -569,11 +567,18 @@ export function StepCatalog({ onDone, onSkip, readOnly = false }: StepCatalogPro
                   <Input
                     id={`catalog-${row.id}-replacement-cost`}
                     inputMode="decimal"
-                    placeholder="0.00"
+                    placeholder="0.00000"
                     value={row.replacementCostMc}
                     onChange={(e) => updateRow(row.id, "replacementCostMc", e.target.value)}
                     disabled={disabled}
+                    aria-describedby={`catalog-${row.id}-replacement-cost-help`}
                   />
+                  <span
+                    id={`catalog-${row.id}-replacement-cost-help`}
+                    className="text-muted-foreground text-xs"
+                  >
+                    {onboardingLabels.costRateHelp}
+                  </span>
                 </label>
               ) : (
                 <span aria-hidden="true" className="hidden md:block" />

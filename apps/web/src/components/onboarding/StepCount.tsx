@@ -17,14 +17,7 @@
 // redirect) — the DRAFT count is simply left uncommitted, which has no effect on stock.
 
 import type { InventoryCountLineDto, ItemKind, Unit } from "@kokoro/shared";
-import {
-  ITEM_KINDS,
-  nowIso,
-  rateFromTotal,
-  toBusinessDate,
-  toCentavos,
-  WHOLE_UNIT_MILLI_UNITS,
-} from "@kokoro/shared";
+import { ITEM_KINDS, nowIso, toBusinessDate } from "@kokoro/shared";
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 
@@ -40,6 +33,7 @@ import {
 import { useCompleteOnboarding } from "@/features/onboarding/api";
 import { useSessionDraft } from "@/features/onboarding/use-session-draft";
 import { ApiError } from "@/lib/api";
+import { parseCostRateInput } from "@/lib/cost-rate";
 import { formatIntAsDecimalInput, parseDecimalToInt } from "@/lib/decimal";
 import { onboardingLabels } from "@/lib/i18n-onboarding";
 
@@ -178,15 +172,21 @@ export function StepCount({ items, catalogCommitted }: StepCountProps) {
       const openingLines = [];
       for (const line of count.lines) {
         if (!needsOpeningCost(line)) continue;
-        const parsedCostCentavos = parseDecimalToInt(unitCostInputs[line.itemId] ?? "", 2);
-        if (parsedCostCentavos === null || parsedCostCentavos <= 0) {
-          setError(onboardingLabels.countUnitCostRequired);
+        const parsedCost = parseCostRateInput(unitCostInputs[line.itemId] ?? "");
+        if (!parsedCost.ok) {
+          const message = {
+            empty: onboardingLabels.countUnitCostRequired,
+            invalid: onboardingLabels.countUnitCostInvalid,
+            notPositive: onboardingLabels.countUnitCostNotPositive,
+            tooManyDecimals: onboardingLabels.countUnitCostTooManyDecimals,
+          }[parsedCost.reason];
+          setError(message);
           setFinishing(false);
           return;
         }
         openingLines.push({
           itemId: line.itemId,
-          unitCostMc: rateFromTotal(toCentavos(parsedCostCentavos), WHOLE_UNIT_MILLI_UNITS),
+          unitCostMc: parsedCost.value,
         });
       }
 
@@ -282,25 +282,34 @@ export function StepCount({ items, catalogCommitted }: StepCountProps) {
                         </span>
                       </div>
                       {openingCostNeeded ? (
-                        <div className="flex items-center gap-1">
-                          <Input
-                            className="w-24"
-                            inputMode="decimal"
-                            placeholder="0,00"
-                            value={unitCostInputs[line.itemId] ?? ""}
-                            required={openingCostNeeded}
-                            aria-required={openingCostNeeded}
-                            onChange={(e) =>
-                              setUnitCostInputs((prev) => ({
-                                ...prev,
-                                [line.itemId]: e.target.value,
-                              }))
-                            }
-                            disabled={disabled}
-                            aria-label={`${onboardingLabels.countColumnUnitCost} ${info?.name ?? line.itemId}`}
-                          />
-                          <span className="text-muted-foreground text-xs">
-                            Bs/{onboardingLabels.unitAbbrev[unit]}
+                        <div className="flex flex-col gap-1">
+                          <div className="flex items-center gap-1">
+                            <Input
+                              className="w-24"
+                              inputMode="decimal"
+                              placeholder="0,00000"
+                              value={unitCostInputs[line.itemId] ?? ""}
+                              required={openingCostNeeded}
+                              aria-required={openingCostNeeded}
+                              onChange={(e) =>
+                                setUnitCostInputs((prev) => ({
+                                  ...prev,
+                                  [line.itemId]: e.target.value,
+                                }))
+                              }
+                              disabled={disabled}
+                              aria-label={`${onboardingLabels.countColumnUnitCost} ${info?.name ?? line.itemId}`}
+                              aria-describedby={`count-${line.itemId}-unit-cost-help`}
+                            />
+                            <span className="text-muted-foreground text-xs">
+                              Bs/{onboardingLabels.unitAbbrev[unit]}
+                            </span>
+                          </div>
+                          <span
+                            id={`count-${line.itemId}-unit-cost-help`}
+                            className="max-w-36 text-muted-foreground text-xs"
+                          >
+                            {onboardingLabels.costRateHelp}
                           </span>
                         </div>
                       ) : (

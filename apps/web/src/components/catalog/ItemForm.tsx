@@ -21,6 +21,7 @@ import { type ReactNode, useId } from "react";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { formatCostRateInput, parseCostRateInput } from "@/lib/cost-rate";
 import { formatIntAsDecimalInput, parseDecimalToInt } from "@/lib/decimal";
 import { catalogLabels } from "@/lib/i18n-catalog";
 
@@ -74,10 +75,7 @@ export function itemFormValuesFromDto(item: {
         ? ""
         : formatIntAsDecimalInput(totalCentavos(item.salePriceMc, WHOLE_UNIT_MILLI_UNITS), 2),
     minStockQty: item.minStockQty === null ? "" : formatIntAsDecimalInput(item.minStockQty, 3),
-    replacementCostMc: formatIntAsDecimalInput(
-      totalCentavos(toMilliCentavosPerUnit(item.replacementCostMc), WHOLE_UNIT_MILLI_UNITS),
-      2,
-    ),
+    replacementCostMc: formatCostRateInput(toMilliCentavosPerUnit(item.replacementCostMc)),
     isUnmetered: item.isUnmetered,
     notes: item.notes ?? "",
   };
@@ -109,7 +107,8 @@ export type ItemFormParseResult =
         | "minStockQtyInvalid"
         | "minStockQtyRequired"
         | "minStockQtyForbidden"
-        | "replacementCostMcInvalid";
+        | "replacementCostMcInvalid"
+        | "replacementCostMcTooManyDecimals";
     };
 
 /** Returns a field-specific error when a value is missing or doesn't parse as a valid decimal. */
@@ -141,11 +140,18 @@ export function parseItemFormValues(values: ItemFormValues): ItemFormParseResult
     values.isUnmetered &&
     values.replacementCostMc.trim() !== ""
   ) {
-    const parsed = parseDecimalToInt(values.replacementCostMc, 2);
-    if (parsed === null) {
+    const parsed = parseCostRateInput(values.replacementCostMc, { allowZero: true });
+    if (!parsed.ok) {
+      if (parsed.reason === "tooManyDecimals") {
+        return {
+          ok: false,
+          field: "replacementCostMc",
+          code: "replacementCostMcTooManyDecimals",
+        };
+      }
       return { ok: false, field: "replacementCostMc", code: "replacementCostMcInvalid" };
     }
-    replacementCostMc = rateFromTotal(toCentavos(parsed), WHOLE_UNIT_MILLI_UNITS);
+    replacementCostMc = parsed.value;
   }
 
   if (values.kind === "FINISHED") {
@@ -337,14 +343,23 @@ export function ItemForm({ values, onChange, derived, disabled }: ItemFormProps)
 
         {values.kind === "RAW_MATERIAL" && values.isUnmetered ? (
           <Field label={catalogLabels.fieldReplacementCost} htmlFor={`${formId}-replacement-cost`}>
-            <Input
-              id={`${formId}-replacement-cost`}
-              inputMode="decimal"
-              placeholder="0.00"
-              value={values.replacementCostMc}
-              onChange={(e) => set("replacementCostMc", e.target.value)}
-              disabled={disabled}
-            />
+            <div className="flex flex-col gap-1">
+              <Input
+                id={`${formId}-replacement-cost`}
+                inputMode="decimal"
+                placeholder="0.00000"
+                value={values.replacementCostMc}
+                onChange={(e) => set("replacementCostMc", e.target.value)}
+                disabled={disabled}
+                aria-describedby={`${formId}-replacement-cost-help`}
+              />
+              <span
+                id={`${formId}-replacement-cost-help`}
+                className="text-muted-foreground text-xs"
+              >
+                {catalogLabels.costRateHelp}
+              </span>
+            </div>
           </Field>
         ) : null}
 

@@ -33,7 +33,9 @@ function wrangler(args) {
   return execFileSync("pnpm", ["exec", "wrangler", ...args], { encoding: "utf8" });
 }
 
-console.log(`This will PERMANENTLY DELETE all data in the remote D1 database "${dbName}" (env: ${env}).`);
+console.log(
+  `This will PERMANENTLY DELETE all data in the remote D1 database "${dbName}" (env: ${env}).`,
+);
 const rl = createInterface({ input: process.stdin, output: process.stdout });
 const answer = await rl.question(`Type "${dbName}" to confirm: `);
 rl.close();
@@ -69,8 +71,12 @@ if (tables.length === 0) {
 }
 
 console.log("Re-applying migrations...");
-execFileSync("pnpm", ["exec", "wrangler", "d1", "migrations", "apply", dbName, "--remote", "--env", env], {
-  stdio: "inherit",
-});
+execFileSync(
+  "pnpm",
+  ["exec", "wrangler", "d1", "migrations", "apply", dbName, "--remote", "--env", env],
+  {
+    stdio: "inherit",
+  },
+);
 
 console.log(`Done. "${dbName}" is now empty with a fresh schema.`);
