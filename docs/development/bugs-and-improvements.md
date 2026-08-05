@@ -809,7 +809,7 @@ never rendered text.
 
 ---
 
-### BI-23 · Cost-rate inputs capped at 2 decimals; rejection errors don't explain why — 🐞 P1
+### BI-23 · Cost-rate inputs capped at 2 decimals; rejection errors don't explain why — ✅ Done
 
 **Reported (owner, 2026-08-04):** the owner cannot enter more than 2 decimal places for "costo de
 reposición" (replacement cost) or the opening-count "costo unitario inicial", and this isn't limited
