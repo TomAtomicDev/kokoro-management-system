@@ -19,6 +19,7 @@
 import type { InventoryCountLineDto, ItemKind, Unit } from "@kokoro/shared";
 import { ITEM_KINDS, nowIso, toBusinessDate } from "@kokoro/shared";
 import { useNavigate } from "@tanstack/react-router";
+import { ChevronRight } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { StepGuidance } from "@/components/onboarding/StepGuidance";
@@ -242,7 +243,7 @@ export function StepCount({ items, catalogCommitted }: StepCountProps) {
         <p className="text-muted-foreground text-sm">{onboardingLabels.noCountLines}</p>
       ) : (
         <div className="overflow-hidden rounded-lg border border-border">
-          <div className="grid grid-cols-[1fr_auto_auto] gap-3 border-b border-border bg-card px-3 py-2 text-xs font-medium text-muted-foreground">
+          <div className="grid grid-cols-[1fr_9rem_12rem] gap-3 border-b border-border bg-card px-3 py-2 text-xs font-medium text-muted-foreground">
             <span>{onboardingLabels.countColumnItem}</span>
             <span className="text-right">{onboardingLabels.countColumnCounted}</span>
             <span className="text-right">{onboardingLabels.countColumnUnitCost}</span>
@@ -263,7 +264,7 @@ export function StepCount({ items, catalogCommitted }: StepCountProps) {
                   return (
                     <div
                       key={line.id}
-                      className="grid grid-cols-[1fr_auto_auto] items-center gap-3 border-b border-border px-3 py-2 text-sm last:border-0"
+                      className="grid grid-cols-[1fr_9rem_12rem] items-center gap-3 border-b border-border px-3 py-2 text-sm last:border-0"
                     >
                       <span className="text-foreground">{info?.name ?? "—"}</span>
                       <div className="flex items-center justify-end gap-1">
@@ -327,8 +328,16 @@ export function StepCount({ items, catalogCommitted }: StepCountProps) {
       {error ? <p className="text-negative text-sm">{error}</p> : null}
 
       <div className="flex justify-end gap-2">
-        <Button type="button" variant="outline" onClick={handleSkip} disabled={disabled}>
-          {onboardingLabels.skipButton}
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          onClick={handleSkip}
+          disabled={disabled}
+          aria-label={onboardingLabels.skipButton}
+          title={onboardingLabels.skipButton}
+        >
+          <ChevronRight />
         </Button>
         <Button
           type="button"

@@ -6,6 +6,7 @@
 // completed elsewhere), no need to special-case the CONFLICT code here.
 
 import { Link } from "@tanstack/react-router";
+import { ChevronRight } from "lucide-react";
 import { useState } from "react";
 
 import { StepGuidance } from "@/components/onboarding/StepGuidance";
@@ -134,8 +135,16 @@ export function StepBalances({ onDone, onSkip, readOnly = false }: StepBalancesP
       {error ? <p className="text-negative text-sm">{error}</p> : null}
 
       <div className="flex justify-end gap-2">
-        <Button type="button" variant="outline" onClick={onSkip} disabled={disabled}>
-          {onboardingLabels.skipButton}
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          onClick={onSkip}
+          disabled={disabled}
+          aria-label={onboardingLabels.skipButton}
+          title={onboardingLabels.skipButton}
+        >
+          <ChevronRight />
         </Button>
         <Button type="button" onClick={handleSubmit} disabled={disabled}>
           {onboardingLabels.submitBalances}

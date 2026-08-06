@@ -6,6 +6,7 @@
 
 import type { ItemDto } from "@kokoro/shared";
 import { Link } from "@tanstack/react-router";
+import { ChevronLeft } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { StepBalances } from "@/components/onboarding/StepBalances";
@@ -120,8 +121,15 @@ export function OnboardingRoute() {
       <div className="rounded-lg border border-border bg-card p-5">
         {currentStep > 1 ? (
           <div className="mb-4">
-            <Button type="button" variant="outline" onClick={() => goToStep(currentStep - 1)}>
-              {onboardingLabels.backButton}
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              onClick={() => goToStep(currentStep - 1)}
+              aria-label={onboardingLabels.backButton}
+              title={onboardingLabels.backButton}
+            >
+              <ChevronLeft />
             </Button>
           </div>
         ) : null}

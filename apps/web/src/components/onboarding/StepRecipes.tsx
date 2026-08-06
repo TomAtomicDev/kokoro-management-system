@@ -2,6 +2,8 @@
 // catalog items that are actually present after step 3.
 
 import type { ItemDto, RecipeLineCommand, RecordRecipeCommand } from "@kokoro/shared";
+import { formatQty } from "@kokoro/shared";
+import { ChevronRight } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { StepGuidance } from "@/components/onboarding/StepGuidance";
@@ -34,11 +36,11 @@ interface StarterRecipe {
   lines: readonly StarterRecipeLine[];
 }
 
-const STARTER_RECIPES: readonly StarterRecipe[] = [
+export const STARTER_RECIPES: readonly StarterRecipe[] = [
   {
     name: "Alimentar masa madre",
     outputItemName: "Masa madre refrigerada",
-    expectedYieldQty: 200000,
+    expectedYieldQty: 200,
     outputPreview: "Masa madre refrigerada · 200 g",
     lines: [
       { itemName: "Harina", qty: 100 },
@@ -48,10 +50,10 @@ const STARTER_RECIPES: readonly StarterRecipe[] = [
   {
     name: "Activar masa madre",
     outputItemName: "Masa madre activada",
-    expectedYieldQty: 700000,
+    expectedYieldQty: 700,
     outputPreview: "Masa madre activada · 700 g",
     lines: [
-      { itemName: "Masa madre refrigerada", qty: 150000 },
+      { itemName: "Masa madre refrigerada", qty: 150 },
       { itemName: "Harina", qty: 300 },
       { itemName: "Agua", qty: 300 },
     ],
@@ -63,9 +65,9 @@ const STARTER_RECIPES: readonly StarterRecipe[] = [
     outputPreview: "Pan blanco pequeño · 4 u",
     lines: [
       { itemName: "Harina", qty: 580 },
-      { itemName: "Masa madre activada", qty: 150000 },
+      { itemName: "Masa madre activada", qty: 150 },
       { itemName: "Agua", qty: 345 },
-      { itemName: "Sal", qty: 2000 },
+      { itemName: "Sal", qty: 2 },
     ],
   },
 ];
@@ -157,11 +159,24 @@ export function StepRecipes({ items, catalogCommitted, onContinue }: StepRecipes
 
       <div className="rounded-md border border-border bg-muted px-4 py-3 text-sm text-foreground">
         <p className="font-medium">{onboardingLabels.recipesPreviewTitle}</p>
-        <ul className="mt-2 flex flex-col gap-1">
+        <ul className="mt-2 flex flex-col gap-2">
           {STARTER_RECIPES.map((recipe) => (
-            <li key={recipe.name} className="flex flex-wrap justify-between gap-x-4">
-              <span>{recipe.name}</span>
-              <span className="text-muted-foreground">{recipe.outputPreview}</span>
+            <li key={recipe.name}>
+              <div className="flex flex-wrap justify-between gap-x-4">
+                <span>{recipe.name}</span>
+                <span className="text-muted-foreground">{recipe.outputPreview}</span>
+              </div>
+              <ul className="mt-1 list-disc pl-4 text-muted-foreground text-xs">
+                {recipe.lines.map((line) => {
+                  const item = itemsByName.get(line.itemName);
+                  const qtyLabel = item ? formatQty(line.qty, item.unit) : `${line.qty} mu`;
+                  return (
+                    <li key={line.itemName}>
+                      {line.itemName} · {qtyLabel}
+                    </li>
+                  );
+                })}
+              </ul>
             </li>
           ))}
         </ul>
@@ -185,8 +200,16 @@ export function StepRecipes({ items, catalogCommitted, onContinue }: StepRecipes
       ) : null}
 
       <div className="flex justify-end gap-2">
-        <Button type="button" variant="outline" onClick={onContinue} disabled={disabled}>
-          {onboardingLabels.skipButton}
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          onClick={onContinue}
+          disabled={disabled}
+          aria-label={onboardingLabels.skipButton}
+          title={onboardingLabels.skipButton}
+        >
+          <ChevronRight />
         </Button>
         <Button
           type="button"

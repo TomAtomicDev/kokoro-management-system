@@ -15,7 +15,7 @@ export const onboardingLabels = {
   guidanceWhyLabel: "Por qué importa",
   guidanceWhereLabel: "Dónde ajustarlo después",
   backButton: "Volver",
-  skipButton: "Omitir",
+  skipButton: "Avanzar",
   cancel: "Cancelar",
   loading: "Cargando…",
 

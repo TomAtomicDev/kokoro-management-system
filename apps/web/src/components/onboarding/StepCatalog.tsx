@@ -22,6 +22,7 @@ import {
   type Unit,
 } from "@kokoro/shared";
 import { Link } from "@tanstack/react-router";
+import { ChevronRight } from "lucide-react";
 import { useState } from "react";
 
 import { CreateItemDialog } from "@/components/catalog/CreateItemDialog";
@@ -623,8 +624,16 @@ export function StepCatalog({ onDone, onSkip, readOnly = false }: StepCatalogPro
       {error ? <p className="text-negative text-sm">{error}</p> : null}
 
       <div className="flex justify-end gap-2">
-        <Button type="button" variant="outline" onClick={onSkip} disabled={disabled}>
-          {onboardingLabels.skipButton}
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          onClick={onSkip}
+          disabled={disabled}
+          aria-label={onboardingLabels.skipButton}
+          title={onboardingLabels.skipButton}
+        >
+          <ChevronRight />
         </Button>
         <Button type="button" onClick={handleSubmit} disabled={disabled || rows.length === 0}>
           {onboardingLabels.submitCatalog}
