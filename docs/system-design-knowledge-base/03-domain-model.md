@@ -74,7 +74,8 @@ non-food-raw-material bucket `LABEL` used to occupy. A PACKAGING item is purchas
   today's price back to last week's — a real hazard in a high-inflation context, and the reason
   C-5's `margin_replacement` and its price-health alert would otherwise drift optimistic. Soft
   -deleted purchases (R-3) do not count. For SEMI_FINISHED/FINISHED,
-  `replacement_cost = Σ(default-recipe line qty × ingredient replacement_cost) / expected_yield`,
+  `replacement_cost = Σ(default-recipe line qty × ingredient's effective replacement cost, C-3c) /
+  expected_yield`,
   recomputed by the nightly job and on demand; cached with timestamp. The cached column is an
   INTEGER `replacement_cost_mc` (milli-centavos per whole unit) like every other stored rate, and
   because an ingredient's `replacement_cost_mc` may itself be a SEMI_FINISHED item's cached value
@@ -87,19 +88,57 @@ non-food-raw-material bucket `LABEL` used to occupy. A PACKAGING item is purchas
   (which is defined there only for the *default* recipe feeding the cached column) to ANY recipe
   — default or variant — so the owner can compare candidates before promoting one to default:
   `theoretical_cost_wac = Σ(recipe line qty × ingredient wac) / expected_yield`;
-  `theoretical_cost_replacement = Σ(recipe line qty × ingredient replacement_cost) / expected_yield`.
+  `theoretical_cost_replacement = Σ(recipe line qty × ingredient's effective replacement cost,
+  C-3c) / expected_yield`.
   Both are computed live and returned by the recipe read APIs; neither is cached nor written to
   `items.wac` / `items.replacement_cost` — only the *default* recipe's replacement-cost figure
   feeds that cache, and only via the nightly/on-demand job (KOK-029), never from KOK-025 itself.
+- **C-3c Effective replacement cost (KOK-103 KB amendment, closes BI-24)**: a RAW_MATERIAL/
+  PACKAGING item's stored `replacement_cost_mc` is `0` (schema default, Doc 04) until its first
+  real purchase or, for `isUnmetered` items, the owner's manual entry (C-9) — both of which stamp
+  `replacement_cost_updated_at`. An opening-balance count line (C-8) deliberately does **not**
+  stamp it (`"last purchase unit cost"` means a real supplier transaction, not an administrative
+  entry), so a freshly onboarded item can carry a non-zero `wac_mc` (from its `OPENING_IN`) while
+  `replacement_cost_mc` sits at its untouched `0` default. Read raw, that `0` is not a business
+  value — showing it would let `margin_replacement = price − 0` render as a false ~100% margin the
+  moment onboarding finishes, before a single purchase exists.
+
+  Every consumer of replacement cost — C-3's own SEMI_FINISHED/FINISHED rollup, C-3b's live
+  theoretical-cost preview, C-5's `margin_replacement`/price-health alert, and the catalog's
+  replacement-cost display — MUST therefore read the item's **effective replacement cost**, not
+  the raw column, defined as:
+
+  ```
+  effective_replacement_cost =
+    replacement_cost_updated_at IS NOT NULL ? replacement_cost_mc : wac_mc
+  ```
+
+  i.e. fall back to current WAC exactly when no real purchase (or owner estimate) has ever priced
+  the item — the best available estimate of "what it costs to re-acquire today" absent purchase
+  history or inflation is what was actually paid on average. If WAC is *also* `0` (no purchase, no
+  opening balance, no owner estimate — the item has no cost basis of any kind yet), the effective
+  replacement cost stays `0` and C-5's `margin_replacement`/price-health alert MUST be suppressed
+  (not shown) for that item rather than rendering a false 100% margin.
+
+  This is a **read-time projection only** — it never writes back into `items.replacement_cost_mc`
+  or `replacement_cost_updated_at` for RAW_MATERIAL/PACKAGING, preserving C-3's "last real
+  purchase" meaning and C-8's OPENING_IN carve-out exactly as decided. SEMI_FINISHED/FINISHED are
+  the one exception: their stored `replacement_cost_mc` is already a computed rollup (not a "last
+  purchase" fact), so C-3's nightly/on-demand job legitimately writes the sum of ingredients'
+  *effective* replacement costs — the same inputs C-3b's live preview uses — so a recipe built on
+  never-purchased ingredients gets a correct cached figure from its first recompute rather than
+  waiting for a first purchase to happen anywhere in its BOM.
 - **C-4 Production run cost**:
   `direct = Σ(consumed qty × consumed item's WAC at commit time)`;
   `total = direct + indirect_cost + allocated session shared cost (§6)`;
   `output unit cost = total / actual_output_qty`. Actual output absorbs shrinkage/merma
   automatically. Output entry updates the output item's WAC per C-1.
 - **C-5 Margins** (per finished item):
-  `margin_wac = price − wac`; `margin_replacement = price − replacement_cost`;
+  `margin_wac = price − wac`; `margin_replacement = price − effective replacement cost (C-3c)`;
   percentages over price. **Price-health alert** when
-  `margin_replacement_pct < settings.min_margin_pct` (default 30%).
+  `margin_replacement_pct < settings.min_margin_pct` (default 30%), **suppressed** when the item's
+  effective replacement cost is `0` (no purchase, opening balance, or owner estimate exists yet —
+  C-3c) rather than firing on a meaningless `100%` figure.
 - **C-6 Exit valuation**: exits and count adjustments value at current WAC; the value feeds the
   waste report, not the financial ledger. Exception: an opening-balance count line (C-8) *sets*
   WAC rather than reading it.
