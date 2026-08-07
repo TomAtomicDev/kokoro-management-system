@@ -95,6 +95,9 @@ export const recipes = sqliteTable(
     uxDefault: uniqueIndex("ux_recipes_default")
       .on(t.outputItemId)
       .where(sql`${t.isDefault} = 1 AND ${t.isActive} = 1`),
+    // Partial unique index: no two ACTIVE recipes share a name (Doc 04 Ãƒâ€šÃ‚Â§3.1, KOK-025 KB
+    // amendment) â€” a deactivated recipe's name is free to reuse.
+    uxName: uniqueIndex("ux_recipes_name").on(t.name).where(sql`${t.isActive} = 1`),
   }),
 );
 

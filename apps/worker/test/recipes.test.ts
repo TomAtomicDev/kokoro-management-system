@@ -296,6 +296,78 @@ describe("recordRecipe", () => {
     });
     expect(firstRow?.isDefault).toBe(0);
   });
+
+  it("rejects a duplicate active recipe name with CONFLICT (KOK-025 KB amendment, ux_recipes_name)", async () => {
+    const db = createDb(env.DB);
+    const output = await createOutputItem(db);
+    const flour = await createIngredientItem(db, 5, 5);
+
+    await recordRecipe(
+      db,
+      {
+        name: "Alimentar masa madre",
+        outputItemId: output.id,
+        expectedYieldQty: 1000,
+        estLaborMin: null,
+        isDefault: false,
+        notes: null,
+        lines: [{ itemId: flour.id, qty: 100 }],
+      },
+      ACTOR,
+    );
+
+    await expect(
+      recordRecipe(
+        db,
+        {
+          name: "Alimentar masa madre",
+          outputItemId: output.id,
+          expectedYieldQty: 2000,
+          estLaborMin: null,
+          isDefault: false,
+          notes: null,
+          lines: [{ itemId: flour.id, qty: 200 }],
+        },
+        ACTOR,
+      ),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+  });
+
+  it("allows reusing a name once the original recipe is deactivated (ux_recipes_name is active-only)", async () => {
+    const db = createDb(env.DB);
+    const output = await createOutputItem(db);
+    const flour = await createIngredientItem(db, 5, 5);
+
+    const original = await recordRecipe(
+      db,
+      {
+        name: "Receta reciclable",
+        outputItemId: output.id,
+        expectedYieldQty: 1000,
+        estLaborMin: null,
+        isDefault: false,
+        notes: null,
+        lines: [{ itemId: flour.id, qty: 100 }],
+      },
+      ACTOR,
+    );
+    await setRecipeActive(db, { id: original.recipe.id, isActive: false }, ACTOR);
+
+    const reused = await recordRecipe(
+      db,
+      {
+        name: "Receta reciclable",
+        outputItemId: output.id,
+        expectedYieldQty: 1000,
+        estLaborMin: null,
+        isDefault: false,
+        notes: null,
+        lines: [{ itemId: flour.id, qty: 100 }],
+      },
+      ACTOR,
+    );
+    expect(reused.recipe.name).toBe("Receta reciclable");
+  });
 });
 
 describe("updateRecipe", () => {
@@ -411,6 +483,95 @@ describe("updateRecipe", () => {
         ACTOR,
       ),
     ).rejects.toMatchObject({ code: "VALIDATION" });
+  });
+
+  it("rejects renaming into another active recipe's name with CONFLICT", async () => {
+    const db = createDb(env.DB);
+    const output = await createOutputItem(db);
+    const flour = await createIngredientItem(db, 5, 5);
+
+    // Distinct from the recordRecipe describe block's "Receta A"/"Receta B" fixtures above â€”
+    // this test file's D1 storage persists across `it()`s, so recipe names must stay unique
+    // file-wide now that ux_recipes_name is enforced.
+    await recordRecipe(
+      db,
+      {
+        name: "Receta única A",
+        outputItemId: output.id,
+        expectedYieldQty: 1000,
+        estLaborMin: null,
+        isDefault: false,
+        notes: null,
+        lines: [{ itemId: flour.id, qty: 100 }],
+      },
+      ACTOR,
+    );
+    const recipeB = await recordRecipe(
+      db,
+      {
+        name: "Receta única B",
+        outputItemId: output.id,
+        expectedYieldQty: 1000,
+        estLaborMin: null,
+        isDefault: false,
+        notes: null,
+        lines: [{ itemId: flour.id, qty: 100 }],
+      },
+      ACTOR,
+    );
+
+    await expect(
+      updateRecipe(
+        db,
+        recipeB.recipe.id,
+        {
+          name: "Receta única A",
+          outputItemId: output.id,
+          expectedYieldQty: 1000,
+          estLaborMin: null,
+          isDefault: false,
+          notes: null,
+          lines: [{ itemId: flour.id, qty: 100 }],
+        },
+        ACTOR,
+      ),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+  });
+
+  it("allows an update that keeps the recipe's own unchanged name", async () => {
+    const db = createDb(env.DB);
+    const output = await createOutputItem(db);
+    const flour = await createIngredientItem(db, 5, 5);
+
+    const created = await recordRecipe(
+      db,
+      {
+        name: "Receta estable",
+        outputItemId: output.id,
+        expectedYieldQty: 1000,
+        estLaborMin: null,
+        isDefault: false,
+        notes: null,
+        lines: [{ itemId: flour.id, qty: 100 }],
+      },
+      ACTOR,
+    );
+
+    const updated = await updateRecipe(
+      db,
+      created.recipe.id,
+      {
+        name: "Receta estable",
+        outputItemId: output.id,
+        expectedYieldQty: 1500,
+        estLaborMin: null,
+        isDefault: false,
+        notes: null,
+        lines: [{ itemId: flour.id, qty: 150 }],
+      },
+      ACTOR,
+    );
+    expect(updated.recipe.name).toBe("Receta estable");
   });
 });
 
@@ -536,6 +697,46 @@ describe("setRecipeActive", () => {
       where: (t, { eq: eqOp }) => eqOp(t.id, recipeA.recipe.id),
     });
     expect(aRowStillDefault?.isDefault).toBe(1);
+  });
+
+  it("rejects reactivating into a name collision created while the recipe was inactive", async () => {
+    const db = createDb(env.DB);
+    const output = await createOutputItem(db);
+    const flour = await createIngredientItem(db, 5, 5);
+
+    const original = await recordRecipe(
+      db,
+      {
+        name: "Receta compartida",
+        outputItemId: output.id,
+        expectedYieldQty: 1000,
+        estLaborMin: null,
+        isDefault: false,
+        notes: null,
+        lines: [{ itemId: flour.id, qty: 100 }],
+      },
+      ACTOR,
+    );
+    await setRecipeActive(db, { id: original.recipe.id, isActive: false }, ACTOR);
+
+    // A new active recipe now holds the name the deactivated one used to have.
+    await recordRecipe(
+      db,
+      {
+        name: "Receta compartida",
+        outputItemId: output.id,
+        expectedYieldQty: 1000,
+        estLaborMin: null,
+        isDefault: false,
+        notes: null,
+        lines: [{ itemId: flour.id, qty: 200 }],
+      },
+      ACTOR,
+    );
+
+    await expect(
+      setRecipeActive(db, { id: original.recipe.id, isActive: true }, ACTOR),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
   });
 });
 

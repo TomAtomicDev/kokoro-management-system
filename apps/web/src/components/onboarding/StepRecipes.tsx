@@ -115,10 +115,12 @@ export function StepRecipes({ items, catalogCommitted, onContinue }: StepRecipes
     [itemsByName],
   );
   const disabled = mutation.isPending;
-  // Recipe creation isn't idempotent server-side (recordRecipe never rejects on a duplicate
-  // name/output), so a retry after a partial failure must skip recipes this session already
-  // created — otherwise it would insert a duplicate that steals the isDefault flag from the
-  // original via buildClearOtherDefaultsStatement.
+  // `createdNames` is a same-mount cache to avoid resubmitting a recipe this call to
+  // handleCreate already created — but it resets on every remount (revisiting this step via the
+  // Stepper, or a page reload), and recordRecipe now rejects a duplicate active name/output
+  // (D-1 KB amendment closing the onboarding duplicate-recipe bug) rather than silently inserting
+  // a second copy. So a CONFLICT on a starter recipe's name here means "already created in an
+  // earlier visit" — treat it as done and continue, instead of surfacing an error.
   const [createdNames, setCreatedNames] = useState<ReadonlySet<string>>(() => new Set());
 
   async function handleCreate() {
@@ -135,7 +137,11 @@ export function StepRecipes({ items, catalogCommitted, onContinue }: StepRecipes
 
     try {
       for (const { name, command } of commands) {
-        await mutation.mutateAsync(command);
+        try {
+          await mutation.mutateAsync(command);
+        } catch (err) {
+          if (!(err instanceof ApiError) || err.code !== "CONFLICT") throw err;
+        }
         setCreatedNames((prev) => new Set(prev).add(name));
       }
       onContinue();

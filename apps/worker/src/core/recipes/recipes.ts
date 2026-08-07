@@ -33,7 +33,7 @@ import type { BatchItem } from "drizzle-orm/batch";
 import type { Db } from "../../db/index.js";
 import { recipeLines, recipes } from "../../db/schema.js";
 import { buildAuditLogInsert } from "../audit.js";
-import { notFound, validationError } from "../errors.js";
+import { conflict, notFound, validationError } from "../errors.js";
 import { fetchRecipeLines, getRecipeSettingsDto, toRecipeDto } from "./dto.js";
 
 type Statement = BatchItem<"sqlite">;
@@ -92,6 +92,25 @@ async function validateRecipeItemKinds(
 }
 
 /**
+ * Doc 03 "Recipe" row / Doc 04 §3.1 (KOK-025 KB amendment): no two ACTIVE recipes may share a
+ * `name`, mirroring `findItemRowByName` (core/catalog/items.ts). Scoped to active rows only —
+ * matching `ux_recipes_name`'s partial index — so a deactivated recipe's name stays free to
+ * reuse. `excludeId` lets `updateRecipe`/`setRecipeActive` check against every OTHER row.
+ */
+async function findActiveRecipeRowByName(
+  db: Db,
+  name: string,
+  excludeId?: string,
+): Promise<RecipeRow | undefined> {
+  return db.query.recipes.findFirst({
+    where: (t, { and, eq: eqOp, ne }) => {
+      const base = and(eqOp(t.name, name), eqOp(t.isActive, 1));
+      return excludeId ? and(base, ne(t.id, excludeId)) : base;
+    },
+  });
+}
+
+/**
  * Clears `is_default` on every OTHER active recipe for `outputItemId` (this module's header) — must
  * be spliced into the caller's batch BEFORE the statement that sets/keeps `excludeRecipeId`'s own
  * is_default=1, or the partial unique index can see two `is_default=1` rows mid-batch.
@@ -121,6 +140,10 @@ export async function recordRecipe(
   actor: AuditActor,
 ): Promise<RecordRecipeResult> {
   await validateRecipeItemKinds(db, command.outputItemId, command.lines);
+  const duplicate = await findActiveRecipeRowByName(db, command.name);
+  if (duplicate) {
+    throw conflict(`Ya existe una receta activa llamada "${command.name}".`, { field: "name" });
+  }
 
   const now = nowIso();
   const recipeId = generateUuidV7();
@@ -187,6 +210,10 @@ export async function updateRecipe(
   const existingLines = await fetchRecipeLines(db, id);
 
   await validateRecipeItemKinds(db, command.outputItemId, command.lines);
+  const duplicate = await findActiveRecipeRowByName(db, command.name, id);
+  if (duplicate) {
+    throw conflict(`Ya existe una receta activa llamada "${command.name}".`, { field: "name" });
+  }
 
   const now = nowIso();
   // `isActive` is not part of this command (setRecipeActive owns it exclusively) — it survives
@@ -265,6 +292,16 @@ export async function setRecipeActive(
   });
   if (!existingRow) {
     throw notFound("No se encontró la receta.", { id: command.id });
+  }
+  if (command.isActive) {
+    // Reactivating can collide with a same-named recipe created WHILE this one was inactive —
+    // ux_recipes_name only guards active rows, so this gap is invisible until now.
+    const duplicate = await findActiveRecipeRowByName(db, existingRow.name, command.id);
+    if (duplicate) {
+      throw conflict(`Ya existe una receta activa llamada "${existingRow.name}".`, {
+        field: "name",
+      });
+    }
   }
 
   const now = nowIso();

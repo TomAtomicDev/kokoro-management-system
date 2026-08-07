@@ -95,6 +95,8 @@ CREATE TABLE recipes (
 );
 CREATE UNIQUE INDEX ux_recipes_default
   ON recipes(output_item_id) WHERE is_default = 1 AND is_active = 1;
+CREATE UNIQUE INDEX ux_recipes_name             -- KOK-025 KB amendment: active recipe names must be unique
+  ON recipes(name) WHERE is_active = 1;
 
 CREATE TABLE recipe_lines (
   id TEXT PRIMARY KEY,
