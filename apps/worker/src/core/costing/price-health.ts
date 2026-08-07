@@ -27,6 +27,7 @@ import {
 import type { Db } from "../../db/index.js";
 import { validationError } from "../errors.js";
 import { getSetting } from "../settings/index.js";
+import { computeEffectiveReplacementCost } from "./replacement-cost.js";
 
 function assertSafeIntegerInput(value: number, label: string): void {
   if (typeof value !== "number" || !Number.isSafeInteger(value)) {
@@ -137,25 +138,25 @@ export async function listPriceHealth(
   const { minMarginPct } = await getPricingSettingsDto(db);
 
   const rows: PriceHealthRowDto[] = itemRows.map((row) => {
+    const salePriceMc = row.salePriceMc === null ? null : toMilliCentavosPerUnit(row.salePriceMc);
+    const effectiveReplacementCostMc = computeEffectiveReplacementCost(
+      toMilliCentavosPerUnit(row.replacementCostMc),
+      row.replacementCostUpdatedAt,
+      toMilliCentavosPerUnit(row.wacMc),
+    );
     return {
       itemId: row.id,
       name: row.name,
-      salePriceMc: row.salePriceMc === null ? null : toMilliCentavosPerUnit(row.salePriceMc),
+      salePriceMc,
       wacMc: row.wacMc,
-      replacementCostMc: row.replacementCostMc,
+      replacementCostMc: effectiveReplacementCostMc,
       replacementCostUpdatedAt: row.replacementCostUpdatedAt,
-      marginWac: computePriceMargin(
-        row.salePriceMc === null ? null : toMilliCentavosPerUnit(row.salePriceMc),
-        toMilliCentavosPerUnit(row.wacMc),
-      ),
-      marginReplacement: computePriceMargin(
-        row.salePriceMc === null ? null : toMilliCentavosPerUnit(row.salePriceMc),
-        toMilliCentavosPerUnit(row.replacementCostMc),
-      ),
-      priceSuggested: computePriceSuggested(
-        toMilliCentavosPerUnit(row.replacementCostMc),
-        minMarginPct,
-      ),
+      marginWac: computePriceMargin(salePriceMc, toMilliCentavosPerUnit(row.wacMc)),
+      marginReplacement:
+        effectiveReplacementCostMc === 0
+          ? null
+          : computePriceMargin(salePriceMc, effectiveReplacementCostMc),
+      priceSuggested: computePriceSuggested(effectiveReplacementCostMc, minMarginPct),
       lastPriceChangeAt: lastChangeByItemId.get(row.id) ?? null,
     };
   });

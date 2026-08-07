@@ -11,7 +11,10 @@ export {
 export type { WacDrift } from "./repair.js";
 export { detectWacDrift, getCurrentWac } from "./repair.js";
 export type { ReplacementCostLine } from "./replacement-cost.js";
-export { computeItemReplacementCost } from "./replacement-cost.js";
+export {
+  computeEffectiveReplacementCost,
+  computeItemReplacementCost,
+} from "./replacement-cost.js";
 export type { ReplacementCostRefreshPlan } from "./replacement-cost-refresh.js";
 export {
   applyReplacementCostRefresh,

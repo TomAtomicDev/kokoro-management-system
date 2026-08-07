@@ -72,7 +72,11 @@ describe("GET /api/price-health", () => {
     // milli-centavos-per-WHOLE-unit scale.
     await db
       .update(items)
-      .set({ wacMc: 5_000_000, replacementCostMc: 7_000_000 })
+      .set({
+        wacMc: 5_000_000,
+        replacementCostMc: 7_000_000,
+        replacementCostUpdatedAt: "2026-08-07T00:00:00.000Z",
+      })
       .where(eq(items.id, cake.id));
 
     const rawMaterial = await SELF.fetch("https://example.com/api/items", {
@@ -105,6 +109,43 @@ describe("GET /api/price-health", () => {
     // price_suggested = 7000 / (1 - 0.30) = 10000.
     expect(row?.priceSuggested).toBe(10000);
     expect(row?.lastPriceChangeAt).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+
+  it("uses opening-balance WAC until the first purchase and suppresses an unknown zero cost", async () => {
+    const auth = await login();
+    const db = createDb(env.DB);
+    const createFinished = (name: string) =>
+      SELF.fetch("https://example.com/api/items", {
+        method: "POST",
+        headers: authHeaders(auth),
+        body: JSON.stringify({
+          name: `${name} ${crypto.randomUUID()}`,
+          kind: "FINISHED",
+          category: "BAKERY",
+          unit: "UNIT",
+          salePriceMc: 10_000_000,
+        }),
+      }).then((response) => response.json() as Promise<{ id: string }>);
+    const openingBalanceItem = await createFinished("Con saldo inicial");
+    const unknownCostItem = await createFinished("Sin costo conocido");
+    await db
+      .update(items)
+      .set({ wacMc: 5_000_000, replacementCostMc: 0, replacementCostUpdatedAt: null })
+      .where(eq(items.id, openingBalanceItem.id));
+
+    const res = await SELF.fetch("https://example.com/api/price-health", {
+      headers: authHeaders(auth),
+    });
+    const body = (await res.json()) as { rows: PriceHealthRow[] };
+    const openingBalanceRow = body.rows.find((row) => row.itemId === openingBalanceItem.id);
+    expect(openingBalanceRow?.replacementCostMc).toBe(5_000_000);
+    expect(openingBalanceRow?.marginReplacement).toEqual({ amount: 5000, pctBasisPoints: 5000 });
+    expect(openingBalanceRow?.priceSuggested).toBe(7143);
+
+    const unknownCostRow = body.rows.find((row) => row.itemId === unknownCostItem.id);
+    expect(unknownCostRow?.replacementCostMc).toBe(0);
+    expect(unknownCostRow?.marginReplacement).toBeNull();
+    expect(unknownCostRow?.priceSuggested).toBeNull();
   });
 
   it("omits FINISHED items with no sale price from margin comparisons but still lists them", async () => {

@@ -15,6 +15,7 @@ import {
 
 import type { Db } from "../../db/index.js";
 import type { items, recipeLines, recipes } from "../../db/schema.js";
+import { computeEffectiveReplacementCost } from "../costing/replacement-cost.js";
 import { getSetting } from "../settings/index.js";
 import { computeRecipeMargin, computeTheoreticalCostPerOutputUnit } from "./theoretical-cost.js";
 
@@ -60,7 +61,13 @@ function buildCostDto(
     const unitCost =
       basis === "wac"
         ? toMilliCentavosPerUnit(item?.wacMc ?? 0)
-        : toMilliCentavosPerUnit(item?.replacementCostMc ?? 0);
+        : item
+          ? computeEffectiveReplacementCost(
+              toMilliCentavosPerUnit(item.replacementCostMc),
+              item.replacementCostUpdatedAt,
+              toMilliCentavosPerUnit(item.wacMc),
+            )
+          : toMilliCentavosPerUnit(0);
     return { qty: line.qty, unitCost };
   });
   const costPerOutputUnit = computeTheoreticalCostPerOutputUnit(lines, expectedYieldQty);
