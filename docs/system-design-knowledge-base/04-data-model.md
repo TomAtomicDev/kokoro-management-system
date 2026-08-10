@@ -449,7 +449,7 @@ CREATE TABLE pending_drafts (                    -- one active AI draft per Tele
 
 | View | Definition (essence) |
 |------|----------------------|
-| `v_stock` | items ⨝ item_stock + `stock_value = round(qty_on_hand × wac_mc / 1e6)`, low-stock flag |
+| `v_stock` | items ⨝ item_stock + `stock_value = round(qty_on_hand × wac_mc / 1e6)`, low-stock flag. Also selects `replacement_cost_updated_at` (migration 0016) so `core/inventory/queries.ts`'s `listStock` can apply the same C-3c effective-replacement-cost fallback `toItemDto`/`price-health.ts` already do — the view exposes the raw column plus timestamp only, the fallback projection itself happens in `queries.ts`, not in SQL (same precedent as `v_price_health` below). |
 | `v_kardex` | stock_movements ⨝ items, ordered, with running balance via window function |
 | `v_price_health` | FINISHED items: id, name, sale_price_mc, wac_mc, replacement_cost_mc, replacement_cost_updated_at. Raw columns only — margins, the C-3c effective-replacement-cost fallback, and the alert-suppression rule are all computed in `core/costing/price-health.ts` (KOK-035, KOK-103), not in this view; the former SQL margin columns were removed in migration 0006 because they mixed per-whole-unit prices with per-milli-unit costs. |
 | `v_receivables` | sales WHERE payment_status='ON_CREDIT' AND deleted_at IS NULL, aged; `total` = **uncollected remainder**, i.e. `sales.total − custom_orders.deposit_paid` for a CUSTOM_ORDER sale (KOK-033, migration 0005) and plain `sales.total` otherwise |

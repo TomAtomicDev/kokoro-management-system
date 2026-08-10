@@ -32,7 +32,7 @@ import {
 } from "../src/core/inventory/queries.js";
 import { recordPurchase } from "../src/core/purchasing/index.js";
 import { createDb } from "../src/db/index.js";
-import { financialAccounts, itemStock } from "../src/db/schema.js";
+import { financialAccounts, itemStock, items } from "../src/db/schema.js";
 
 const ACTOR = "OWNER_WEB" as const;
 
@@ -236,6 +236,55 @@ describe("listStock (Doc 04 §4 v_stock, SC-08)", () => {
     const { stock } = await listStock(db, { kind: "FINISHED" });
     expect(stock.some((r) => r.itemId === finished.id)).toBe(true);
     expect(stock.some((r) => r.itemId === raw.id)).toBe(false);
+  });
+
+  it("falls back replacementCostMc to WAC for an item never purchased (C-3c, KOK-103)", async () => {
+    const db = createDb(env.DB);
+    const item = await seedItem(db, "Opening-balance-only stock item");
+    // Mirrors an OPENING_IN count line (BI-01/KOK-084): sets wac_mc directly, leaves
+    // replacement_cost_mc/replacement_cost_updated_at untouched (still 0/null).
+    await db
+      .update(items)
+      .set({ wacMc: toMilliCentavosPerUnit(3_000_000) })
+      .where(eq(items.id, item.id));
+
+    const { stock } = await listStock(db);
+    const row = stock.find((r) => r.itemId === item.id);
+    expect(row?.wacMc).toBe(3_000_000);
+    expect(row?.replacementCostMc).toBe(3_000_000);
+  });
+
+  it("keeps the real replacementCostMc once a purchase exists, even after WAC diverges from it", async () => {
+    const db = createDb(env.DB);
+    const item = await seedItem(db, "Purchased-twice stock item");
+
+    await recordPurchase(
+      db,
+      {
+        accountId: "acc_bank",
+        occurredAt: "2026-07-10T10:00:00.000Z",
+        businessDate: "2026-07-10",
+        lines: [{ itemId: item.id, qty: 1000, lineTotal: 1000 }], // unit cost = 1
+      },
+      ACTOR,
+    );
+    await recordPurchase(
+      db,
+      {
+        accountId: "acc_bank",
+        occurredAt: "2026-07-16T10:00:00.000Z",
+        businessDate: "2026-07-16",
+        lines: [{ itemId: item.id, qty: 1000, lineTotal: 3000 }], // unit cost = 3
+      },
+      ACTOR,
+    );
+
+    const { stock } = await listStock(db);
+    const row = stock.find((r) => r.itemId === item.id);
+    // WAC averages the two purchases (2/unit); replacementCostMc must stay the last purchase
+    // price (3/unit, C-3's "last real purchase"), not fall back to the now-different WAC.
+    expect(row?.wacMc).toBe(2_000_000);
+    expect(row?.replacementCostMc).toBe(3_000_000);
   });
 });
 

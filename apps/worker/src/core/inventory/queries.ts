@@ -27,6 +27,7 @@ import { toMilliCentavosPerUnit } from "@kokoro/shared";
 import { type SQL, sql } from "drizzle-orm";
 
 import type { Db } from "../../db/index.js";
+import { computeEffectiveReplacementCost } from "../costing/replacement-cost.js";
 import { validationError } from "../errors.js";
 
 /** Raw `v_stock` row shape (snake_case, exactly the view's SELECT list Ã¢â‚¬â€ Doc 04 Ã‚Â§4). SQLite has no
@@ -39,6 +40,7 @@ interface StockViewRow {
   unit: Unit;
   wac_mc: number;
   replacement_cost_mc: number;
+  replacement_cost_updated_at: string | null;
   sale_price_mc: number | null;
   min_stock_qty: number | null;
   is_active: number;
@@ -74,7 +76,11 @@ function toStockRowDto(row: StockViewRow): StockRowDto {
     category: row.category,
     unit: row.unit,
     wacMc: row.wac_mc,
-    replacementCostMc: row.replacement_cost_mc,
+    replacementCostMc: computeEffectiveReplacementCost(
+      toMilliCentavosPerUnit(row.replacement_cost_mc),
+      row.replacement_cost_updated_at,
+      toMilliCentavosPerUnit(row.wac_mc),
+    ),
     salePriceMc: row.sale_price_mc === null ? null : toMilliCentavosPerUnit(row.sale_price_mc),
     minStockQty: row.min_stock_qty,
     qtyOnHand: row.qty_on_hand,
