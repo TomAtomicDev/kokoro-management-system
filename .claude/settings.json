@@ -1,6 +1,11 @@
 {
   "permissions": {
-    "deny": ["Bash(sudo *)", "Bash(rm -rf /*)", "Read(.env)", "Read(**/.env*)"],
+    "deny": [
+      "Bash(sudo *)",
+      "Bash(rm -rf /*)",
+      "Read(.env)",
+      "Read(**/.env*)"
+    ],
     "allow": [
       "Skill(playwright-cli)",
       "Skill(run)",
@@ -10,7 +15,7 @@
     ]
   },
   "enabledPlugins": {
-    "context-mode@context-mode": true
+    "context-mode@context-mode": false
   },
   "hooks": {
     "PreToolUse": [
@@ -19,7 +24,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "C:/Users/tommy/AppData/Local/Programs/Python/Python313/Scripts/graphify.EXE hook-guard search"
+            "command": "C:/Users/tommy/.local/bin/graphify.EXE hook-guard search"
           }
         ]
       },
@@ -28,7 +33,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "C:/Users/tommy/AppData/Local/Programs/Python/Python313/Scripts/graphify.EXE hook-guard read"
+            "command": "C:/Users/tommy/.local/bin/graphify.EXE hook-guard read"
           }
         ]
       }
