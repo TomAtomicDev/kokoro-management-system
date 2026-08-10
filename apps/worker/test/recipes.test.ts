@@ -59,6 +59,7 @@ async function createIngredientItem(
     .set({
       wacMc: rateFromTotal(toCentavos(wac), toMilliUnits(1)),
       replacementCostMc: rateFromTotal(toCentavos(replacementCostMc), toMilliUnits(1)),
+      replacementCostUpdatedAt: replacementCostMc === 0 ? null : "2026-08-07T00:00:00.000Z",
     })
     .where(eq(items.id, item.id));
   return item;
@@ -112,6 +113,32 @@ describe("recordRecipe", () => {
         and(eqOp(t.entityId, result.recipe.id), eqOp(t.action, "create")),
     });
     expect(auditRow).toMatchObject({ actor: ACTOR, entityType: "recipe" });
+  });
+
+  it("uses opening-balance WAC for live replacement cost before the first purchase", async () => {
+    const db = createDb(env.DB);
+    const output = await createOutputItem(db, 8_000_000);
+    const flour = await createIngredientItem(db, 10, 0);
+
+    const result = await recordRecipe(
+      db,
+      {
+        name: `Receta WAC inicial ${crypto.randomUUID()}`,
+        outputItemId: output.id,
+        expectedYieldQty: 1000,
+        estLaborMin: null,
+        isDefault: true,
+        notes: null,
+        lines: [{ itemId: flour.id, qty: 1000 }],
+      },
+      ACTOR,
+    );
+
+    expect(result.recipe.theoreticalCostReplacement.costPerOutputUnit).toBe(10_000);
+    expect(result.recipe.theoreticalCostReplacement.margin).toEqual({
+      amount: -2000,
+      pctBasisPoints: -2500,
+    });
   });
 
   it("rejects an output item of kind RAW_MATERIAL with VALIDATION", async () => {

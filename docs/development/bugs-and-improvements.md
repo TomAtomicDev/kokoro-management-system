@@ -889,6 +889,45 @@ decimals" and the other silently accepts, or vice versa).
 
 ---
 
+### BI-24 · Replacement cost reads as 0 right after onboarding — 🐞 P0
+
+**Reported (owner, 2026-08-06):** after completing onboarding, a freshly created item's "costo de
+reposición" shows `0`. The owner's framing: since replacement cost exists as an inflation guard,
+absent inflation or purchase history it should be **at least WAC**, not zero.
+
+**Verified root cause — a consequence of KOK-084's own decision, not a new bug in it.** BI-01/BI-02
+(KOK-084) deliberately made the onboarding count's `OPENING_IN` movement set `wac_mc` but explicitly
+**not** `replacement_cost_mc` — correctly, per C-3's "last purchase unit cost" meaning an actual
+supplier transaction, never an administrative opening entry (see the ✅ Decided note on BI-01). That
+was the right call for the *stored* column, but nothing downstream was taught to compensate: every
+reader of `replacement_cost_mc` — the catalog display, C-5's `margin_replacement`/price-health alert,
+and C-3b's recipe theoretical-cost preview — reads the raw `0` default as if it were a real business
+value. Concretely: `margin_replacement = price − 0 = price`, a false ~100% margin that reaches the
+price-health screen for every FINISHED item the moment onboarding completes, and any recipe built
+entirely from never-purchased ingredients previews a `0` theoretical replacement cost too.
+
+**Why this is 🟡, not a quick fix.** The owner's proposed floor ("at least WAC") is sound economics
+— absent purchase history, what was actually paid (WAC) is the best available estimate of what it
+costs to re-buy today — but it is a business rule Doc 03 doesn't state anywhere, and it has a real
+edge case Doc 03 must also settle: what happens when WAC is *also* `0` (no purchase, no opening
+balance, no owner estimate at all)? Showing `price − 0` there is still a false signal; the correct
+answer is to suppress the margin/alert, not to floor it at zero. That's a KB decision, not an
+implementation detail (D-1).
+
+> ✅ **Decided, 2026-08-06.** Landed as
+> [Doc 03 C-3c](../system-design-knowledge-base/03-domain-model.md#4-costing-rules-normative):
+> every consumer of replacement cost reads an **effective replacement cost** — `replacement_cost_mc`
+> when `replacement_cost_updated_at IS NOT NULL`, else current `wac_mc` — computed at read time only
+> (never written back to the RAW_MATERIAL/PACKAGING column, preserving C-3/C-8 exactly as decided).
+> When WAC is also `0`, the effective cost stays `0` and C-5's price-health alert is suppressed for
+> that item instead of firing on a meaningless `100%`. SEMI_FINISHED/FINISHED's cached
+> `replacement_cost_mc` is the one column allowed to *write* from this fallback, since C-3 already
+> treats it as a computed rollup, not a "last purchase" fact — so a recipe of never-purchased
+> ingredients gets a correct cached figure from its first nightly/on-demand recompute. Tracked as
+> [KOK-103](../system-design-knowledge-base/10-implementation-backlog.md#phase-65--onboarding-hardening-gh-4).
+
+---
+
 ## Suggested sequencing
 
 **1 — Correctness gate (do before prod launches).**

@@ -3,11 +3,34 @@ import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 
 import {
+  computeEffectiveReplacementCost,
   computeItemReplacementCost,
   type ReplacementCostLine,
 } from "../src/core/costing/replacement-cost.js";
 
 const mc = toMilliCentavosPerUnit;
+
+describe("computeEffectiveReplacementCost (C-3c)", () => {
+  const costArb = fc.integer({ min: 0, max: 100_000_000 }).map(mc);
+
+  it("property: a timestamped replacement cost always wins regardless of WAC", () => {
+    fc.assert(
+      fc.property(costArb, costArb, (replacementCostMc, wacMc) => {
+        expect(
+          computeEffectiveReplacementCost(replacementCostMc, "2026-08-07T00:00:00.000Z", wacMc),
+        ).toBe(replacementCostMc);
+      }),
+    );
+  });
+
+  it("property: an unstamped replacement cost always falls back to WAC", () => {
+    fc.assert(
+      fc.property(costArb, costArb, (replacementCostMc, wacMc) => {
+        expect(computeEffectiveReplacementCost(replacementCostMc, null, wacMc)).toBe(wacMc);
+      }),
+    );
+  });
+});
 
 function expectDomainValidationError(fn: () => unknown): void {
   let caught: unknown;

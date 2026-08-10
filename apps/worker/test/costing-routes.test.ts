@@ -64,7 +64,13 @@ describe("POST /api/costing/replacement-cost-refresh", () => {
       }),
     });
     const flour = (await flourRes.json()) as { id: string };
-    await db.update(items).set({ replacementCostMc: 8 }).where(eq(items.id, flour.id));
+    await db
+      .update(items)
+      .set({
+        replacementCostMc: 8,
+        replacementCostUpdatedAt: "2026-08-07T00:00:00.000Z",
+      })
+      .where(eq(items.id, flour.id));
 
     const masaRes = await SELF.fetch("https://example.com/api/items", {
       method: "POST",

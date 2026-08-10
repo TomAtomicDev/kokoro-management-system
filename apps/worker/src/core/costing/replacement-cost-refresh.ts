@@ -30,7 +30,11 @@ import { items } from "../../db/schema.js";
 import type { RecipeEdge } from "./dependency-graph.js";
 import { topoOrderAffectedItems } from "./dependency-graph.js";
 
-import { computeItemReplacementCost, type ReplacementCostLine } from "./replacement-cost.js";
+import {
+  computeEffectiveReplacementCost,
+  computeItemReplacementCost,
+  type ReplacementCostLine,
+} from "./replacement-cost.js";
 
 type Statement = BatchItem<"sqlite">;
 
@@ -119,7 +123,14 @@ export async function planReplacementCostRefresh(db: Db): Promise<ReplacementCos
   const order = topoOrderAffectedItems(edges, seedItemIds);
 
   const liveCost = new Map<string, MilliCentavosPerUnit>(
-    allItemRows.map((row) => [row.id, toMilliCentavosPerUnit(row.replacementCostMc)]),
+    allItemRows.map((row) => [
+      row.id,
+      computeEffectiveReplacementCost(
+        toMilliCentavosPerUnit(row.replacementCostMc),
+        row.replacementCostUpdatedAt,
+        toMilliCentavosPerUnit(row.wacMc),
+      ),
+    ]),
   );
   const statements: Statement[] = [];
   const refreshedItemIds: string[] = [];

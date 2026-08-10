@@ -25,6 +25,20 @@ import {
 
 import { validationError } from "../errors.js";
 
+/**
+ * C-3c read-time projection for every replacement-cost consumer. A non-null timestamp proves the
+ * stored replacement cost came from a real purchase/owner estimate (or a derived-item refresh);
+ * until then, WAC is the only meaningful available valuation. This helper never persists the
+ * fallback into the item row.
+ */
+export function computeEffectiveReplacementCost(
+  replacementCostMc: MilliCentavosPerUnit,
+  replacementCostUpdatedAt: string | null,
+  wacMc: MilliCentavosPerUnit,
+): MilliCentavosPerUnit {
+  return replacementCostUpdatedAt !== null ? replacementCostMc : wacMc;
+}
+
 // Mirrors wac.ts's/theoretical-cost.ts's identical local copy of this guard — see either module's
 // header for why core/costing keeps its own rather than reaching into @kokoro/shared's
 // non-exported numeric.ts.

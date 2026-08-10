@@ -25,14 +25,22 @@ async function seedItem(
   db: TestDb,
   kind: "RAW_MATERIAL" | "SEMI_FINISHED" | "FINISHED",
   replacementCostMc = 0,
+  wacMc = 0,
 ) {
   const item = await createItem(
     db,
     { name: `Item ${crypto.randomUUID()}`, kind, category: "INGREDIENT", unit: "KG" },
     ACTOR,
   );
-  if (replacementCostMc !== 0) {
-    await db.update(items).set({ replacementCostMc }).where(eq(items.id, item.id));
+  if (replacementCostMc !== 0 || wacMc !== 0) {
+    await db
+      .update(items)
+      .set({
+        replacementCostMc,
+        replacementCostUpdatedAt: replacementCostMc === 0 ? null : "2026-08-07T00:00:00.000Z",
+        wacMc,
+      })
+      .where(eq(items.id, item.id));
   }
   return item;
 }
@@ -84,6 +92,22 @@ describe("planReplacementCostRefresh (C-3, SEMI_FINISHED/FINISHED)", () => {
     // 500 * 12 / 1000 = 6 centavos/milli-unit.
     expect(updated.replacementCostMc).toBe(6);
     expect(updated.replacementCostUpdatedAt).not.toBeNull();
+  });
+
+  it("rolls up opening-balance WAC from a never-purchased leaf ingredient", async () => {
+    const db = createDb(env.DB);
+    const flour = await seedItem(db, "RAW_MATERIAL", 0, 12);
+    const masa = await seedItem(db, "SEMI_FINISHED");
+    await seedDefaultRecipe(db, masa.id, 1000, [{ itemId: flour.id, qty: 500 }]);
+
+    const plan = await planReplacementCostRefresh(db);
+    await db.batch(plan.statements as [Statement, ...Statement[]]);
+
+    const storedFlour = await readItem(db, flour.id);
+    const updatedMasa = await readItem(db, masa.id);
+    expect(storedFlour.replacementCostMc).toBe(0);
+    expect(storedFlour.replacementCostUpdatedAt).toBeNull();
+    expect(updatedMasa.replacementCostMc).toBe(6);
   });
 
   it("propagates through a multi-level BOM in dependency order (RAW_MATERIAL -> SEMI_FINISHED -> FINISHED) within one run", async () => {

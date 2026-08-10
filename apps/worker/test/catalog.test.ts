@@ -3,6 +3,7 @@
 // @cloudflare/vitest-pool-workers (test/setup.ts applies migrations/0001_init.sql first).
 import { env } from "cloudflare:test";
 import { toMilliCentavosPerUnit } from "@kokoro/shared";
+import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -16,6 +17,7 @@ import {
   updateItem,
 } from "../src/core/catalog/index.js";
 import { createDb } from "../src/db/index.js";
+import { items } from "../src/db/schema.js";
 
 const ACTOR = "OWNER_WEB" as const;
 const mc = toMilliCentavosPerUnit;
@@ -63,6 +65,30 @@ describe("createItem", () => {
     expect(item.isUnmetered).toBe(true);
     expect(item.replacementCostMc).toBe(mc(5));
     expect(item.replacementCostUpdatedAt).not.toBeNull();
+  });
+
+  it("projects opening-balance WAC as replacement cost until the first real purchase", async () => {
+    const db = createDb(env.DB);
+    const item = await createItem(
+      db,
+      { name: "Avena inicial", kind: "RAW_MATERIAL", category: "INGREDIENT", unit: "KG" },
+      ACTOR,
+    );
+    await db
+      .update(items)
+      .set({ wacMc: mc(7) })
+      .where(eq(items.id, item.id));
+
+    const projected = await getItem(db, item.id);
+    expect(projected.wacMc).toBe(mc(7));
+    expect(projected.replacementCostMc).toBe(mc(7));
+    expect(projected.replacementCostUpdatedAt).toBeNull();
+
+    const stored = await db.query.items.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
+    });
+    expect(stored?.replacementCostMc).toBe(0);
+    expect(stored?.replacementCostUpdatedAt).toBeNull();
   });
 
   it("rejects a duplicate name with CONFLICT", async () => {
