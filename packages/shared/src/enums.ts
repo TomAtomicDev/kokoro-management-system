@@ -7,17 +7,13 @@
 import { z } from "zod";
 
 // --- items ---------------------------------------------------------------
-// PACKAGING (KOK-1xx, closes BI-11): a 4th kind, not a category. Packaging items are purchased
-// and stocked like RAW_MATERIAL but never appear in recipe_lines (recipes.ts's item-kind
-// whitelist stays RAW_MATERIAL/SEMI_FINISHED-only) — they are consumed only as a second kind of
-// sale_line, alongside the FINISHED product line, at the moment of an actual sale. See Doc 03 §3
-// (Item aggregate) and Doc 04 §3.1/§3.3.
+// PACKAGING is a kind, not a category: stocked like RAW_MATERIAL but never a recipe input,
+// consumed only as a second sale_line alongside the FINISHED line at sale time (Doc 03 §3).
 export const ITEM_KINDS = ["RAW_MATERIAL", "SEMI_FINISHED", "FINISHED", "PACKAGING"] as const;
 export type ItemKind = (typeof ITEM_KINDS)[number];
 export const itemKindSchema = z.enum(ITEM_KINDS);
 
-// NOT_EATABLE (KOK-1xx) replaces LABEL; PACKAGING removed here now that it is a `kind` (above),
-// not a category — see Doc 03 §3.
+// NOT_EATABLE covers non-food raw materials (labels, tape, cleaning supplies) — Doc 03 §3.
 export const ITEM_CATEGORIES = [
   "INGREDIENT",
   "NOT_EATABLE",

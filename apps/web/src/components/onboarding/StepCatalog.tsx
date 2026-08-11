@@ -1,14 +1,8 @@
-// Onboarding step 3 (KOK-020, Doc 07 step 3, Doc 04 §7's dev fixture catalog) — an editable table
-// of starter items, pre-filled with the fixture list, NOT auto-committed: the owner reviews/edits/
-// removes rows, then an explicit "Crear catálogo" button calls bulkCreateItems with whatever rows
-// remain. Reuses `ItemFormValues`/`parseItemFormValues` from ItemForm.tsx directly (per this task's
-// brief: "don't reinvent parsing rules") — each row is shaped exactly like a single ItemForm, so
-// the same salePrice-scale-2/minStockQty-scale-3 parsing this codebase already trusts applies here
-// unchanged, and the parser's successful `value` already matches `CreateItemCommand`'s field set
-// 1:1, so it can be handed to `bulkCreateItemsCommandSchema` with zero extra mapping. Once
-// committed (KOK-099), the `readOnly` branch below switches to a live editor instead: the real
-// saved items via `useItemsQuery`, with add/edit backed by the single-item `core/catalog`
-// create/update service (`CreateItemDialog`/`ItemDetailDrawer`) — never the bulk endpoint again.
+// Onboarding step 3 (Doc 07 step 3): before saving, an editable table of starter items pre-filled
+// from the fixture — "Crear catálogo" calls bulkCreateItems with whatever rows remain, reusing
+// ItemForm.tsx's parsing so scale/validation stay identical. After saving, switches to a live
+// editor over the real items (`useItemsQuery`), add/edit backed by the single-item `core/catalog`
+// service (`CreateItemDialog`/`ItemDetailDrawer`), never the bulk endpoint again.
 
 import {
   generateUuidV7,
