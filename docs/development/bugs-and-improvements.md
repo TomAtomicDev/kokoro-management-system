@@ -36,6 +36,6 @@ now just the closure log.
 | BI-23 | Cost-rate inputs capped at 2 decimals; unclear rejection errors     | P1         | ✅ Done                  | KOK-102 |
 | BI-24 | Replacement cost read as 0 right after onboarding                  | P0         | ✅ Done                  | KOK-103 |
 
-See [Doc 10 §Phase 6.5](../system-design-knowledge-base/10-implementation-backlog.md#phase-65--onboarding-hardening-gh-4)
+See [Doc 10 §Phase 3.1](../system-design-knowledge-base/10-implementation-backlog.md#phase-31--onboarding-hardening-gh-4)
 for what shipped in each KOK task, and Doc 03 (§4 C-3c/C-8/C-9, §3 Item aggregate) + Doc 04 (§3.1/§3.4)
 for the resulting business rules.
