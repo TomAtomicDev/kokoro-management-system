@@ -187,7 +187,11 @@ control). UI Ink is the interactive color everywhere else. Never substitute one 
 **The Ring-Carries-Focus Rule.** Resting borders (`--border`, `--input`) are intentionally soft
 (~1.2–1.5:1 contrast) and are not the accessibility guarantee for interactive boundaries — the
 focus ring (`--ring`, ≥14:1 in both modes) carries that guarantee. Don't chase AA contrast on
-resting input borders; the ring is where it's verified.
+resting input borders; the ring is where it's verified. **Bug fixed 2026-08-11:** the ring's own
+2px offset was invisibly hardcoded to opaque white by Tailwind's Preflight (a `@property` reset
+with `inherits: false`, so no `:root`-level override could reach it) — every focused control in
+dark mode showed a stark white halo *before* the actual ring color, undermining this exact rule.
+Fixed with an unlayered `* { --tw-ring-offset-color: var(--background); }` in `globals.css`.
 
 **The Color Budget Rule.** Semantic color (green/red/ochre) covers roughly 5–8% of any screen.
 Charts are the one named exception — a multi-series chart legitimately needs several
@@ -250,7 +254,8 @@ Depth is genuinely ambient, not confined to overlays: resting cards (`StatCard`,
 the login panel) already pair a hairline border with a soft warm shadow (`shadow-sm`) rather than
 relying on the border alone, and modals/drawers step up to a stronger shadow (`shadow-lg`) for
 their overlay elevation. Shadows are warm-tinted — an espresso rgb triplet at low alpha — never
-cold black, matching the same warm-neutral logic as the color system.
+cold black, matching the same warm-neutral logic as the color system. **This paragraph describes
+light mode; dark mode's mechanism is different — see below.**
 
 ### Shadow Vocabulary
 - **`shadow-sm`** (`0 1px 2px rgb(36 26 18 / 0.06)`): Resting cards, list rows, stat tiles, the
@@ -263,6 +268,19 @@ cold black, matching the same warm-neutral logic as the color system.
 ### Named Rules
 **The Warm Shadow Rule.** Every shadow in the system uses the ink color's RGB triplet at low
 alpha, never a neutral or cool black — depth stays inside the same warm palette as everything else.
+**Light mode only** — see the next rule for why dark mode can't use this mechanism.
+
+**The Dark Elevation Rule** (added 2026-08-11). A shadow only reads as a shadow when it's visibly
+darker than the surface it's cast on. The Warm Shadow Rule's ink-tinted shadow satisfies that on a
+near-white light-mode canvas; on the near-black dark-mode canvas it doesn't — the shadow color and
+the canvas color are nearly identical, so every card rendered as one undifferentiated dark mass
+(confirmed by screenshot review, 2026-08-11). Dark mode instead carries its depth cue through the
+surface step and the border: `--card`/`--popover` were lifted from `#261C15` to `#2F251C`
+(1.09:1 → 1.21:1 against `--background`) and `--border`/`--sidebar-border` from `#3A2E24` to
+`#453726` (1.27:1 → 1.45:1 against `--card`) — border is now dark mode's *primary* depth cue,
+not the secondary one it is in light mode. `--shadow-color` also overrides to true black in dark
+mode rather than inheriting the light-mode ink tint, as a modest secondary reinforcement for
+modals/drawers. Full rationale and contrast math: `.design/foundations/DESIGN_TOKENS.md`.
 
 ## Shapes
 

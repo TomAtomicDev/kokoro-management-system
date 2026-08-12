@@ -192,9 +192,14 @@
     --background: #1c140f; /* warm espresso canvas — never cold charcoal */
     --foreground: #f0e6d2;
 
-    --card: #261c15;
+    /* Lifted one notch from the original #261c15 (was 1.09:1 against canvas — imperceptible).
+       Light mode gets away with an equally tiny background/card step because --shadow-sm reads
+       clearly on a near-white surface; that same ink-tinted shadow is invisible on a dark one, so
+       dark mode needs its separation to come from the surface step + border instead. Still AA-safe:
+       --foreground stays ~12:1 and --muted-foreground ~5.2:1 on this card. */
+    --card: #2f251c;
     --card-foreground: #f0e6d2;
-    --popover: #261c15;
+    --popover: #2f251c;
     --popover-foreground: #f0e6d2;
 
     /* The "ink-as-primary" trick is inherently light-mode: a near-black fill disappears on a dark
@@ -217,9 +222,21 @@
     --destructive: #e38268;
     --destructive-foreground: #1c140f;
 
-    --border: #3a2e24;
+    /* Raised from #3a2e24 (1.27:1 against the old card — nearly invisible) to a hairline that
+       actually reads as structure on a dark surface, ~1.45:1 against --card / ~1.58:1 against
+       --background. Card + border together are now the primary depth cue in dark mode; the shadow
+       below is a secondary reinforcement, not the load-bearing one it is in light mode. */
+    --border: #453726;
     --input: #4a3b2c;
     --ring: #e8d9bc; /* focus ring = tan primary; very high contrast on dark canvas */
+
+    /* The shadow recipe itself (--shadow-sm/md/lg in @theme) stays the same box-shadow shape;
+       only the tint changes here. It was inheriting --shadow-color's light-mode value (ink rgb
+       36 26 18) unmodified, i.e. a shadow color nearly identical to the surface it's cast on —
+       functionally invisible. True black at the same low alpha at least reads at the edges of
+       modals/drawers; border + card-lift above carry resting cards, which never relied on shadow
+       alone even in light mode. */
+    --shadow-color: 0 0 0;
 
     --brand: #d8b48c; /* lightened for dark-canvas legibility; still reads as "brand", not ink */
     --brand-foreground: #1c140f;
@@ -233,7 +250,7 @@
 
     --sidebar: #201810;
     --sidebar-foreground: #f0e6d2;
-    --sidebar-border: #3a2e24;
+    --sidebar-border: #453726; /* matches --border — same fix, same reason */
   }
 }
 
@@ -243,9 +260,9 @@
   --background: #1c140f;
   --foreground: #f0e6d2;
 
-  --card: #261c15;
+  --card: #2f251c;
   --card-foreground: #f0e6d2;
-  --popover: #261c15;
+  --popover: #2f251c;
   --popover-foreground: #f0e6d2;
 
   --primary: #e8d9bc;
@@ -265,9 +282,10 @@
   --destructive: #e38268;
   --destructive-foreground: #1c140f;
 
-  --border: #3a2e24;
+  --border: #453726;
   --input: #4a3b2c;
   --ring: #e8d9bc;
+  --shadow-color: 0 0 0;
 
   --brand: #d8b48c;
   --brand-foreground: #1c140f;
@@ -281,13 +299,25 @@
 
   --sidebar: #201810;
   --sidebar-foreground: #f0e6d2;
-  --sidebar-border: #3a2e24;
+  --sidebar-border: #453726;
 }
 
 body {
   background-color: var(--background);
   color: var(--foreground);
   font-family: var(--font-sans);
+}
+
+/* Tailwind registers --tw-ring-offset-color via `@property` with `inherits: false` (its Preflight
+   layer resets it to opaque white on every element), so a plain `:root` override is never seen —
+   `inherits: false` means only a rule matching the element itself counts, ancestor values are
+   ignored entirely. This unlayered `*` rule matches every element directly and, being unlayered,
+   outranks Preflight's `@layer base` reset regardless of source order. Without it, ring-offset-2
+   (used on every focusable control — button, input, select, switch) renders a stark opaque-white
+   2px halo under the real focus ring once --background goes dark; tying it to --background keeps
+   it correct in both modes from one declaration. */
+* {
+  --tw-ring-offset-color: var(--background);
 }
 
 /*
