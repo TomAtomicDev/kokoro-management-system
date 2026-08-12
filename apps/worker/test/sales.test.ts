@@ -1547,3 +1547,60 @@ describe("property: sale total = Σ round(qty × unit_price_mc) and on-hand nets
     );
   });
 });
+
+describe("payment method/account pairing (A-12)", () => {
+  it("rejects CASH routed to a BANK account before recording a sale", async () => {
+    const db = createDb(env.DB);
+    const item = await seedStockedFinishedItem(db, "Pairing — sale", 1000, 4000);
+
+    await expect(
+      recordSale(
+        db,
+        {
+          paymentStatus: "PAID",
+          paymentMethod: "CASH",
+          accountId: "acc_bank",
+          occurredAt: NOW,
+          businessDate: BUSINESS_DATE,
+          lines: [{ itemId: item.id, qty: 100, unitPriceMc: 2_000_000 }],
+        },
+        ACTOR,
+      ),
+    ).rejects.toMatchObject({
+      code: "VALIDATION",
+      message_es: expect.stringContaining("método de pago"),
+    });
+  });
+
+  it("rejects CASH routed to a BANK account when collecting a receivable", async () => {
+    const db = createDb(env.DB);
+    const item = await seedStockedFinishedItem(db, "Pairing — collection", 1000, 4000);
+    const sale = await recordSale(
+      db,
+      {
+        paymentStatus: "ON_CREDIT",
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        lines: [{ itemId: item.id, qty: 100, unitPriceMc: 2_000_000 }],
+      },
+      ACTOR,
+    );
+
+    await expect(
+      collectPayment(
+        db,
+        sale.sale.id,
+        {
+          occurredAt: NOW,
+          businessDate: BUSINESS_DATE,
+          paymentMethod: "CASH",
+          accountId: "acc_bank",
+        },
+        ACTOR,
+      ),
+    ).rejects.toMatchObject({
+      code: "VALIDATION",
+      message_es: expect.stringContaining("método de pago"),
+    });
+  });
+});

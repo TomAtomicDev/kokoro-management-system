@@ -48,10 +48,16 @@ export const sessionsLabels = {
   durationHint: "Completa el inicio y fin, o directamente la duración en minutos.",
 
   costLinesTitle: "Costos compartidos",
+  tooltipCostLinesTitle:
+    "Son costos indirectos o compartidos de la sesión, como gas o alquiler, que se distribuyen entre sus eventos y no están ligados a un ítem específico.",
   costLineLabel: "Etiqueta",
   costLineLabelPlaceholder: "Ej. transporte, alquiler de local",
+  costLineLabelPlaceholderPurchaseTrip: "Combustible o Transporte",
+  costLineLabelPlaceholderProduction: "Energía eléctrica Horno",
   costLineAmount: "Monto (Bs)",
   costLineEstimate: "Estimación",
+  tooltipCostLineEstimate:
+    "Al marcar un costo como estimación, este no mueve el efectivo: las estimaciones nunca afectan la caja.",
   costLineAccount: "Cuenta",
   addLine: "Agregar costo",
   removeLine: "Quitar costo",

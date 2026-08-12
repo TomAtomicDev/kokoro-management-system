@@ -138,7 +138,7 @@ export const onboardingLabels = {
     "Será tu inventario inicial; si no coincide, tus reportes de stock arrancarán mal.",
   countGuidanceWhere: "Después puedes ajustarlo con conteos regulares desde Inventario.",
   countColumnItem: "Ítem",
-  countColumnCounted: "Contado",
+  countColumnCounted: "Stock inicial",
   countColumnUnitCost: "Costo unitario",
   countUnitCostRequired: "Indica un costo unitario mayor que cero para valorar este stock inicial.",
   countUnitCostInvalid: "Ingresa un costo unitario válido.",
@@ -162,5 +162,4 @@ export const onboardingLabels = {
   alreadySaved: "Ya guardado",
   savedBalancesBody: "Estos saldos ya fueron guardados y no se pueden volver a enviar desde aquí.",
   savedCatalogBody: "Estos ítems ya están guardados. Puedes editarlos o agregar nuevos desde aquí.",
-  goToSettings: "Ir a Configuración",
 } as const;

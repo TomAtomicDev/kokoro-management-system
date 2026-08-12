@@ -12,6 +12,7 @@ import type { PaymentMethod, PaymentStatus } from "@kokoro/shared";
 export const salesLabels = {
   title: "Ventas",
   subtitle: "Registra ventas del catálogo, al contado o por cobrar.",
+  orderClarification: "Para un pedido no necesitas registrar una venta, usa Entregar pedido.",
   actionRecord: "Nueva venta",
 
   columnDate: "Fecha",
@@ -48,14 +49,14 @@ export const salesLabels = {
 
   recordTitle: "Nueva venta",
   fieldPaymentStatus: "Estado de pago",
-  fieldPaymentMethod: "Método de pago",
   fieldAccount: "Cuenta",
+  fieldPaymentAccount: "Cuenta y método de pago",
   fieldCustomer: "Cliente",
   fieldDate: "Fecha",
   fieldNotes: "Notas",
   notesPlaceholder: "Opcional",
 
-  productLinesTitle: "Productos",
+  productLinesTitle: "Artículos vendidos",
   packagingLinesTitle: "Empaque",
   lineItem: "Ítem",
   lineQty: "Cantidad",

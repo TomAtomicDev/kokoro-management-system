@@ -11,14 +11,15 @@ import {
   nowIso,
   PAYMENT_METHODS,
   type PaymentMethod,
+  paymentMethodForAccountType,
   toBusinessDate,
   toCentavos,
 } from "@kokoro/shared";
 import { useEffect, useState } from "react";
 
+import { PaymentAccountSelect } from "@/components/common/PaymentAccountSelect";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
-import { Select } from "@/components/ui/select";
 import { useCollectPayment } from "@/features/sales/api";
 import { ApiError } from "@/lib/api";
 import { salesLabels } from "@/lib/i18n-sales";
@@ -48,8 +49,13 @@ export function CollectPaymentDialog({
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset-on-open precedent, see above.
   useEffect(() => {
     if (open) {
-      setPaymentMethod(PAYMENT_METHODS[0] as PaymentMethod);
-      setAccountId(accounts[0]?.id ?? "");
+      const firstAccount = accounts[0];
+      setPaymentMethod(
+        firstAccount
+          ? paymentMethodForAccountType(firstAccount.type)
+          : (PAYMENT_METHODS[0] as PaymentMethod),
+      );
+      setAccountId(firstAccount?.id ?? "");
       setError(null);
     }
   }, [open]);
@@ -92,42 +98,18 @@ export function CollectPaymentDialog({
           </span>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <div className="flex flex-col gap-1.5">
-            <label className="font-medium text-foreground" htmlFor="cp-method">
-              {salesLabels.fieldPaymentMethod}
-            </label>
-            <Select
-              id="cp-method"
-              value={paymentMethod}
-              onChange={(e) => setPaymentMethod(e.target.value as PaymentMethod)}
-              disabled={disabled}
-            >
-              {PAYMENT_METHODS.map((method) => (
-                <option key={method} value={method}>
-                  {salesLabels.paymentMethodLabels[method]}
-                </option>
-              ))}
-            </Select>
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <label className="font-medium text-foreground" htmlFor="cp-account">
-              {salesLabels.fieldAccount}
-            </label>
-            <Select
-              id="cp-account"
-              value={accountId}
-              onChange={(e) => setAccountId(e.target.value)}
-              disabled={disabled}
-            >
-              {accounts.map((account) => (
-                <option key={account.id} value={account.id}>
-                  {account.name}
-                </option>
-              ))}
-            </Select>
-          </div>
-        </div>
+        <PaymentAccountSelect
+          id="cp-payment-account"
+          accounts={accounts}
+          accountId={accountId}
+          label={salesLabels.fieldPaymentAccount}
+          paymentMethodLabels={salesLabels.paymentMethodLabels}
+          onChange={({ accountId: nextAccountId, paymentMethod: nextPaymentMethod }) => {
+            setAccountId(nextAccountId);
+            setPaymentMethod(nextPaymentMethod);
+          }}
+          disabled={disabled}
+        />
 
         {error ? <p className="text-negative text-sm">{error}</p> : null}
       </div>

@@ -102,6 +102,7 @@ import { snapshotUnitCost } from "../costing/wac.js";
 import { conflict, notFound, validationError } from "../errors.js";
 import type { FinancialTransactionInput } from "../finance/accounts.js";
 import {
+  assertPaymentMethodMatchesAccountType,
   buildAccountBalanceDelta,
   buildReplaceTransactionsForSourceStatements,
   findActiveAccountRowOrThrow,
@@ -214,6 +215,7 @@ async function buildSaleCreateMovements(
   let account: FinancialAccountRow | null = null;
   if (command.paymentStatus === "PAID") {
     account = await findActiveAccountRowOrThrow(db, command.accountId);
+    assertPaymentMethodMatchesAccountType(command.paymentMethod, account);
   }
 
   const snapshotByItem = await resolveLineSnapshots(db, command);
@@ -737,7 +739,8 @@ async function buildSaleUpdateMutationInputs(
 
   // The destination account (PAID only) must be active — same precedent as recordSale.
   if (command.paymentStatus === "PAID") {
-    await findActiveAccountRowOrThrow(db, command.accountId);
+    const account = await findActiveAccountRowOrThrow(db, command.accountId);
+    assertPaymentMethodMatchesAccountType(command.paymentMethod, account);
   }
 
   const snapshotByItem = await resolveLineSnapshots(db, command);
@@ -1105,6 +1108,7 @@ export async function collectPayment(
   }
 
   const account = await findActiveAccountRowOrThrow(db, command.accountId);
+  assertPaymentMethodMatchesAccountType(command.paymentMethod, account);
 
   // KOK-033: what is actually OUTSTANDING, which is not always the sale's total. A CUSTOM_ORDER
   // sale created by `deliverOrder` (O-2) carries the FULL agreed total, but its deposit was already

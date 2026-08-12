@@ -73,6 +73,8 @@ export const inventoryLabels = {
   filterLowStockOnly: "Solo bajo stock",
   filterNegativeOnly: "Solo negativo",
   filterKindAll: "Todos los tipos",
+  dateRangeFrom: "Desde",
+  dateRangeTo: "Hasta",
 
   noStock: "No hay ítems que coincidan con el filtro.",
   loading: "Cargando…",
@@ -138,10 +140,10 @@ export const inventoryLabels = {
   exitsColumnValuedCost: "Costo valorado",
   noExits: "No hay salidas registradas.",
 
-  wasteSummaryTitle: "Costo invisible del mes",
-  wasteSummaryTotalLabel: "Total del mes",
+  wasteSummaryTitle: "Costo invisible del periodo",
+  wasteSummaryTotalLabel: "Total del periodo",
   wasteSummaryByReasonLabel: "Por motivo",
-  wasteSummaryEmpty: "Sin salidas este mes.",
+  wasteSummaryEmpty: "Sin salidas en este periodo.",
 
   // --- Conteos tab (KOK-019) --------------------------------------------------------------
 
@@ -167,7 +169,7 @@ export const inventoryLabels = {
   countDetailTitlePrefix: "Conteo",
   countColumnItem: "Ítem",
   countColumnExpected: "Esperado",
-  countColumnCounted: "Contado",
+  countColumnCounted: "Stock inicial",
   countColumnDelta: "Variación",
   noCountLines: "Este conteo no tiene ítems.",
 

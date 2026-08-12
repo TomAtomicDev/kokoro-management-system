@@ -34,7 +34,7 @@ export const purchasesLabels = {
   photoUploading: "Subiendo…",
   photoReady: "Foto lista ✓",
 
-  linesTitle: "Líneas de compra",
+  linesTitle: "Artículos comprados",
   lineItem: "Ítem",
   lineQty: "Cantidad",
   lineTotal: "Total de línea (Bs)",

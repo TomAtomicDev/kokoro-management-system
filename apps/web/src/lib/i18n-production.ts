@@ -33,7 +33,9 @@ export const productionLabels = {
   fieldBatches: "Tandas",
   fieldDate: "Fecha",
   fieldActualOutputQty: "Salida real",
-  fieldIndirectCost: "Costo indirecto (Bs)",
+  fieldIndirectCost: "Costo indirecto estimado (Bs)",
+  tooltipIndirectCost:
+    "Es un costo estimado: no genera ningún movimiento financiero y se usa únicamente para calcular el costo del producto.",
   fieldNotes: "Notas",
   notesPlaceholder: "Opcional",
 
@@ -43,6 +45,8 @@ export const productionLabels = {
   addLine: "Agregar insumo",
   removeLine: "Quitar insumo",
   lineContribution: "Aporte al costo",
+  lineStockSufficient: "Stock suficiente",
+  lineStockInsufficient: "Stock insuficiente",
   unitCostLabel: "Costo unitario",
 
   save: "Guardar",
@@ -52,7 +56,7 @@ export const productionLabels = {
   costPanelTitle: "Costo de la producción",
   costDirectLabel: "Costo directo",
   costDirectFormula: "Σ(cantidad consumida × costo promedio ponderado del insumo)",
-  costIndirectLabel: "Costo indirecto",
+  costIndirectLabel: "Costo indirecto estimado",
   costTotalLabel: "Costo total",
   costTotalFormula: "costo directo + costo indirecto",
   costUnitLabel: "Costo unitario",

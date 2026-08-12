@@ -1,7 +1,7 @@
 // View/edit drawer for a single item (Doc 06 Ã‚Â§4 DetailDrawer contract), plus the two things
 // unique to Catalog: the active toggle and alias chip management (Doc 07 SC-15).
 
-import { X } from "lucide-react";
+import { Pencil, X } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { DetailDrawer } from "@/components/data-table/DetailDrawer";
@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import { InfoTooltip } from "@/components/ui/tooltip";
 import {
   useAddItemAliasMutation,
   useItemQuery,
@@ -103,8 +104,13 @@ export function ItemDetailDrawer({ itemId, open, onOpenChange }: ItemDetailDrawe
     <DetailDrawer
       open={open}
       onOpenChange={onOpenChange}
-      title={item?.name ?? catalogLabels.editTitle}
-      subtitle={item ? catalogLabels.kindLabels[item.kind] : undefined}
+      title={catalogLabels.editTitle}
+      subtitle={item ? `${item.name} · ${catalogLabels.kindLabels[item.kind]}` : undefined}
+      headerAction={
+        <span aria-hidden="true">
+          <Pencil className="size-4" />
+        </span>
+      }
       entityType="item"
       entityId={item?.id}
       footer={
@@ -134,6 +140,7 @@ export function ItemDetailDrawer({ itemId, open, onOpenChange }: ItemDetailDrawe
             values={values}
             onChange={setValues}
             disabled={updateMutation.isPending}
+            isEditMode
             derived={{
               wacMc: item.wacMc,
               replacementCostMc: item.replacementCostMc,
@@ -146,9 +153,15 @@ export function ItemDetailDrawer({ itemId, open, onOpenChange }: ItemDetailDrawe
           </Button>
 
           <div className="flex flex-col gap-2 border-border border-t pt-4">
-            <span className="font-medium text-foreground text-sm">
-              {catalogLabels.fieldAliases}
-            </span>
+            <div className="flex items-center gap-1">
+              <span className="font-medium text-foreground text-sm">
+                {catalogLabels.fieldAliases}
+              </span>
+              <InfoTooltip
+                content={catalogLabels.tooltipFieldAliases}
+                label={`Más información: ${catalogLabels.fieldAliases}`}
+              />
+            </div>
             <div className="flex flex-wrap gap-1.5">
               {item.aliases.length === 0 ? (
                 <span className="text-muted-foreground text-sm">—</span>

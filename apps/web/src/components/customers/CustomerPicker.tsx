@@ -4,7 +4,7 @@
 // selection back to "no customer".
 
 import type { CustomerDto } from "@kokoro/shared";
-import { Plus, X } from "lucide-react";
+import { Pencil, Plus, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { Input } from "@/components/ui/input";
@@ -12,6 +12,7 @@ import { useCustomerQuery, useCustomersQuery } from "@/features/customers/api";
 import { customersLabels } from "@/lib/i18n-customers";
 
 import { CreateCustomerDialog } from "./CreateCustomerDialog";
+import { EditCustomerDialog } from "./EditCustomerDialog";
 
 export interface CustomerPickerProps {
   value: string | null;
@@ -32,10 +33,12 @@ export function CustomerPicker({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
   const selectedCustomerQuery = useCustomerQuery(value ?? undefined);
   const searchQuery = useCustomersQuery({ search: query.trim() || undefined });
+  const selectedCustomer = selectedCustomerQuery.data ?? null;
 
   useEffect(() => {
     if (!open) return;
@@ -115,14 +118,30 @@ export function CustomerPicker({
       </div>
 
       {value !== null && !disabled ? (
-        <button
-          type="button"
-          className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-          title={customersLabels.customerPickerNone}
-          onClick={() => onChange(null, null)}
-        >
-          <X className="size-4" />
-        </button>
+        <>
+          <button
+            type="button"
+            className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+            aria-label={customersLabels.customerPickerEdit}
+            title={customersLabels.customerPickerEdit}
+            disabled={!selectedCustomer}
+            onClick={() => {
+              setOpen(false);
+              setEditOpen(true);
+            }}
+          >
+            <Pencil className="size-4" />
+          </button>
+          <button
+            type="button"
+            className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+            aria-label={customersLabels.customerPickerNone}
+            title={customersLabels.customerPickerNone}
+            onClick={() => onChange(null, null)}
+          >
+            <X className="size-4" />
+          </button>
+        </>
       ) : null}
 
       {allowCreate ? (
@@ -133,6 +152,8 @@ export function CustomerPicker({
           onCreated={selectCustomer}
         />
       ) : null}
+
+      <EditCustomerDialog open={editOpen} onOpenChange={setEditOpen} customer={selectedCustomer} />
     </div>
   );
 }

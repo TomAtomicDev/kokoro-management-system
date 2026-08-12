@@ -14,9 +14,9 @@
 // hand-written DTOs).
 
 import { z } from "zod";
-
 import type { InventoryCountStatus } from "./enums.js";
 import { inventoryCountStatusSchema, itemCategorySchema, itemKindSchema } from "./enums.js";
+import { safeText } from "./text.js";
 
 /** `YYYY-MM-DD`, America/La_Paz local calendar date (Doc 04 §1, INV-3). */
 const businessDateSchema = z
@@ -39,7 +39,7 @@ const countedQtySchema = z
 export const startCountCommandSchema = z.object({
   kind: itemKindSchema.optional(),
   category: itemCategorySchema.optional(),
-  notes: z.string().trim().max(2000).optional(),
+  notes: z.string().trim().pipe(safeText(2000)).optional(),
   occurredAt: occurredAtSchema,
   businessDate: businessDateSchema,
 });

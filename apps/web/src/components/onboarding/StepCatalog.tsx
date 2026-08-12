@@ -15,7 +15,6 @@ import {
   UNITS,
   type Unit,
 } from "@kokoro/shared";
-import { Link } from "@tanstack/react-router";
 import { ChevronRight } from "lucide-react";
 import { useState } from "react";
 
@@ -28,7 +27,7 @@ import {
   parseItemFormValues,
 } from "@/components/catalog/ItemForm";
 import { StepGuidance } from "@/components/onboarding/StepGuidance";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
@@ -92,7 +91,7 @@ const FIXTURE_ITEMS: FixtureItem[] = [
     salePrice: null,
     minStockQty: 0,
     isUnmetered: true,
-    replacementCostMc: toMilliCentavosPerUnit(500),
+    replacementCostMc: toMilliCentavosPerUnit(231),
   },
   {
     name: "Sal",
@@ -107,7 +106,7 @@ const FIXTURE_ITEMS: FixtureItem[] = [
     kind: "FINISHED",
     category: "BAKERY",
     unit: "UNIT",
-    salePrice: 1500,
+    salePrice: null,
     minStockQty: null,
   },
   {
@@ -131,7 +130,7 @@ const FIXTURE_ITEMS: FixtureItem[] = [
     kind: "FINISHED",
     category: "BAKERY",
     unit: "UNIT",
-    salePrice: 2500,
+    salePrice: null,
     minStockQty: null,
   },
   {
@@ -139,7 +138,7 @@ const FIXTURE_ITEMS: FixtureItem[] = [
     kind: "FINISHED",
     category: "BAKERY",
     unit: "UNIT",
-    salePrice: 1800,
+    salePrice: null,
     minStockQty: null,
   },
   {
@@ -147,7 +146,7 @@ const FIXTURE_ITEMS: FixtureItem[] = [
     kind: "FINISHED",
     category: "BAKERY",
     unit: "UNIT",
-    salePrice: 1200,
+    salePrice: null,
     minStockQty: null,
   },
   {
@@ -155,7 +154,7 @@ const FIXTURE_ITEMS: FixtureItem[] = [
     kind: "FINISHED",
     category: "DAIRY",
     unit: "UNIT",
-    salePrice: 3000,
+    salePrice: null,
     minStockQty: null,
   },
   {
@@ -163,7 +162,7 @@ const FIXTURE_ITEMS: FixtureItem[] = [
     kind: "FINISHED",
     category: "DAIRY",
     unit: "L",
-    salePrice: 4500000,
+    salePrice: null,
     minStockQty: null,
   },
   {
@@ -299,9 +298,6 @@ export function StepCatalog({ onDone, onSkip, readOnly = false }: StepCatalogPro
           )}
         </div>
         <div className="flex flex-wrap gap-2">
-          <Link to="/settings" className={buttonVariants({ variant: "outline" })}>
-            {onboardingLabels.goToSettings}
-          </Link>
           <Button type="button" onClick={onDone}>
             {onboardingLabels.continueButton}
           </Button>
@@ -380,6 +376,17 @@ export function StepCatalog({ onDone, onSkip, readOnly = false }: StepCatalogPro
         });
         return;
       }
+      if (
+        parsed.value.kind === "FINISHED" &&
+        (parsed.value.salePriceMc === null || parsed.value.salePriceMc <= 0)
+      ) {
+        setRowError({
+          rowId: row.id,
+          field: "salePrice",
+          message: onboardingLabels.errors.salePriceRequired,
+        });
+        return;
+      }
       parsedItems.push(parsed.value);
     }
 
@@ -396,6 +403,9 @@ export function StepCatalog({ onDone, onSkip, readOnly = false }: StepCatalogPro
       <div>
         <h2 className="font-medium text-foreground text-lg">{onboardingLabels.catalogTitle}</h2>
         <p className="text-muted-foreground text-sm">{onboardingLabels.catalogBody}</p>
+        <p id="catalog-cost-rate-help" className="text-muted-foreground text-xs">
+          {onboardingLabels.costRateHelp}
+        </p>
       </div>
 
       <StepGuidance
@@ -406,7 +416,7 @@ export function StepCatalog({ onDone, onSkip, readOnly = false }: StepCatalogPro
 
       <div className="rounded-lg border border-border md:overflow-x-auto">
         <div className="md:min-w-[860px]">
-          <div className="grid grid-cols-[2fr_1.2fr_1.2fr_0.8fr_1fr_1fr_1fr_1fr_4rem] gap-2 border-b border-border bg-card px-3 py-2 text-xs font-medium text-muted-foreground max-md:hidden">
+          <div className="sticky top-0 z-10 grid grid-cols-[2fr_1.2fr_1.2fr_0.8fr_1fr_1fr_1fr_1fr_4rem] gap-2 border-b border-border bg-card px-3 py-2 text-xs font-medium text-muted-foreground max-md:hidden">
             <span>{onboardingLabels.columnName}</span>
             <span>{onboardingLabels.columnKind}</span>
             <span>{onboardingLabels.columnCategory}</span>
@@ -566,14 +576,8 @@ export function StepCatalog({ onDone, onSkip, readOnly = false }: StepCatalogPro
                     value={row.replacementCostMc}
                     onChange={(e) => updateRow(row.id, "replacementCostMc", e.target.value)}
                     disabled={disabled}
-                    aria-describedby={`catalog-${row.id}-replacement-cost-help`}
+                    aria-describedby="catalog-cost-rate-help"
                   />
-                  <span
-                    id={`catalog-${row.id}-replacement-cost-help`}
-                    className="text-muted-foreground text-xs"
-                  >
-                    {onboardingLabels.costRateHelp}
-                  </span>
                 </label>
               ) : (
                 <span aria-hidden="true" className="hidden md:block" />

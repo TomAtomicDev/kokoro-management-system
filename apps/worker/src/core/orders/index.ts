@@ -101,7 +101,11 @@ import { buildAuditLogInsert } from "../audit.js";
 import { planCostingReplay } from "../costing/replay.js";
 import { snapshotUnitCost } from "../costing/wac.js";
 import { conflict, notFound, validationError } from "../errors.js";
-import { buildAccountBalanceDelta, findActiveAccountRowOrThrow } from "../finance/accounts.js";
+import {
+  assertPaymentMethodMatchesAccountType,
+  buildAccountBalanceDelta,
+  findActiveAccountRowOrThrow,
+} from "../finance/accounts.js";
 import { toAccountDto } from "../finance/dto.js";
 import { buildStockMovementStatements } from "../inventory/movements.js";
 import type { StockMovementInput } from "../inventory/types.js";
@@ -462,6 +466,7 @@ export async function confirmOrder(
   }
 
   const account = await findActiveAccountRowOrThrow(db, command.accountId);
+  assertPaymentMethodMatchesAccountType(command.paymentMethod, account);
 
   const depositRequired =
     command.depositRequired ??
@@ -756,8 +761,15 @@ export async function deliverOrder(
   const plan = await buildDeliveryPlan(db, id, command);
 
   let account = null;
-  if (plan.balanceAccountId !== null) {
-    account = await findActiveAccountRowOrThrow(db, plan.balanceAccountId);
+  if (command.balancePaymentStatus === "PAID") {
+    // The PAID branch always carries a destination, even when the deposit covers the full
+    // balance. Validate that destination consistently; only a positive balance returns an account
+    // whose balance changed.
+    const resolvedAccount = await findActiveAccountRowOrThrow(db, command.accountId);
+    assertPaymentMethodMatchesAccountType(command.paymentMethod, resolvedAccount);
+    if (plan.balanceAccountId !== null) {
+      account = resolvedAccount;
+    }
   }
 
   // INV-11 / R-2 ordering guard, identical to recordSale's: a delivery writes SALE_OUT movements,
@@ -1103,8 +1115,10 @@ export async function listOrders(
       const clauses = [isNull(t.deletedAt)];
       if (filters.status !== undefined) clauses.push(eqOp(t.status, filters.status));
       if (filters.customerId !== undefined) clauses.push(eqOp(t.customerId, filters.customerId));
-      if (filters.fromDate !== undefined) clauses.push(gte(t.deliveryDate, filters.fromDate));
-      if (filters.toDate !== undefined) clauses.push(lte(t.deliveryDate, filters.toDate));
+      if (filters.fromDate !== undefined)
+        clauses.push(gte(t.createdAt, `${filters.fromDate}T00:00:00.000Z`));
+      if (filters.toDate !== undefined)
+        clauses.push(lte(t.createdAt, `${filters.toDate}T23:59:59.999Z`));
       return and(...clauses);
     },
     orderBy: (t, { asc, sql: sqlOp }) => [sqlOp`${t.deliveryDate} IS NULL`, asc(t.deliveryDate)],

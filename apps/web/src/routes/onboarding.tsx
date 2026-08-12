@@ -118,20 +118,19 @@ export function OnboardingRoute() {
         onStepClick={goToStep}
       />
 
-      <div className="rounded-lg border border-border bg-card p-5">
+      <div className="relative rounded-lg border border-border bg-card p-5">
         {currentStep > 1 ? (
-          <div className="mb-4">
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              onClick={() => goToStep(currentStep - 1)}
-              aria-label={onboardingLabels.backButton}
-              title={onboardingLabels.backButton}
-            >
-              <ChevronLeft />
-            </Button>
-          </div>
+          <Button
+            className="absolute bottom-5 left-5"
+            type="button"
+            variant="outline"
+            size="icon"
+            onClick={() => goToStep(currentStep - 1)}
+            aria-label={onboardingLabels.backButton}
+            title={onboardingLabels.backButton}
+          >
+            <ChevronLeft />
+          </Button>
         ) : null}
         {currentStep === 1 ? (
           <StepPassword onContinue={() => goToStep(2)} />

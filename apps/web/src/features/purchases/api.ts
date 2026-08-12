@@ -23,7 +23,7 @@ import type {
 } from "@kokoro/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { ApiError, api } from "@/lib/api";
+import { ApiError, api, asNetworkApiError } from "@/lib/api";
 
 const PURCHASES_ROOT_KEY = ["purchases"] as const;
 
@@ -150,12 +150,19 @@ export async function uploadPurchasePhoto(file: File): Promise<UploadPurchasePho
   const ext = dotIndex >= 0 ? file.name.slice(dotIndex + 1) : undefined;
   const query = ext ? `?ext=${encodeURIComponent(ext)}` : "";
 
-  const response = await fetch(`/api/purchases/photos${query}`, {
-    method: "POST",
-    headers,
-    body: file,
-    credentials: "include",
-  });
+  let response: Response;
+  try {
+    response = await fetch(`/api/purchases/photos${query}`, {
+      method: "POST",
+      headers,
+      body: file,
+      credentials: "include",
+    });
+  } catch (error) {
+    const networkError = asNetworkApiError(error);
+    if (networkError) throw networkError;
+    throw error;
+  }
   const body = (await response.json().catch(() => null)) as
     | UploadPurchasePhotoResult
     | { code?: string; message_es?: string; details?: unknown }

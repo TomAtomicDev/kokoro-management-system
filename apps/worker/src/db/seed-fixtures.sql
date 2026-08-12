@@ -19,7 +19,7 @@ INSERT INTO items (id, name, kind, category, unit, wac_mc, replacement_cost_mc, 
   ('item_cunapes',       'Cuñapés',                'FINISHED',      'BAKERY',     'UNIT', 0, 0, 1200000, 5000,   0, 1, NULL, '2026-07-01T08:00:00.000Z', '2026-07-01T08:00:00.000Z'),
   ('item_queso_kefir',   'Queso crema de kéfir',   'FINISHED',      'DAIRY',      'UNIT', 0, 0, 3000000, 3000,   0, 1, NULL, '2026-07-01T08:00:00.000Z', '2026-07-01T08:00:00.000Z'),
   ('item_ghee',          'Ghee',                   'FINISHED',      'DAIRY',      'L',    0, 0, 4500000000, 3,  0, 1, NULL, '2026-07-01T08:00:00.000Z', '2026-07-01T08:00:00.000Z'),
-  ('item_agua',          'Agua',                   'RAW_MATERIAL',  'INGREDIENT', 'L',    0, 500, NULL, 0,        1, 1, NULL, '2026-07-01T08:00:00.000Z', '2026-07-01T08:00:00.000Z'),
+  ('item_agua',          'Agua',                   'RAW_MATERIAL',  'INGREDIENT', 'L',    0, 231, NULL, 0,        1, 1, NULL, '2026-07-01T08:00:00.000Z', '2026-07-01T08:00:00.000Z'),
   ('item_cajas',         'Cajas',                  'PACKAGING',     'NOT_EATABLE','UNIT', 2500000, 2500000, NULL, 20000,  0, 1, NULL, '2026-07-01T08:00:00.000Z', '2026-07-01T08:00:00.000Z'),
   ('item_etiquetas',     'Etiquetas',              'PACKAGING',     'NOT_EATABLE','UNIT', 500000, 500000, NULL, 50000,   0, 1, NULL, '2026-07-01T08:00:00.000Z', '2026-07-01T08:00:00.000Z');
 

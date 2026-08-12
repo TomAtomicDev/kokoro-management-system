@@ -102,6 +102,29 @@ export const FINANCIAL_ACCOUNT_TYPES = ["BANK", "CASH"] as const;
 export type FinancialAccountType = (typeof FINANCIAL_ACCOUNT_TYPES)[number];
 export const financialAccountTypeSchema = z.enum(FINANCIAL_ACCOUNT_TYPES);
 
+/** The only valid account for each payment method (Doc 03 A-12). */
+export const PAYMENT_METHOD_ACCOUNT_TYPES: Readonly<Record<PaymentMethod, FinancialAccountType>> = {
+  CASH: "CASH",
+  BANK_QR: "BANK",
+};
+
+export function isPaymentMethodAccountTypePair(
+  paymentMethod: PaymentMethod,
+  accountType: FinancialAccountType,
+): boolean {
+  return PAYMENT_METHOD_ACCOUNT_TYPES[paymentMethod] === accountType;
+}
+
+export function paymentMethodForAccountType(accountType: FinancialAccountType): PaymentMethod {
+  const paymentMethod = PAYMENT_METHODS.find(
+    (method) => PAYMENT_METHOD_ACCOUNT_TYPES[method] === accountType,
+  );
+  if (!paymentMethod) {
+    throw new Error(`No hay un método de pago para el tipo de cuenta ${accountType}.`);
+  }
+  return paymentMethod;
+}
+
 // --- financial_transactions ---------------------------------------------
 export const FINANCIAL_TRANSACTION_TYPES = [
   "INCOME",

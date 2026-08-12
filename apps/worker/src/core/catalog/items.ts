@@ -234,7 +234,16 @@ export async function listItems(db: Db, filters: ListItemsFilters): Promise<List
       }
       return conditions.length > 0 ? and(...conditions) : undefined;
     },
-    orderBy: (t, { asc }) => asc(t.name),
+    orderBy: (t, { asc, sql: sqlOp }) => [
+      sqlOp`CASE ${t.kind}
+        WHEN 'RAW_MATERIAL' THEN 0
+        WHEN 'SEMI_FINISHED' THEN 1
+        WHEN 'FINISHED' THEN 2
+        WHEN 'PACKAGING' THEN 3
+        ELSE 4
+      END`,
+      asc(t.name),
+    ],
   });
 
   const aliasesByItem = await fetchAliasesForItems(

@@ -189,6 +189,7 @@
 /* System dark-mode preference, unless explicitly overridden by a `.light` class on <html>. */
 @media (prefers-color-scheme: dark) {
   :root:not(.light) {
+    color-scheme: light dark;
     --background: #1c140f; /* warm espresso canvas — never cold charcoal */
     --foreground: #f0e6d2;
 
@@ -257,6 +258,7 @@
 /* Explicit dark-mode toggle (settings switch adds/removes this class on <html>) — takes
    precedence over system preference either way. Mirrors the media-query block above. */
 .dark {
+  color-scheme: dark;
   --background: #1c140f;
   --foreground: #f0e6d2;
 

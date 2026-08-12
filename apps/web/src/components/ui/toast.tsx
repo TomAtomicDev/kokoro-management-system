@@ -50,6 +50,13 @@ export interface ToastContextValue {
 }
 
 const ToastContext = createContext<ToastContextValue | null>(null);
+type ToastListener = (options: ShowToastOptions) => void;
+const globalToastListeners = new Set<ToastListener>();
+
+/** Publishes a toast from non-React infrastructure such as the shared API client. */
+export function showGlobalToast(options: ShowToastOptions): void {
+  for (const listener of globalToastListeners) listener(options);
+}
 
 const DEFAULT_DURATION_MS = 5000;
 /** Doc 06 UX principle 6's "10 s 'Deshacer' toast" window. */
@@ -94,6 +101,13 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     },
     [show],
   );
+
+  useEffect(() => {
+    globalToastListeners.add(show);
+    return () => {
+      globalToastListeners.delete(show);
+    };
+  }, [show]);
 
   const value = useMemo(() => ({ show, showUndo }), [show, showUndo]);
 
