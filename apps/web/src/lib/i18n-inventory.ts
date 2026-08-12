@@ -54,6 +54,8 @@ export const inventoryLabels = {
     SALE_OUT: "Venta",
     EXIT_OUT: "Salida",
     ADJUST: "Ajuste",
+    ASSEMBLY_IN: "Envasado/Armado (entrada)",
+    ASSEMBLY_OUT: "Envasado/Armado (consumo)",
   } satisfies Record<StockMovementType, string>,
 
   // Stock table columns.
@@ -123,6 +125,12 @@ export const inventoryLabels = {
   fieldDate: "Fecha",
   fieldNotes: "Notas",
   notesPlaceholder: "Opcional",
+  packagingLinesTitle: "Empaque adicional",
+  packagingLinesDescription: "Agrégalo solo si este ítem sale sin una presentación ya armada.",
+  packagingLineItem: "Ítem de empaque",
+  packagingLineQty: "Cantidad",
+  addPackagingLine: "Agregar empaque",
+  removePackagingLine: "Quitar empaque",
 
   submitExit: "Registrar salida",
   cancel: "Cancelar",
@@ -130,6 +138,7 @@ export const inventoryLabels = {
   errors: {
     itemRequired: "Selecciona un ítem.",
     invalidQty: "La cantidad debe ser un número mayor a 0.",
+    invalidPackagingLine: "Completa cada línea de empaque con un ítem y una cantidad mayor a 0.",
     generic: "Ocurrió un error inesperado. Intenta de nuevo.",
   },
 

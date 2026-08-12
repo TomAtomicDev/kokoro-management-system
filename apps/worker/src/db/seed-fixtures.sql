@@ -19,9 +19,15 @@ INSERT INTO items (id, name, kind, category, unit, wac_mc, replacement_cost_mc, 
   ('item_cunapes',       'Cuñapés',                'FINISHED',      'BAKERY',     'UNIT', 0, 0, 1200000, 5000,   0, 1, NULL, '2026-07-01T08:00:00.000Z', '2026-07-01T08:00:00.000Z'),
   ('item_queso_kefir',   'Queso crema de kéfir',   'FINISHED',      'DAIRY',      'UNIT', 0, 0, 3000000, 3000,   0, 1, NULL, '2026-07-01T08:00:00.000Z', '2026-07-01T08:00:00.000Z'),
   ('item_ghee',          'Ghee',                   'FINISHED',      'DAIRY',      'L',    0, 0, 4500000000, 3,  0, 1, NULL, '2026-07-01T08:00:00.000Z', '2026-07-01T08:00:00.000Z'),
+  ('item_kefir_granel',  'Kéfir natural a granel', 'FINISHED',      'DAIRY',      'L',    8000000, 8000000, NULL, 3000, 0, 1, NULL, '2026-07-01T08:00:00.000Z', '2026-07-01T08:00:00.000Z'),
+  ('item_kefir_500ml',   'Kéfir natural 500 ml',   'FINISHED',      'DAIRY',      'UNIT', 0, 0, 1000000, 5000, 0, 1, NULL, '2026-07-01T08:00:00.000Z', '2026-07-01T08:00:00.000Z'),
+  ('item_kefir_1l',      'Kéfir natural 1 L',      'FINISHED',      'DAIRY',      'UNIT', 0, 0, 1800000, 3000, 0, 1, NULL, '2026-07-01T08:00:00.000Z', '2026-07-01T08:00:00.000Z'),
+  ('item_desayuno_kokoro','Desayuno Kokoro',       'FINISHED',      'OTHER',      'UNIT', 0, 0, 6000000, 1000, 0, 1, NULL, '2026-07-01T08:00:00.000Z', '2026-07-01T08:00:00.000Z'),
   ('item_agua',          'Agua',                   'RAW_MATERIAL',  'INGREDIENT', 'L',    0, 231, NULL, 0,        1, 1, NULL, '2026-07-01T08:00:00.000Z', '2026-07-01T08:00:00.000Z'),
   ('item_cajas',         'Cajas',                  'PACKAGING',     'NOT_EATABLE','UNIT', 2500000, 2500000, NULL, 20000,  0, 1, NULL, '2026-07-01T08:00:00.000Z', '2026-07-01T08:00:00.000Z'),
-  ('item_etiquetas',     'Etiquetas',              'PACKAGING',     'NOT_EATABLE','UNIT', 500000, 500000, NULL, 50000,   0, 1, NULL, '2026-07-01T08:00:00.000Z', '2026-07-01T08:00:00.000Z');
+  ('item_etiquetas',     'Etiquetas',              'PACKAGING',     'NOT_EATABLE','UNIT', 500000, 500000, NULL, 50000,   0, 1, NULL, '2026-07-01T08:00:00.000Z', '2026-07-01T08:00:00.000Z'),
+  ('item_botella_kefir_500', 'Botella de kéfir 500 ml', 'PACKAGING', 'NOT_EATABLE', 'UNIT', 120000, 120000, NULL, 500, 0, 1, NULL, '2026-07-01T08:00:00.000Z', '2026-07-01T08:00:00.000Z'),
+  ('item_botella_kefir_1l',  'Botella de kéfir 1 L',    'PACKAGING', 'NOT_EATABLE', 'UNIT', 180000, 180000, NULL, 300, 0, 1, NULL, '2026-07-01T08:00:00.000Z', '2026-07-01T08:00:00.000Z');
 
 INSERT INTO item_aliases (id, item_id, alias) VALUES
   ('alias_harina_flour',  'item_harina', 'flour'),
@@ -47,3 +53,21 @@ INSERT INTO recipe_lines (id, recipe_id, item_id, qty) VALUES
   ('rl_cunapes_leche', 'recipe_cunapes',        'item_leche',       1000),
   ('rl_queso_kefir',   'recipe_queso_kefir',    'item_kefir',       4000),
   ('rl_ghee_leche',    'recipe_ghee',           'item_leche',       3000);
+
+INSERT INTO assembly_definitions (id, name, output_item_id, output_qty, is_default, is_active, notes, created_at, updated_at) VALUES
+  ('assembly_def_kefir_500ml',       'Kéfir natural 500 ml', 'item_kefir_500ml',       10000, 1, 1, NULL, '2026-07-01T08:00:00.000Z', '2026-07-01T08:00:00.000Z'),
+  ('assembly_def_kefir_1l',          'Kéfir natural 1 L',    'item_kefir_1l',           5000, 1, 1, NULL, '2026-07-01T08:00:00.000Z', '2026-07-01T08:00:00.000Z'),
+  ('assembly_def_desayuno_kokoro',   'Desayuno Kokoro',      'item_desayuno_kokoro',    5000, 1, 1, NULL, '2026-07-01T08:00:00.000Z', '2026-07-01T08:00:00.000Z');
+
+INSERT INTO assembly_definition_lines (id, definition_id, item_id, qty) VALUES
+  ('adl_kefir_500_granel',     'assembly_def_kefir_500ml',     'item_kefir_granel',       5000),
+  ('adl_kefir_500_botella',   'assembly_def_kefir_500ml',     'item_botella_kefir_500', 10000),
+  ('adl_kefir_500_etiqueta',  'assembly_def_kefir_500ml',     'item_etiquetas',         10000),
+  ('adl_kefir_1l_granel',     'assembly_def_kefir_1l',        'item_kefir_granel',       5000),
+  ('adl_kefir_1l_botella',    'assembly_def_kefir_1l',        'item_botella_kefir_1l',   5000),
+  ('adl_kefir_1l_etiqueta',   'assembly_def_kefir_1l',        'item_etiquetas',          5000),
+  ('adl_desayuno_pan',        'assembly_def_desayuno_kokoro', 'item_pan_masa_madre',     5000),
+  ('adl_desayuno_ghee',       'assembly_def_desayuno_kokoro', 'item_ghee',                1000),
+  ('adl_desayuno_kefir',      'assembly_def_desayuno_kokoro', 'item_kefir_500ml',        5000),
+  ('adl_desayuno_caja',       'assembly_def_desayuno_kokoro', 'item_cajas',               5000),
+  ('adl_desayuno_etiqueta',   'assembly_def_desayuno_kokoro', 'item_etiquetas',           5000);

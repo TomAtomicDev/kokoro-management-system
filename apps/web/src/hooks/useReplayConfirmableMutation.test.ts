@@ -15,6 +15,7 @@ const impact: ReplayImpactDto = {
   affectedSaleLineIds: [],
   affectedStockExitIds: ["exit-1"],
   affectedProductionRunIds: [],
+  affectedAssemblyIds: [],
   affectedItemIds: ["item-1"],
   costDelta: -500,
   requiresConfirmation: true,

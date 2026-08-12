@@ -8,78 +8,192 @@
         "role": "primary",
         "displayName": "UI Ink",
         "canonical": "#241A12",
-        "tonalRamp": ["#1A130D", "#241A12", "#3A2A1C", "#5A4230", "#7C6248", "#A08462", "#C7AC85", "#E8D9BC"]
+        "tonalRamp": [
+          "#1A130D",
+          "#241A12",
+          "#3A2A1C",
+          "#5A4230",
+          "#7C6248",
+          "#A08462",
+          "#C7AC85",
+          "#E8D9BC"
+        ]
       },
       "brand-brown": {
         "role": "secondary",
         "displayName": "Brand Brown",
         "canonical": "#5A3B27",
-        "tonalRamp": ["#2E1D12", "#432A1B", "#5A3B27", "#7A5439", "#9C7455", "#BC9975", "#D8B48C", "#EEDCC4"]
+        "tonalRamp": [
+          "#2E1D12",
+          "#432A1B",
+          "#5A3B27",
+          "#7A5439",
+          "#9C7455",
+          "#BC9975",
+          "#D8B48C",
+          "#EEDCC4"
+        ]
       },
       "background": {
         "role": "neutral",
         "displayName": "Warm Cream",
         "canonical": "#FAF6EF",
-        "tonalRamp": ["#1C140F", "#3A2E24", "#6B5D4C", "#9C8D76", "#D9CCB3", "#E9E0D0", "#F4EEE3", "#FAF6EF"]
+        "tonalRamp": [
+          "#1C140F",
+          "#3A2E24",
+          "#6B5D4C",
+          "#9C8D76",
+          "#D9CCB3",
+          "#E9E0D0",
+          "#F4EEE3",
+          "#FAF6EF"
+        ]
       },
       "card": {
         "role": "neutral",
         "displayName": "Card White",
         "canonical": "#FFFFFF",
-        "tonalRamp": ["#1C140F", "#3A2E24", "#6B5D4C", "#9C8D76", "#D9CCB3", "#E9E0D0", "#F4EEE3", "#FFFFFF"]
+        "tonalRamp": [
+          "#1C140F",
+          "#3A2E24",
+          "#6B5D4C",
+          "#9C8D76",
+          "#D9CCB3",
+          "#E9E0D0",
+          "#F4EEE3",
+          "#FFFFFF"
+        ]
       },
       "sidebar": {
         "role": "neutral",
         "displayName": "Warm Sand",
         "canonical": "#F4EEE3",
-        "tonalRamp": ["#1C140F", "#332619", "#4A3B2C", "#6B5D4C", "#9C8D76", "#D9CCB3", "#E9E0D0", "#F4EEE3"]
+        "tonalRamp": [
+          "#1C140F",
+          "#332619",
+          "#4A3B2C",
+          "#6B5D4C",
+          "#9C8D76",
+          "#D9CCB3",
+          "#E9E0D0",
+          "#F4EEE3"
+        ]
       },
       "accent": {
         "role": "neutral",
         "displayName": "Toasted Wheat",
         "canonical": "#EFE6D3",
-        "tonalRamp": ["#1C140F", "#332619", "#4A3B2C", "#6B5D4C", "#9C8D76", "#D9CCB3", "#E9E0D0", "#EFE6D3"]
+        "tonalRamp": [
+          "#1C140F",
+          "#332619",
+          "#4A3B2C",
+          "#6B5D4C",
+          "#9C8D76",
+          "#D9CCB3",
+          "#E9E0D0",
+          "#EFE6D3"
+        ]
       },
       "matcha-green": {
         "role": "semantic-positive",
         "displayName": "Matcha Green",
         "canonical": "#3F7038",
-        "tonalRamp": ["#152510", "#20351A", "#2C4A25", "#3F7038", "#5C9450", "#86BD72", "#B4D9A6", "#E9F0E4"]
+        "tonalRamp": [
+          "#152510",
+          "#20351A",
+          "#2C4A25",
+          "#3F7038",
+          "#5C9450",
+          "#86BD72",
+          "#B4D9A6",
+          "#E9F0E4"
+        ]
       },
       "living-red": {
         "role": "semantic-negative",
         "displayName": "Living Red",
         "canonical": "#B33F2F",
-        "tonalRamp": ["#2A0F0A", "#3A211B", "#5E2E22", "#B33F2F", "#CB5E4B", "#E38268", "#F0AB98", "#FAEAE6"]
+        "tonalRamp": [
+          "#2A0F0A",
+          "#3A211B",
+          "#5E2E22",
+          "#B33F2F",
+          "#CB5E4B",
+          "#E38268",
+          "#F0AB98",
+          "#FAEAE6"
+        ]
       },
       "contained-ochre": {
         "role": "semantic-warning",
         "displayName": "Contained Ochre",
         "canonical": "#8F660F",
-        "tonalRamp": ["#241A05", "#362A14", "#4F3D14", "#8F660F", "#B08429", "#D6A852", "#E8C888", "#FBF3E1"]
+        "tonalRamp": [
+          "#241A05",
+          "#362A14",
+          "#4F3D14",
+          "#8F660F",
+          "#B08429",
+          "#D6A852",
+          "#E8C888",
+          "#FBF3E1"
+        ]
       }
     },
     "typographyMeta": {
-      "display": { "displayName": "Display (Cinzel)", "purpose": "Brand-only headline: login screen and first onboarding step only. Never daily-flow UI." },
-      "page-title": { "displayName": "Page Title", "purpose": "Top-of-screen heading for every route." },
-      "kpi": { "displayName": "KPI Figure", "purpose": "Hero dashboard numbers; the one context where 700-weight body type is used." },
+      "display": {
+        "displayName": "Display (Cinzel)",
+        "purpose": "Brand-only headline: login screen and first onboarding step only. Never daily-flow UI."
+      },
+      "page-title": {
+        "displayName": "Page Title",
+        "purpose": "Top-of-screen heading for every route."
+      },
+      "kpi": {
+        "displayName": "KPI Figure",
+        "purpose": "Hero dashboard numbers; the one context where 700-weight body type is used."
+      },
       "subheading": { "displayName": "Subheading", "purpose": "Card and section headers." },
-      "body": { "displayName": "Body", "purpose": "Default UI text across tables, forms, and copy." },
-      "label": { "displayName": "Label", "purpose": "Field labels, table headers, badges, captions." }
+      "body": {
+        "displayName": "Body",
+        "purpose": "Default UI text across tables, forms, and copy."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Field labels, table headers, badges, captions."
+      }
     },
     "shadows": [
-      { "name": "shadow-sm", "value": "0 1px 2px rgb(36 26 18 / 0.06)", "purpose": "Resting cards, stat tiles, list rows, the login panel." },
-      { "name": "shadow-md", "value": "0 4px 10px rgb(36 26 18 / 0.08), 0 1px 2px rgb(36 26 18 / 0.06)", "purpose": "Dropdowns, popovers, hover-elevated elements." },
-      { "name": "shadow-lg", "value": "0 12px 24px rgb(36 26 18 / 0.1), 0 2px 6px rgb(36 26 18 / 0.06)", "purpose": "Modals and the right-side detail drawer." }
+      {
+        "name": "shadow-sm",
+        "value": "0 1px 2px rgb(36 26 18 / 0.06)",
+        "purpose": "Resting cards, stat tiles, list rows, the login panel."
+      },
+      {
+        "name": "shadow-md",
+        "value": "0 4px 10px rgb(36 26 18 / 0.08), 0 1px 2px rgb(36 26 18 / 0.06)",
+        "purpose": "Dropdowns, popovers, hover-elevated elements."
+      },
+      {
+        "name": "shadow-lg",
+        "value": "0 12px 24px rgb(36 26 18 / 0.1), 0 2px 6px rgb(36 26 18 / 0.06)",
+        "purpose": "Modals and the right-side detail drawer."
+      }
     ],
     "motion": [
       { "name": "duration-fast", "value": "150ms", "purpose": "Hover/focus color transitions." },
-      { "name": "duration-normal", "value": "220ms", "purpose": "Panel/drawer open-close transitions." },
-      { "name": "ease-default", "value": "cubic-bezier(0.4, 0, 0.2, 1)", "purpose": "Default easing for state transitions; no bounce/spring easing anywhere in the system." }
+      {
+        "name": "duration-normal",
+        "value": "220ms",
+        "purpose": "Panel/drawer open-close transitions."
+      },
+      {
+        "name": "ease-default",
+        "value": "cubic-bezier(0.4, 0, 0.2, 1)",
+        "purpose": "Default easing for state transitions; no bounce/spring easing anywhere in the system."
+      }
     ],
-    "breakpoints": [
-      { "name": "md", "value": "768px" }
-    ]
+    "breakpoints": [{ "name": "md", "value": "768px" }]
   },
   "components": [
     {
@@ -174,13 +288,41 @@
       "Tactile, confident chrome: firm hairline borders, ambient shadow at rest, clear hover feedback"
     ],
     "rules": [
-      { "name": "The Two Browns Rule", "body": "Brand Brown is a brand moment (wordmark, login, first onboarding, never a control). UI Ink is the interactive color everywhere else. Never substitute one for the other.", "section": "colors" },
-      { "name": "The Ring-Carries-Focus Rule", "body": "Resting borders are intentionally soft and are not the accessibility guarantee for interactive boundaries — the focus ring carries that guarantee.", "section": "colors" },
-      { "name": "The Color Budget Rule", "body": "Semantic color covers roughly 5-8% of any screen. Charts are the one named exception.", "section": "colors" },
-      { "name": "The Three-Sightings Rule", "body": "Cinzel appears in exactly three places: the sidebar wordmark, the login screen, and the first onboarding step. Not in empty states, not in headings, not anywhere in daily-flow UI.", "section": "typography" },
-      { "name": "The Tabular Numerals Rule", "body": "Every numeric context uses tabular-nums so figures never jitter or misalign.", "section": "typography" },
-      { "name": "The Weight Discipline Rule", "body": "400 body / 500 labels / 600 buttons and section headers / 700 reserved for KPI figures and page titles only. Never 800+/Black.", "section": "typography" },
-      { "name": "The Warm Shadow Rule", "body": "Every shadow uses the ink color's RGB triplet at low alpha, never a neutral or cool black.", "section": "elevation" }
+      {
+        "name": "The Two Browns Rule",
+        "body": "Brand Brown is a brand moment (wordmark, login, first onboarding, never a control). UI Ink is the interactive color everywhere else. Never substitute one for the other.",
+        "section": "colors"
+      },
+      {
+        "name": "The Ring-Carries-Focus Rule",
+        "body": "Resting borders are intentionally soft and are not the accessibility guarantee for interactive boundaries — the focus ring carries that guarantee.",
+        "section": "colors"
+      },
+      {
+        "name": "The Color Budget Rule",
+        "body": "Semantic color covers roughly 5-8% of any screen. Charts are the one named exception.",
+        "section": "colors"
+      },
+      {
+        "name": "The Three-Sightings Rule",
+        "body": "Cinzel appears in exactly three places: the sidebar wordmark, the login screen, and the first onboarding step. Not in empty states, not in headings, not anywhere in daily-flow UI.",
+        "section": "typography"
+      },
+      {
+        "name": "The Tabular Numerals Rule",
+        "body": "Every numeric context uses tabular-nums so figures never jitter or misalign.",
+        "section": "typography"
+      },
+      {
+        "name": "The Weight Discipline Rule",
+        "body": "400 body / 500 labels / 600 buttons and section headers / 700 reserved for KPI figures and page titles only. Never 800+/Black.",
+        "section": "typography"
+      },
+      {
+        "name": "The Warm Shadow Rule",
+        "body": "Every shadow uses the ink color's RGB triplet at low alpha, never a neutral or cool black.",
+        "section": "elevation"
+      }
     ],
     "dos": [
       "Do treat UI Ink as the one interactive color; reserve Brand Brown for the wordmark, login, and first onboarding.",

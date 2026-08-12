@@ -5,16 +5,24 @@
 // items.replacement_cost_mc / replacement_cost_mc_updated_at, dependency order across a multi-level BOM,
 // the no-default-recipe skip path, and the job's job_runs ok=1/ok=0 bookkeeping.
 import { env } from "cloudflare:test";
-import type { RecordRecipeCommand } from "@kokoro/shared";
+import {
+  type RecordAssemblyDefinitionCommand,
+  type RecordRecipeCommand,
+  toMilliCentavosPerUnit,
+  totalCentavos,
+  WHOLE_UNIT_MILLI_UNITS,
+} from "@kokoro/shared";
 import { eq } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { beforeEach, describe, expect, it } from "vitest";
 
+import { computeAssemblyMargin } from "../src/core/assemblies/cost-preview.js";
+import { recordAssemblyDefinition } from "../src/core/assemblies/index.js";
 import { createItem } from "../src/core/catalog/index.js";
 import { planReplacementCostRefresh } from "../src/core/costing/index.js";
 import { recordRecipe } from "../src/core/recipes/index.js";
 import { createDb } from "../src/db/index.js";
-import { items, jobRuns, recipes } from "../src/db/schema.js";
+import { assemblyDefinitions, items, jobRuns, recipes } from "../src/db/schema.js";
 import { runReplacementCostRefresh } from "../src/jobs/replacement-cost-refresh.js";
 
 const ACTOR = "OWNER_WEB" as const;
@@ -23,13 +31,18 @@ type Statement = BatchItem<"sqlite">;
 
 async function seedItem(
   db: TestDb,
-  kind: "RAW_MATERIAL" | "SEMI_FINISHED" | "FINISHED",
+  kind: "RAW_MATERIAL" | "SEMI_FINISHED" | "FINISHED" | "PACKAGING",
   replacementCostMc = 0,
   wacMc = 0,
 ) {
   const item = await createItem(
     db,
-    { name: `Item ${crypto.randomUUID()}`, kind, category: "INGREDIENT", unit: "KG" },
+    {
+      name: `Item ${crypto.randomUUID()}`,
+      kind,
+      category: kind === "PACKAGING" ? "NOT_EATABLE" : "INGREDIENT",
+      unit: kind === "FINISHED" || kind === "PACKAGING" ? "UNIT" : "KG",
+    },
     ACTOR,
   );
   if (replacementCostMc !== 0 || wacMc !== 0) {
@@ -43,6 +56,23 @@ async function seedItem(
       .where(eq(items.id, item.id));
   }
   return item;
+}
+
+function seedDefaultAssemblyDefinition(
+  db: TestDb,
+  outputItemId: string,
+  outputQty: number,
+  lines: readonly { itemId: string; qty: number }[],
+) {
+  const command: RecordAssemblyDefinitionCommand = {
+    name: `Definición ${crypto.randomUUID()}`,
+    outputItemId,
+    outputQty,
+    isDefault: true,
+    notes: null,
+    lines: [...lines],
+  };
+  return recordAssemblyDefinition(db, command, ACTOR);
 }
 
 function seedDefaultRecipe(
@@ -72,6 +102,7 @@ async function readItem(db: TestDb, id: string) {
 beforeEach(async () => {
   const db = createDb(env.DB);
   await db.delete(jobRuns).where(eq(jobRuns.job, "replacement-cost-refresh"));
+  await db.delete(assemblyDefinitions);
   await db.delete(recipes); // cascades to recipe_lines (db/schema.ts's onDelete: "cascade")
 });
 
@@ -152,6 +183,84 @@ describe("planReplacementCostRefresh (C-3, SEMI_FINISHED/FINISHED)", () => {
     const plan = await planReplacementCostRefresh(db);
     expect(plan.refreshedItemIds).not.toContain(flour.id);
     expect(plan.skippedItemIds).not.toContain(flour.id);
+  });
+});
+
+describe("planReplacementCostRefresh (C-3d, presentations and combos)", () => {
+  it("refreshes Desayuno Kokoro to Bs 44,50 and feeds the below-30% margin alert", async () => {
+    const db = createDb(env.DB);
+    const components = [
+      await seedItem(db, "FINISHED", 14_500_000),
+      await seedItem(db, "FINISHED", 19_500_000),
+      await seedItem(db, "FINISHED", 6_200_000),
+      await seedItem(db, "PACKAGING", 4_300_000),
+    ];
+    const output = await seedItem(db, "FINISHED");
+    await db.update(items).set({ salePriceMc: 60_000_000 }).where(eq(items.id, output.id));
+    await seedDefaultAssemblyDefinition(
+      db,
+      output.id,
+      1000,
+      components.map((component) => ({ itemId: component.id, qty: 1000 })),
+    );
+
+    const plan = await planReplacementCostRefresh(db);
+    await db.batch(plan.statements as [Statement, ...Statement[]]);
+
+    const updated = await readItem(db, output.id);
+    expect(updated.replacementCostMc).toBe(44_500_000);
+    const replacementCostPerUnit = totalCentavos(
+      toMilliCentavosPerUnit(updated.replacementCostMc),
+      WHOLE_UNIT_MILLI_UNITS,
+    );
+    const margin = computeAssemblyMargin(
+      toMilliCentavosPerUnit(updated.salePriceMc ?? 0),
+      replacementCostPerUnit,
+    );
+    expect(margin).toEqual({ amount: 15_500, pctBasisPoints: 2583 });
+    const minMarginSetting = await db.query.appSettings.findFirst({
+      where: (table, { eq: eqOp }) => eqOp(table.key, "min_margin_pct"),
+    });
+    expect(Number(minMarginSetting?.value)).toBe(3000);
+    expect((margin?.pctBasisPoints ?? 0) < Number(minMarginSetting?.value)).toBe(true);
+  });
+
+  it("uses the assembly definition when an output also has a default recipe", async () => {
+    const db = createDb(env.DB);
+    const recipeIngredient = await seedItem(db, "RAW_MATERIAL", 2_000_000);
+    const assemblyComponent = await seedItem(db, "PACKAGING", 9_000_000);
+    const output = await seedItem(db, "FINISHED");
+    await seedDefaultRecipe(db, output.id, 1000, [{ itemId: recipeIngredient.id, qty: 1000 }]);
+    await seedDefaultAssemblyDefinition(db, output.id, 1000, [
+      { itemId: assemblyComponent.id, qty: 1000 },
+    ]);
+
+    const plan = await planReplacementCostRefresh(db);
+    await db.batch(plan.statements as [Statement, ...Statement[]]);
+
+    expect((await readItem(db, output.id)).replacementCostMc).toBe(9_000_000);
+  });
+
+  it("refreshes a presentation before a combo and uses the presentation's fresh cost", async () => {
+    const db = createDb(env.DB);
+    const component = await seedItem(db, "PACKAGING", 7_000_000);
+    const presentation = await seedItem(db, "FINISHED", 1_000_000);
+    const combo = await seedItem(db, "FINISHED");
+    await seedDefaultAssemblyDefinition(db, presentation.id, 1000, [
+      { itemId: component.id, qty: 1000 },
+    ]);
+    await seedDefaultAssemblyDefinition(db, combo.id, 1000, [
+      { itemId: presentation.id, qty: 2000 },
+    ]);
+
+    const plan = await planReplacementCostRefresh(db);
+    expect(plan.refreshedItemIds.indexOf(presentation.id)).toBeLessThan(
+      plan.refreshedItemIds.indexOf(combo.id),
+    );
+    await db.batch(plan.statements as [Statement, ...Statement[]]);
+
+    expect((await readItem(db, presentation.id)).replacementCostMc).toBe(7_000_000);
+    expect((await readItem(db, combo.id)).replacementCostMc).toBe(14_000_000);
   });
 });
 

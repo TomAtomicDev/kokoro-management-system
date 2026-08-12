@@ -351,11 +351,11 @@ describe("recordSale — validation & INV-8", () => {
       ),
     ).rejects.toMatchObject({
       code: "VALIDATION",
-      message_es: "Solo se pueden vender ítems terminados (FINISHED) o de empaque (PACKAGING).",
+      message_es: "Solo se pueden vender ítems terminados (FINISHED).",
     });
   });
 
-  it("accepts FINISHED and PACKAGING lines, freezing each WAC and charging only the finished line", async () => {
+  it("rejects a PACKAGING line even alongside a valid FINISHED line", async () => {
     const db = createDb(env.DB);
     const finished = await seedStockedFinishedItem(
       db,
@@ -385,54 +385,24 @@ describe("recordSale — validation & INV-8", () => {
       ACTOR,
     );
 
-    const result = await recordSale(
-      db,
-      {
-        paymentStatus: "ON_CREDIT",
-        occurredAt: NOW,
-        businessDate: BUSINESS_DATE,
-        lines: [
-          { itemId: finished.id, qty: 200, unitPriceMc: 1_000_000 },
-          { itemId: packaging.id, qty: 200, unitPriceMc: 0 },
-        ],
-      },
-      ACTOR,
-    );
-
-    expect(result.sale.total).toBe(200);
-    expect(result.sale.lines).toEqual([
-      expect.objectContaining({
-        itemId: finished.id,
-        unitCostSnapshotMc: 6_000_000,
-        unitPriceMc: 1_000_000,
-      }),
-      expect.objectContaining({
-        itemId: packaging.id,
-        unitCostSnapshotMc: 2_000_000,
-        unitPriceMc: 0,
-      }),
-    ]);
-
-    const movementRows = await db.query.stockMovements.findMany({
-      where: (t, { eq: eqOp }) => eqOp(t.sourceEventId, result.sale.id),
+    await expect(
+      recordSale(
+        db,
+        {
+          paymentStatus: "ON_CREDIT",
+          occurredAt: NOW,
+          businessDate: BUSINESS_DATE,
+          lines: [
+            { itemId: finished.id, qty: 200, unitPriceMc: 1_000_000 },
+            { itemId: packaging.id, qty: 200, unitPriceMc: 0 },
+          ],
+        },
+        ACTOR,
+      ),
+    ).rejects.toMatchObject({
+      code: "VALIDATION",
+      message_es: "Solo se pueden vender ítems terminados (FINISHED).",
     });
-    expect(movementRows).toHaveLength(2);
-    expect(movementRows).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          itemId: finished.id,
-          type: "SALE_OUT",
-          qty: -200,
-          unitCostMc: 6_000_000,
-        }),
-        expect.objectContaining({
-          itemId: packaging.id,
-          type: "SALE_OUT",
-          qty: -200,
-          unitCostMc: 2_000_000,
-        }),
-      ]),
-    );
   });
 
   it("rejects a nonexistent item with NOT_FOUND", async () => {
@@ -1318,6 +1288,46 @@ describe("restoreSale (Doc 06 principle 6 — 'Deshacer', KOK-064)", () => {
         and(eqOp(t.entityId, created.sale.id), eqOp(t.action, "restore")),
     });
     expect(auditRow).toMatchObject({ actor: ACTOR, entityType: "sales" });
+  });
+
+  it("refuses to restore a legacy sale containing a PACKAGING line", async () => {
+    const db = createDb(env.DB);
+    const finished = await seedStockedFinishedItem(db, "Venta legacy terminada", 1000, 4000);
+    const created = await recordSale(
+      db,
+      {
+        paymentStatus: "ON_CREDIT",
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        lines: [{ itemId: finished.id, qty: 100, unitPriceMc: 2_000_000 }],
+      },
+      ACTOR,
+    );
+    await deleteSale(db, created.sale.id, {}, ACTOR);
+
+    const packaging = await createItem(
+      db,
+      {
+        name: "Venta legacy — empaque",
+        kind: "PACKAGING",
+        category: "NOT_EATABLE",
+        unit: "UNIT",
+        minStockQty: 0,
+      },
+      ACTOR,
+    );
+    // Deliberate D-2 test-fixture exception: the current service can no longer create this state.
+    // Repoint the stored, already-deleted line to simulate pre-KOK-126 legacy sale data.
+    await db
+      .update(saleLines)
+      .set({ itemId: packaging.id })
+      .where(eq(saleLines.saleId, created.sale.id));
+
+    await expect(restoreSale(db, created.sale.id, {}, ACTOR)).rejects.toMatchObject({
+      code: "VALIDATION",
+      message_es:
+        "No se puede restaurar esta venta: contiene una línea de empaque, que ya no se vende directamente bajo el modelo de presentaciones y combos.",
+    });
   });
 
   it("rejects an id that does not exist or is not currently deleted with NOT_FOUND", async () => {

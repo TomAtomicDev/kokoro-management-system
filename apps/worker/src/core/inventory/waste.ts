@@ -6,20 +6,35 @@
 // same read/write split as queries.ts vs movements.ts. READ-ONLY: no commands, no db.batch().
 
 import type {
+  Centavos,
   ListWasteSummaryFilters,
   ListWasteSummaryResult,
   StockExitReason,
+} from "@kokoro/shared";
+import {
+  addMoney,
+  toCentavos,
+  toMilliCentavosPerUnit,
+  toMilliUnits,
+  totalCentavos,
 } from "@kokoro/shared";
 import { type SQL, sql } from "drizzle-orm";
 
 import type { Db } from "../../db/index.js";
 
-/** Raw waste row shape (snake_case, matching the existing `v_waste` response contract). */
-interface WasteViewRow {
+/** Raw stock-exit row shape (snake_case, matching the persisted column names). */
+interface RawWasteRow {
+  business_date: string;
+  reason: StockExitReason;
+  qty: number;
+  unit_cost_snapshot_mc: number;
+}
+
+interface WasteGroup {
   month: string;
   reason: StockExitReason;
-  exit_count: number;
-  total_cost: number;
+  exitCount: number;
+  totalCost: Centavos;
 }
 
 /**
@@ -37,24 +52,43 @@ export async function listWasteSummary(
 
   const whereClause = sql`WHERE ${sql.join(conditions, sql` AND `)}`;
 
-  const rows = await db.all<WasteViewRow>(sql`
+  const rows = await db.all<RawWasteRow>(sql`
     SELECT
-      strftime('%Y-%m', business_date) AS month,
+      business_date,
       reason,
-      COUNT(*) AS exit_count,
-      SUM(CAST(ROUND(qty * unit_cost_snapshot_mc / 1000000.0) AS INTEGER)) AS total_cost
+      qty,
+      unit_cost_snapshot_mc
     FROM stock_exits
     ${whereClause}
-    GROUP BY strftime('%Y-%m', business_date), reason
-    ORDER BY month DESC, total_cost DESC
   `);
 
-  return {
-    summary: rows.map((row) => ({
-      month: row.month,
-      reason: row.reason,
-      exitCount: row.exit_count,
-      totalCost: row.total_cost,
-    })),
-  };
+  const groups = new Map<string, WasteGroup>();
+  for (const row of rows) {
+    const month = row.business_date.slice(0, 7);
+    const key = `${month}:${row.reason}`;
+    const rowCost = totalCentavos(
+      toMilliCentavosPerUnit(row.unit_cost_snapshot_mc),
+      toMilliUnits(row.qty),
+    );
+    const group = groups.get(key);
+    if (group) {
+      group.exitCount += 1;
+      group.totalCost = addMoney(group.totalCost, rowCost);
+    } else {
+      groups.set(key, {
+        month,
+        reason: row.reason,
+        exitCount: 1,
+        totalCost: addMoney(toCentavos(0), rowCost),
+      });
+    }
+  }
+
+  const summary = [...groups.values()].sort((left, right) => {
+    if (left.month !== right.month) return left.month > right.month ? -1 : 1;
+    if (left.totalCost === right.totalCost) return 0;
+    return left.totalCost > right.totalCost ? -1 : 1;
+  });
+
+  return { summary };
 }

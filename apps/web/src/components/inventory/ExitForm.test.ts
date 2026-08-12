@@ -19,6 +19,7 @@ function exit(overrides: Partial<StockExitDto> = {}): StockExitDto {
     qty: 1500,
     reason: "WASTE",
     unitCostSnapshotMc: 200_000_000,
+    packagingLines: [],
     sessionId: null,
     notes: "Se cayó al piso",
     createdAt: "2026-07-01T12:00:00.000Z",
@@ -37,6 +38,7 @@ describe("exitFormInitialState", () => {
       reason: "WASTE",
       businessDate: "2026-07-19",
       notes: "",
+      packagingLines: [],
     });
   });
 
@@ -53,6 +55,18 @@ describe("exitFormInitialState", () => {
     expect(state.reason).toBe("WASTE");
     expect(state.businessDate).toBe("2026-07-01");
     expect(state.notes).toBe("Se cayó al piso");
+  });
+
+  it("(edit mode) prefills packaging lines with decimal quantities", () => {
+    const state = exitFormInitialState(
+      exit({
+        packagingLines: [
+          { id: "line-1", itemId: "bag-1", qty: 2500, unitCostSnapshotMc: 1_000_000 },
+        ],
+      }),
+    );
+
+    expect(state.packagingLines).toEqual([{ itemId: "bag-1", qty: "2.5" }]);
   });
 
   it("(edit mode) converts qty's milli-unit integer into a decimal-string form field", () => {

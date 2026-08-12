@@ -69,11 +69,8 @@ export interface SaleFormProps {
   sale?: SaleDto;
 }
 
-type SaleLineKind = "FINISHED" | "PACKAGING";
-
 interface SaleLineValue extends LineEditorLine {
   itemId: string | null;
-  kind: SaleLineKind;
   /** Milli-units decimal string (scale 3) â€” same convention as PurchaseForm's line qty. */
   qty: string;
   /** Unit price, centavos-per-WHOLE-unit decimal string (scale 2) â€” editable, prefilled from
@@ -82,12 +79,11 @@ interface SaleLineValue extends LineEditorLine {
   amount: string;
 }
 
-function emptyLine(kind: SaleLineKind = "FINISHED"): SaleLineValue {
+function emptyLine(): SaleLineValue {
   return {
     itemId: null,
     qty: "",
-    amount: kind === "PACKAGING" ? formatIntAsDecimalInput(0, 2) : "",
-    kind,
+    amount: "",
   };
 }
 
@@ -107,11 +103,7 @@ interface SaleFormState {
  * workspace has neither jsdom nor @testing-library/react, so a plain exported function is what
  * stays unit-testable without rendering the component.
  */
-export function saleToFormState(
-  sale: SaleDto,
-  accounts: FinancialAccountDto[],
-  itemById?: ReadonlyMap<string, ItemDto>,
-): SaleFormState {
+export function saleToFormState(sale: SaleDto, accounts: FinancialAccountDto[]): SaleFormState {
   return {
     paymentStatus: sale.paymentStatus,
     paymentMethod: sale.paymentMethod ?? (PAYMENT_METHODS[0] as PaymentMethod),
@@ -123,7 +115,6 @@ export function saleToFormState(
       sale.lines.length > 0
         ? sale.lines.map((line) => ({
             itemId: line.itemId,
-            kind: itemById?.get(line.itemId)?.kind === "PACKAGING" ? "PACKAGING" : "FINISHED",
             qty: formatIntAsDecimalInput(line.qty, 3),
             amount: formatIntAsDecimalInput(
               totalCentavos(line.unitPriceMc, WHOLE_UNIT_MILLI_UNITS),
@@ -165,13 +156,11 @@ export function SaleForm({ open, onOpenChange, accounts, sale }: SaleFormProps) 
   const pricingSettingsQuery = usePricingSettings();
 
   const finishedItemsQuery = useItemsQuery({ isActive: true, kind: "FINISHED" });
-  const packagingItemsQuery = useItemsQuery({ isActive: true, kind: "PACKAGING" });
   const itemsById = useMemo(() => {
     const map = new Map<string, ItemDto>();
     for (const item of finishedItemsQuery.data?.items ?? []) map.set(item.id, item);
-    for (const item of packagingItemsQuery.data?.items ?? []) map.set(item.id, item);
     return map;
-  }, [finishedItemsQuery.data, packagingItemsQuery.data]);
+  }, [finishedItemsQuery.data]);
 
   // Current on-hand qty per item (v_stock, INV-5) â€” used for the amber "stock would go negative"
   // warning below. Unfiltered (all kinds): fine to fetch the whole table at this app's scale, same
@@ -209,16 +198,12 @@ export function SaleForm({ open, onOpenChange, accounts, sale }: SaleFormProps) 
 
     const initializationKey = sale?.id ?? "new";
     if (initializedRef.current === initializationKey) return;
-    if (
-      sale &&
-      sale.lines.length > 0 &&
-      (finishedItemsQuery.isLoading || packagingItemsQuery.isLoading)
-    ) {
+    if (sale && sale.lines.length > 0 && finishedItemsQuery.isLoading) {
       return;
     }
 
     if (sale) {
-      const initial = saleToFormState(sale, accounts, itemsById);
+      const initial = saleToFormState(sale, accounts);
       setPaymentStatus(initial.paymentStatus);
       setPaymentMethod(initial.paymentMethod);
       setAccountId(initial.accountId);
@@ -242,14 +227,7 @@ export function SaleForm({ open, onOpenChange, accounts, sale }: SaleFormProps) 
     }
     setError(null);
     initializedRef.current = initializationKey;
-  }, [
-    open,
-    sale,
-    accounts,
-    itemsById,
-    finishedItemsQuery.isLoading,
-    packagingItemsQuery.isLoading,
-  ]);
+  }, [open, sale, accounts, finishedItemsQuery.isLoading]);
 
   const disabled = isEditMode ? editReplay.isPending : createReplay.isPending;
   const isPaid = paymentStatus === "PAID";
@@ -259,17 +237,15 @@ export function SaleForm({ open, onOpenChange, accounts, sale }: SaleFormProps) 
    * "convenience default, not sticky" rule as ProductionRunForm's recipe-line prefill). LineEditor
    * itself only forwards `itemId` to its `onChange` (see LineEditor.tsx), so the lookup happens
    * here, against the previous line at the same index, rather than inside LineEditor. */
-  function handleLinesChange(nextLines: SaleLineValue[], kind: SaleLineKind) {
+  function handleLinesChange(nextLines: SaleLineValue[]) {
     setLines((currentLines) => {
-      const previousLines = currentLines.filter((line) => line.kind === kind);
       const withPrefill = nextLines.map((line, index) => {
-        const prevItemId = previousLines[index]?.itemId ?? null;
+        const prevItemId = currentLines[index]?.itemId ?? null;
         if (line.itemId && line.itemId !== prevItemId && line.amount.trim() === "") {
           const item = itemsById.get(line.itemId);
           if (item?.salePriceMc != null) {
             return {
               ...line,
-              kind,
               amount: formatIntAsDecimalInput(
                 totalCentavos(item.salePriceMc, WHOLE_UNIT_MILLI_UNITS),
                 2,
@@ -277,12 +253,9 @@ export function SaleForm({ open, onOpenChange, accounts, sale }: SaleFormProps) 
             };
           }
         }
-        return { ...line, kind };
+        return line;
       });
-      const otherLines = currentLines.filter((line) => line.kind !== kind);
-      return kind === "FINISHED"
-        ? [...withPrefill, ...otherLines]
-        : [...otherLines, ...withPrefill];
+      return withPrefill;
     });
   }
 
@@ -506,32 +479,11 @@ export function SaleForm({ open, onOpenChange, accounts, sale }: SaleFormProps) 
           <div className="flex flex-col gap-1.5">
             <span className="font-medium text-foreground">{salesLabels.productLinesTitle}</span>
             <LineEditor
-              lines={lines.filter((line) => line.kind === "FINISHED")}
-              onChange={(nextLines) => handleLinesChange(nextLines, "FINISHED")}
-              createLine={() => emptyLine("FINISHED")}
+              lines={lines}
+              onChange={handleLinesChange}
+              createLine={emptyLine}
               disabled={disabled}
               itemKindFilter="FINISHED"
-              labels={{
-                item: salesLabels.lineItem,
-                qty: salesLabels.lineQty,
-                amount: salesLabels.lineUnitPrice,
-                addLine: salesLabels.addLine,
-                removeLine: salesLabels.removeLine,
-                amountPlaceholder: salesLabels.lineUnitPricePlaceholder,
-                qtyPlaceholder: salesLabels.lineQtyPlaceholder,
-              }}
-              renderExtraColumns={renderLineExtra}
-            />
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <span className="font-medium text-foreground">{salesLabels.packagingLinesTitle}</span>
-            <LineEditor
-              lines={lines.filter((line) => line.kind === "PACKAGING")}
-              onChange={(nextLines) => handleLinesChange(nextLines, "PACKAGING")}
-              createLine={() => emptyLine("PACKAGING")}
-              disabled={disabled}
-              itemKindFilter="PACKAGING"
               labels={{
                 item: salesLabels.lineItem,
                 qty: salesLabels.lineQty,

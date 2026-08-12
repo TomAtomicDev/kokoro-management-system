@@ -16,6 +16,7 @@
       "!**/worker-configuration.d.ts",
       "!**/.agents",
       "!**/.claude",
+      "!**/.opencode",
       "!**/.design",
       "!**/.github",
       "!**/.mcp.json",
