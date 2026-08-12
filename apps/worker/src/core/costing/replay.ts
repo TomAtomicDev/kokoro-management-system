@@ -50,6 +50,9 @@ import type { BatchItem } from "drizzle-orm/batch";
 
 import type { Db } from "../../db/index.js";
 import {
+  assemblyConsumptions,
+  assemblyDefinitionLines,
+  assemblyDefinitions,
   itemStock,
   items,
   productionConsumptions,
@@ -124,7 +127,7 @@ export interface CostingReplayPlan {
    * untouched.
    */
   replayedItemIds: string[];
-  /** R-5: the impact touches already-recorded sales / exits / production runs. */
+  /** R-5: the impact touches already-recorded sales / exits / production runs / assemblies. */
   confirmationRequired: boolean;
   /** `items.wac_mc` UPDATEs + `costing_adjustments` INSERTs + `item_stock.negative_since` fixes +
    * one `audit_log` row. Contains ZERO writes to `sale_lines` / `stock_exits` (R-4). */
@@ -176,6 +179,7 @@ function emptyImpact(): ReplayImpactDto {
     affectedSaleLineIds: [],
     affectedStockExitIds: [],
     affectedProductionRunIds: [],
+    affectedAssemblyIds: [],
     affectedItemIds: [],
     costDelta: 0,
     requiresConfirmation: false,
@@ -269,14 +273,19 @@ export async function planCostingReplay(
     return NO_REPLAY;
   }
 
-  // ---- 3. Expand across recipe dependencies (raw -> semi-finished -> finished) --------------
-  const edges = await loadRecipeEdges(db);
+  // ---- 3. Expand across recipe + assembly dependencies (inputs -> produced outputs) ----------
+  const edges = [...(await loadRecipeEdges(db)), ...(await loadAssemblyDefinitionEdges(db))];
   const orderedItemIds = topoOrderAffectedItems(edges, seedItemIds);
 
   // ---- 4-7. Replay each item in dependency order -------------------------------------------
   const affectedSaleLineIds: string[] = [];
   const affectedStockExitIds: string[] = [];
   const affectedProductionRunIds = new Set<string>();
+  const affectedAssemblyIds = new Set<string>();
+  const affectedEventIdsBySourceType = new Map<string, Set<string>>([
+    ["production_run", affectedProductionRunIds],
+    ["assembly", affectedAssemblyIds],
+  ]);
   const affectedItemIds: string[] = [];
   /** Every item this loop actually replays — see `CostingReplayPlan.replayedItemIds`. Appended in
    * dependency order, and only past the `stored === undefined` guard below: an item whose row has
@@ -295,10 +304,10 @@ export async function planCostingReplay(
   const negativeSinceByItem = new Map<string, string | null>();
   const finalWacByItem = new Map<string, MilliCentavosPerUnit>();
 
-  // C-4 cascade state: for each production run, the REPLAYED cost of each input it consumed
+  // C-4/C-10 cascade state: for each producing event, the REPLAYED cost of each input it consumed
   // (Centavos — a proper rounded total via `totalCentavos`). Populated when an
-  // ingredient item's kardex is replayed (the consumption shows up there as a PRODUCTION_OUT), and
-  // read when the run's OUTPUT item is replayed later in dependency order. That ordering is
+  // input item's kardex is replayed (the consumption shows up there as a producer-specific OUT),
+  // and read when the event's output item is replayed later in dependency order. That ordering is
   // exactly what `topoOrderAffectedItems` guarantees.
   const replayedConsumptionCost = new Map<string, Map<string, Centavos>>();
 
@@ -333,13 +342,13 @@ export async function planCostingReplay(
     // column, which would be a third place for the WAC to be wrong.
     const seed = replayWacFrom({ onHand: 0, wac: toMilliCentavosPerUnit(0) }, rows.slice(0, cut));
 
-    // Step 7: correct the output cost of any production run whose inputs this replay moved,
+    // Step 7: correct the output cost of any producing event whose inputs this replay moved,
     // BEFORE replaying, so C-1 folds the corrected cost in rather than the stale stored one.
     const suffix = await applyProductionCostCorrections(
       db,
       rows.slice(cut),
       replayedConsumptionCost,
-      affectedProductionRunIds,
+      affectedEventIdsBySourceType,
     );
 
     const { final, steps } = replayWacWithTrace(seed, suffix);
@@ -355,13 +364,19 @@ export async function planCostingReplay(
       const step = steps[i];
       if (movement === undefined || step === undefined) continue;
 
-      if (movement.type === "PRODUCTION_OUT" && movement.sourceEventType === "production_run") {
-        // This consumption feeds a run whose output item is replayed later (dependency order).
+      if (
+        PRODUCING_EVENTS.some(
+          (descriptor) =>
+            movement.type === descriptor.consumingMovementType &&
+            movement.sourceEventType === descriptor.sourceEventType,
+        )
+      ) {
+        // This consumption feeds an event whose output item is replayed later (dependency order).
         const perRun =
           replayedConsumptionCost.get(movement.sourceEventId) ?? new Map<string, Centavos>();
         perRun.set(itemId, totalCentavos(step.wacBefore, toMilliUnits(Math.abs(movement.qty))));
         replayedConsumptionCost.set(movement.sourceEventId, perRun);
-        affectedProductionRunIds.add(movement.sourceEventId);
+        affectedEventIdsBySourceType.get(movement.sourceEventType)?.add(movement.sourceEventId);
         continue;
       }
 
@@ -415,16 +430,18 @@ export async function planCostingReplay(
   // R-5: a WAC that merely moved, with no frozen consumer downstream of it, is a silent internal
   // correction with no reported number to contradict — nothing for the owner to confirm. What
   // needs her explicit acknowledgement is a correction that changes cost already booked against
-  // a sale, an exit, or a production run.
+  // a sale, an exit, a production run, or an assembly.
   const confirmationRequired =
     affectedSaleLineIds.length > 0 ||
     affectedStockExitIds.length > 0 ||
-    affectedProductionRunIds.size > 0;
+    affectedProductionRunIds.size > 0 ||
+    affectedAssemblyIds.size > 0;
 
   const impact: ReplayImpactDto = {
     affectedSaleLineIds,
     affectedStockExitIds,
     affectedProductionRunIds: [...affectedProductionRunIds],
+    affectedAssemblyIds: [...affectedAssemblyIds],
     affectedItemIds,
     costDelta,
     requiresConfirmation: confirmationRequired,
@@ -551,6 +568,54 @@ async function loadRecipeEdges(db: Db): Promise<RecipeEdge[]> {
     .where(eq(recipes.isActive, 1));
 }
 
+/** Active assembly-definition edges (component -> output), parallel to active recipe edges. */
+async function loadAssemblyDefinitionEdges(db: Db): Promise<RecipeEdge[]> {
+  return db
+    .select({
+      ingredientItemId: assemblyDefinitionLines.itemId,
+      outputItemId: assemblyDefinitions.outputItemId,
+    })
+    .from(assemblyDefinitionLines)
+    .innerJoin(
+      assemblyDefinitions,
+      eq(assemblyDefinitionLines.definitionId, assemblyDefinitions.id),
+    )
+    .where(eq(assemblyDefinitions.isActive, 1));
+}
+
+/**
+ * One kind of event that PRODUCES an item from consumed inputs, replayed as part of the C-4
+ * cascade (step 7): production runs and assemblies.
+ * `applyProductionCostCorrections` below is generic over this list — it owns no source-specific
+ * SQL or column names itself.
+ */
+interface ProducingEventDescriptor {
+  /** `stock_movements.source_event_type` for this producer's IN/OUT pair. */
+  sourceEventType: string;
+  /** The consuming-side movement type (feeds `replayedConsumptionCost`). */
+  consumingMovementType: StockMovementType;
+  /** The producing-side movement type (the one whose `unitCostMc` gets corrected). */
+  producingMovementType: StockMovementType;
+  /**
+   * Recomputes each event's corrected output unit cost from its (possibly replayed) inputs.
+   * `eventIds` are the source_event_ids seen on `producingMovementType` rows in this item's replay
+   * suffix that also have at least one replayed input cost. Returns a map keyed by event id;
+   * an id with `actualOutputQty <= 0` (or otherwise not computable) is simply absent from the map,
+   * NOT present with a zero/NaN value — the caller treats "absent" as "leave the row's stored
+   * unitCostMc alone".
+   *
+   * Implementations should call `affectedEventIds.add(eventId)` for every event they corrected, so
+   * the caller's impact set stays accurate without the caller knowing which set belongs to which
+   * producer.
+   */
+  correctUnitCosts(
+    db: Db,
+    eventIds: readonly string[],
+    replayedConsumptionCost: ReadonlyMap<string, Map<string, Centavos>>,
+    affectedEventIds: Set<string>,
+  ): Promise<Map<string, MilliCentavosPerUnit>>;
+}
+
 /**
  * C-4 cascade (step 7). For every PRODUCTION_IN in this item's replay suffix, recomputes the
  * source run's cost from its inputs' REPLAYED WAC and substitutes the corrected output unit cost,
@@ -568,22 +633,12 @@ async function loadRecipeEdges(db: Db): Promise<RecipeEdge[]> {
  * is unreachable in practice today and is guarded to no-op on missing rows. KOK-026 supplies the
  * data; it should not need to revisit this control flow.
  */
-async function applyProductionCostCorrections(
+async function correctProductionRunUnitCosts(
   db: Db,
-  suffix: readonly ReplayRow[],
+  runIds: readonly string[],
   replayedConsumptionCost: ReadonlyMap<string, Map<string, Centavos>>,
   affectedProductionRunIds: Set<string>,
-): Promise<ReplayRow[]> {
-  const runIds = [
-    ...new Set(
-      suffix
-        .filter((row) => row.type === "PRODUCTION_IN" && row.sourceEventType === "production_run")
-        .map((row) => row.sourceEventId),
-    ),
-  ].filter((runId) => replayedConsumptionCost.has(runId));
-
-  if (runIds.length === 0) return [...suffix];
-
+): Promise<Map<string, MilliCentavosPerUnit>> {
   const runs = await db.query.productionRuns.findMany({
     where: (t, { inArray: inArrayOp }) => inArrayOp(t.id, runIds),
   });
@@ -618,8 +673,106 @@ async function applyProductionCostCorrections(
     affectedProductionRunIds.add(run.id);
   }
 
+  return correctedUnitCost;
+}
+
+/** C-10 cascade, using the same direct-Centavos accumulation discipline as production above. */
+async function correctAssemblyUnitCosts(
+  db: Db,
+  assemblyIds: readonly string[],
+  replayedConsumptionCost: ReadonlyMap<string, Map<string, Centavos>>,
+  affectedAssemblyIds: Set<string>,
+): Promise<Map<string, MilliCentavosPerUnit>> {
+  const assemblyRows = await db.query.assemblies.findMany({
+    where: (t, { inArray: inArrayOp }) => inArrayOp(t.id, assemblyIds),
+  });
+  const consumptionRows = await db
+    .select()
+    .from(assemblyConsumptions)
+    .where(inArray(assemblyConsumptions.assemblyId, assemblyIds));
+
+  const correctedUnitCost = new Map<string, MilliCentavosPerUnit>();
+  for (const assembly of assemblyRows) {
+    if (assembly.actualOutputQty <= 0) continue;
+    const replayed = replayedConsumptionCost.get(assembly.id);
+    let direct = 0;
+    for (const consumption of consumptionRows) {
+      if (consumption.assemblyId !== assembly.id) continue;
+      direct +=
+        replayed?.get(consumption.itemId) ??
+        totalCentavos(
+          toMilliCentavosPerUnit(consumption.unitCostSnapshotMc),
+          toMilliUnits(consumption.qty),
+        );
+    }
+    correctedUnitCost.set(
+      assembly.id,
+      rateFromTotal(toCentavos(direct), toMilliUnits(assembly.actualOutputQty)),
+    );
+    affectedAssemblyIds.add(assembly.id);
+  }
+  return correctedUnitCost;
+}
+
+const PRODUCING_EVENTS: readonly ProducingEventDescriptor[] = [
+  {
+    sourceEventType: "production_run",
+    consumingMovementType: "PRODUCTION_OUT",
+    producingMovementType: "PRODUCTION_IN",
+    correctUnitCosts: correctProductionRunUnitCosts,
+  },
+  {
+    sourceEventType: "assembly",
+    consumingMovementType: "ASSEMBLY_OUT",
+    producingMovementType: "ASSEMBLY_IN",
+    correctUnitCosts: correctAssemblyUnitCosts,
+  },
+];
+
+async function applyProductionCostCorrections(
+  db: Db,
+  suffix: readonly ReplayRow[],
+  replayedConsumptionCost: ReadonlyMap<string, Map<string, Centavos>>,
+  affectedEventIdsBySourceType: ReadonlyMap<string, Set<string>>,
+): Promise<ReplayRow[]> {
+  const correctedUnitCost = new Map<string, MilliCentavosPerUnit>();
+
+  for (const descriptor of PRODUCING_EVENTS) {
+    const eventIds = [
+      ...new Set(
+        suffix
+          .filter(
+            (row) =>
+              row.type === descriptor.producingMovementType &&
+              row.sourceEventType === descriptor.sourceEventType,
+          )
+          .map((row) => row.sourceEventId),
+      ),
+    ].filter((eventId) => replayedConsumptionCost.has(eventId));
+
+    if (eventIds.length === 0) continue;
+
+    const affectedEventIds =
+      affectedEventIdsBySourceType.get(descriptor.sourceEventType) ?? new Set<string>();
+
+    const descriptorCorrections = await descriptor.correctUnitCosts(
+      db,
+      eventIds,
+      replayedConsumptionCost,
+      affectedEventIds,
+    );
+    for (const [eventId, unitCost] of descriptorCorrections) {
+      correctedUnitCost.set(eventId, unitCost);
+    }
+  }
+
   return suffix.map((row) => {
-    if (row.type !== "PRODUCTION_IN" || row.sourceEventType !== "production_run") return row;
+    const isRegisteredProducer = PRODUCING_EVENTS.some(
+      (descriptor) =>
+        row.type === descriptor.producingMovementType &&
+        row.sourceEventType === descriptor.sourceEventType,
+    );
+    if (!isRegisteredProducer) return row;
     const corrected = correctedUnitCost.get(row.sourceEventId);
     if (corrected === undefined) return row;
     return { ...row, unitCostMc: corrected };

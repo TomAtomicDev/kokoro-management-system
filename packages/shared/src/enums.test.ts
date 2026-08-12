@@ -38,6 +38,8 @@ describe("enums mirror Doc 04 DDL verbatim", () => {
       "EXIT_OUT",
       "ADJUST",
       "OPENING_IN",
+      "ASSEMBLY_IN",
+      "ASSEMBLY_OUT",
     ]);
   });
 

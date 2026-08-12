@@ -155,6 +155,7 @@ const WAC_ENTRY_TYPES: ReadonlySet<StockMovementType> = new Set([
   "OPENING_IN",
   "PURCHASE_IN",
   "PRODUCTION_IN",
+  "ASSEMBLY_IN",
 ]);
 
 /**

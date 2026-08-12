@@ -57,7 +57,6 @@ export const salesLabels = {
   notesPlaceholder: "Opcional",
 
   productLinesTitle: "Artículos vendidos",
-  packagingLinesTitle: "Empaque",
   lineItem: "Ítem",
   lineQty: "Cantidad",
   lineQtyPlaceholder: "0",

@@ -46,6 +46,10 @@ export const replayImpactSchema = z.object({
   /** `production_runs.id`s whose output cost the replay would correct — a run consumes inputs at
    * their WAC, so a re-weighted input cascades into the run's own output cost. */
   affectedProductionRunIds: affectedIdsSchema,
+  /** `assemblies.id`s whose output cost the replay would correct — an assembly consumes inputs at
+   * their WAC (C-10), so a re-weighted input cascades into its own output cost, exactly like a
+   * production run's `affectedProductionRunIds` above. */
+  affectedAssemblyIds: affectedIdsSchema,
   /** Every `items.id` whose WAC the replay would move, including the items reached only
    * transitively through an affected production run's output. */
   affectedItemIds: affectedIdsSchema,

@@ -4,8 +4,7 @@ const STATIC_DESTINATIONS = new Set(["document", "script", "style"]);
 function isStaticAsset(request) {
   const url = new URL(request.url);
   const isApiRequest = url.pathname === "/api" || url.pathname.startsWith("/api/");
-  const isTelegramRequest =
-    url.pathname === "/telegram" || url.pathname.startsWith("/telegram/");
+  const isTelegramRequest = url.pathname === "/telegram" || url.pathname.startsWith("/telegram/");
 
   return (
     request.method === "GET" &&
@@ -18,7 +17,10 @@ function isStaticAsset(request) {
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.add("/")).then(() => self.skipWaiting()),
+    caches
+      .open(CACHE_NAME)
+      .then((cache) => cache.add("/"))
+      .then(() => self.skipWaiting()),
   );
 });
 
@@ -29,7 +31,9 @@ self.addEventListener("activate", (event) => {
       .then((cacheNames) =>
         Promise.all(
           cacheNames
-            .filter((cacheName) => cacheName.startsWith("kokoro-static-") && cacheName !== CACHE_NAME)
+            .filter(
+              (cacheName) => cacheName.startsWith("kokoro-static-") && cacheName !== CACHE_NAME,
+            )
             .map((cacheName) => caches.delete(cacheName)),
         ),
       )

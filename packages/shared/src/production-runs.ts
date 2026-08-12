@@ -53,11 +53,11 @@ const indirectCostSchema = z
   .optional()
   .default(0);
 /** `YYYY-MM-DD`, America/La_Paz local calendar date (Doc 04 §1, INV-3). */
-const businessDateSchema = z
+export const businessDateSchema = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/, "La fecha debe tener el formato AAAA-MM-DD.");
 /** UTC ISO-8601 instant (Doc 04 §1). */
-const occurredAtSchema = z
+export const occurredAtSchema = z
   .string()
   .datetime({ offset: true, message: "occurredAt debe ser una fecha ISO-8601." });
 

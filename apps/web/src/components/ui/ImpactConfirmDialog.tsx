@@ -43,6 +43,7 @@ const IMPACT_ROW_LABELS = {
   affectedSaleLineIds: "Línea(s) de venta afectadas",
   affectedStockExitIds: "Salida(s) afectadas",
   affectedProductionRunIds: "Producción(es) afectadas",
+  affectedAssemblyIds: "Armado(s) afectados",
   affectedItemIds: "Ítem(s) afectados",
 } as const;
 
@@ -52,6 +53,7 @@ function buildImpactRows(impact: ReplayImpactDto): ImpactRow[] {
       { key: "affectedSaleLineIds", count: impact.affectedSaleLineIds.length },
       { key: "affectedStockExitIds", count: impact.affectedStockExitIds.length },
       { key: "affectedProductionRunIds", count: impact.affectedProductionRunIds.length },
+      { key: "affectedAssemblyIds", count: impact.affectedAssemblyIds.length },
       { key: "affectedItemIds", count: impact.affectedItemIds.length },
     ] as const
   )

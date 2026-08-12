@@ -34,7 +34,8 @@ export type CostingAdjustmentTrigger =
   | "production_run"
   | "stock_exit"
   | "session"
-  | "sale";
+  | "sale"
+  | "assembly";
 
 /** One item's slice of a replay's cost correction. One replay produces one entry per item whose
  * `costDelta` is nonzero — see replay.ts. */

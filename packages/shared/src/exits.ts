@@ -35,6 +35,15 @@ const occurredAtSchema = z
   .string()
   .datetime({ offset: true, message: "occurredAt debe ser una fecha ISO-8601." });
 
+export const stockExitPackagingLineCommandSchema = z.object({
+  itemId: z.string().min(1),
+  qty: z
+    .number()
+    .int()
+    .positive("La cantidad de empaque debe ser un entero positivo (mili-unidades)."),
+});
+export type StockExitPackagingLineCommand = z.infer<typeof stockExitPackagingLineCommandSchema>;
+
 export const recordStockExitCommandSchema = z.object({
   itemId: z.string().min(1),
   qty: qtySchema,
@@ -46,6 +55,7 @@ export const recordStockExitCommandSchema = z.object({
   notes: z.string().trim().pipe(safeText(2000)).optional(),
   occurredAt: occurredAtSchema,
   businessDate: businessDateSchema,
+  packagingLines: z.array(stockExitPackagingLineCommandSchema).optional().default([]),
   // R-5 / ADR-016 (KOK-024). An exit books no WAC of its own (C-6), but a BACKDATED one changes
   // `on_hand` at the point it lands, and `on_hand` is C-1's weight — so every entry after it
   // re-averages differently, which can move cost already booked against a later sale/exit. Same
@@ -136,10 +146,18 @@ export interface StockExitDto {
   /** Milli-centavos per WHOLE unit (Doc 04 §3.4, ADR-017), the item's WAC snapshotted at
    * exit time (C-6). */
   unitCostSnapshotMc: number;
+  packagingLines: StockExitPackagingLineDto[];
   sessionId: string | null;
   notes: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface StockExitPackagingLineDto {
+  id: string;
+  itemId: string;
+  qty: number;
+  unitCostSnapshotMc: number;
 }
 
 export interface RecordStockExitResult {

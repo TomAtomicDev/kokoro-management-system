@@ -579,6 +579,7 @@ const NO_KARDEX_CHANGE_PLAN: CostingReplayPlan = {
     affectedSaleLineIds: [],
     affectedStockExitIds: [],
     affectedProductionRunIds: [],
+    affectedAssemblyIds: [],
     affectedItemIds: [],
     costDelta: 0,
     requiresConfirmation: false,

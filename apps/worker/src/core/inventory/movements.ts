@@ -40,6 +40,8 @@ const MOVEMENT_DIRECTION: Record<StockMovementType, "IN" | "OUT" | "EITHER"> = {
   SALE_OUT: "OUT",
   EXIT_OUT: "OUT",
   ADJUST: "EITHER",
+  ASSEMBLY_IN: "IN",
+  ASSEMBLY_OUT: "OUT",
 };
 
 // Mirrors packages/shared/src/numeric.ts's assertSafeInteger pattern. That module is deliberately

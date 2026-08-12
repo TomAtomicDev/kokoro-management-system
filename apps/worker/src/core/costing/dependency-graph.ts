@@ -132,7 +132,7 @@ export function topoOrderAffectedItems(
     // Every node Kahn could not place is part of, or downstream of, a cycle.
     const unresolved = [...reachable].filter((item) => !placed.has(item));
     throw conflict(
-      "Las recetas afectadas forman un ciclo: un producto se elabora, directa o indirectamente, a partir de sí mismo. Corrige las recetas antes de recalcular costos.",
+      "Los ítems afectados forman un ciclo de dependencias (recetas o definiciones de armado): un producto se elabora, directa o indirectamente, a partir de sí mismo. Corrige las recetas o definiciones de armado antes de recalcular costos.",
       { unresolvedItemIds: unresolved },
     );
   }
