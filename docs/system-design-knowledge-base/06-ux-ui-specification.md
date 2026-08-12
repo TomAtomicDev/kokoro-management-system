@@ -23,8 +23,13 @@ Currency `Bs 1.234,50` (space, comma decimals); dates `lun 6 jul` / `06/07/2026`
 
 1. **Three-tap capture.** Any event from Telegram: message → confirm → done. The web quick-add
    bar mirrors this.
-2. **Never block, always flag.** Negative stock, missing session, unusual amounts → inline
-   warnings (amber), never modal errors that discard input (INV-8).
+2. **Never block, always flag.** Negative stock, unusual amounts, an order marked ready with no
+   linked production → inline warnings (amber), never modal errors that discard input (INV-8,
+   O-4). A missing session is not even a warning: the system attaches or creates one itself
+   (S-1). The rule is strong enough to have survived a direct request to break it — the owner
+   asked for a mandatory session field and a hard production gate on orders, and both were
+   answered with automatic resolution and a confirmable warning instead, because a form that
+   refuses a real event produces an unrecorded event.
 3. **Derived numbers are visibly derived.** Computed fields (WAC, margins, balances) render with
    a subtle "calculado" affordance and are never editable; tapping shows the calculation trace
    (e.g., kardex behind a stock figure).
@@ -37,13 +42,21 @@ Currency `Bs 1.234,50` (space, comma decimals); dates `lun 6 jul` / `06/07/2026`
    (INV-10) instead of "¿Estás segura?" walls. Exceptions: order cancellation with deposit
    (explicit refund/forfeit choice, O-3), and any create/edit/delete/restore whose cost-replay
    impact requires confirmation (R-5, ADR-016) — that one genuinely needs the owner's informed
-   yes before it commits, not an after-the-fact undo window (KOK-024).
+   yes before it commits, not an after-the-fact undo window (KOK-024). Phase 3.2 adds a third
+   exception: **undo delivery** (O-6), which deletes a real sale and moves a deposit back to
+   liability — too much to hand to a 10-second toast.
 
 ## 2. Web app — navigation & layout
 
 Persistent left sidebar (collapsible to icons), topbar with global search (⌘K), quick-add
 button (`+ Registrar`), alerts bell, and open-session indicator chip (e.g., "🟢 Producción
 2h 15m").
+
+**Topbar additions (Phase 3.2, decided 2026-08-11, implementation pending):** a **start-session**
+control replacing the placeholder `Registrar` button that currently does nothing (KOK-132); a
+**calculator** (KOK-148); and a **recipe timer** chip that keeps counting in `mm:ss` while the
+owner navigates away from the recipe and survives a reload (KOK-149). All three exist because the
+owner's hands are busy and the work does not pause when a screen changes.
 
 ```
 Sidebar:
@@ -67,9 +80,24 @@ Sidebar:
 
 Layout grid: topbar 56px; sidebar 232px (64px collapsed); content max-width 1280px, 24px gutters.
 List pages share one pattern: filter bar (date range, entity filters, search) → data table →
-row click opens right-side **detail drawer** (view + edit) — not a page navigation, so the table
-context is never lost. Mobile web: sidebar becomes bottom tab bar (Panel, Ventas, Inventario,
-Finanzas, Más).
+row click opens right-side **detail drawer** (view, actions, audit trail) — not a page navigation,
+so the table context is never lost. Mobile web: sidebar becomes bottom tab bar (Panel, Ventas,
+Inventario, Finanzas, Más).
+
+**Amendment — where a form lives (Phase 3.2, KOK-140/KOK-141, decided 2026-08-11).** The original
+"every form is a drawer or modal" rule broke on the first real use: the sale total sat below the
+fold and the owner never saw it, and dismissing a modal silently discarded her work. The rule is
+now split by form shape:
+
+| Surface | What it holds |
+|---------|---------------|
+| **Full page, own URL** | Every event form with line items: Compra, Venta, Producción, Envasado/Armado, Pedido, Conteo. Shareable and deep-linkable, real browser back, and a **pinned summary footer** that always shows the total, the affected account and any warnings without scrolling. |
+| **Detail drawer** | Reading one record: fields, derived numbers, audit footer, and the actions that open a form or a small dialog. |
+| **Small dialog** | Single-decision actions with no line items: cobrar, transferir, retiro, iniciar sesión, and every confirmation (including `ImpactConfirmDialog`). |
+
+An **unsaved-changes guard** applies to all three (KOK-142): a click outside never discards typed
+work. Filters, tabs and date ranges live in the URL (KOK-114) so a reload or a shared link
+restores the view — this is also what makes Telegram deep links land on the right filtered state.
 
 ## 3. Design system
 
@@ -139,12 +167,18 @@ a scarce semantic accent (≤ ~5-8% of any screen), never decoration.** Full rat
 | `ItemPicker` | combobox over items + aliases, filter by kind; inline "crear ítem" |
 | `CustomerPicker` | combobox + inline create |
 | `DateRangePicker` | presets: hoy, ayer, semana, mes, 3m, año, personalizado |
-| `EventTable` | TanStack Table wrapper: server pagination, column defs, row → drawer |
-| `DetailDrawer` | right drawer with view/edit modes, audit trail footer ("editado 2 veces") |
-| `QuickAddModal` | hosts every event form; opened from `+`, ⌘K, or dashboard shortcuts |
+| `EventTable` | TanStack Table wrapper: server pagination, column defs, row → drawer. **Sorting (KOK-115)** is opt-in per column, asc/desc/natural, Spanish collation via `Intl.Collator`, and carries two honest limits stated in the UI: it sorts only the rows already loaded, and it is **not combinable** — sorting a column clears any other column's sort |
+| `DetailDrawer` | right drawer with view mode, actions, audit trail footer ("editado 2 veces"); line-bearing edits navigate to the full-page form (§2) rather than editing inline |
+| `QuickAddModal` | hosts the small, line-less quick actions; line-bearing forms navigate to their own page instead (§2 amendment). Still opened from `+`, ⌘K, or dashboard shortcuts |
+| `FormPage` | shell for full-page event forms: title, back, body, and the pinned `FormSummaryFooter` (total, affected account, warnings) — the component that fixes "the total was below the fold" |
 | `EventForm/*` | one form per event type; **same Zod schema as API/AI** (ADR-8) |
-| `LineEditor` | multi-line editor (purchase/sale/recipe lines): item, qty, amount, per-row remove |
-| `SessionChip` | topbar open-session indicator; click → close-session form (hours, costs) |
+| `LineEditor` | multi-line editor (purchase/sale/recipe/assembly lines): item, qty, amount, per-row remove. Renders **column headers** and wide-enough numeric inputs (KOK-107) — their absence was the single most-reported friction in the first user test |
+| `PaymentAccountPicker` | one control for payment method **and** account, which are not independent (Efectivo → Caja chica, QR → Cuenta banco). The pairing is validated in the service too, not only here (KOK-113) |
+| `SessionChip` | topbar open-session indicator; click → action menu (record a linked event / stop the session, end = now by default) |
+| `SessionCalendar` | read-only week grid of sessions positioned by hour (CSS grid, no library — D-10); no drag or resize in v1; an open session shows a green dot and occupies one hour by default. No "unscheduled" lane exists — a start time is mandatory (Doc 03 S-2) |
+| `Calculator` | topbar calculator: two-line display, thumb-sized keypad, copy button; built on the existing dialog primitive, no new dependency (D-10) |
+| `RecipeTimer` | `mm:ss` timer started from a recipe, displayed in the topbar; survives navigation and reload, alarms at zero. No schema change — the recipe's estimated minutes only supply a suggested value |
+| `OfflineNotice` | explicit "No hay conexión a internet" dialog when an API call fails for connectivity. The PWA shell is online-only by decision (ADR-020), so this replaces a silent failure — it is the whole user-facing surface of that decision |
 | `AlertsPanel` | bell dropdown: low stock, price health, negative stock, stale orders |
 | `KardexView` | per-item movement table with running balance + source-event links |
 | `CalcTrace` | popover explaining a derived number (formula + inputs) — principle 3 |
@@ -183,4 +217,33 @@ a scarce semantic accent (≤ ~5-8% of any screen), never decoration.** Full rat
 WCAG 2.1 AA contrast; all interactive elements keyboard-reachable (web); focus states visible;
 touch targets ≥ 44px; charts always accompanied by a data table toggle; loading via skeletons
 (no spinners > 300 ms alone); every mutation gives optimistic UI + server reconciliation via
-TanStack Query invalidation.
+TanStack Query invalidation. Native browser controls (date pickers above all) must be legible in
+dark mode — a global `color-scheme` declaration, not per-control patching (KOK-106).
+
+## 7. Form validation contract (Phase 3.2, KOK-143 — decided 2026-08-11, implementation pending)
+
+The first user test found the same four faults in every form: validation only on submit, one
+global error message, no indication of which fields are required, and numeric fields that accept
+letters. The contract below replaces that behaviour everywhere, starting with `LineEditor` and the
+highest-traffic forms (catálogo, compra, venta, onboarding).
+
+- **Validate on blur**, then **revalidate live** once a field has errored — never nag while the
+  owner is still typing her first attempt.
+- **On submit:** a summary of what is wrong, the offending fields highlighted, and focus moved to
+  the first of them. Never a single global sentence that makes her hunt.
+- **Required fields are marked** before submission, not discovered by it.
+- **Numeric fields accept only what they can parse**, and their error names the actual precision
+  rule ("Usa como máximo 5 decimales"), following KOK-102's precedent. Both "," and "." are valid
+  decimal separators (es-BO) — this is stated once per step, not per field.
+- **Length caps and control-character sanitizing on every text field** (KOK-120), enforced in the
+  shared Zod schema so the API and the UI agree (D-4).
+
+**Built with own primitives — no form library.** React Hook Form and TanStack Form were evaluated
+and rejected (ADR-021): neither removes the decimal→integer money layer that D-5 mandates, both
+force rewriting the pickers and live previews already built, each needs a D-10 ADR, and the
+estimate came out slower. The shared Zod schemas remain the single contract (D-4).
+
+**Scope note, so it is not oversized:** the "code injection" concern raised in the user test was
+audited and there is **no XSS today** — React escapes all free text and the codebase contains no
+`dangerouslySetInnerHTML` or raw-HTML render. The caps and sanitizing above are defense in depth
+and better error messages, not a vulnerability fix.

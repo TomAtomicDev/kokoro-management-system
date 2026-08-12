@@ -8,8 +8,14 @@ term exactly**. When speaking with the owner, use Spanish. Enum literals per Doc
 | English (code) | Spanish (UI) | Definition |
 |----------------|--------------|------------|
 | Item | Ítem / Producto | Any physical thing tracked in inventory: raw material, semi-finished, or finished good. |
-| Item kind | Tipo | `RAW_MATERIAL` (materia prima), `SEMI_FINISHED` (semielaborado: masa madre, kéfir base, masa en frío), `FINISHED` (producto final), `PACKAGING` (empaque: bolsas, etiquetas — nunca insumo de receta, KOK-1xx). |
-| Recipe | Receta | Transformation formula: ingredient quantities per batch → one output item with an expected yield. |
+| Item kind | Tipo | `RAW_MATERIAL` (materia prima), `SEMI_FINISHED` (semielaborado: masa madre, kéfir base, masa en frío), `FINISHED` (producto final, **incluye presentaciones y combos**), `PACKAGING` (empaque: bolsas, etiquetas — nunca insumo de receta, nunca línea de venta; se consume al envasar, ADR-018). |
+| Base product | Producto base | The food before its commercial presentation: bulk kéfir, bulk ghee, an unbagged loaf. May be `SEMI_FINISHED` or `FINISHED` — **being unpackaged does not make something semi-finished**; what does is a missing *food* transformation, not a missing commercial one. |
+| Presentation | Presentación | A stockable commercial unit = a quantity of base product + its packaging ("Kéfir natural 500 ml", "Ghee 200 g"). A `FINISHED` item with unit `UNIT` and its own stock, WAC, price and margin (ADR-018). Distinct items per size are unavoidable if stock is to be countable per size; what the model avoids is duplicating the *recipe* per size. |
+| Combo | Combo | A presentation composed of other finished presentations plus outer packaging ("Desayuno Kokoro"). Same mechanism as a presentation; the difference is only what its definition consumes. |
+| Assembly definition | Definición de armado | The reusable template for a presentation or combo: component items + quantities → one output item. **Not a recipe** — a recipe answers "how is this food made", a definition answers "how is it presented or bundled" (Doc 03 §3). May not contain itself, directly or transitively. |
+| Assembly | Envasado / Armado | The event that executes an assembly definition (UC-21, C-10): components out, finished presentation/combo in, output WAC updated, **no cash movement of any kind**. The units actually obtained absorb the whole cost, so breakage stays visible. |
+| Product reach | Alcance de producto | A secondary, informational metric: units of a product sold directly plus units included in combos sold ("Pan: 20 directos + 8 en combos = 28"). Reports demand and turnover **without** inventing per-component revenue — the accounting margin lives in the combo that was actually sold. |
+| Recipe | Receta | Transformation formula: ingredient quantities per batch → one output item with an expected yield. Never contains packaging or finished goods (that is an assembly definition). |
 | Expected yield | Rendimiento esperado | The recipe's planned output quantity for one batch (`recipes.expected_yield_qty`); the denominator of theoretical unit cost (C-3b). Distinct from actual yield (below), which is what a production run actually gets. |
 | Theoretical cost | Costo teórico | A recipe's cost per output unit computed from its lines and `expected_yield`, at WAC or at replacement cost (C-3b) — a live preview, not a cached/committed figure. Distinct from a production run's actual unit cost (C-4), which uses real consumption and actual yield. |
 | Batch | Tanda / Lote | One execution unit of a recipe; production is recorded in batches, costed by actual output. |
@@ -30,18 +36,19 @@ term exactly**. When speaking with the owner, use Spanish. Enum literals per Doc
 | Price staleness | Antigüedad del precio | Days since an item's last `price_history` row, read against days since its replacement cost last moved (KOK-075). Under inflation the stale price, not the mispriced one, is the usual cause of decapitalization. |
 | Input cost index | Canasta de insumos | Weighted purchase cost of the top raw materials by spend, indexed to 100 at a baseline month and built only from prices actually paid (KOK-078). The system's inflation measure; used to deflate nominal figures into real ones. |
 | Purchase | Compra | Acquisition event of raw materials/packaging; updates stock, WAC, replacement cost, and cash. |
-| Sale | Venta | Sale of FINISHED items; channel `CATALOG` (Modality 1) or `CUSTOM_ORDER` (Modality 2). |
+| Sale | Venta | Sale of FINISHED items — presentations and combos included, packaging never (ADR-018); channel `CATALOG` (Modality 1) or `CUSTOM_ORDER` (Modality 2). The line's frozen cost already contains every bag and label the unit carried. |
 | Custom order | Pedido | Modality-2 made-to-order job with deposit, delivery date/place, lifecycle O-1…O-5. |
 | Deposit (advance) | Anticipo | Customer prepayment (default 50%); cash-in but a **liability** until delivery (INV-7). |
 | Customer deposits (liability) | Anticipos de clientes | Total money held for undelivered orders. |
 | Balance (order) | Saldo | Remainder due at delivery. |
 | Receivable | Por cobrar | Sale delivered but unpaid (`ON_CREDIT`); collected via UC-04. |
-| Non-commercial exit | Salida no comercial | Stock exit without sale: `WASTE` (merma), `SELF_CONSUMPTION` (autoconsumo), `GIFT_SAMPLE` (regalo/muestra), `SPOILAGE` (deterioro), `OTHER`. Valued at WAC (C-6). |
+| Non-commercial exit | Salida no comercial | Stock exit without sale: `WASTE` (merma), `SELF_CONSUMPTION` (autoconsumo), `GIFT_SAMPLE` (regalo/muestra), `SPOILAGE` (deterioro), `OTHER`. Valued at WAC (C-6). MAY carry optional packaging lines when an *unassembled* product physically consumed packaging on its way out; never for an assembled presentation, whose WAC already contains it. |
 | Invisible cost | Costo invisible | Accumulated valued cost of non-commercial exits. |
 | Inventory count | Conteo de inventario | Physical count; variances commit `ADJUST` movements. |
-| Session | Sesión | Container for related events + shared costs + person-hours: `PRODUCTION`, `PURCHASE_TRIP` (compras), `DELIVERY_RUN` (entregas), `ADMIN`, `OTHER`. |
-| Shared cost | Costo compartido | Session-level cost (fuel, energy); allocation per S-3. Estimated ones (`is_estimate`) don't touch cash. |
+| Session | Sesión | Container for related events + shared costs + person-hours: `PRODUCTION`, `PURCHASE_TRIP` (compras), `DELIVERY_RUN` (entregas), `ADMIN`, `OTHER`. Required for purchases, production runs and assemblies — and resolved automatically, never asked for (S-1). At most one OPEN per type; types may overlap. |
+| Shared cost | Costo compartido | Session-level cost (fuel, energy); allocation per S-3 across the session's **production runs** only — assemblies absorb none (C-10). Estimated ones (`is_estimate`) don't touch cash. |
 | Time profitability | Rentabilidad del tiempo | Bs/hour metrics per S-4; headline = monthly operating profit / logged hours (G3). |
+| Deduplicated hours | Horas de reloj | The union of all session intervals in a period, counting overlapped time once (S-5). The denominator of the monthly G3 figure, since sessions of different types may run concurrently. Per-session Bs/h keeps using each session's own duration — the two totals differ legitimately and both are shown. |
 | Financial account | Cuenta | Where money lives: `BANK` ("Cuenta Banco"), `CASH` ("Caja chica"). |
 | Transfer | Transferencia | Paired movement between accounts (no P&L effect). |
 | Owner withdrawal | Retiro personal | Money taken by the owner; expense category `OWNER_WITHDRAWAL`, excluded from operating costs in profit analysis, reported separately. |
@@ -82,6 +89,12 @@ frío (cold-fermenting dough — SEMI_FINISHED), pan de masa madre, rollos de ca
 kéfir puro, kéfir con frutas, queso crema de kéfir, mantequilla ghee (from milk butter, not
 kefir), empaques y etiquetas (kind PACKAGING, not a category — KOK-1xx), agua (RAW_MATERIAL,
 `isUnmetered` — KOK-1xx, C-9).
+
+**Phase 3.2 additions (ADR-018):** *kéfir natural a granel* (base product, L) and its presentations
+*Kéfir natural 500 ml* / *Kéfir natural 1 L* (FINISHED, `UNIT`); *pan de masa madre 500 g*
+(presentation of the unbagged loaf); *Ghee 200 g*; and the *Desayuno Kokoro* combo. Note the
+naming rule this implies: a presentation's name carries its size, and the bulk base says "a
+granel" — the two are different catalog items and the UI must never let them be confused.
 
 ## Naming rules
 

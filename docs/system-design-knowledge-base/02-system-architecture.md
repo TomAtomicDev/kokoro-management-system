@@ -36,6 +36,7 @@ ADR-003).
 | ORM / migrations | Drizzle ORM + drizzle-kit migrations | Typed schema shared with app code, D1 driver, SQL-first |
 | Object storage | Cloudflare R2 | Receipt/product photos, nightly DB export, CSV exports |
 | Frontend | React 19 + Vite SPA, served as Worker static assets | ADR-004 |
+| Installable shell | Web app manifest + icon set + a service worker caching **static assets only** — no offline write queue, no background sync (Phase 3.2) | ADR-020 (extends ADR-005) |
 | Frontend data | TanStack Router + TanStack Query | Typed routes, cache/invalidatation model fits event editing |
 | UI kit | Tailwind CSS v4 + shadcn/ui (Radix primitives) + lucide-react icons | ADR-004 |
 | Charts | Recharts | Simple declarative charts for the dashboard/reports |
@@ -70,6 +71,7 @@ kokoro/
 │   │   │   │   ├── costing/   # WAC engine, replacement cost, allocation
 │   │   │   │   ├── purchasing/
 │   │   │   │   ├── production/
+│   │   │   │   ├── assembly/  # presentation/combo definitions + Envasado/Armado (Phase 3.2)
 │   │   │   │   ├── sales/
 │   │   │   │   ├── orders/    # custom orders + deposit liability
 │   │   │   │   ├── finance/   # accounts, transactions, transfers, withdrawals

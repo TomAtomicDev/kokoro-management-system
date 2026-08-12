@@ -44,7 +44,9 @@ authoritative long form.
 5. Unit tests for the costing/derivation logic (pure parts) + integration test for the batch
    (Doc 11 templates).
 6. `api/`: routes (thin) + TanStack Query hooks in `web/src/features/<module>/`.
-7. `web/`: `EventForm` + table columns + drawer wiring (reuse Doc 06 components).
+7. `web/`: `EventForm` + table columns + drawer wiring (reuse Doc 06 components). A form with
+   **line items** is a full page with its own route and a pinned summary footer, not a modal —
+   drawers are for reading a record, small dialogs for single-decision actions (Doc 06 §2).
 8. `assistant/tools/`: `draft_<event>` tool (imports the same schema, D-4) + capture few-shot
    example if the utterance shape is new + eval fixtures (D-7).
 9. `telegram/`: confirmation-card renderer for the event type (template in `telegram/cards.ts`).

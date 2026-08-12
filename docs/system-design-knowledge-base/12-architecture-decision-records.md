@@ -1,7 +1,8 @@
 # 12 — Architecture Decision Records
 
-Format: Context → Decision → Consequences. Status of all ADRs below: **Accepted (2026-07-06)**.
-New decisions append ADR-015+; superseding requires a new ADR referencing the old one.
+Format: Context → Decision → Consequences. ADR-001…ADR-014 are **Accepted (2026-07-06)**; later
+ADRs carry their own acceptance date. New decisions append ADR-022+; superseding requires a new ADR
+referencing the old one.
 
 ---
 
@@ -65,6 +66,11 @@ shadcn/ui + Radix + lucide as the component base; Recharts for charts.
 Accepted: slightly slower first paint than SSR — irrelevant for a returning single user.
 
 ## ADR-005 · Mobile capture channel: Telegram Bot (not a PWA, not WhatsApp)
+
+**Status update (2026-08-11): extended, not superseded, by [ADR-020](#adr-020--installable-pwa-shell-online-only-no-offline-write-queue-extends-adr-005).**
+The web app now ships an installable **shell** (icon, instant open). The part rejected below —
+offline capture and sync — stays rejected, and Telegram remains the sole resilient mobile capture
+surface.
 
 **Context.** The owner is out of home most of the day and wants phone capture + quick queries.
 Options: custom mobile app (out of scope), offline PWA, WhatsApp Business API, Telegram Bot.
@@ -491,3 +497,151 @@ order of weight:
   "cached with timestamp" and the dependency-ordered refresh
   (`core/costing/replacement-cost-refresh.ts`), and costs a full BOM tree walk per item — to
   recover ~10⁻⁵ relative precision that no display can show. Rejected.
+
+## ADR-018 · Presentations and combos as stockable finished goods; packaging consumed at assembly, not at sale (supersedes KOK-100's "packaging is a second sale line" rule)
+
+**Status: Accepted (2026-08-11).** Decided with the owner in the user-test-1 review; implementation
+is Doc 10 Phase 3.2 block B. Full decision record:
+`docs/development/acuerdos-prueba-usuario-1.md` §A-1.
+
+**Context.** KOK-100 promoted `PACKAGING` to its own item kind and ruled that packaging is consumed
+**at the moment of sale**, as a second kind of `sale_lines` row. The first real use of the system
+showed that rule does not describe the business. The owner **packs in advance**: bottles of kéfir
+are filled, capped and labelled on Tuesday and sold across the week. Five consequences followed,
+all observed:
+
+- No stock exists for "Kéfir 500 ml" or "Kéfir 1 L" — only bulk litres plus a pile of bottles —
+  even though those filled bottles are the things she actually has, counts and sells.
+- Deducting the bottle at sale time misdates the inventory movement by days.
+- The packaging line pollutes sales metrics with "Botella", "Etiqueta", "Cordel" — line items no
+  customer ever bought.
+- Product margin reads inflated, because the packaging cost sits in a separate line rather than
+  inside the product's cost.
+- Multi-product bundles ("Desayuno Kokoro") have no representation at all; the only workarounds
+  were duplicating recipes per size or per bundle.
+
+The originally-offered alternatives (A: packaging free by default, priced ad hoc per sale; B:
+packaging carries a catalog list price) both answered the wrong question — *how is a bag priced* —
+when the real question is *what is the commercial unit*.
+
+**Decision.** Introduce a third model. Four concepts are separated: **base product** (the food),
+**packaging** (a purchased input), **presentation** (a stockable commercial unit = a quantity of
+product + its packaging), **combo** (a presentation composed of other finished presentations +
+outer packaging).
+
+1. A new business event, **Envasado/Armado** (`assemblies`, UC-21), executes a reusable
+   **assembly definition** and emits `ASSEMBLY_OUT` for every component plus `ASSEMBLY_IN` for the
+   finished presentation/combo, in one atomic batch. It moves **no cash** (Doc 03 C-10).
+2. Presentations and combos are ordinary `FINISHED` items: own stock, own WAC, own price, own
+   margin, own **composite replacement cost** rolled up from the definition (C-3d).
+3. **Packaging leaves inventory when it is physically used**, sale or no sale — superseding
+   KOK-100's sale-time rule. Sales become `FINISHED`-only, which also resolves Doc 04's
+   §3.3-vs-§5 contradiction in favour of §5.
+4. Stock exits gain **optional packaging lines** for the one remaining case: an exit of an
+   *unassembled* product that really did consume a bag.
+5. Recipes are **not** widened to accept packaging or finished inputs. Assembly definitions are a
+   separate mechanism with their own graph and their own cycle prohibition.
+6. R-2's replay graph spans assembly definitions as well as recipes.
+
+**Consequences.** The margin the owner reads on a sale finally contains everything that unit cost
+her, and per-size stock becomes countable — the two things she asked for. Cost: a new event
+vertical with its full edit/delete/replay surface, a second dependency graph the replay must walk,
+and a migration of the shipped sale-line rule. **This is why the phase is sequenced before
+go-live**: converting later would require rewriting historical `unit_cost_snapshot` values, which
+R-4 forbids outright, so the change is effectively free today and impossible in six months.
+Accepted trade-off: assembling is one more event to record. Mitigated by it being genuine work she
+already performs, by the definition prefilling the lines, and by Phase 4 capture ("envasé diez
+botellas de kéfir de 500 ml"). Combo revenue is **never** split across components as observed
+revenue; a secondary "product reach" metric reports inclusion counts instead.
+
+**Alternatives rejected.** *Model A (packaging free, priced ad hoc)* — leaves packaging cost outside
+the margin and gives no per-size stock. *Model B (list price on packaging)* — makes bags behave
+like products throughout the metrics and still gives no per-size stock. *Expanding recipes to
+accept packaging* — reintroduces one recipe per size, the exact problem being solved, and entangles
+two costing graphs with different input rules.
+
+## ADR-019 · Session link mandatory in the domain, resolved automatically; one OPEN session per type; deduplicated hours for the monthly Bs/hour
+
+**Status: Accepted (2026-08-11).** Implementation: Doc 10 Phase 3.2 block C. Record:
+`acuerdos-prueba-usuario-1.md` §A-2.
+
+**Context.** Sessions were optional context (S-1), so events routinely had none — and hours without
+events, or events without hours, make Bs/hour (G3) meaningless. The owner's request was to make the
+session field **required on the form** and to delete the "Registrar compra/producción" buttons. Taken
+literally that violates product principle 1 (*capture first, correct later*) and the Phase 4 goal of
+≤ 30 s capture: a form that demands creating a session before noting a real purchase produces
+**unrecorded events**, which is strictly worse for this business than an imperfect session.
+
+**Decision.** Separate the domain requirement from the interaction.
+
+1. **Domain:** `session_id` is required on purchases, production runs and assemblies.
+2. **Interaction:** the service resolves it inside the command's own batch — link to the OPEN
+   session of the matching type, or create a minimal one of that type if none exists. The capture
+   path never blocks and never gains a click. The "Registrar" buttons stay.
+3. **Type matching is strict**: a purchase resolves against `PURCHASE_TRIP`, production and
+   assembly against `PRODUCTION`. An event never attaches to an open session of another type.
+4. **At most one OPEN session per type**, hard-enforced by a partial unique index (replacing the
+   soft warn-and-allow rule). Different types **may** be open simultaneously.
+5. **G3 uses deduplicated wall-clock hours** — the union of session intervals, overlaps counted
+   once — while per-session Bs/h (S-4) keeps using each session's own duration.
+
+**Consequences.** Every value-producing event is attributable to time, without the owner ever being
+stopped by a form. Point 4 is the deliberate trade: a single globally-open session would have made
+hours trivially additive, but it would force closing a bake to record a flour delivery, and an
+interaction that punishes honest recording is the thing this ADR exists to avoid. Point 5 is the
+price of that choice, and it is a real one — two hour totals now exist and the UI must show both
+where they differ, because a number the owner cannot reconcile against her own day is a number she
+stops trusting. Auto-created sessions will accumulate as thin, unnamed rows she may never complete;
+accepted, because a thin session with real boundaries is still better data than no session.
+
+## ADR-020 · Installable PWA shell, online-only; no offline write queue (extends ADR-005)
+
+**Status: Accepted (2026-08-11).** Implementation: Doc 10 KOK-105. Record:
+`acuerdos-prueba-usuario-1.md` §A-9.
+
+**Context.** ADR-005 rejected a PWA as the *mobile capture surface* in favour of Telegram. The user
+test produced a narrower request: install the web app on the phone, and — the expensive half —
+queue API calls made without connectivity and replay them in sequence on reconnect.
+
+**Decision.** Ship the installable shell (manifest, icons, favicon, a service worker caching static
+assets **only**) and an explicit "No hay conexión a internet" dialog on any API call that fails for
+connectivity. Do **not** build the offline queue.
+
+**Consequences.** The owner gets the icon and the instant open at S/M cost, with no correctness
+risk. The queue is refused for three independent reasons, any one sufficient: (1) local queue order
+is not domain order — an event held for days becomes a backdated event whose WAC replay may require
+the owner's impact confirmation (R-5), a server round-trip that by definition cannot happen
+offline, and pre-confirming blind would be inventing consent; (2) route-level idempotency exists as
+a table but is unimplemented, so a replaying queue would duplicate purchases and sales; (3)
+Telegram is already the designed resilient capture channel, with retries and dedupe specified
+(ADR-005). Accepted limitation: the web app is unusable without connectivity, and the failure is
+now loud instead of silent. Revisit only if Telegram adoption proves insufficient in practice — as
+its own phase with a KB amendment, not as an incremental feature.
+
+## ADR-021 · Form validation on own primitives; no form library
+
+**Status: Accepted (2026-08-11).** Implementation: Doc 10 KOK-143, contract in Doc 06 §7. Record:
+`acuerdos-prueba-usuario-1.md` §A-11.
+
+**Context.** The user test found the same four faults in every form: validation only on submit, one
+global error message, no required-field marking, and numeric inputs accepting letters. The proposed
+remedy was to adopt React Hook Form or TanStack Form.
+
+**Decision.** Fix the behaviour (Doc 06 §7's contract) using the existing primitives and the shared
+Zod schemas. Do not add a form library.
+
+**Consequences.** Three reasons, in order of weight: a library does **not** remove the
+decimal→integer money/quantity conversion layer that D-5 mandates, so that code and its bugs stay
+either way; every picker, `LineEditor` and live-preview already built would have to be re-adapted to
+the library's control model; and the estimate came out *slower* (≈10–18 days with a library vs
+≈9–14 without), not faster. D-10 would additionally require this ADR for the dependency itself. The
+shared Zod schemas remain the single contract across API, form and AI tool (D-4, ADR-008). Accepted
+cost: the validation ergonomics are ours to maintain, and a future contributor may reach for a
+library again — which is why this record exists. Revisit if the form surface grows well beyond the
+current set or if a genuine multi-step wizard framework is needed.
+
+**Related, and deliberately not oversized:** the same review raised "malicious code injection". The
+render path was audited — React escapes all free text and the codebase contains no
+`dangerouslySetInnerHTML` or raw-HTML render — so **there is no XSS today**. Length caps and
+control-character sanitizing (KOK-120) ship as defense in depth and better error messages, not as a
+vulnerability fix.
