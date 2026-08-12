@@ -17,7 +17,12 @@
 //     place, which is what releases the liability (see core/orders' header).
 import { env } from "cloudflare:test";
 import type { CustomOrderStatus } from "@kokoro/shared";
-import { toMilliCentavosPerUnit, toMilliUnits, totalCentavos } from "@kokoro/shared";
+import {
+  toBusinessDate,
+  toMilliCentavosPerUnit,
+  toMilliUnits,
+  totalCentavos,
+} from "@kokoro/shared";
 import { eq, inArray, sql } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 
@@ -1296,5 +1301,88 @@ describe("getOrder / listOrders", () => {
     const { orders } = await listOrders(db, { customerId: b.id });
     expect(orders).toHaveLength(1);
     expect(orders[0]?.description).toBe("De B");
+  });
+
+  it("filters by creation date instead of delivery date", async () => {
+    const db = createDb(env.DB);
+    const customer = await seedCustomer(db);
+    const first = await quoteOrder(
+      db,
+      {
+        customerId: customer.id,
+        description: "Creado hoy",
+        deliveryDate: "1900-01-01",
+      },
+      ACTOR,
+    );
+    await quoteOrder(
+      db,
+      {
+        customerId: customer.id,
+        description: "También creado hoy",
+        deliveryDate: "2099-12-31",
+      },
+      ACTOR,
+    );
+
+    const creationDate = toBusinessDate(first.order.createdAt);
+    const { orders } = await listOrders(db, {
+      fromDate: creationDate,
+      toDate: creationDate,
+    });
+
+    expect(orders.map((order) => order.description)).toEqual(["Creado hoy", "También creado hoy"]);
+  });
+});
+
+describe("payment method/account pairing (A-12)", () => {
+  it("rejects CASH routed to a BANK account before confirming an order", async () => {
+    const db = createDb(env.DB);
+    const { orderId } = await seedOrderInStatus(db, "QUOTING");
+
+    await expect(
+      confirmOrder(
+        db,
+        orderId,
+        {
+          occurredAt: NOW,
+          businessDate: BUSINESS_DATE,
+          depositAmount: 15_000,
+          paymentMethod: "CASH",
+          accountId: "acc_bank",
+        },
+        ACTOR,
+      ),
+    ).rejects.toMatchObject({
+      code: "VALIDATION",
+      message_es: expect.stringContaining("método de pago"),
+    });
+
+    expect((await getOrder(db, orderId)).status).toBe("QUOTING");
+  });
+
+  it("rejects CASH routed to a BANK account before delivering an order", async () => {
+    const db = createDb(env.DB);
+    const { orderId } = await seedOrderInStatus(db, "READY");
+
+    await expect(
+      deliverOrder(
+        db,
+        orderId,
+        {
+          occurredAt: NOW,
+          businessDate: BUSINESS_DATE,
+          balancePaymentStatus: "PAID",
+          paymentMethod: "CASH",
+          accountId: "acc_bank",
+        },
+        ACTOR,
+      ),
+    ).rejects.toMatchObject({
+      code: "VALIDATION",
+      message_es: expect.stringContaining("método de pago"),
+    });
+
+    expect((await getOrder(db, orderId)).status).toBe("READY");
   });
 });

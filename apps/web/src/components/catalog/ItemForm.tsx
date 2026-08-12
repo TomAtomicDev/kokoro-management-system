@@ -16,11 +16,12 @@ import {
   UNITS,
   WHOLE_UNIT_MILLI_UNITS,
 } from "@kokoro/shared";
-import { type ReactNode, useId } from "react";
+import { type ReactNode, useId, useRef } from "react";
 
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { InfoTooltip } from "@/components/ui/tooltip";
 import { formatCostRateInput, parseCostRateInput } from "@/lib/cost-rate";
 import { formatIntAsDecimalInput, parseDecimalToInt } from "@/lib/decimal";
 import { catalogLabels } from "@/lib/i18n-catalog";
@@ -41,11 +42,12 @@ export interface ItemFormValues {
 }
 
 export function emptyItemFormValues(defaults?: Partial<ItemFormValues>): ItemFormValues {
+  const kind = defaults?.kind ?? "RAW_MATERIAL";
   return {
     name: "",
-    kind: defaults?.kind ?? "RAW_MATERIAL",
-    category: defaults?.category ?? "INGREDIENT",
-    unit: defaults?.unit ?? "KG",
+    kind,
+    category: defaults?.category ?? (kind === "PACKAGING" ? "NOT_EATABLE" : "INGREDIENT"),
+    unit: defaults?.unit ?? (kind === "FINISHED" || kind === "PACKAGING" ? "UNIT" : "KG"),
     salePrice: "",
     minStockQty: "",
     replacementCostMc: "",
@@ -192,17 +194,22 @@ export function parseItemFormValues(values: ItemFormValues): ItemFormParseResult
 function Field({
   label,
   htmlFor,
+  tooltip,
   children,
 }: {
   label: string;
   htmlFor: string;
+  tooltip?: string;
   children: ReactNode;
 }) {
   return (
     <div className="flex flex-col gap-1.5 text-sm">
-      <label htmlFor={htmlFor} className="font-medium text-foreground">
-        {label}
-      </label>
+      <div className="flex items-center gap-1">
+        <label htmlFor={htmlFor} className="font-medium text-foreground">
+          {label}
+        </label>
+        {tooltip ? <InfoTooltip content={tooltip} label={`Más información: ${label}`} /> : null}
+      </div>
       {children}
     </div>
   );
@@ -219,6 +226,8 @@ const UNIT_ABBREV: Record<Unit, string> = {
 export interface ItemFormProps {
   values: ItemFormValues;
   onChange: (values: ItemFormValues) => void;
+  /** Existing items must retain their stored category/unit when their kind changes. */
+  isEditMode?: boolean;
   /**
    * Shown as a read-only "calculado" block. Both values use ADR-017's integer
    * milli-centavos-per-WHOLE-unit scale and are displayed through `totalCentavos`.
@@ -227,15 +236,36 @@ export interface ItemFormProps {
   disabled?: boolean;
 }
 
-export function ItemForm({ values, onChange, derived, disabled }: ItemFormProps) {
+export function ItemForm({
+  values,
+  onChange,
+  derived,
+  disabled,
+  isEditMode = false,
+}: ItemFormProps) {
   const formId = useId();
+  const userSetRef = useRef({ category: false, unit: false });
   function set<K extends keyof ItemFormValues>(key: K, value: ItemFormValues[K]) {
+    if (!isEditMode && key === "category") userSetRef.current.category = true;
+    if (!isEditMode && key === "unit") userSetRef.current.unit = true;
     onChange({ ...values, [key]: value });
   }
   function setKind(kind: ItemKind) {
+    const category =
+      !isEditMode && !userSetRef.current.category && kind === "PACKAGING"
+        ? "NOT_EATABLE"
+        : values.category;
+    const unit =
+      !isEditMode && !userSetRef.current.unit
+        ? kind === "FINISHED" || kind === "PACKAGING"
+          ? "UNIT"
+          : "KG"
+        : values.unit;
     onChange({
       ...values,
       kind,
+      category,
+      unit,
       salePrice: kind === "FINISHED" ? values.salePrice : "",
       minStockQty: kind === "RAW_MATERIAL" || kind === "PACKAGING" ? values.minStockQty : "",
       isUnmetered: kind === "RAW_MATERIAL" ? values.isUnmetered : false,
@@ -309,6 +339,10 @@ export function ItemForm({ values, onChange, derived, disabled }: ItemFormProps)
             aria-label={catalogLabels.fieldIsUnmetered}
           />
           <span>{catalogLabels.fieldIsUnmetered}</span>
+          <InfoTooltip
+            content={catalogLabels.tooltipFieldIsUnmetered}
+            label={`Más información: ${catalogLabels.fieldIsUnmetered}`}
+          />
         </div>
       ) : null}
 
@@ -342,7 +376,11 @@ export function ItemForm({ values, onChange, derived, disabled }: ItemFormProps)
         ) : null}
 
         {values.kind === "RAW_MATERIAL" && values.isUnmetered ? (
-          <Field label={catalogLabels.fieldReplacementCost} htmlFor={`${formId}-replacement-cost`}>
+          <Field
+            label={catalogLabels.fieldReplacementCost}
+            htmlFor={`${formId}-replacement-cost`}
+            tooltip={catalogLabels.tooltipFieldReplacementCost}
+          >
             <div className="flex flex-col gap-1">
               <Input
                 id={`${formId}-replacement-cost`}
@@ -364,7 +402,11 @@ export function ItemForm({ values, onChange, derived, disabled }: ItemFormProps)
         ) : null}
 
         {values.kind === "RAW_MATERIAL" || values.kind === "PACKAGING" ? (
-          <Field label={catalogLabels.fieldMinStock} htmlFor={`${formId}-min-stock`}>
+          <Field
+            label={catalogLabels.fieldMinStock}
+            htmlFor={`${formId}-min-stock`}
+            tooltip={catalogLabels.tooltipFieldMinStock}
+          >
             <Input
               id={`${formId}-min-stock`}
               inputMode="decimal"

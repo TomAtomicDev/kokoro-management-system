@@ -38,6 +38,8 @@ import { parseCostRateInput } from "@/lib/cost-rate";
 import { formatIntAsDecimalInput, parseDecimalToInt } from "@/lib/decimal";
 import { onboardingLabels } from "@/lib/i18n-onboarding";
 
+const COUNT_GRID_COLUMNS = "grid-cols-[minmax(0,1fr)_9rem_12rem]";
+
 export interface StepCountProps {
   /** itemId -> { name, unit }, built by the caller from useItemsQuery — same lookup
    * routes/inventory.tsx builds for CountDetailView. */
@@ -227,6 +229,9 @@ export function StepCount({ items, catalogCommitted }: StepCountProps) {
       <div>
         <h2 className="font-medium text-foreground text-lg">{onboardingLabels.countTitle}</h2>
         <p className="text-muted-foreground text-sm">{onboardingLabels.countBody}</p>
+        <p id="count-cost-rate-help" className="text-muted-foreground text-xs">
+          {onboardingLabels.costRateHelp}
+        </p>
       </div>
 
       <StepGuidance
@@ -243,7 +248,9 @@ export function StepCount({ items, catalogCommitted }: StepCountProps) {
         <p className="text-muted-foreground text-sm">{onboardingLabels.noCountLines}</p>
       ) : (
         <div className="overflow-hidden rounded-lg border border-border">
-          <div className="grid grid-cols-[1fr_9rem_12rem] gap-3 border-b border-border bg-card px-3 py-2 text-xs font-medium text-muted-foreground">
+          <div
+            className={`sticky top-0 z-10 grid ${COUNT_GRID_COLUMNS} gap-3 border-b border-border bg-card px-3 py-2 text-xs font-medium text-muted-foreground`}
+          >
             <span>{onboardingLabels.countColumnItem}</span>
             <span className="text-right">{onboardingLabels.countColumnCounted}</span>
             <span className="text-right">{onboardingLabels.countColumnUnitCost}</span>
@@ -264,9 +271,9 @@ export function StepCount({ items, catalogCommitted }: StepCountProps) {
                   return (
                     <div
                       key={line.id}
-                      className="grid grid-cols-[1fr_9rem_12rem] items-center gap-3 border-b border-border px-3 py-2 text-sm last:border-0"
+                      className={`grid ${COUNT_GRID_COLUMNS} items-center gap-3 border-b border-border px-3 py-2 text-sm last:border-0`}
                     >
-                      <span className="text-foreground">{info?.name ?? "—"}</span>
+                      <span className="min-w-0 text-foreground">{info?.name ?? "—"}</span>
                       <div className="flex items-center justify-end gap-1">
                         <Input
                           className="w-24"
@@ -300,18 +307,12 @@ export function StepCount({ items, catalogCommitted }: StepCountProps) {
                               }
                               disabled={disabled}
                               aria-label={`${onboardingLabels.countColumnUnitCost} ${info?.name ?? line.itemId}`}
-                              aria-describedby={`count-${line.itemId}-unit-cost-help`}
+                              aria-describedby="count-cost-rate-help"
                             />
                             <span className="text-muted-foreground text-xs">
                               Bs/{onboardingLabels.unitAbbrev[unit]}
                             </span>
                           </div>
-                          <span
-                            id={`count-${line.itemId}-unit-cost-help`}
-                            className="max-w-36 text-muted-foreground text-xs"
-                          >
-                            {onboardingLabels.costRateHelp}
-                          </span>
                         </div>
                       ) : (
                         <span className="text-right text-muted-foreground">—</span>

@@ -38,6 +38,7 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/components/ui/toast";
+import { InfoTooltip } from "@/components/ui/tooltip";
 import { useRecordSession, useUpdateSession } from "@/features/sessions/api";
 import { ApiError } from "@/lib/api";
 import { formatIntAsDecimalInput, parseDecimalToInt } from "@/lib/decimal";
@@ -177,6 +178,12 @@ export function SessionForm({ open, onOpenChange, accounts, session }: SessionFo
   }, [open, session?.id]);
 
   const disabled = isEditMode ? updateMutation.isPending : createMutation.isPending;
+  const costLineLabelPlaceholder =
+    type === "PURCHASE_TRIP"
+      ? sessionsLabels.costLineLabelPlaceholderPurchaseTrip
+      : type === "PRODUCTION"
+        ? sessionsLabels.costLineLabelPlaceholderProduction
+        : sessionsLabels.costLineLabelPlaceholder;
 
   function updateCostLine(index: number, patch: Partial<SessionCostLineValue>) {
     setCostLines((lines) => lines.map((line, i) => (i === index ? { ...line, ...patch } : line)));
@@ -360,7 +367,13 @@ export function SessionForm({ open, onOpenChange, accounts, session }: SessionFo
         </div>
 
         <div className="flex flex-col gap-2">
-          <span className="font-medium text-foreground">{sessionsLabels.costLinesTitle}</span>
+          <div className="flex items-center gap-1">
+            <span className="font-medium text-foreground">{sessionsLabels.costLinesTitle}</span>
+            <InfoTooltip
+              content={sessionsLabels.tooltipCostLinesTitle}
+              label={`Más información: ${sessionsLabels.costLinesTitle}`}
+            />
+          </div>
           <div className="flex flex-col gap-2">
             {costLines.map((line, index) => (
               <div
@@ -374,7 +387,7 @@ export function SessionForm({ open, onOpenChange, accounts, session }: SessionFo
                   <div className="flex-1">
                     <Input
                       aria-label={sessionsLabels.costLineLabel}
-                      placeholder={sessionsLabels.costLineLabelPlaceholder}
+                      placeholder={costLineLabelPlaceholder}
                       value={line.label}
                       onChange={(e) => updateCostLine(index, { label: e.target.value })}
                       disabled={disabled}
@@ -414,6 +427,10 @@ export function SessionForm({ open, onOpenChange, accounts, session }: SessionFo
                       aria-label={sessionsLabels.costLineEstimate}
                     />
                     <span>{sessionsLabels.costLineEstimate}</span>
+                    <InfoTooltip
+                      content={sessionsLabels.tooltipCostLineEstimate}
+                      label={`Más información: ${sessionsLabels.costLineEstimate}`}
+                    />
                   </div>
                   {!line.isEstimate ? (
                     <div className="flex-1">

@@ -44,7 +44,7 @@ export const recipesLabels = {
   fieldLaborMin: "Tiempo estimado (min)",
   laborMinPlaceholder: "Opcional",
   fieldDefault: "Receta predeterminada para este ítem",
-  fieldNotes: "Notas",
+  fieldNotes: "Preparación",
   notesPlaceholder: "Opcional",
 
   linesTitle: "Ingredientes",

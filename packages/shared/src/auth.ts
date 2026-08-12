@@ -4,7 +4,7 @@
 import { z } from "zod";
 
 export const loginCommandSchema = z.object({
-  password: z.string().min(1, "Ingresa tu contraseña."),
+  password: z.string().min(1, "Ingresa tu contraseña.").max(200),
 });
 
 export type LoginCommand = z.infer<typeof loginCommandSchema>;

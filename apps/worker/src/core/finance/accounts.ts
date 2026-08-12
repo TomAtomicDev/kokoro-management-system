@@ -19,10 +19,11 @@ import type {
   FinancialTransactionCategory,
   FinancialTransactionType,
   ListAccountsResult,
+  PaymentMethod,
   SetOpeningBalancesCommand,
   SetOpeningBalancesResult,
 } from "@kokoro/shared";
-import { generateUuidV7, nowIso } from "@kokoro/shared";
+import { generateUuidV7, isPaymentMethodAccountTypePair, nowIso } from "@kokoro/shared";
 import { and, eq, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 
@@ -267,6 +268,19 @@ export async function findActiveAccountRowOrThrow(
     throw validationError("La cuenta no está activa.", { accountId });
   }
   return row;
+}
+
+/** Enforces the A-12 link between the payment method and the account receiving the money. */
+export function assertPaymentMethodMatchesAccountType(
+  paymentMethod: PaymentMethod,
+  account: Pick<FinancialAccountRow, "type">,
+): void {
+  if (!isPaymentMethodAccountTypePair(paymentMethod, account.type)) {
+    throw validationError("El método de pago no corresponde a la cuenta seleccionada.", {
+      paymentMethod,
+      accountType: account.type,
+    });
+  }
 }
 
 export async function getAccount(db: Db, id: string): Promise<FinancialAccountDto> {

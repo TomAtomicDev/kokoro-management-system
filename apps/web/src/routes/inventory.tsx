@@ -5,8 +5,14 @@
 // all have real content.
 
 import { ITEM_KINDS, type ItemDto, type ItemKind, type StockRowDto } from "@kokoro/shared";
+import { getRouteApi } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 
+import {
+  type DateRange,
+  DateRangeFilter,
+  getDefaultDateRange,
+} from "@/components/common/DateRangeFilter";
 import { CountDetailView } from "@/components/inventory/CountDetailView";
 import { CountForm } from "@/components/inventory/CountForm";
 import { CountsTable } from "@/components/inventory/CountsTable";
@@ -32,6 +38,8 @@ import { inventoryLabels } from "@/lib/i18n-inventory";
 import { cn } from "@/lib/utils";
 
 type InventoryTab = "stock" | "salidas" | "conteos";
+
+const routeApi = getRouteApi("/_authenticated/inventory");
 
 const TABS: { id: InventoryTab; label: string }[] = [
   { id: "stock", label: inventoryLabels.tabStock },
@@ -70,10 +78,15 @@ function TabSwitcher({
 }
 
 export function InventoryRoute() {
-  const [tab, setTab] = useState<InventoryTab>("stock");
-  const [kind, setKind] = useState<ItemKind | "">("");
-  const [lowStockOnly, setLowStockOnly] = useState(false);
-  const [negativeOnly, setNegativeOnly] = useState(false);
+  const search = routeApi.useSearch();
+  const navigate = routeApi.useNavigate();
+  const defaults = getDefaultDateRange();
+  const fromDate = search.fromDate ?? defaults.fromDate;
+  const toDate = search.toDate ?? defaults.toDate;
+  const tab: InventoryTab = search.tab ?? "stock";
+  const kind = search.kind ?? "";
+  const lowStockOnly = search.lowStockOnly ?? false;
+  const negativeOnly = search.negativeOnly ?? false;
   const [selected, setSelected] = useState<StockRowDto | null>(null);
   const [exitFormOpen, setExitFormOpen] = useState(false);
   const [selectedExitId, setSelectedExitId] = useState<string | null>(null);
@@ -106,8 +119,24 @@ export function InventoryRoute() {
   // No `isActive` filter: exits can reference an item that was later deactivated, and the
   // Salidas table must still resolve its name/unit correctly for historical rows.
   const itemsQuery = useItemsQuery({});
-  const exitsQuery = useStockExits({});
+  const exitsQuery = useStockExits({ fromDate, toDate });
   const countsQuery = useCounts({});
+
+  function updateDateRange(range: DateRange): void {
+    void navigate({ search: (previous) => ({ ...previous, ...range }) });
+  }
+
+  function updateTab(nextTab: InventoryTab): void {
+    void navigate({ search: (previous) => ({ ...previous, tab: nextTab }) });
+  }
+
+  function updateStockFilters(filters: {
+    kind?: ItemKind;
+    lowStockOnly?: boolean;
+    negativeOnly?: boolean;
+  }): void {
+    void navigate({ search: (previous) => ({ ...previous, ...filters }) });
+  }
 
   const itemLookup = useMemo(() => {
     const map = new Map<string, { name: string; unit: ItemDto["unit"] }>();
@@ -124,14 +153,17 @@ export function InventoryRoute() {
         <p className="text-muted-foreground text-sm">{inventoryLabels.subtitle}</p>
       </div>
 
-      <TabSwitcher active={tab} onChange={setTab} />
+      <TabSwitcher active={tab} onChange={updateTab} />
 
       {tab === "stock" ? (
         <div className="flex flex-col gap-4">
           <div className="flex flex-wrap items-center gap-4">
             <Select
               value={kind}
-              onChange={(event) => setKind(event.target.value as ItemKind | "")}
+              onChange={(event) => {
+                const nextKind = event.target.value as ItemKind | "";
+                updateStockFilters({ kind: nextKind || undefined });
+              }}
               className="w-auto"
             >
               <option value="">{inventoryLabels.filterKindAll}</option>
@@ -144,7 +176,9 @@ export function InventoryRoute() {
             <div className="flex items-center gap-2 text-sm text-foreground">
               <Switch
                 checked={lowStockOnly}
-                onCheckedChange={setLowStockOnly}
+                onCheckedChange={(checked) =>
+                  updateStockFilters({ lowStockOnly: checked || undefined })
+                }
                 aria-label={inventoryLabels.filterLowStockOnly}
               />
               <span>{inventoryLabels.filterLowStockOnly}</span>
@@ -152,7 +186,9 @@ export function InventoryRoute() {
             <div className="flex items-center gap-2 text-sm text-foreground">
               <Switch
                 checked={negativeOnly}
-                onCheckedChange={setNegativeOnly}
+                onCheckedChange={(checked) =>
+                  updateStockFilters({ negativeOnly: checked || undefined })
+                }
                 aria-label={inventoryLabels.filterNegativeOnly}
               />
               <span>{inventoryLabels.filterNegativeOnly}</span>
@@ -186,8 +222,9 @@ export function InventoryRoute() {
         </div>
       ) : tab === "salidas" ? (
         <div className="flex flex-col gap-4">
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <WasteSummaryCard />
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <DateRangeFilter fromDate={fromDate} toDate={toDate} onChange={updateDateRange} />
+            <WasteSummaryCard dateRange={{ fromDate, toDate }} />
             <Button type="button" onClick={() => setExitFormOpen(true)}>
               {inventoryLabels.recordExitButton}
             </Button>

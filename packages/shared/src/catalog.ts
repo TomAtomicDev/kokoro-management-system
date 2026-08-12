@@ -12,10 +12,11 @@ import { z } from "zod";
 import type { ItemCategory, ItemKind, Unit } from "./enums.js";
 import { itemCategorySchema, itemKindSchema, unitSchema } from "./enums.js";
 import { type MilliCentavosPerUnit, toMilliCentavosPerUnit } from "./money.js";
+import { safeText } from "./text.js";
 
-const itemNameSchema = z.string().trim().min(1, "El nombre es obligatorio.").max(200);
-const aliasSchema = z.string().trim().min(1, "El alias no puede estar vacío.").max(200);
-const notesSchema = z.string().trim().max(2000).nullable().optional();
+const itemNameSchema = z.string().trim().min(1, "El nombre es obligatorio.").pipe(safeText(200));
+const aliasSchema = z.string().trim().min(1, "El alias no puede estar vacío.").pipe(safeText(200));
+const notesSchema = z.string().trim().pipe(safeText(2000)).nullable().optional();
 /** Centavos, matching money.ts's Centavos representation (INV-6). */
 const salePriceMcSchema = z
   .number()
@@ -184,7 +185,7 @@ export const listItemsFiltersSchema = z.object({
     .enum(["true", "false"])
     .optional()
     .transform((v) => (v === undefined ? undefined : v === "true")),
-  search: z.string().trim().min(1).optional(),
+  search: z.string().trim().min(1).pipe(safeText(200)).optional(),
 });
 export type ListItemsFilters = z.infer<typeof listItemsFiltersSchema>;
 

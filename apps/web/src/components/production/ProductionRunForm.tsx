@@ -28,7 +28,8 @@ import {
   totalCentavos,
   WHOLE_UNIT_MILLI_UNITS,
 } from "@kokoro/shared";
-import { useEffect, useMemo, useState } from "react";
+import { AlertTriangle, Check, Minus } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { CalcTrace, type CalcTraceInput } from "@/components/common/CalcTrace";
 import { LineEditor, type LineEditorLine } from "@/components/line-editor/LineEditor";
@@ -37,12 +38,15 @@ import { Dialog } from "@/components/ui/dialog";
 import { ImpactConfirmDialog } from "@/components/ui/ImpactConfirmDialog";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { InfoTooltip } from "@/components/ui/tooltip";
 import { useItemsQuery } from "@/features/catalog/api";
+import { useStock } from "@/features/inventory/api";
 import { useRecordProductionRun, useUpdateProductionRun } from "@/features/production-runs/api";
 import { useRecipesQuery } from "@/features/recipes/api";
 import { useReplayConfirmableMutation } from "@/hooks/useReplayConfirmableMutation";
 import { ApiError } from "@/lib/api";
 import { formatIntAsDecimalInput, parseDecimalToInt } from "@/lib/decimal";
+import { catalogLabels } from "@/lib/i18n-catalog";
 import { productionLabels } from "@/lib/i18n-production";
 
 export interface ProductionRunFormProps {
@@ -55,13 +59,22 @@ export interface ProductionRunFormProps {
 }
 
 interface ProductionLineValue extends LineEditorLine {
+  /** Stable identity lets batch recomputation follow recipe lines after manual row edits. */
+  lineKey: string;
   itemId: string | null;
   /** Milli-units decimal string (scale 3) â€” same convention as PurchaseForm/RecipeForm's line qty. */
   qty: string;
 }
 
+let nextLineKey = 0;
+
+function newLineKey(): string {
+  nextLineKey += 1;
+  return `production-line-${nextLineKey}`;
+}
+
 function emptyLine(): ProductionLineValue {
-  return { itemId: null, qty: "" };
+  return { lineKey: newLineKey(), itemId: null, qty: "" };
 }
 
 interface ProductionRunFormState {
@@ -91,7 +104,8 @@ export function productionRunToFormState(productionRun: ProductionRunDto): Produ
     notes: productionRun.notes ?? "",
     lines:
       productionRun.lines.length > 0
-        ? productionRun.lines.map((line) => ({
+        ? productionRun.lines.map((line, index) => ({
+            lineKey: `saved-production-line-${index}`,
             itemId: line.itemId,
             qty: formatIntAsDecimalInput(line.qty, 3),
           }))
@@ -110,6 +124,10 @@ function parseBatches(input: string): number | null {
   return Number.isFinite(value) && value > 0 ? value : null;
 }
 
+function quantityForBatches(quantity: number, batches: number): string {
+  return formatIntAsDecimalInput(toMilliUnits(Math.round(quantity * batches)), 3);
+}
+
 export function ProductionRunForm({ open, onOpenChange, productionRun }: ProductionRunFormProps) {
   const isEditMode = Boolean(productionRun);
 
@@ -121,6 +139,10 @@ export function ProductionRunForm({ open, onOpenChange, productionRun }: Product
   const [notes, setNotes] = useState("");
   const [lines, setLines] = useState<ProductionLineValue[]>([emptyLine()]);
   const [error, setError] = useState<string | null>(null);
+  const actualOutputQtyAutoRef = useRef<string | null>(null);
+  const actualOutputQtyDirtyRef = useRef(false);
+  const lineAutoQtyRef = useRef(new Map<string, string>());
+  const dirtyLineKeysRef = useRef(new Set<string>());
 
   const createMutation = useRecordProductionRun();
   // Called unconditionally (rules of hooks) even in create mode â€” `productionRun?.id` is only ""
@@ -146,6 +168,17 @@ export function ProductionRunForm({ open, onOpenChange, productionRun }: Product
     return map;
   }, [itemsQuery.data]);
 
+  // Current on-hand quantity per item (v_stock, INV-5) — used only for the informational
+  // per-line indicator below. Production remains allowed to consume beyond on-hand stock (INV-8).
+  const stockQuery = useStock();
+  const onHandByItemId = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const row of stockQuery.data?.stock ?? []) {
+      map.set(row.itemId, toMilliUnits(row.qtyOnHand));
+    }
+    return map;
+  }, [stockQuery.data]);
+
   const selectedRecipe = recipeId ? (recipesById.get(recipeId) ?? null) : null;
   const outputItem = selectedRecipe ? (itemsById.get(selectedRecipe.outputItemId) ?? null) : null;
 
@@ -164,6 +197,10 @@ export function ProductionRunForm({ open, onOpenChange, productionRun }: Product
         setBusinessDate(initial.businessDate);
         setNotes(initial.notes);
         setLines(initial.lines);
+        actualOutputQtyAutoRef.current = null;
+        actualOutputQtyDirtyRef.current = true;
+        lineAutoQtyRef.current.clear();
+        dirtyLineKeysRef.current.clear();
       } else {
         setRecipeId("");
         setBatches("1");
@@ -172,6 +209,10 @@ export function ProductionRunForm({ open, onOpenChange, productionRun }: Product
         setBusinessDate(toBusinessDate(nowIso()));
         setNotes("");
         setLines([emptyLine()]);
+        actualOutputQtyAutoRef.current = null;
+        actualOutputQtyDirtyRef.current = false;
+        lineAutoQtyRef.current.clear();
+        dirtyLineKeysRef.current.clear();
       }
       setError(null);
     }
@@ -180,27 +221,82 @@ export function ProductionRunForm({ open, onOpenChange, productionRun }: Product
   const disabled = isEditMode ? editReplay.isPending : createMutation.isPending;
 
   /** Recipe â†’ line prefill (UI convenience default, not a validated number â€” the user edits freely
-   * afterward). Only re-derives on recipe SELECTION, never on a later `batches` edit: the simplest
-   * defensible rule is "changing batches afterward does not silently overwrite lines the user may
-   * have already touched" (CLAUDE.md's guardrail: when uncertain, leave the doubt in a comment). */
+   * afterward). Automatic values are remembered so a later `batches` edit updates untouched fields
+   * without overwriting a value the user has changed by hand. */
   function handleRecipeChange(newRecipeId: string) {
     setRecipeId(newRecipeId);
     const recipe = recipesById.get(newRecipeId);
     if (!recipe) return;
     const batchesValue = parseBatches(batches) ?? 1;
-    setLines(
+    const nextLines =
       recipe.lines.length > 0
         ? recipe.lines.map(
             (line): ProductionLineValue => ({
+              lineKey: line.id,
               itemId: line.itemId,
-              qty: formatIntAsDecimalInput(Math.round(line.qty * batchesValue), 3),
+              qty: quantityForBatches(line.qty, batchesValue),
             }),
           )
-        : [emptyLine()],
+        : [emptyLine()];
+    setLines(nextLines);
+    lineAutoQtyRef.current = new Map(
+      recipe.lines.map((line) => [line.id, quantityForBatches(line.qty, batchesValue)]),
     );
-    setActualOutputQty(
-      formatIntAsDecimalInput(Math.round(recipe.expectedYieldQty * batchesValue), 3),
+    dirtyLineKeysRef.current.clear();
+
+    const nextActualOutputQty = quantityForBatches(recipe.expectedYieldQty, batchesValue);
+    setActualOutputQty(nextActualOutputQty);
+    actualOutputQtyAutoRef.current = nextActualOutputQty;
+    actualOutputQtyDirtyRef.current = false;
+  }
+
+  function handleBatchesChange(nextBatches: string) {
+    setBatches(nextBatches);
+    const batchesValue = parseBatches(nextBatches);
+    if (!selectedRecipe || batchesValue === null) return;
+
+    if (!actualOutputQtyDirtyRef.current && actualOutputQtyAutoRef.current === actualOutputQty) {
+      const nextActualOutputQty = quantityForBatches(selectedRecipe.expectedYieldQty, batchesValue);
+      setActualOutputQty(nextActualOutputQty);
+      actualOutputQtyAutoRef.current = nextActualOutputQty;
+    }
+
+    const recipeLinesById = new Map(selectedRecipe.lines.map((line) => [line.id, line]));
+    setLines((currentLines) =>
+      currentLines.map((line) => {
+        const recipeLine = recipeLinesById.get(line.lineKey);
+        const lastAutoQty = lineAutoQtyRef.current.get(line.lineKey);
+        if (!recipeLine || dirtyLineKeysRef.current.has(line.lineKey) || lastAutoQty !== line.qty) {
+          return line;
+        }
+        const nextQty = quantityForBatches(recipeLine.qty, batchesValue);
+        lineAutoQtyRef.current.set(line.lineKey, nextQty);
+        return { ...line, qty: nextQty };
+      }),
     );
+  }
+
+  function handleActualOutputQtyChange(nextValue: string) {
+    actualOutputQtyDirtyRef.current = true;
+    setActualOutputQty(nextValue);
+  }
+
+  function handleLinesChange(nextLines: ProductionLineValue[]) {
+    const currentLinesByKey = new Map(lines.map((line) => [line.lineKey, line]));
+    const nextLineKeys = new Set(nextLines.map((line) => line.lineKey));
+    for (const line of nextLines) {
+      const currentLine = currentLinesByKey.get(line.lineKey);
+      if (!currentLine || currentLine.itemId !== line.itemId || currentLine.qty !== line.qty) {
+        dirtyLineKeysRef.current.add(line.lineKey);
+      }
+    }
+    for (const line of lines) {
+      if (!nextLineKeys.has(line.lineKey)) {
+        lineAutoQtyRef.current.delete(line.lineKey);
+        dirtyLineKeysRef.current.delete(line.lineKey);
+      }
+    }
+    setLines(nextLines);
   }
 
   async function handleSubmit() {
@@ -295,13 +391,45 @@ export function ProductionRunForm({ open, onOpenChange, productionRun }: Product
     }
     // Production consumption values at WAC (C-6), using the server's `totalCentavos` conversion.
     const contribution = totalCentavos(toMilliCentavosPerUnit(item.wacMc), toMilliUnits(qty));
-    return (
-      <span className="text-muted-foreground text-xs">
-        {productionLabels.lineContribution}:{" "}
-        <span className="numeric-cell font-medium text-foreground">
-          {formatMoney(contribution)}
-        </span>
+    const onHand = onHandByItemId.get(item.id) ?? 0;
+    const stockIndicator = item.isUnmetered ? (
+      <span
+        role="img"
+        aria-label={catalogLabels.fieldIsUnmetered}
+        title={catalogLabels.fieldIsUnmetered}
+        className="inline-flex text-muted-foreground"
+      >
+        <Minus className="size-4" aria-hidden="true" />
       </span>
+    ) : onHand >= qty ? (
+      <span
+        role="img"
+        aria-label={productionLabels.lineStockSufficient}
+        title={productionLabels.lineStockSufficient}
+        className="inline-flex text-positive"
+      >
+        <Check className="size-4" aria-hidden="true" />
+      </span>
+    ) : (
+      <span
+        role="img"
+        aria-label={productionLabels.lineStockInsufficient}
+        title={productionLabels.lineStockInsufficient}
+        className="inline-flex text-warning"
+      >
+        <AlertTriangle className="size-4" aria-hidden="true" />
+      </span>
+    );
+    return (
+      <div className="flex items-center gap-2 text-xs">
+        <span className="text-muted-foreground">
+          {productionLabels.lineContribution}:{" "}
+          <span className="numeric-cell font-medium text-foreground">
+            {formatMoney(contribution)}
+          </span>
+        </span>
+        {stockIndicator}
+      </div>
     );
   }
 
@@ -326,6 +454,10 @@ export function ProductionRunForm({ open, onOpenChange, productionRun }: Product
     actualOutputQtyPreview !== null && actualOutputQtyPreview > 0
       ? rateFromTotal(toCentavos(totalCostPreview), toMilliUnits(actualOutputQtyPreview))
       : null;
+  const outputUnitCostPreviewLabel =
+    outputUnitCostPreviewMc !== null && outputItem
+      ? `${formatMoney(totalCentavos(outputUnitCostPreviewMc, WHOLE_UNIT_MILLI_UNITS))} / ${productionLabels.unitAbbrev[outputItem.unit]}`
+      : "—";
 
   // CalcTrace inputs for the cost panel below â€” one row per consumption line's contribution
   // (qty Ã— item.wacMc, same basis directCostPreview itself sums) for the direct-cost trace, and
@@ -402,7 +534,7 @@ export function ProductionRunForm({ open, onOpenChange, productionRun }: Product
                 inputMode="decimal"
                 placeholder="1"
                 value={batches}
-                onChange={(e) => setBatches(e.target.value)}
+                onChange={(e) => handleBatchesChange(e.target.value)}
                 disabled={disabled}
               />
             </div>
@@ -430,19 +562,25 @@ export function ProductionRunForm({ open, onOpenChange, productionRun }: Product
                 inputMode="decimal"
                 placeholder="0"
                 value={actualOutputQty}
-                onChange={(e) => setActualOutputQty(e.target.value)}
+                onChange={(e) => handleActualOutputQtyChange(e.target.value)}
                 disabled={disabled}
               />
               {outputItem ? (
                 <span className="text-muted-foreground text-xs">
-                  {productionLabels.unitAbbrev[outputItem.unit]}
+                  {productionLabels.unitAbbrev[outputItem.unit]} de {outputItem.name}
                 </span>
               ) : null}
             </div>
             <div className="flex flex-col gap-1.5">
-              <label className="font-medium text-foreground" htmlFor="prf-indirect-cost">
-                {productionLabels.fieldIndirectCost}
-              </label>
+              <div className="flex items-center gap-1">
+                <label className="font-medium text-foreground" htmlFor="prf-indirect-cost">
+                  {productionLabels.fieldIndirectCost}
+                </label>
+                <InfoTooltip
+                  content={productionLabels.tooltipIndirectCost}
+                  label={`Más información: ${productionLabels.fieldIndirectCost}`}
+                />
+              </div>
               <Input
                 id="prf-indirect-cost"
                 inputMode="decimal"
@@ -471,7 +609,7 @@ export function ProductionRunForm({ open, onOpenChange, productionRun }: Product
             <span className="font-medium text-foreground">{productionLabels.linesTitle}</span>
             <LineEditor
               lines={lines}
-              onChange={setLines}
+              onChange={handleLinesChange}
               createLine={emptyLine}
               disabled={disabled}
               showAmount={false}
@@ -532,9 +670,7 @@ export function ProductionRunForm({ open, onOpenChange, productionRun }: Product
                 />
               </span>
               <span className="numeric-cell text-foreground text-sm">
-                {outputUnitCostPreviewMc !== null
-                  ? formatMoney(totalCentavos(outputUnitCostPreviewMc, WHOLE_UNIT_MILLI_UNITS))
-                  : "—"}
+                {outputUnitCostPreviewLabel}
               </span>
             </div>
           </div>

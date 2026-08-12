@@ -191,11 +191,6 @@ export function ExitForm({ open, onOpenChange, exit }: ExitFormProps) {
           <div className="flex flex-col gap-1.5">
             <span className="font-medium text-foreground">{inventoryLabels.fieldItem}</span>
             <ItemPicker value={itemId} onChange={(id) => setItemId(id)} disabled={disabled} />
-            {itemQuery.data ? (
-              <span className="text-muted-foreground text-xs">
-                {inventoryLabels.unitAbbrev[itemQuery.data.unit]}
-              </span>
-            ) : null}
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -203,14 +198,22 @@ export function ExitForm({ open, onOpenChange, exit }: ExitFormProps) {
               <label className="font-medium text-foreground" htmlFor="ef-qty">
                 {inventoryLabels.fieldQty}
               </label>
-              <Input
-                id="ef-qty"
-                inputMode="decimal"
-                placeholder="0"
-                value={qty}
-                onChange={(e) => setQty(e.target.value)}
-                disabled={disabled}
-              />
+              <div className="flex items-center gap-2">
+                <Input
+                  id="ef-qty"
+                  className="min-w-0 flex-1"
+                  inputMode="decimal"
+                  placeholder="0"
+                  value={qty}
+                  onChange={(e) => setQty(e.target.value)}
+                  disabled={disabled}
+                />
+                {itemQuery.data ? (
+                  <span className="shrink-0 text-muted-foreground text-xs">
+                    {inventoryLabels.unitAbbrev[itemQuery.data.unit]}
+                  </span>
+                ) : null}
+              </div>
             </div>
             <div className="flex flex-col gap-1.5">
               <label className="font-medium text-foreground" htmlFor="ef-reason">

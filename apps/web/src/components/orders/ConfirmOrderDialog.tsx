@@ -11,15 +11,16 @@ import {
   formatMoney,
   nowIso,
   PAYMENT_METHODS,
+  paymentMethodForAccountType,
   toBusinessDate,
   toCentavos,
 } from "@kokoro/shared";
 import { useEffect, useState } from "react";
 
+import { PaymentAccountSelect } from "@/components/common/PaymentAccountSelect";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
 import { useAccounts } from "@/features/finance/api";
 import { useConfirmOrder } from "@/features/orders/api";
 import { ApiError } from "@/lib/api";
@@ -53,8 +54,13 @@ export function ConfirmOrderDialog({ order, open, onOpenChange }: ConfirmOrderDi
       setDepositAmount(
         order.depositRequired !== null ? formatIntAsDecimalInput(order.depositRequired, 2) : "",
       );
-      setPaymentMethod(PAYMENT_METHODS[0] as PaymentMethod);
-      setAccountId(accounts[0]?.id ?? "");
+      const firstAccount = accounts[0];
+      setPaymentMethod(
+        firstAccount
+          ? paymentMethodForAccountType(firstAccount.type)
+          : (PAYMENT_METHODS[0] as PaymentMethod),
+      );
+      setAccountId(firstAccount?.id ?? "");
       setError(null);
     }
   }, [open, order.agreedTotal, order.depositRequired, accounts]);
@@ -145,42 +151,18 @@ export function ConfirmOrderDialog({ order, open, onOpenChange }: ConfirmOrderDi
           />
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <div className="flex flex-col gap-1.5">
-            <label className="font-medium text-foreground" htmlFor="co-method">
-              {ordersLabels.confirmFieldPaymentMethod}
-            </label>
-            <Select
-              id="co-method"
-              value={paymentMethod}
-              onChange={(e) => setPaymentMethod(e.target.value as PaymentMethod)}
-              disabled={disabled}
-            >
-              {PAYMENT_METHODS.map((method) => (
-                <option key={method} value={method}>
-                  {ordersLabels.paymentMethodLabels[method]}
-                </option>
-              ))}
-            </Select>
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <label className="font-medium text-foreground" htmlFor="co-account">
-              {ordersLabels.confirmFieldAccount}
-            </label>
-            <Select
-              id="co-account"
-              value={accountId}
-              onChange={(e) => setAccountId(e.target.value)}
-              disabled={disabled}
-            >
-              {accounts.map((account) => (
-                <option key={account.id} value={account.id}>
-                  {account.name}
-                </option>
-              ))}
-            </Select>
-          </div>
-        </div>
+        <PaymentAccountSelect
+          id="co-payment-account"
+          accounts={accounts}
+          accountId={accountId}
+          label={ordersLabels.confirmFieldPaymentAccount}
+          paymentMethodLabels={ordersLabels.paymentMethodLabels}
+          onChange={({ accountId: nextAccountId, paymentMethod: nextPaymentMethod }) => {
+            setAccountId(nextAccountId);
+            setPaymentMethod(nextPaymentMethod);
+          }}
+          disabled={disabled}
+        />
 
         {error ? <p className="text-negative text-sm">{error}</p> : null}
       </div>

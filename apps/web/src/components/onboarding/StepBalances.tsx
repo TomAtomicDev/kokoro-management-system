@@ -5,12 +5,11 @@
 // service's own message_es (e.g. "Ya se completó la configuración inicial…" if onboarding was
 // completed elsewhere), no need to special-case the CONFLICT code here.
 
-import { Link } from "@tanstack/react-router";
 import { ChevronRight } from "lucide-react";
 import { useState } from "react";
 
 import { StepGuidance } from "@/components/onboarding/StepGuidance";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useSetOpeningBalances } from "@/features/onboarding/api";
 import { useSessionDraft } from "@/features/onboarding/use-session-draft";
@@ -49,9 +48,6 @@ export function StepBalances({ onDone, onSkip, readOnly = false }: StepBalancesP
           <p className="text-muted-foreground">{onboardingLabels.savedBalancesBody}</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Link to="/settings" className={buttonVariants({ variant: "outline" })}>
-            {onboardingLabels.goToSettings}
-          </Link>
           <Button type="button" onClick={onDone}>
             {onboardingLabels.continueButton}
           </Button>

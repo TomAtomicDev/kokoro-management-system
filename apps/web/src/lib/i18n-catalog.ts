@@ -37,9 +37,17 @@ export const catalogLabels = {
   fieldMinStock: "Stock mínimo",
   fieldIsUnmetered: "No medido",
   fieldReplacementCost: "Costo de reposición (Bs)",
+  tooltipFieldMinStock:
+    "Es el umbral por debajo del cual este ítem se marca como stock bajo en la pantalla Inventario.",
+  tooltipFieldIsUnmetered:
+    "Los ítems no medidos, como el agua, se excluyen del seguimiento preciso del consumo en producción porque su uso no se mide por lote.",
+  tooltipFieldReplacementCost:
+    "Es el costo de hoy para reemplazar este ítem. Se usa para calcular el margen a costo de reposición, distinto del margen basado en el costo promedio ponderado histórico (WAC).",
   costRateHelp: "Puedes usar coma o punto (máx. 5 decimales).",
   fieldNotes: "Notas",
   fieldAliases: "Alias",
+  tooltipFieldAliases:
+    "Ejemplo: Pan integral de 300 gr = Pint3. Los alias ya impulsan la búsqueda del catálogo y del selector de ítems hoy, y son la base de la identificación de ítems del asistente de la Fase 4; no son datos de relleno.",
   addAlias: "Agregar",
   aliasPlaceholder: "Nuevo alias…",
   save: "Guardar",

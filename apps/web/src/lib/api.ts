@@ -1,3 +1,5 @@
+import { showGlobalToast } from "@/components/ui/toast";
+
 // Thin fetch wrapper for /api/* (KOK-011). Reads the CSRF cookie the auth middleware expects
 // (apps/worker/src/auth/csrf.ts: cookie "kokoro_csrf", header "X-CSRF-Token") and surfaces
 // DomainError responses (apps/worker/src/api/error-handler.ts) as a typed ApiError so callers can
@@ -5,6 +7,7 @@
 
 const CSRF_COOKIE_NAME = "kokoro_csrf";
 const CSRF_HEADER_NAME = "X-CSRF-Token";
+export const NETWORK_ERROR_MESSAGE = "No hay conexión a internet";
 
 interface ErrorBody {
   code?: string;
@@ -24,6 +27,13 @@ export class ApiError extends Error {
   }
 }
 
+/** Converts browser fetch network failures into the app's user-facing API error and toast. */
+export function asNetworkApiError(error: unknown): ApiError | null {
+  if (!(error instanceof TypeError)) return null;
+  showGlobalToast({ message: NETWORK_ERROR_MESSAGE });
+  return new ApiError("NETWORK_ERROR", NETWORK_ERROR_MESSAGE, error);
+}
+
 function readCookie(name: string): string | undefined {
   const match = new RegExp(`(?:^|; )${name}=([^;]*)`).exec(document.cookie);
   return match ? decodeURIComponent(match[1] ?? "") : undefined;
@@ -40,7 +50,14 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     if (csrf) headers.set(CSRF_HEADER_NAME, csrf);
   }
 
-  const response = await fetch(`/api${path}`, { ...init, method, headers, credentials: "include" });
+  let response: Response;
+  try {
+    response = await fetch(`/api${path}`, { ...init, method, headers, credentials: "include" });
+  } catch (error) {
+    const networkError = asNetworkApiError(error);
+    if (networkError) throw networkError;
+    throw error;
+  }
   const body = (await response.json().catch(() => null)) as ErrorBody | T | null;
 
   if (!response.ok) {

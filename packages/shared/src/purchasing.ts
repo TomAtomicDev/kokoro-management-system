@@ -12,9 +12,9 @@
 // the caller (core/purchasing/index.ts enforces this identically on create and on edit).
 
 import { z } from "zod";
-
 import { confirmFlagSchema } from "./costing.js";
 import type { FinancialAccountDto } from "./finance.js";
+import { safeText } from "./text.js";
 
 /** Milli-units of the item's own stored unit (Doc 04 §2), matching qty.ts's representation. Always
  * positive — a purchase line adds stock, it never removes it. */
@@ -45,14 +45,14 @@ export const purchaseLineCommandSchema = z.object({
 export type PurchaseLineCommand = z.infer<typeof purchaseLineCommandSchema>;
 
 export const recordPurchaseCommandSchema = z.object({
-  supplierName: z.string().trim().max(200).optional(),
+  supplierName: z.string().trim().pipe(safeText(200)).optional(),
   accountId: z.string().min(1),
   // Sessions (KOK-0xx) don't exist yet — accepted and passed through, not validated against a
   // sessions table here (no FK check beyond what the DB's own `ON DELETE restrict` FK enforces at
   // write time).
   sessionId: z.string().min(1).optional(),
   receiptPhotoKey: z.string().min(1).optional(),
-  notes: z.string().trim().max(2000).optional(),
+  notes: z.string().trim().pipe(safeText(2000)).optional(),
   occurredAt: occurredAtSchema,
   businessDate: businessDateSchema,
   lines: z.array(purchaseLineCommandSchema).min(1, "Se requiere al menos una línea de compra."),

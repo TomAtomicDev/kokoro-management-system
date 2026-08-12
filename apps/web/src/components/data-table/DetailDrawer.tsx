@@ -22,6 +22,8 @@ export interface DetailDrawerProps {
   onOpenChange: (open: boolean) => void;
   title: string;
   subtitle?: string;
+  /** Optional action rendered alongside the title in the drawer header. */
+  headerAction?: ReactNode;
   children: ReactNode;
   /** Created/updated-date footer content — Doc 06 §4. Omit when there's nothing to show yet. */
   footer?: ReactNode;
@@ -43,6 +45,7 @@ export function DetailDrawer({
   onOpenChange,
   title,
   subtitle,
+  headerAction,
   children,
   footer,
   entityType,
@@ -55,7 +58,10 @@ export function DetailDrawer({
     <Dialog open={open} onOpenChange={onOpenChange} placement="right" aria-label={title}>
       <div className="flex items-center justify-between border-b border-border px-5 py-4">
         <div>
-          <h2 className="font-medium text-foreground text-md">{title}</h2>
+          <div className="flex items-center gap-2">
+            <h2 className="font-medium text-foreground text-md">{title}</h2>
+            {headerAction}
+          </div>
           {subtitle ? <p className="text-muted-foreground text-sm">{subtitle}</p> : null}
         </div>
         <Button

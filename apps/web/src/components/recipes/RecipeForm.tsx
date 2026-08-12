@@ -514,9 +514,10 @@ export function RecipeForm({ open, onOpenChange, recipe, settings }: RecipeFormP
                   minMarginPct={settings.minMarginPct}
                 />
               </div>
-            ) : (
+            ) : !recipe.theoreticalCostReplacement.margin &&
+              effectiveOutputItem?.kind === "FINISHED" ? (
               <p className="text-muted-foreground text-xs">{recipesLabels.noSalePrice}</p>
-            )}
+            ) : null}
           </div>
         ) : null}
 

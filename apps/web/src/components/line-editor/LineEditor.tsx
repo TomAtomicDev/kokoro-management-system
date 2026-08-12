@@ -73,6 +73,8 @@ export function LineEditor<T extends LineEditorLine>({
   itemKindFilter,
   showAmount = true,
 }: LineEditorProps<T>) {
+  const amountLabel = labels.amount ?? "Aporte al costo";
+
   function updateLine(index: number, patch: Partial<T>) {
     onChange(lines.map((line, i) => (i === index ? { ...line, ...patch } : line)));
   }
@@ -87,6 +89,15 @@ export function LineEditor<T extends LineEditorLine>({
 
   return (
     <div className="flex flex-col gap-3">
+      <div className="hidden items-center gap-2 px-3 font-medium text-muted-foreground text-xs sm:flex">
+        <span className="flex-1 sm:min-w-40">{labels.item}</span>
+        <span className="w-full sm:w-36">{labels.qty}</span>
+        {showAmount ? <span className="w-full sm:w-40">{amountLabel}</span> : null}
+        {renderExtraColumns ? (
+          <span className="flex-1 sm:min-w-40">{showAmount ? null : amountLabel}</span>
+        ) : null}
+        <span className="size-9" aria-hidden="true" />
+      </div>
       <div className="flex flex-col gap-2">
         {lines.map((line, index) => (
           <div
@@ -109,8 +120,12 @@ export function LineEditor<T extends LineEditorLine>({
                 placeholder={labels.item}
               />
             </div>
-            <div className="w-full sm:w-28">
+            <div className="w-full sm:w-36">
+              <span className="mb-1 block font-medium text-muted-foreground text-xs sm:hidden">
+                {labels.qty}
+              </span>
               <Input
+                className="w-full min-w-32"
                 inputMode="decimal"
                 aria-label={labels.qty}
                 placeholder={labels.qtyPlaceholder ?? "0"}
@@ -120,10 +135,14 @@ export function LineEditor<T extends LineEditorLine>({
               />
             </div>
             {showAmount ? (
-              <div className="w-full sm:w-32">
+              <div className="w-full sm:w-40">
+                <span className="mb-1 block font-medium text-muted-foreground text-xs sm:hidden">
+                  {amountLabel}
+                </span>
                 <Input
+                  className="w-full min-w-36"
                   inputMode="decimal"
-                  aria-label={labels.amount ?? ""}
+                  aria-label={amountLabel}
                   placeholder={labels.amountPlaceholder ?? "0.00"}
                   value={line.amount ?? ""}
                   onChange={(event) =>

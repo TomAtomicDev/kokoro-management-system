@@ -13,10 +13,10 @@
 // per its own header comment) — a future counts.ts (KOK-019) gets its own name the same way.
 
 import { z } from "zod";
-
 import { confirmFlagSchema } from "./costing.js";
 import type { StockExitReason } from "./enums.js";
 import { stockExitReasonSchema } from "./enums.js";
+import { safeText } from "./text.js";
 
 /** Milli-units of the item's own stored unit (Doc 04 §2), matching qty.ts's representation.
  * Always positive — the sign convention (exits are negative kardex movements) lives only in
@@ -43,7 +43,7 @@ export const recordStockExitCommandSchema = z.object({
   // sessions table here (no FK check beyond what the DB's own `ON DELETE restrict` FK enforces at
   // write time), mirroring purchasing.ts's identical `sessionId` precedent.
   sessionId: z.string().min(1).optional(),
-  notes: z.string().trim().max(2000).optional(),
+  notes: z.string().trim().pipe(safeText(2000)).optional(),
   occurredAt: occurredAtSchema,
   businessDate: businessDateSchema,
   // R-5 / ADR-016 (KOK-024). An exit books no WAC of its own (C-6), but a BACKDATED one changes

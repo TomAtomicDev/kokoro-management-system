@@ -8,9 +8,15 @@
 
 import { z } from "zod";
 
-const customerNameSchema = z.string().trim().min(1, "El nombre es obligatorio.").max(200);
-const phoneSchema = z.string().trim().max(50).nullable().optional();
-const notesSchema = z.string().trim().max(2000).nullable().optional();
+import { safeText } from "./text.js";
+
+const customerNameSchema = z
+  .string()
+  .trim()
+  .min(1, "El nombre es obligatorio.")
+  .pipe(safeText(200));
+const phoneSchema = z.string().trim().pipe(safeText(50)).nullable().optional();
+const notesSchema = z.string().trim().pipe(safeText(2000)).nullable().optional();
 
 export const createCustomerCommandSchema = z.object({
   name: customerNameSchema,
@@ -29,7 +35,7 @@ export type UpdateCustomerCommand = z.infer<typeof updateCustomerCommandSchema>;
 
 /** GET /customers query filter — `search` matches name/phone (see core/customers/customers.ts). */
 export const listCustomersFiltersSchema = z.object({
-  search: z.string().trim().min(1).optional(),
+  search: z.string().trim().min(1).pipe(safeText(200)).optional(),
 });
 export type ListCustomersFilters = z.infer<typeof listCustomersFiltersSchema>;
 

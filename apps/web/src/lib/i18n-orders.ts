@@ -53,7 +53,7 @@ export const ordersLabels = {
   fieldDeliveryPlace: "Lugar de entrega",
   fieldNotes: "Notas",
   notesPlaceholder: "Opcional",
-  linesTitle: "Líneas del pedido",
+  linesTitle: "Artículos del pedido",
   lineItem: "Ítem (opcional)",
   lineDescription: "Descripción libre",
   lineDescriptionPlaceholder: "Si aún no hay un ítem del catálogo",
@@ -99,8 +99,7 @@ export const ordersLabels = {
   confirmDialogTitle: "Confirmar pedido",
   confirmFieldAgreedTotal: "Total acordado (Bs)",
   confirmFieldDepositAmount: "Anticipo (Bs)",
-  confirmFieldPaymentMethod: "Método de pago",
-  confirmFieldAccount: "Cuenta",
+  confirmFieldPaymentAccount: "Cuenta y método de pago",
   confirmSubmit: "Confirmar y cobrar anticipo",
 
   deliverDialogTitle: "Entregar pedido",
@@ -109,8 +108,7 @@ export const ordersLabels = {
   deliverFieldBalanceStatus: "Estado del saldo",
   deliverBalancePaid: "Pagado",
   deliverBalanceOnCredit: "Por cobrar",
-  deliverFieldPaymentMethod: "Método de pago",
-  deliverFieldAccount: "Cuenta",
+  deliverFieldPaymentAccount: "Cuenta y método de pago",
   deliverSubmit: "Confirmar entrega",
   deliverBalanceZero: "El anticipo cubre el total; no queda saldo por cobrar.",
 
