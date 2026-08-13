@@ -405,7 +405,7 @@ export async function recordSale(
 /** Refuses (409 CONFLICT) once `saleId` has already been collected via `collectPayment` (KOK-031) —
  * i.e. it carries a `financial_transactions` row with `category='DEBT_COLLECTION'` sourced to it.
  * See this module's header for why an edit/delete must not reach a collected sale. */
-async function assertSaleNotCollected(db: Db, saleId: string): Promise<void> {
+export async function assertSaleNotCollected(db: Db, saleId: string): Promise<void> {
   const collected = await db.query.financialTransactions.findFirst({
     where: (t, { and: andOp, eq: eqOp }) =>
       andOp(
@@ -570,7 +570,7 @@ const NO_KARDEX_CHANGE_PLAN: CostingReplayPlan = {
  * R-5, not merely an optimisation). SHARED, verbatim, between `commitSaleMutation` and
  * `previewSaleImpact`'s "update"/"delete" dry run.
  */
-async function planSaleMutationCostingImpact(
+export async function planSaleMutationCostingImpact(
   db: Db,
   saleId: string,
   newRow: Pick<SaleRow, "businessDate" | "occurredAt">,

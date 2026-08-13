@@ -70,6 +70,7 @@ import type {
   ResolveOrderLineCommand,
   ResolveOrderLineResult,
   SaleDto,
+  UndoDeliverOrderCommand,
 } from "@kokoro/shared";
 import {
   addMoney,
@@ -98,6 +99,7 @@ import {
   sales,
 } from "../../db/schema.js";
 import { buildAuditLogInsert } from "../audit.js";
+import type { CostingReplayPlan } from "../costing/replay.js";
 import { planCostingReplay } from "../costing/replay.js";
 import { snapshotUnitCost } from "../costing/wac.js";
 import { conflict, notFound, validationError } from "../errors.js";
@@ -107,8 +109,12 @@ import {
   findActiveAccountRowOrThrow,
 } from "../finance/accounts.js";
 import { toAccountDto } from "../finance/dto.js";
-import { buildStockMovementStatements } from "../inventory/movements.js";
+import {
+  buildReplaceMovementsForSourceStatements,
+  buildStockMovementStatements,
+} from "../inventory/movements.js";
 import type { StockMovementInput } from "../inventory/types.js";
+import { assertSaleNotCollected, planSaleMutationCostingImpact } from "../sales/index.js";
 import { getSetting } from "../settings/index.js";
 
 type Statement = BatchItem<"sqlite">;
@@ -135,6 +141,9 @@ const ALLOWED_FROM = {
   ready: ["IN_PRODUCTION"],
   deliver: ["READY"],
   cancel: ["QUOTING", "CONFIRMED", "IN_PRODUCTION", "READY"],
+  undoStart: ["IN_PRODUCTION"],
+  undoReady: ["READY"],
+  undoDeliver: ["DELIVERED"],
 } as const satisfies Record<string, readonly CustomOrderStatus[]>;
 
 type OrderTransition = keyof typeof ALLOWED_FROM;
@@ -155,6 +164,9 @@ const TRANSITION_LABEL_ES: Record<OrderTransition, string> = {
   ready: "marcar como listo",
   deliver: "entregar",
   cancel: "cancelar",
+  undoStart: "volver a confirmado",
+  undoReady: "volver a en producción",
+  undoDeliver: "deshacer la entrega de",
 };
 
 /** 409 CONFLICT unless `row.status` is a legal starting point for `transition` (Doc 04 §5). A
@@ -534,7 +546,7 @@ export async function confirmOrder(
 async function applyPureTransition(
   db: Db,
   id: string,
-  transition: Extract<OrderTransition, "start" | "ready">,
+  transition: Extract<OrderTransition, "start" | "ready" | "undoStart" | "undoReady">,
   nextStatus: CustomOrderStatus,
   action: string,
   actor: AuditActor,
@@ -574,6 +586,24 @@ export async function markOrderReady(
   actor: AuditActor,
 ): Promise<OrderTransitionResult> {
   return applyPureTransition(db, id, "ready", "READY", "mark_ready", actor);
+}
+
+/** Free reversal (Doc 03 §5 amendment, no money): `IN_PRODUCTION -> CONFIRMED`. */
+export async function undoStartOrderProduction(
+  db: Db,
+  id: string,
+  actor: AuditActor,
+): Promise<OrderTransitionResult> {
+  return applyPureTransition(db, id, "undoStart", "CONFIRMED", "undo_start_production", actor);
+}
+
+/** Free reversal (Doc 03 §5 amendment, no money): `READY -> IN_PRODUCTION`. */
+export async function undoMarkOrderReady(
+  db: Db,
+  id: string,
+  actor: AuditActor,
+): Promise<OrderTransitionResult> {
+  return applyPureTransition(db, id, "undoReady", "IN_PRODUCTION", "undo_mark_ready", actor);
 }
 
 // ---- UC-07 deliver (O-2) ----------------------------------------------------------------------
@@ -872,6 +902,142 @@ export async function deliverOrder(
   };
 }
 
+/** Everything `undoDeliverOrder`'s real run and `previewOrderImpact`'s "undo_deliver" dry run both
+ * need — same "plan once, both consume it" shape as `buildDeliveryPlan`. Read-only: loads, asserts,
+ * and plans the replay, writes nothing. */
+async function planUndoDeliverImpact(
+  db: Db,
+  id: string,
+  actor: AuditActor,
+): Promise<{
+  order: OrderRow;
+  saleId: string;
+  saleRow: SaleRow;
+  kardexUnchanged: boolean;
+  costingPlan: CostingReplayPlan;
+}> {
+  const order = await loadOrderRowOrThrow(db, id);
+  assertTransitionAllowed(order, "undoDeliver");
+
+  const saleId = order.saleId;
+  if (saleId === null) {
+    // Unreachable through the state machine (DELIVERED always sets sale_id) — asserted per D-2.
+    throw conflict("El pedido entregado no tiene una venta vinculada; no se puede deshacer.", {
+      id,
+    });
+  }
+  const saleRow = await db.query.sales.findFirst({
+    where: (t, { eq: eqOp }) => eqOp(t.id, saleId),
+  });
+  if (!saleRow) {
+    throw notFound("No se encontró la venta de este pedido.", { id, saleId });
+  }
+
+  // The one hard case the KB row calls out: refuse outright, never reverse the collection too.
+  await assertSaleNotCollected(db, saleId);
+
+  const { kardexUnchanged, costingPlan } = await planSaleMutationCostingImpact(
+    db,
+    saleId,
+    { businessDate: saleRow.businessDate, occurredAt: saleRow.occurredAt },
+    [],
+    actor,
+  );
+
+  return { order, saleId, saleRow, kardexUnchanged, costingPlan };
+}
+
+/**
+ * UC-07-undo / O-2 in reverse: `DELIVERED -> READY`. One atomic batch (D-3):
+ *   - reverses the SALE_OUT `stock_movements` + nets `item_stock` back (`buildReplaceMovementsFor-
+ *     SourceStatements("sale", saleId, [])`)
+ *   - reverses ONLY the delivery's own `ORDER_BALANCE` transaction + its account balance (found
+ *     directly by `(sourceEventType, sourceEventId, category)` — NOT via the general
+ *     `buildReplaceTransactionsForSourceStatements` primitive, which is unsafe here, see this
+ *     module's Frozen-Contracts note above). The confirm-time `ORDER_DEPOSIT` row is untouched.
+ *   - soft-deletes the sale (D-8) — mirrors `deleteSale`'s own `newRow` shape exactly
+ *   - the `custom_orders` UPDATE: `status='READY'`, `sale_id=null` (a future re-delivery mints a
+ *     fresh sale id, consistent with `buildDeliveryPlan` always generating one)
+ *   - two `audit_log` rows (order transition + sale soft-delete), mirroring `deliverOrder`'s own
+ *     two-row shape
+ *   - whatever `costingPlan.statements` the R-2/R-5 replay requires (LAST, after the movement
+ *     statements — `replay.ts`'s own ordering requirement, unchanged from every other caller)
+ */
+export async function undoDeliverOrder(
+  db: Db,
+  id: string,
+  command: UndoDeliverOrderCommand,
+  actor: AuditActor,
+): Promise<OrderTransitionResult> {
+  const { order, saleId, saleRow, kardexUnchanged, costingPlan } = await planUndoDeliverImpact(
+    db,
+    id,
+    actor,
+  );
+
+  if (costingPlan.confirmationRequired && command.confirm !== true) {
+    throw conflict(
+      "Deshacer esta entrega cambia costos ya calculados de ventas o salidas registradas. Revisa el impacto y confirma para deshacerla.",
+      { reason: REPLAY_CONFIRMATION_REQUIRED, impact: costingPlan.impact },
+    );
+  }
+
+  const movementStatements = kardexUnchanged
+    ? []
+    : (await buildReplaceMovementsForSourceStatements(db, "sale", saleId, [])).statements;
+
+  const balanceTx = await db.query.financialTransactions.findFirst({
+    where: (t, { and: andOp, eq: eqOp, isNull }) =>
+      andOp(
+        eqOp(t.sourceEventType, ORDER_SOURCE_EVENT_TYPE),
+        eqOp(t.sourceEventId, id),
+        eqOp(t.category, "ORDER_BALANCE"),
+        isNull(t.deletedAt),
+      ),
+  });
+  const financialStatements: Statement[] = [];
+  if (balanceTx !== undefined) {
+    // ORDER_BALANCE is always written as INCOME (deliverOrder hardcodes it) — the reversal is
+    // therefore always a debit. Hard-delete is the D-8 derived-row-regeneration carve-out, same as
+    // buildReplaceTransactionsForSourceStatements's own internal DELETE.
+    financialStatements.push(
+      db.delete(financialTransactions).where(eq(financialTransactions.id, balanceTx.id)),
+      buildAccountBalanceDelta(db, balanceTx.accountId, -balanceTx.amount),
+    );
+  }
+
+  const now = nowIso();
+  const updatedSaleFields = { deletedAt: now, updatedAt: now };
+  const updatedOrderFields = { status: "READY" as const, saleId: null, updatedAt: now };
+
+  const statements: Statement[] = [
+    ...movementStatements,
+    ...financialStatements,
+    db.update(sales).set(updatedSaleFields).where(eq(sales.id, saleId)),
+    db.update(customOrders).set(updatedOrderFields).where(eq(customOrders.id, id)),
+    buildAuditLogInsert(db, {
+      actor,
+      action: "undo_deliver",
+      entityType: "custom_orders",
+      entityId: id,
+      before: { status: order.status, saleId: order.saleId },
+      after: updatedOrderFields,
+    }),
+    buildAuditLogInsert(db, {
+      actor,
+      action: "delete",
+      entityType: "sales",
+      entityId: saleId,
+      before: saleRow,
+      after: { ...saleRow, ...updatedSaleFields },
+    }),
+    ...costingPlan.statements,
+  ];
+
+  await db.batch(statements as [Statement, ...Statement[]]);
+  return { order: await readOrderDto(db, id) };
+}
+
 /**
  * R-5 dry run (ADR-016): what delivering this order would do to already-booked cost, computed
  * without writing anything. Mirrors `previewSaleImpact`; `deliver` is the only transition that
@@ -881,6 +1047,10 @@ export async function previewOrderImpact(
   db: Db,
   request: OrderImpactRequest,
 ): Promise<ReplayImpactDto> {
+  if (request.op === "undo_deliver") {
+    const { costingPlan } = await planUndoDeliverImpact(db, request.id, "OWNER_WEB");
+    return costingPlan.impact;
+  }
   const plan = await buildDeliveryPlan(db, request.id, request.command);
   const replay = await planCostingReplay(db, {
     trigger: {

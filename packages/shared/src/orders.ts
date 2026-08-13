@@ -185,6 +185,12 @@ export const deliverOrderCommandSchema = z.discriminatedUnion("balancePaymentSta
 /** `z.input` — `confirm` carries a `.default()`, same reasoning as `RecordSaleCommand`. */
 export type DeliverOrderCommand = z.input<typeof deliverOrderCommandSchema>;
 
+/** UC-07-undo ("Deshacer entrega", Doc 03 §5 amendment). No fields but `confirm` — R-2/R-5 inherits
+ * in full (a backdated delivery may have re-weighted WAC for later events; undoing it replays the
+ * same way deleting a sale does). */
+export const undoDeliverOrderCommandSchema = z.object({ confirm: confirmFlagSchema });
+export type UndoDeliverOrderCommand = z.infer<typeof undoDeliverOrderCommandSchema>;
+
 /**
  * UC-08 cancel (O-3). Legal from every non-terminal status. `resolution` is required EXACTLY when
  * the order already holds a deposit (`deposit_paid > 0`) and must be absent otherwise — a quote
@@ -224,17 +230,17 @@ export const resolveOrderLineCommandSchema = z.object({
 });
 export type ResolveOrderLineCommand = z.infer<typeof resolveOrderLineCommandSchema>;
 
-/**
- * Body of the DRY-RUN impact endpoint (R-5 / ADR-016). Only ONE transition writes kardex movements —
- * `deliver` — so unlike `saleImpactRequestSchema`'s create/update/delete union this carries a single
- * `op`. Kept as an object with a literal `op` (rather than dropping the field) so a future
- * movement-writing transition can widen it into a discriminated union without breaking callers.
- */
-export const orderImpactRequestSchema = z.object({
-  op: z.literal("deliver"),
-  id: z.string().min(1),
-  command: deliverOrderCommandSchema,
-});
+/** Widened for KOK-136 exactly as this schema's own pre-existing comment anticipated ("a future
+ * movement-writing transition can widen it into a discriminated union without breaking callers") —
+ * `undo_deliver` is the only OTHER transition that writes/removes kardex rows. */
+export const orderImpactRequestSchema = z.discriminatedUnion("op", [
+  z.object({ op: z.literal("deliver"), id: z.string().min(1), command: deliverOrderCommandSchema }),
+  z.object({
+    op: z.literal("undo_deliver"),
+    id: z.string().min(1),
+    command: undoDeliverOrderCommandSchema,
+  }),
+]);
 /** `z.input` — the nested command schema carries `confirm`'s default. */
 export type OrderImpactRequest = z.input<typeof orderImpactRequestSchema>;
 
