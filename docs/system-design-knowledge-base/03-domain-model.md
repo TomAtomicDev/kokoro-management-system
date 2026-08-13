@@ -324,7 +324,7 @@ Rules:
 
 ## 6. Sessions, shared costs, and time profitability
 
-- **S-1** *(amended — Phase 3.2, KOK-130, decided 2026-08-11, implementation pending. Originally:
+- **S-1** *(amended — Phase 3.2, KOK-130, decided 2026-08-11, shipped 2026-08-13. Originally:
   "a session is optional context; every event type MAY link to one session".)*
   **Purchases, production runs and assemblies MUST belong to a session**; every other event type
   MAY. Without that link the Bs/hour metrics (S-4, G3) have no denominator for the work that

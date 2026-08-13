@@ -41,6 +41,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { createItem } from "../../src/core/catalog/index.js";
 import { planCostingReplay } from "../../src/core/costing/index.js";
 import { recordPurchase } from "../../src/core/purchasing/index.js";
+import { recordSession } from "../../src/core/sessions/index.js";
 import { createDb } from "../../src/db/index.js";
 import {
   auditLog,
@@ -54,6 +55,7 @@ import {
   purchases,
   recipeLines,
   recipes,
+  sessions,
   stockExits,
   stockMovements,
 } from "../../src/db/schema.js";
@@ -89,6 +91,7 @@ async function seedProductionRun(
   db: TestDb,
   params: {
     recipeId: string;
+    sessionId: string;
     rawItemId: string;
     outputItemId: string;
     occurredAt: string;
@@ -110,6 +113,7 @@ async function seedProductionRun(
     occurredAt: params.occurredAt,
     businessDate: params.businessDate,
     recipeId: params.recipeId,
+    sessionId: params.sessionId,
     batches: 1,
     outputItemId: params.outputItemId,
     actualOutputQty: params.outputQty,
@@ -229,6 +233,7 @@ beforeEach(async () => {
   await db.delete(stockMovements);
   await db.delete(itemStock);
   await db.delete(purchases);
+  await db.delete(sessions);
   await db
     .delete(financialTransactions)
     .where(eq(financialTransactions.sourceEventType, "purchase"));
@@ -279,11 +284,30 @@ async function seedCascadeScenario(db: TestDb, suffix: string) {
   const raw = await seedItem(db, `INV — harina ${suffix}`, "RAW_MATERIAL");
   const semi = await seedItem(db, `INV — masa ${suffix}`, "SEMI_FINISHED");
   const recipeId = await seedRecipe(db, raw.id, semi.id, 5_000, 1_000);
+  const purchaseSession = await recordSession(
+    db,
+    {
+      type: "PURCHASE_TRIP",
+      businessDate: RAW_PURCHASE_DAY,
+      startedAt: `${RAW_PURCHASE_DAY}T10:00:00.000Z`,
+    },
+    ACTOR,
+  );
+  const productionSession = await recordSession(
+    db,
+    {
+      type: "PRODUCTION",
+      businessDate: PRODUCTION_DAY,
+      startedAt: `${PRODUCTION_DAY}T10:00:00.000Z`,
+    },
+    ACTOR,
+  );
 
   await recordPurchase(
     db,
     {
       accountId: "acc_bank",
+      sessionId: purchaseSession.session.id,
       occurredAt: `${RAW_PURCHASE_DAY}T10:00:00.000Z`,
       businessDate: RAW_PURCHASE_DAY,
       lines: [{ itemId: raw.id, qty: 10_000, lineTotal: 20_000 }], // unit cost 2
@@ -293,6 +317,7 @@ async function seedCascadeScenario(db: TestDb, suffix: string) {
 
   const run = await seedProductionRun(db, {
     recipeId,
+    sessionId: productionSession.session.id,
     rawItemId: raw.id,
     outputItemId: semi.id,
     occurredAt: `${PRODUCTION_DAY}T10:00:00.000Z`,

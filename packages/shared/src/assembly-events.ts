@@ -16,7 +16,7 @@ export const recordAssemblyCommandSchema = z.object({
   occurredAt: occurredAtSchema,
   businessDate: businessDateSchema,
   definitionId: z.string().min(1).optional(),
-  sessionId: z.string().min(1),
+  sessionId: z.string().min(1).optional(),
   customOrderId: z.string().min(1).optional(),
   outputItemId: z.string().min(1),
   plannedOutputQty: z.number().int().positive().optional(),

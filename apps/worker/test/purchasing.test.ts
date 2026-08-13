@@ -34,6 +34,10 @@ import {
   restorePurchase,
   updatePurchase,
 } from "../src/core/purchasing/index.js";
+import {
+  recordSession as recordSessionCore,
+  updateSession as updateSessionCore,
+} from "../src/core/sessions/index.js";
 import { createDb } from "../src/db/index.js";
 import {
   auditLog,
@@ -41,15 +45,34 @@ import {
   financialAccounts,
   financialTransactions,
   purchases,
+  sessions,
 } from "../src/db/schema.js";
 
 const ACTOR = "OWNER_WEB" as const;
 const NOW = "2026-07-16T10:00:00.000Z";
 const BUSINESS_DATE = "2026-07-16";
+const SESSION_STARTED_AT = "2026-07-16T09:00:00.000Z";
 // ADR-017: brand alias, local to this file for readability ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â see costing.test.ts.
 const mc = toMilliCentavosPerUnit;
 
 type TestDb = ReturnType<typeof createDb>;
+
+function recordSession(
+  db: TestDb,
+  command: Omit<Parameters<typeof recordSessionCore>[1], "startedAt"> & { startedAt?: string },
+  actor: Parameters<typeof recordSessionCore>[2],
+) {
+  return recordSessionCore(db, { startedAt: SESSION_STARTED_AT, ...command }, actor);
+}
+
+function updateSession(
+  db: TestDb,
+  id: string,
+  command: Omit<Parameters<typeof updateSessionCore>[2], "startedAt"> & { startedAt?: string },
+  actor: Parameters<typeof updateSessionCore>[3],
+) {
+  return updateSessionCore(db, id, { startedAt: SESSION_STARTED_AT, ...command }, actor);
+}
 
 /** DB rows carry a plain `number` for `unit_cost_mc`; `recomputeWacFromMovements` wants the branded
  * `MilliCentavosPerUnit`. Mirrors invariants/wac-replay.test.ts's identical helper. */
@@ -93,6 +116,7 @@ beforeEach(async () => {
   // filter-by-accountId test would see every prior test's purchases against the same seeded
   // accounts, not just the ones it created itself.
   await db.delete(purchases);
+  await db.delete(sessions);
   await db
     .delete(financialAccounts)
     .where(inArray(financialAccounts.id, ["acc_inactive_purchase_1"]));
@@ -102,6 +126,75 @@ beforeEach(async () => {
 });
 
 describe("recordPurchase (UC-01)", () => {
+  it("links an existing PURCHASE_TRIP session, creates one when absent, and rejects the wrong type", async () => {
+    const db = createDb(env.DB);
+    const item = await seedItem(db, "Harina — session resolution");
+    const existing = await recordSession(
+      db,
+      { type: "PURCHASE_TRIP", businessDate: BUSINESS_DATE },
+      ACTOR,
+    );
+    const linked = await recordPurchase(
+      db,
+      {
+        accountId: "acc_bank",
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        lines: [{ itemId: item.id, qty: 1000, lineTotal: 1000 }],
+      },
+      ACTOR,
+    );
+    expect(linked.purchase.sessionId).toBe(existing.session.id);
+
+    await updateSession(
+      db,
+      existing.session.id,
+      { type: "PURCHASE_TRIP", businessDate: BUSINESS_DATE, durationMin: 1, status: "CLOSED" },
+      ACTOR,
+    );
+    const autoCreated = await recordPurchase(
+      db,
+      {
+        accountId: "acc_bank",
+        occurredAt: "2026-07-16T11:00:00.000Z",
+        businessDate: BUSINESS_DATE,
+        lines: [{ itemId: item.id, qty: 1000, lineTotal: 1000 }],
+      },
+      ACTOR,
+    );
+    expect(autoCreated.purchase.sessionId).not.toBe(existing.session.id);
+    const autoSessionId = autoCreated.purchase.sessionId;
+    if (!autoSessionId) throw new Error("purchase did not resolve a session");
+    expect(
+      await db.query.sessions.findFirst({
+        where: (table, { eq: eqOp }) => eqOp(table.id, autoSessionId),
+      }),
+    ).toMatchObject({
+      type: "PURCHASE_TRIP",
+      status: "OPEN",
+      startedAt: "2026-07-16T11:00:00.000Z",
+    });
+
+    const wrongType = await recordSession(
+      db,
+      { type: "PRODUCTION", businessDate: BUSINESS_DATE },
+      ACTOR,
+    );
+    await expect(
+      recordPurchase(
+        db,
+        {
+          accountId: "acc_bank",
+          occurredAt: NOW,
+          businessDate: BUSINESS_DATE,
+          sessionId: wrongType.session.id,
+          lines: [{ itemId: item.id, qty: 1000, lineTotal: 1000 }],
+        },
+        ACTOR,
+      ),
+    ).rejects.toMatchObject({ code: "VALIDATION" });
+  });
+
   it("records a single-line purchase: kardex movement, item_stock, WAC, replacement_cost_mc, EXPENSE tx, account balance, audit_log", async () => {
     const db = createDb(env.DB);
     const item = await seedItem(db, "Harina — single line");
@@ -900,6 +993,11 @@ describe("batch atomicity (INV-1)", () => {
   it("a failing statement in the same shape of batch as recordPurchase leaves the account balance and purchase rows unchanged", async () => {
     const db = createDb(env.DB);
     const item = await seedItem(db, "Atomicity item");
+    const { session } = await recordSession(
+      db,
+      { type: "PURCHASE_TRIP", businessDate: BUSINESS_DATE, startedAt: NOW },
+      ACTOR,
+    );
 
     // Mirrors the statement shape recordPurchase() builds (purchase insert + account balance
     // update + a purchase_lines insert), but the purchase_lines row violates
@@ -909,9 +1007,9 @@ describe("batch atomicity (INV-1)", () => {
     await expect(
       env.DB.batch([
         env.DB.prepare(
-          `INSERT INTO purchases (id, occurred_at, business_date, account_id, total, created_at, updated_at)
-           VALUES ('purchase_atomicity_test', ?, ?, 'acc_bank', 1000, ?, ?)`,
-        ).bind(NOW, BUSINESS_DATE, NOW, NOW),
+          `INSERT INTO purchases (id, occurred_at, business_date, session_id, account_id, total, created_at, updated_at)
+           VALUES ('purchase_atomicity_test', ?, ?, ?, 'acc_bank', 1000, ?, ?)`,
+        ).bind(NOW, BUSINESS_DATE, session.id, NOW, NOW),
         env.DB.prepare(
           "UPDATE financial_accounts SET balance = balance + -1000 WHERE id = 'acc_bank'",
         ),

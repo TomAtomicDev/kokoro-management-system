@@ -18,12 +18,15 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { createItem } from "../src/core/catalog/index.js";
 import { recordPurchase } from "../src/core/purchasing/index.js";
 import {
+  assertNoConflictingOpenSession,
+  closeAndStartSession,
   deleteSession,
   getSession,
   listSessions,
-  recordSession,
+  recordSession as recordSessionCore,
+  resolveSessionForEvent,
   restoreSession,
-  updateSession,
+  updateSession as updateSessionCore,
 } from "../src/core/sessions/index.js";
 import { createDb } from "../src/db/index.js";
 import {
@@ -40,6 +43,23 @@ const STARTED_AT = "2026-07-16T09:00:00.000Z";
 const ENDED_AT = "2026-07-16T11:00:00.000Z";
 
 type TestDb = ReturnType<typeof createDb>;
+
+function recordSession(
+  db: TestDb,
+  command: Omit<Parameters<typeof recordSessionCore>[1], "startedAt"> & { startedAt?: string },
+  actor: Parameters<typeof recordSessionCore>[2],
+) {
+  return recordSessionCore(db, { startedAt: STARTED_AT, ...command }, actor);
+}
+
+function updateSession(
+  db: TestDb,
+  id: string,
+  command: Omit<Parameters<typeof updateSessionCore>[2], "startedAt"> & { startedAt?: string },
+  actor: Parameters<typeof updateSessionCore>[3],
+) {
+  return updateSessionCore(db, id, { startedAt: STARTED_AT, ...command }, actor);
+}
 
 async function seedInactiveAccount(db: TestDb, id: string): Promise<void> {
   await db.insert(financialAccounts).values({
@@ -73,7 +93,221 @@ beforeEach(async () => {
   }
 });
 
+describe("resolveSessionForEvent (Doc 03 S-1)", () => {
+  it("links an existing matching OPEN session without returning an insert", async () => {
+    const db = createDb(env.DB);
+    const { session } = await recordSession(
+      db,
+      { type: "PURCHASE_TRIP", businessDate: BUSINESS_DATE },
+      ACTOR,
+    );
+    const resolved = await resolveSessionForEvent(db, {
+      type: "PURCHASE_TRIP",
+      occurredAt: STARTED_AT,
+      businessDate: BUSINESS_DATE,
+    });
+    expect(resolved).toEqual({ sessionId: session.id, statements: [] });
+  });
+
+  it("returns a minimal matching session insert when none is OPEN", async () => {
+    const db = createDb(env.DB);
+    const resolved = await resolveSessionForEvent(db, {
+      type: "PRODUCTION",
+      occurredAt: STARTED_AT,
+      businessDate: BUSINESS_DATE,
+    });
+    expect(resolved.statements).toHaveLength(1);
+    expect(await db.query.sessions.findFirst()).toBeUndefined();
+    const statement = resolved.statements[0];
+    if (!statement) throw new Error("expected session insert statement");
+    await db.batch([statement]);
+    expect(await db.query.sessions.findFirst()).toMatchObject({
+      id: resolved.sessionId,
+      type: "PRODUCTION",
+      businessDate: BUSINESS_DATE,
+      startedAt: STARTED_AT,
+      status: "OPEN",
+    });
+  });
+
+  it("honors an explicit matching session even when CLOSED", async () => {
+    const db = createDb(env.DB);
+    const { session } = await recordSession(
+      db,
+      { type: "PRODUCTION", businessDate: BUSINESS_DATE, durationMin: 30 },
+      ACTOR,
+    );
+    await updateSession(
+      db,
+      session.id,
+      { type: "PRODUCTION", businessDate: BUSINESS_DATE, durationMin: 30, status: "CLOSED" },
+      ACTOR,
+    );
+    await expect(
+      resolveSessionForEvent(db, {
+        type: "PRODUCTION",
+        occurredAt: STARTED_AT,
+        businessDate: BUSINESS_DATE,
+        explicitSessionId: session.id,
+      }),
+    ).resolves.toEqual({ sessionId: session.id, statements: [] });
+  });
+
+  it("rejects an explicit session of the wrong type", async () => {
+    const db = createDb(env.DB);
+    const { session } = await recordSession(
+      db,
+      { type: "ADMIN", businessDate: BUSINESS_DATE },
+      ACTOR,
+    );
+    await expect(
+      resolveSessionForEvent(db, {
+        type: "PRODUCTION",
+        occurredAt: STARTED_AT,
+        businessDate: BUSINESS_DATE,
+        explicitSessionId: session.id,
+      }),
+    ).rejects.toMatchObject({ code: "VALIDATION" });
+  });
+
+  it("rejects an explicit soft-deleted session", async () => {
+    const db = createDb(env.DB);
+    const { session } = await recordSession(
+      db,
+      { type: "OTHER", businessDate: BUSINESS_DATE },
+      ACTOR,
+    );
+    await deleteSession(db, session.id, {}, ACTOR);
+    await expect(
+      resolveSessionForEvent(db, {
+        type: "OTHER",
+        occurredAt: STARTED_AT,
+        businessDate: BUSINESS_DATE,
+        explicitSessionId: session.id,
+      }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+});
+
+describe("assertNoConflictingOpenSession / closeAndStartSession (Doc 03 S-1b)", () => {
+  it("guards conflicts while allowing the current session to be excluded", async () => {
+    const db = createDb(env.DB);
+    const { session } = await recordSession(
+      db,
+      { type: "ADMIN", businessDate: BUSINESS_DATE },
+      ACTOR,
+    );
+    await expect(assertNoConflictingOpenSession(db, "ADMIN")).rejects.toMatchObject({
+      code: "CONFLICT",
+    });
+    await expect(assertNoConflictingOpenSession(db, "ADMIN", session.id)).resolves.toBeUndefined();
+  });
+
+  it("atomically closes the old session and opens a same-type replacement with its costs", async () => {
+    const db = createDb(env.DB);
+    const { session } = await recordSession(
+      db,
+      { type: "PURCHASE_TRIP", businessDate: BUSINESS_DATE, startedAt: STARTED_AT },
+      ACTOR,
+    );
+    const result = await closeAndStartSession(
+      db,
+      {
+        closeSessionId: session.id,
+        newSession: {
+          type: "PURCHASE_TRIP",
+          businessDate: "2026-07-17",
+          startedAt: "2026-07-17T09:00:00.000Z",
+          costLines: [{ label: "Taxi", amount: 1200, isEstimate: false, accountId: "acc_bank" }],
+        },
+      },
+      ACTOR,
+    );
+    expect(result.closedSession).toMatchObject({ id: session.id, status: "CLOSED" });
+    expect(result.closedSession.endedAt).not.toBeNull();
+    expect(result.newSession).toMatchObject({ type: "PURCHASE_TRIP", status: "OPEN" });
+    expect(result.newSession.costLines).toHaveLength(1);
+    const openRows = await db.query.sessions.findMany({
+      where: (table, { and: andOp, eq: eqOp, isNull: isNullOp }) =>
+        andOp(
+          eqOp(table.type, "PURCHASE_TRIP"),
+          eqOp(table.status, "OPEN"),
+          isNullOp(table.deletedAt),
+        ),
+    });
+    expect(openRows.map((row) => row.id)).toEqual([result.newSession.id]);
+    const audits = await db.query.auditLog.findMany({
+      where: (table, { and: andOp, eq: eqOp }) =>
+        andOp(eqOp(table.entityType, "sessions"), eqOp(table.actor, ACTOR)),
+    });
+    expect(audits.filter((row) => row.action === "update")).toHaveLength(1);
+    expect(audits.filter((row) => row.action === "create")).toHaveLength(2);
+  });
+
+  it("refuses a cross-type replacement and an already-CLOSED target", async () => {
+    const db = createDb(env.DB);
+    const { session } = await recordSession(
+      db,
+      { type: "ADMIN", businessDate: BUSINESS_DATE, durationMin: 10 },
+      ACTOR,
+    );
+    await expect(
+      closeAndStartSession(
+        db,
+        {
+          closeSessionId: session.id,
+          newSession: { type: "OTHER", businessDate: BUSINESS_DATE, startedAt: STARTED_AT },
+        },
+        ACTOR,
+      ),
+    ).rejects.toMatchObject({ code: "VALIDATION" });
+    await updateSession(
+      db,
+      session.id,
+      { type: "ADMIN", businessDate: BUSINESS_DATE, durationMin: 10, status: "CLOSED" },
+      ACTOR,
+    );
+    await expect(
+      closeAndStartSession(
+        db,
+        {
+          closeSessionId: session.id,
+          newSession: { type: "ADMIN", businessDate: BUSINESS_DATE, startedAt: STARTED_AT },
+        },
+        ACTOR,
+      ),
+    ).rejects.toMatchObject({ code: "VALIDATION" });
+  });
+});
+
 describe("recordSession (UC-14 create)", () => {
+  it.each([
+    { closingField: "endedAt", command: { endedAt: ENDED_AT } },
+    { closingField: "durationMin", command: { durationMin: 45 } },
+  ])("is born CLOSED when $closingField is supplied", async ({ command }) => {
+    const db = createDb(env.DB);
+
+    const result = await recordSession(
+      db,
+      { type: "PRODUCTION", businessDate: BUSINESS_DATE, ...command },
+      ACTOR,
+    );
+
+    expect(result.session.status).toBe("CLOSED");
+  });
+
+  it("is born OPEN when neither an end nor duration is supplied", async () => {
+    const db = createDb(env.DB);
+
+    const result = await recordSession(
+      db,
+      { type: "DELIVERY_RUN", businessDate: BUSINESS_DATE },
+      ACTOR,
+    );
+
+    expect(result.session.status).toBe("OPEN");
+  });
+
   it("records a session with a non-estimate cost line: financial_transactions row, account balance debit, audit_log", async () => {
     const db = createDb(env.DB);
 
@@ -245,33 +479,30 @@ describe("recordSession (UC-14 create)", () => {
     expect(result.session.status).toBe("OPEN");
   });
 
-  describe("one-OPEN-per-type soft warning (Doc 04 §5)", () => {
-    it("warns but does NOT block when another OPEN session of the same type already exists", async () => {
+  describe("one-OPEN-per-type hard invariant (Doc 03 S-1b)", () => {
+    it("allows a same-type session born CLOSED while another session is OPEN", async () => {
       const db = createDb(env.DB);
+      await recordSession(db, { type: "PRODUCTION", businessDate: BUSINESS_DATE }, ACTOR);
 
-      const first = await recordSession(
+      const past = await recordSession(
         db,
-        { type: "PRODUCTION", businessDate: BUSINESS_DATE },
+        { type: "PRODUCTION", businessDate: BUSINESS_DATE, durationMin: 30 },
         ACTOR,
       );
-      expect(first.openSessionWarning).toBeNull();
 
-      const second = await recordSession(
-        db,
-        { type: "PRODUCTION", businessDate: BUSINESS_DATE },
-        ACTOR,
-      );
-      expect(second.openSessionWarning).toEqual(expect.stringContaining("PRODUCTION"));
-      // Not blocked: both sessions exist, both OPEN.
-      const rows = await db.query.sessions.findMany({
-        where: (t, { eq: eqOp }) => eqOp(t.type, "PRODUCTION"),
-      });
-      expect(rows).toHaveLength(2);
-      expect(rows.every((r) => r.status === "OPEN")).toBe(true);
-      expect(first.session.id).not.toBe(second.session.id);
+      expect(past.session.status).toBe("CLOSED");
     });
 
-    it("does not warn across DIFFERENT types", async () => {
+    it("blocks another OPEN session of the same type", async () => {
+      const db = createDb(env.DB);
+
+      await recordSession(db, { type: "PRODUCTION", businessDate: BUSINESS_DATE }, ACTOR);
+      await expect(
+        recordSession(db, { type: "PRODUCTION", businessDate: BUSINESS_DATE }, ACTOR),
+      ).rejects.toMatchObject({ code: "CONFLICT" });
+    });
+
+    it("allows simultaneous OPEN sessions of different types", async () => {
       const db = createDb(env.DB);
       await recordSession(db, { type: "PRODUCTION", businessDate: BUSINESS_DATE }, ACTOR);
       const other = await recordSession(
@@ -279,10 +510,10 @@ describe("recordSession (UC-14 create)", () => {
         { type: "DELIVERY_RUN", businessDate: BUSINESS_DATE },
         ACTOR,
       );
-      expect(other.openSessionWarning).toBeNull();
+      expect(other.session.status).toBe("OPEN");
     });
 
-    it("does not warn against a CLOSED or soft-deleted session of the same type", async () => {
+    it("allows a replacement after the prior same-type session is CLOSED or soft-deleted", async () => {
       const db = createDb(env.DB);
       const closedSource = await recordSession(
         db,
@@ -300,7 +531,7 @@ describe("recordSession (UC-14 create)", () => {
         { type: "ADMIN", businessDate: BUSINESS_DATE },
         ACTOR,
       );
-      expect(afterClose.openSessionWarning).toBeNull();
+      expect(afterClose.session.status).toBe("OPEN");
 
       const toDelete = await recordSession(
         db,
@@ -313,12 +544,42 @@ describe("recordSession (UC-14 create)", () => {
         { type: "OTHER", businessDate: BUSINESS_DATE },
         ACTOR,
       );
-      expect(afterDelete.openSessionWarning).toBeNull();
+      expect(afterDelete.session.status).toBe("OPEN");
     });
   });
 });
 
 describe("updateSession (UC-14 edit / close)", () => {
+  it("blocks reopening or retagging into a type that already has another OPEN session", async () => {
+    const db = createDb(env.DB);
+    const existingOpen = await recordSession(
+      db,
+      { type: "ADMIN", businessDate: BUSINESS_DATE },
+      ACTOR,
+    );
+    const closed = await recordSession(
+      db,
+      { type: "OTHER", businessDate: BUSINESS_DATE, durationMin: 20 },
+      ACTOR,
+    );
+    await updateSession(
+      db,
+      closed.session.id,
+      { type: "OTHER", businessDate: BUSINESS_DATE, durationMin: 20, status: "CLOSED" },
+      ACTOR,
+    );
+
+    await expect(
+      updateSession(
+        db,
+        closed.session.id,
+        { type: "ADMIN", businessDate: BUSINESS_DATE, durationMin: 20, status: "OPEN" },
+        ACTOR,
+      ),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(existingOpen.session.status).toBe("OPEN");
+  });
+
   it("reverses the OLD cost line's transaction and books the NEW one when the cost-line set changes", async () => {
     const db = createDb(env.DB);
     const created = await recordSession(
@@ -695,15 +956,20 @@ describe("listSessions", () => {
     expect(productionOnly).toHaveLength(1);
     expect(productionOnly[0]).toMatchObject({
       type: "PRODUCTION",
-      status: "OPEN",
+      status: "CLOSED",
       durationMin: 60,
       linkedEventCount: 0,
       costsTotal: 1500, // Σ of BOTH lines, estimate included — display total, not the cash total.
     });
 
     const { sessions: closedOnly } = await listSessions(db, { status: "CLOSED" });
-    expect(closedOnly).toHaveLength(1);
-    expect(closedOnly[0]).toMatchObject({ type: "OTHER", status: "CLOSED", durationMin: 5 });
+    expect(closedOnly).toHaveLength(2);
+    expect(closedOnly).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: "PRODUCTION", status: "CLOSED", durationMin: 60 }),
+        expect.objectContaining({ type: "OTHER", status: "CLOSED", durationMin: 5 }),
+      ]),
+    );
   });
 
   it("computes duration_min from started_at/ended_at via v_session_hours when no direct value is stored", async () => {
@@ -726,7 +992,13 @@ describe("listSessions", () => {
 
   it("filters by business date range", async () => {
     const db = createDb(env.DB);
-    await recordSession(db, { type: "ADMIN", businessDate: "2026-07-01" }, ACTOR);
+    const first = await recordSession(db, { type: "ADMIN", businessDate: "2026-07-01" }, ACTOR);
+    await updateSession(
+      db,
+      first.session.id,
+      { type: "ADMIN", businessDate: "2026-07-01", durationMin: 1, status: "CLOSED" },
+      ACTOR,
+    );
     await recordSession(db, { type: "ADMIN", businessDate: "2026-07-20" }, ACTOR);
 
     const { sessions: rows } = await listSessions(db, {

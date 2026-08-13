@@ -185,7 +185,7 @@ CREATE TABLE sessions (
   deleted_at TEXT,
   created_at TEXT NOT NULL, updated_at TEXT NOT NULL
 );
--- PENDING (Phase 3.2, KOK-130): one OPEN session per TYPE, hard-enforced (Doc 03 S-1b) — this
+-- Phase 3.2 (KOK-130, migration 0022): one OPEN session per TYPE, hard-enforced (Doc 03 S-1b) — this
 -- replaces the soft "warn, allow override" rule recorded in §5. Different types MAY be open at
 -- the same time; a delivery of flour mid-bake must not force closing the production session.
 CREATE UNIQUE INDEX ux_sessions_open_per_type

@@ -1,6 +1,6 @@
 // Route-level tests for the sessions endpoints (KOK-027): GET/POST /api/sessions,
 // GET/PATCH/DELETE /api/sessions/:id, POST /api/sessions/:id/restore. The service-level assertions
-// (cost-line transaction reversal/recreation, the one-OPEN-per-type warning, close-duration
+// (cost-line transaction reversal/recreation, the one-OPEN-per-type invariant, close-duration
 // validation) live in test/sessions.test.ts; this file only proves the Hono wiring — auth/CSRF
 // gate, status codes, body shape. Mirrors test/purchasing-routes.test.ts's/
 // test/production-runs-routes.test.ts's exact pattern (`SELF.fetch`, the `login()` helper).
@@ -66,7 +66,7 @@ async function createSession(
   const res = await SELF.fetch("https://example.com/api/sessions", {
     method: "POST",
     headers: authHeaders(auth),
-    body: JSON.stringify(body),
+    body: JSON.stringify({ startedAt: `${BUSINESS_DATE}T09:00:00.000Z`, ...body }),
   });
   return { res, json: await res.json() };
 }
@@ -77,7 +77,6 @@ interface SessionDtoShape {
     status: string;
     costLines: { id: string; amount: number; accountId: string | null }[];
   };
-  openSessionWarning?: string | null;
 }
 
 beforeEach(async () => {
@@ -114,7 +113,6 @@ describe("POST /api/sessions", () => {
     const body = json as SessionDtoShape;
     expect(body.session.status).toBe("OPEN");
     expect(body.session.costLines).toHaveLength(1);
-    expect(body.openSessionWarning).toBeNull();
 
     const accountRes = await SELF.fetch("https://example.com/api/finance/accounts", {
       headers: { cookie: auth.cookie },
@@ -136,16 +134,46 @@ describe("POST /api/sessions", () => {
     expect((json as { code: string }).code).toBe("VALIDATION");
   });
 
-  it("surfaces the one-OPEN-per-type warning without blocking the second create", async () => {
+  it("returns 409 when a session of the same type is already OPEN", async () => {
     const auth = await login();
     await createSession(auth, { type: "DELIVERY_RUN", businessDate: BUSINESS_DATE });
     const { res, json } = await createSession(auth, {
       type: "DELIVERY_RUN",
       businessDate: BUSINESS_DATE,
     });
+    expect(res.status).toBe(409);
+    expect(json).toMatchObject({ code: "CONFLICT" });
+  });
+});
+
+describe("POST /api/sessions/close-and-start", () => {
+  it("closes and replaces a same-type OPEN session", async () => {
+    const auth = await login();
+    const { json: created } = await createSession(auth, {
+      type: "ADMIN",
+      businessDate: BUSINESS_DATE,
+    });
+    const closeSessionId = (created as SessionDtoShape).session.id;
+    const res = await SELF.fetch("https://example.com/api/sessions/close-and-start", {
+      method: "POST",
+      headers: authHeaders(auth),
+      body: JSON.stringify({
+        closeSessionId,
+        newSession: {
+          type: "ADMIN",
+          businessDate: "2026-07-17",
+          startedAt: "2026-07-17T09:00:00.000Z",
+        },
+      }),
+    });
     expect(res.status).toBe(201);
-    const body = json as SessionDtoShape;
-    expect(body.openSessionWarning).toEqual(expect.stringContaining("DELIVERY_RUN"));
+    const body = (await res.json()) as {
+      closedSession: { id: string; status: string };
+      newSession: { id: string; status: string; type: string };
+    };
+    expect(body.closedSession).toMatchObject({ id: closeSessionId, status: "CLOSED" });
+    expect(body.newSession).toMatchObject({ status: "OPEN", type: "ADMIN" });
+    expect(body.newSession.id).not.toBe(closeSessionId);
   });
 });
 
@@ -230,6 +258,7 @@ describe("PATCH /api/sessions/:id", () => {
       body: JSON.stringify({
         type: "PRODUCTION",
         businessDate: BUSINESS_DATE,
+        startedAt: `${BUSINESS_DATE}T09:00:00.000Z`,
         status: "OPEN",
         costLines: [{ label: "Después", amount: 4000, isEstimate: false, accountId: "acc_bank" }],
       }),
@@ -259,7 +288,12 @@ describe("PATCH /api/sessions/:id", () => {
     const res = await SELF.fetch(`https://example.com/api/sessions/${sessionId}`, {
       method: "PATCH",
       headers: authHeaders(auth),
-      body: JSON.stringify({ type: "OTHER", businessDate: BUSINESS_DATE, status: "CLOSED" }),
+      body: JSON.stringify({
+        type: "OTHER",
+        businessDate: BUSINESS_DATE,
+        startedAt: `${BUSINESS_DATE}T09:00:00.000Z`,
+        status: "CLOSED",
+      }),
     });
     expect(res.status).toBe(400);
     expect(((await res.json()) as { code: string }).code).toBe("VALIDATION");
@@ -270,7 +304,12 @@ describe("PATCH /api/sessions/:id", () => {
     const res = await SELF.fetch("https://example.com/api/sessions/does-not-exist", {
       method: "PATCH",
       headers: authHeaders(auth),
-      body: JSON.stringify({ type: "OTHER", businessDate: BUSINESS_DATE, status: "OPEN" }),
+      body: JSON.stringify({
+        type: "OTHER",
+        businessDate: BUSINESS_DATE,
+        startedAt: `${BUSINESS_DATE}T09:00:00.000Z`,
+        status: "OPEN",
+      }),
     });
     expect(res.status).toBe(404);
   });

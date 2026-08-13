@@ -38,6 +38,10 @@ export const sessionsLabels = {
 
   recordTitle: "Nueva sesión",
   editTitle: "Editar sesión",
+  modeLabel: "Modo de registro",
+  startNowTab: "Iniciar ahora",
+  logPastTab: "Registrar sesión pasada",
+  required: "requerido",
   fieldType: "Tipo",
   fieldDate: "Fecha",
   fieldNotes: "Notas",
@@ -93,15 +97,11 @@ export const sessionsLabels = {
   undo: "Deshacer",
   restoreFailed: "No se pudo deshacer la eliminación. Intenta de nuevo.",
 
-  /** RecordSessionResult.openSessionWarning is a plain Spanish string built by core/sessions — this
-   * entry is unused for that (server-provided) case, but kept in case a client-side echo is ever
-   * needed. */
-  openSessionWarningTitle: "Aviso",
-
   errors: {
     generic: "Ocurrió un error inesperado. Intenta de nuevo.",
     typeRequired: "Selecciona un tipo de sesión.",
     dateRequired: "Selecciona una fecha.",
+    startRequired: "Indica la hora de inicio.",
     invalidCostLine: "Cada costo compartido necesita una etiqueta y un monto válido.",
     accountRequired: "Selecciona una cuenta para un costo que no es una estimación.",
     closeRequiresDuration: "Indica la hora de fin o la duración para cerrar la sesión.",

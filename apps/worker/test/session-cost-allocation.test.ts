@@ -26,7 +26,11 @@ import { createItem } from "../src/core/catalog/index.js";
 import { recordExit } from "../src/core/inventory/exits.js";
 import { recordProductionRun } from "../src/core/production/index.js";
 import { recordRecipe } from "../src/core/recipes/index.js";
-import { recordSession, updateSession } from "../src/core/sessions/index.js";
+import {
+  closeAndStartSession,
+  recordSession as recordSessionCore,
+  updateSession as updateSessionCore,
+} from "../src/core/sessions/index.js";
 import { createDb } from "../src/db/index.js";
 import {
   auditLog,
@@ -34,6 +38,7 @@ import {
   financialAccounts,
   financialTransactions,
   productionRuns,
+  purchases,
   sessions,
   stockExits,
   stockMovements,
@@ -41,8 +46,26 @@ import {
 
 const ACTOR = "OWNER_WEB" as const;
 const BUSINESS_DATE = "2026-07-16";
+const SESSION_STARTED_AT = "2026-07-16T09:00:00.000Z";
 
 type TestDb = ReturnType<typeof createDb>;
+
+function recordSession(
+  db: TestDb,
+  command: Omit<Parameters<typeof recordSessionCore>[1], "startedAt"> & { startedAt?: string },
+  actor: Parameters<typeof recordSessionCore>[2],
+) {
+  return recordSessionCore(db, { startedAt: SESSION_STARTED_AT, ...command }, actor);
+}
+
+function updateSession(
+  db: TestDb,
+  id: string,
+  command: Omit<Parameters<typeof updateSessionCore>[2], "startedAt"> & { startedAt?: string },
+  actor: Parameters<typeof updateSessionCore>[3],
+) {
+  return updateSessionCore(db, id, { startedAt: SESSION_STARTED_AT, ...command }, actor);
+}
 
 async function seedItem(
   db: TestDb,
@@ -152,6 +175,7 @@ beforeEach(async () => {
   await db.delete(stockMovements).where(eq(stockMovements.sourceEventType, "production_run"));
   await db.delete(stockMovements).where(eq(stockMovements.sourceEventType, "purchase"));
   await db.delete(productionRuns); // cascades production_consumptions
+  await db.delete(purchases);
   await db.delete(sessions); // cascades session_costs
   for (const id of ["acc_bank", "acc_cash"] as const) {
     await db.update(financialAccounts).set({ balance: 0 }).where(eq(financialAccounts.id, id));
@@ -159,6 +183,52 @@ beforeEach(async () => {
 });
 
 describe("planSessionCostAllocation via updateSession (KOK-028, S-3)", () => {
+  it("closeAndStartSession allocates the closing PRODUCTION session's existing costs in the same batch", async () => {
+    const db = createDb(env.DB);
+    const input = await seedItem(db, "KOK-130 swap — input");
+    const output = await seedItem(db, "KOK-130 swap — output", "SEMI_FINISHED");
+    await seedPurchase(db, input.id, 1000, 100);
+    const recipe = await seedRecipe(db, output.id, [{ itemId: input.id, qty: 1000 }]);
+    const { session } = await recordSession(
+      db,
+      {
+        type: "PRODUCTION",
+        businessDate: BUSINESS_DATE,
+        costLines: [{ label: "Gas", amount: 50_000, isEstimate: true }],
+      },
+      ACTOR,
+    );
+    const { productionRun } = await recordProductionRun(
+      db,
+      {
+        recipeId: recipe.id,
+        sessionId: session.id,
+        batches: 1,
+        actualOutputQty: 1000,
+        occurredAt: `${BUSINESS_DATE}T09:00:00.000Z`,
+        businessDate: BUSINESS_DATE,
+        lines: [{ itemId: input.id, qty: 1000 }],
+      },
+      ACTOR,
+    );
+
+    const result = await closeAndStartSession(
+      db,
+      {
+        closeSessionId: session.id,
+        newSession: {
+          type: "PRODUCTION",
+          businessDate: "2026-07-17",
+          startedAt: "2026-07-17T09:00:00.000Z",
+        },
+      },
+      ACTOR,
+    );
+    expect(result.closedSession.status).toBe("CLOSED");
+    expect(result.newSession).toMatchObject({ type: "PRODUCTION", status: "OPEN" });
+    expect((await runRow(db, productionRun.id)).allocatedSessionCost).toBe(50_000);
+  });
+
   it("a single linked run gets 100% of the shared cost; total_cost/output unit cost update and the output item's WAC is corrected via the no-downstream fallback path", async () => {
     const db = createDb(env.DB);
     const itemA = await seedItem(db, "KOK-028 single-run — harina");
@@ -353,7 +423,7 @@ describe("planSessionCostAllocation via updateSession (KOK-028, S-3)", () => {
     expect(result.session.status).toBe("CLOSED");
   });
 
-  it("a non-PRODUCTION session type never allocates, even when CLOSED with a linked run", async () => {
+  it("a non-PRODUCTION session closes without invoking production allocation", async () => {
     const db = createDb(env.DB);
     const itemA = await seedItem(db, "KOK-028 non-production — harina");
     const output = await seedItem(db, "KOK-028 non-production — masa", "SEMI_FINISHED");
@@ -362,7 +432,7 @@ describe("planSessionCostAllocation via updateSession (KOK-028, S-3)", () => {
 
     const { session } = await recordSession(
       db,
-      { type: "DELIVERY_RUN", businessDate: BUSINESS_DATE, durationMin: 30, costLines: [] },
+      { type: "PRODUCTION", businessDate: BUSINESS_DATE, durationMin: 30, costLines: [] },
       ACTOR,
     );
     const { productionRun } = await recordProductionRun(
