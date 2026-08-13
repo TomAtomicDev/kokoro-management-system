@@ -111,5 +111,16 @@ export const sessionsLabels = {
     noOpenSession: "Sin sesión abierta",
     multipleOpen: (count: number) => `${count} sesiones abiertas`,
     elapsedUnknown: "en curso",
+    viewDetail: "Ver detalle",
+    stopNow: "Detener sesión ahora",
+  },
+
+  quickStart: {
+    title: "Iniciar sesión",
+    chooseType: "Elige el tipo de sesión a iniciar.",
+    conflictMessage: (typeLabel: string) =>
+      `Ya hay una sesión de ${typeLabel} abierta. ¿Cerrarla ahora e iniciar una nueva?`,
+    confirmCloseAndStart: "Cerrar la anterior e iniciar",
+    cancel: "Cancelar",
   },
 } as const;
