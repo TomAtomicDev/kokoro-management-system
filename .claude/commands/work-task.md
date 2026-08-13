@@ -1,129 +1,322 @@
-Work task **$ARGUMENTS** from `docs/system-design-knowledge-base/10-implementation-backlog.md` end to end.
+---
+description: Work one backlog task or a block of tasks end to end as orchestrator over Codex workers via Orca
+argument-hint: <TASK-ID> | <FIRST-ID>..<LAST-ID> | <ID,ID,ID>
+---
+# Orchestrate backlog scope $ARGUMENTS
 
-You are the **orchestrator**: strategist, architect, and decision-maker. You do not write most of
-the code yourself — you decompose the task into small, scoped, independently-verifiable chunks and
-run them through Codex workers via Orca orchestration (`orchestration` skill). You keep for yourself
-everything that requires judgment: reading the KB, resolving ambiguity, designing the interfaces
-between chunks, and reviewing every piece of work that comes back before it's allowed to become the
-foundation for the next piece.
+Source of truth: `docs/system-design-knowledge-base/10-implementation-backlog.md`.
 
-## Division of labor
+You are the **orchestrator**: strategist, architect, decision-maker. Codex workers implement scoped mechanical units  
+through Orca. You own architecture, ambiguity resolution, interfaces, dependency  
+ordering and every decision gate.
 
-| Keep for yourself (Claude)                                                             | Delegate to Codex (via Orca)                                                  |
-| ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| Forming the plan from the grounding report; filling gaps the report left open            | The initial grounding report: what exists, what the KB says, precedent features |
-| Deciding schema, service boundaries, interfaces between chunks                           | Implementing one function/route/component/migration/test file to a given spec   |
-| Spotting KB ambiguity (D-1) and deciding whether to stop and ask the user                | Running a test suite / lint / typecheck / Playwright script — result trusted as-is |
-| Reviewing every chunk's diff against the golden rules before the next chunk depends on it | Git mechanics: branch, stage, commit, status, diff summaries                    |
-| Full-check + final cross-cutting self-review of the whole vertical slice                 | Mechanical fixes to a clearly-specified failure (a failing assertion, a lint rule) |
-| Writing development-doc learnings; the merge decision                                    | —                                                                                |
+`$ARGUMENTS` may be a single task, a range or a list. A single task is just a block of one: the whole procedure below applies, and the block phases collapse to near-zero work.
 
-Never let a Codex worker resolve a KB ambiguity, choose between two valid interpretations of a
-golden rule, or decide a chunk's scope for itself. If a worker reports it's blocked or uncertain,
-that's an escalation back to you — resolve it yourself, don't let the worker guess.
+## Prime directive: your context is the scarce resource
 
-## 0. Load the Orca guides
+Your own context window is the bottleneck, not worker time and not worker cost. A fifty-task block **will not fit in one session of yours** — the workflow is designed
+so that it does not have to. Everything durable lives in the ledger; you carry as
+little as possible between tasks.
 
-Before dispatching anything, resolve the Orca CLI for this session and load both version-matched
-guides — command flags drift between releases, don't guess them from memory or from this file:
+**You read:** backlog rows, KB rules you quote into specs, worker reports (bounded),
+targeted diffs of contract surfaces, escalations.
 
-- `ORCA skills get orchestration` — task dispatch, `worker_done`, escalation waits, task DAGs,
-  decision gates, the coordinator loop.
-- `ORCA skills get orca-cli` — worktrees, spawning a Codex/Claude worker into a worktree, terminal
-  read/wait/send. This is what actually creates the branch/worktree and puts a Codex worker in it in
-  step 2.
+**You do not read:** full file bodies a worker could summarize, test output, lint
+output, diffs of files with no contract surface, generated boilerplate you already
+specified, diffs of tasks already accepted, or Orca internals while things work.
 
-## 1. Ground
+When in doubt: dispatch a worker to answer in ≤30 lines instead of reading source.
 
-Start by dispatching a **grounding report** to a Codex worker rather than scanning the project
-yourself. Give it the task's row from the backlog (Area/Size/🧠/Description) and ask it to answer,
-with file:line / doc-section citations:
+---
 
-- What's already been developed that this task touches or extends (relevant services, routes,
-  components, migrations)?
-- What do Doc 03/04 say about the rules this task must follow?
-- Is there a precedent vertical or feature already built that this should mirror?
+## Phase 0 — Bootstrap the block
 
-Read the report. If it's sufficient to form a plan, proceed to step 3. If it's thin, contradictory,
-or the task's 🧠 rating is 4–5 (design-heavy / money / state-machine territory), scan the KB and the
-precedent code yourself to fill the gaps — don't build a plan on a shallow report for anything
-business-critical. Either way, the synthesis and the resulting mental model are yours, not the
-worker's.
+1. Derive `BLOCK-ID` (e.g. `KOK-100..120`, or the task id if scope is one task) and
+   read `docs/development/.runs/{BLOCK-ID}/ledger.md`.
+   - **If it exists this is a resume.** Read *only* the ledger. Verify the Run and
+     worktrees still exist (`orca status --json`, `orca orchestration run-show`).
+     Jump to the first task whose status is not `done` or `blocked`. Do not re-ground,
+     do not re-plan, do not re-read accepted diffs, do not re-read rows of finished
+     tasks.
+   - If it does not exist, continue.
+2. `orca status --json`.
+3. Load the version-matched skills, both of them, before dispatching anything:
+   - `orca skills get orca-cli`
+   - `orca skills get orchestration --full`
 
-## 2. Branch
+   These are **authoritative**. Where this prompt and a skill disagree on a command
+   name, a flag, a lifecycle state or a completion semantic, **the skill wins and this
+   prompt is wrong** — follow the skill and note the divergence in the ledger's
+   `Open questions` so the prompt gets fixed. Never infer a flag from this prompt.
 
-Decide the branch name (`feat/{task-id}-{short-slug}`) and base (`develop`) yourself, then delegate
-the creation via `orca-cli`: spin up an Orca-managed child worktree on that branch and spawn the
-Codex worker into it. This worktree is where every chunk in step 4 gets dispatched, so get it right
-before moving on — you're not touching git directly here, just naming and directing it.
+   Load them once per session and use the documented **supervised orchestration** path
+   throughout. On a resume this step repeats: a fresh session has no skills loaded, and
+   the ledger records state, not procedure. Do not re-load them between tasks within
+   the same session.
+4. Create one Run for the whole block:
+   `orca orchestration run-create --objective "{BLOCK-ID}: <block objective>" --json`
+5. Create `docs/development/.runs/{BLOCK-ID}/ledger.md` (template at the end).
 
-## 3. Plan and decompose
+---
 
-Write the implementation plan for the full vertical slice (schema → service → routes → UI, whichever
-apply). If you find a real ambiguity in the KB (D-1) or a scoping question that materially changes
-the size of the work, stop and ask the user instead of guessing — do this before decomposing, it's
-cheaper to resolve once than to unwind three finished chunks.
+## Phase 1 — Block triage and task ordering
 
-Then break the plan into a **task DAG** of Codex-sized units — one migration, one service function,
-one route, one component, one test file per unit. Medium context window, so each unit must be
-independently scoped: no unit should require a worker to hold more than one file's worth of KB rules
-and code in its head at once. For each unit, write down:
+Read **all** rows in scope once. This is the only time you read them all together.
+Produce, into the ledger:
 
-- **Scope**: exactly what file(s) to touch and what the unit does — nothing implicit.
-- **Inputs**: the exact schema/type signature it must conform to, and the *literal quoted text* of
-  the relevant KB rule(s) — not "read Doc 04 §3.4", paste the paragraph. Don't make a worker go
-  spelunking through the KB for context you already have.
-- **Fit hint**: one sentence on how this unit fits the bigger picture (what calls it, what it calls).
-- **Acceptance check**: the exact command you'll have the worker run to prove the unit works (a test
-  file path, `tsc --noEmit` on the touched files, a Playwright script), and what output counts as
-  passing.
+- **Domain clusters.** Group rows by the surface they touch (schema/domain, service,
+  web, i18n…). Rows in the same cluster share contracts and must be serialized.
+- **Task DAG.** Edges come from: schema/migration before anything consuming it;
+  service contract before its callers; `full`-area rows before `web` rows on the same
+  noun; explicit references between descriptions. When a row's description already
+  states that another row's change is a prerequisite, that is an edge — do not rely
+  on ID order, which is not dependency order.
+- **Migration ordering owner.** If more than one task ships a migration, fix their
+  relative order now and record it. Two workers inventing migration timestamps in
+  parallel is a merge conflict you cannot delegate away.
+- **KB amendment collisions.** If several rows amend the same doc section, decide who
+  writes the amendment and who merely references it.
+- **Per-task lane** from 🧠 and Size (see Phase 4).
 
-Order units by dependency. Golden-rule routing per unit: D-2/D-3 for backend, D-4/D-9 for shared
-schema and UI strings, D-5 for anything touching money/qty (pair with a property-based test per
-Doc 11 §2), D-8 for deletes.
+Then **stop and show the user** the task order, the clusters, the parallelism plan and
+anything you consider genuinely ambiguous at block level. This is the cheapest moment
+in the whole run to correct a wrong ordering; after this checkpoint you proceed
+autonomously until Phase 6.
 
-## 4. Dispatch loop (coordinator loop)
+---
 
-For each unit, in dependency order:
+## Phase 2 — Block grounding (once, not per task)
 
-1. Dispatch the unit to a Codex worker through Orca with its scope, inputs, fit hint, and acceptance
-   check. Reuse the same worker thread for follow-ups on the same unit so it keeps local context
-   instead of re-deriving it.
-2. Wait for `worker_done` (or an escalation — treat any escalation as a stop signal for that unit;
-   resolve it yourself before continuing, don't let the worker proceed on a guess).
-3. **Decision gate** — review the diff yourself against: the KB rule you quoted for that unit, the
-   golden rules for the area it touched, and whether it actually matches the interface downstream
-   units depend on. Accept and move on, or send a corrective follow-up in the same thread.
-4. Only start a dependent unit once its dependencies have cleared their decision gate.
+One grounding unit **per domain cluster**, not per task. Give the worker the rows of
+that cluster together and ask for the shared picture.
 
-## 5. Test and verify
+Rows already carrying a verified analysis (a `Verified <date>` block with concrete
+symbols, files or behaviours) do not get a rediscovery pass. For those, grounding is
+narrowed to: *confirm these specific claims still hold on `develop`, list what
+changed.* Nothing else.
 
-Once the vertical slice is code-complete, dispatch test-writing/running and UI verification as their
-own scoped chunks (unit/integration tests per Doc 11; a Playwright walk per the `verify-ui` skill for
-anything touching `apps/web`). Trust the worker's pass/fail report — don't re-run or second-guess a
-green result. If something fails, dispatch a fix chunk back to the same worker thread; only step in
-yourself if the worker escalates because the failure points at your interface design or KB reading
-rather than its own code.
+Grounding output contract — state literally in the spec:
 
-## 6. Full check + self-review (yourself, not delegated)
+> Output ≤50 lines of markdown. Sections: `TOUCHED` (file:line, one per line, ≤10-word
+> note, and which task ids in this cluster touch it), `SHARED` (files or symbols
+> touched by more than one task in the cluster), `RULES` (Doc 03/04 refs + one-line
+> paraphrase), `PRECEDENT` (existing vertical, paths only), `CONTRADICTIONS` (anything
+> in a row that does not match the code). No code except type/function signatures.
+> No design proposals. Modify nothing.
 
-Dispatch `pnpm lint:fix && pnpm format && pnpm check` as one mechanical Codex chunk. Then read the
-full cumulative diff back yourself against the golden rules for every area this task touched and
-against the KB rules you grounded in at step 1. This final synthesis pass is the one thing in this
-whole workflow that must be you, not a worker — fix anything that doesn't hold up before moving on.
+The `SHARED` section is the one that matters most at block level — it is your conflict
+map. Record it in the ledger.
 
-## 7. Document learnings (yourself, not delegated)
+For clusters whose top 🧠 is 4–5, personally verify only the two or three claims the
+block design hinges on.
 
-If this task produced a real decision, deviation, subtlety, or edge case future tasks will need to
-know about — the kind of thing that earns a reference like "see kok-024's doc §8" three tasks later
-— write it up in `docs/development/{task-id}-{short-slug}.md`, following the shape of existing docs
-there (e.g. `kok-024-event-edit-delete.md`, `kok-030-sales-end-to-end.md`). Skip this for tasks that
-were a clean, unremarkable application of existing patterns — most tasks don't need one. This is a
-judgment call about what's worth a future reader's attention, so it stays with you.
+---
 
-## 8. Finish
+## Phase 3 — Freeze block contracts
 
-- Dispatch the commit (referencing the task ID) and the backlog-row edit (mark `✅ Done`) as Codex
-  chunks — mechanical, low-risk.
-- You decide and perform the merge into `develop`. Ask the user first if anything from step 6 was
-  genuinely contested rather than a clean self-review pass.
+Before any implementation dispatch, write into the ledger, as literal code:
+
+- schema/migration shape and order;
+- every type/signature crossing a **task** boundary;
+- validation and error-shape conventions the whole block must share (e.g. how
+  `message_es` surfaces to the client);
+- i18n key ownership: which task adds which keys, so two tasks do not both add them.
+
+These are frozen. A task that needs to change a frozen contract does not change it —
+it escalates to you, you amend the ledger, and you record which already-accepted tasks
+must be revisited. Unfrozen contracts are the single most expensive failure mode in a
+block, because they invalidate work you already paid to review.
+
+---
+
+## Phase 4 — Worktree and parallelism strategy
+
+Default: **one Orca-managed worktree for the whole block**, branch
+`feat/{block-slug}` off `develop`, one commit per task. This is the cheap path and
+the right default for a block whose tasks share a domain.
+
+Use a separate worktree per task only when tasks are in different clusters with a
+**disjoint file set** from `SHARED`, and run at most 2–3 concurrent tasks. Concurrency
+multiplies escalations arriving at you out of order, which costs you more context than
+the wall-clock time it saves. Never parallelize two tasks that appear together in
+`SHARED`.
+
+Record worktree selector/id, branch and Run ID in the ledger.
+
+---
+
+## Phase 5 — Per-task loop
+
+For each task in DAG order. Everything below concerns **one** task; do not carry the
+previous task's details into it.
+
+### 5.1 Lane
+
+| 🧠  | Extra grounding | Planning |
+| --- | --------------- | -------- |
+| 1–2 | none | worker proposes the unit list, you approve in one pass |
+| 3   | only if the task touches something outside the cluster grounding | you write the plan |
+| 4–5 | narrow, targeted at the specific gap | you write the plan and resolve every ambiguity first |
+
+### 5.2 Plan and decompose
+
+Write the vertical plan yourself from the row plus the ledger's frozen contracts —
+not from a fresh reading of the codebase. Resolve KB ambiguity **before** dispatching:
+a worker hitting ambiguity mid-unit costs you an escalation round trip.
+
+Build a DAG of Codex-sized units. Each unit spec contains:
+
+**SCOPE** — exact files, exact responsibility.
+**ANTI-SCOPE** — files it must not touch; no renames, no drive-by refactors, no new
+dependencies, no changes to the acceptance command, **no changes to any frozen
+contract**. If something outside scope looks wrong, report it, do not fix it.
+**INPUTS** — literal type signatures pasted from the ledger (paste, do not describe)
+and the verbatim KB rule text governing the unit.
+**FIT** — what calls this, what this calls.
+**ACCEPTANCE** — exact command(s) and passing condition, including `pnpm check` scoped
+to the touched packages. Not done until it passes in the worktree.
+**DEPENDENCIES** — upstream Task IDs.
+**REPORT** — ≤25 lines: files changed with one-line rationale each, acceptance command
+and verdict, and an `UNCERTAIN` section listing every decision the worker guessed. An
+empty `UNCERTAIN` is a claim you will check.
+**ESCALATION** — ambiguity, contradiction with the code, or a choice between two valid
+interpretations: stop and ask via the Orca worker contract. Guessing is a failure,
+not initiative.
+
+Prefer more, smaller units; recovery from a bad small unit is cheap.
+
+### 5.3 Dispatch
+
+1. Create the Orca Task preserving dependency order.
+2. `orca orchestration worker-start ... --agent codex --json`. Record task id,
+   dispatch id, terminal handle, worktree in the task's ledger row.
+3. **Verify the worker entered the task.** A successful return, `input_accepted` or
+   `tui-idle` are not proof — look for evidence of a real Codex turn
+   (`worker-show` / `worker-read` / `dispatch-show`). If the spec sits unsubmitted in
+   the composer, send Enter only; never re-paste a prompt already present.
+4. If it did not start and one Enter retry does not fix it, **stop improvising**: apply
+   the recovery primitives documented in the `orchestration` skill first, and only if
+   they do not cover the case, read `docs/development/orca-failure-playbook.md` and
+   follow it. Documented Orca recovery always beats terminal manipulation. Do not spawn
+   more workers before inspecting the existing terminal.
+5. Wait with Orca's own primitive
+   (`orca orchestration check --wait --types worker_done,escalation,question ... --json`).
+   Never a background Bash polling loop. A timeout is neither completion nor failure:
+   inspect `worker-show`, `worker-read`, `dispatch-show` and decide whether the worker
+   is working, finished but lost its lifecycle report, or never started.
+
+### 5.4 Decision gate — two stages
+
+**Stage 1 (Codex, mechanical).** A *separate* review unit against the diff: matches
+SCOPE and ANTI-SCOPE, acceptance command passes on a clean run, no stubs/TODOs/
+commented-out code, touches nothing forbidden, no frozen contract altered, user-facing
+strings in Spanish and sourced from the i18n modules rather than inlined.
+Output: `PASS` / `FAIL` + ≤15 lines.
+
+**Stage 2 (you, semantic).** Only after Stage 1 passes. Read
+`git diff -- <contract-surface files>` — the files carrying interface, schema,
+validation or KB rule, not the whole diff. Judge: KB rule honoured as written, golden
+rules, promised interface, downstream compatibility. For 🧠 1–2 units with a clean
+Stage 1 and an empty `UNCERTAIN`, `git diff --stat` plus the report is enough.
+
+No dependent unit unlocks before its upstream verdict is `accepted`.
+
+**Retry limit: 2 corrective dispatches per unit.** On the third failure: either the
+spec is wrong (rewrite it, restart the unit as a new Task) or the unit is not
+mechanical (do it yourself, note why in the ledger).
+
+### 5.5 Task close and **checkpoint & forget**
+
+When every unit of the task is accepted:
+
+1. Tests/UI verification as their own scoped units, same REPORT contract. Trust a
+   green result only when the worker ran the specified command, the output matches
+   this worktree, and the dispatch settled normally. A failing test caused by a wrong
+   design escalates to you — never let a worker redesign to make a test pass.
+2. Mechanical unit: commit referencing the task id; backlog row → `✅ Done`.
+3. `docs/development/{task-id}-{slug}.md` **only** if the task produced a decision,
+   deviation, subtle edge case or reusable precedent. Routine implementation gets no doc.
+4. Update the ledger: task status `done`, plus — and this is the part that makes the
+   block work — **any contract delta, precedent or gotcha the *next* tasks need, in
+   ≤10 lines.** Everything else about this task is now disposable.
+5. Then deliberately drop the task from your working memory. Do not re-read its diff,
+   its report or its row again. If a later task needs something from it, the ledger has
+   it; if the ledger does not have it, that is a ledger bug — fix the ledger, not your
+   memory.
+6. **Context check.** If you judge you are past roughly two thirds of your usable
+   context, stop here. Tell the user the block is checkpointed at task N and that a
+   fresh session running this same command with the same block id will resume from the
+   ledger. Do not start another task on fumes — a task abandoned mid-DAG costs more to
+   recover than it cost to run.
+
+### 5.6 Blocked tasks
+
+A task that cannot proceed (twice-failed spec, unresolved KB contradiction, dependency
+on a decision the user must make) is marked `blocked` with a one-line reason. **Continue
+with the tasks it does not block.** Never halt the whole block for one task, and never
+guess your way past it.
+
+---
+
+## Phase 6 — Block close
+
+Only once every task is `done` or `blocked`:
+
+1. One mechanical unit: `pnpm lint:fix && pnpm format && pnpm check` (confirmation
+   only — each unit already passed its own check).
+2. Review the cumulative diff yourself, restricted to the `SHARED` surfaces from
+   Phase 2 and to anything Stage 2 flagged. This is the review that catches what
+   per-task review structurally cannot: two tasks that each honoured the contract but
+   are inconsistent with each other.
+3. Present to the user: tasks done, tasks blocked and why, decisions you made that the
+   KB did not settle, contract deltas that outlive the block, and the proposed merge.
+   **The merge into `develop` is the user's call, not yours.**
+4. Delete the ledger only after the user confirms.
+
+---
+
+## Ledger
+
+`docs/development/.runs/{BLOCK-ID}/ledger.md` — updated after every gate, never at the
+end. It exists so a fresh session resumes the block without re-reading anything.
+
+```md
+# {BLOCK-ID} — ledger
+run_id: | branch: | worktree(s): | started:
+## Task DAG
+| task | area | size | 🧠 | deps | lane | status | note |
+(status: pending | planning | in-progress | review | done | blocked)
+## Clusters & SHARED surfaces
+<file/symbol -> tasks that touch it>
+## Frozen contracts
+<literal signatures, schema shape, migration order, i18n key ownership>
+## Decisions
+<ambiguity -> resolution -> KB ref -> tasks affected>
+## Carry-forward
+<≤10 lines per finished task: what later tasks must know>
+## Open questions for the user
+## Units (current task only)
+| id | scope | deps | task_id | dispatch_id | status | verdict |
+```
+
+Prune the `Units` table when a task closes; it is scratch space, not history.
+
+---
+
+## Invariants
+
+0. Both Orca skills are loaded before the first dispatch of every session, and they —
+   not this prompt — define command names, flags, lifecycle states and completion
+   semantics.
+1. Worker output that reaches your eyes is always bounded and formatted by contract.
+2. A worker never resolves KB ambiguity, never picks between valid interpretations of a
+   golden rule, never widens its own scope. Uncertainty escalates to you.
+3. Frozen contracts are changed by you in the ledger, never by a worker in a diff.
+4. Never start a dependent unit or task before its upstream verdict is `accepted`.
+5. Never blindly re-send an injected prompt; inspect before retrying.
+6. Never leave an orphaned Dispatch appearing active.
+7. Never poll for completion with a background Bash loop.
+8. Two corrective dispatches per unit, then re-spec or self-implement.
+9. One blocked task never halts the block.
+10. The ledger is updated before you move on, always.
+
