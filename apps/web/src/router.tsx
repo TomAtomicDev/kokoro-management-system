@@ -194,8 +194,11 @@ const sessionsRoute = createRoute({
   // mirroring loginRoute's `redirect` search param as the only other precedent for a validated
   // search param in this router. Loosely typed on purpose, same as loginRoute (no zod dependency
   // here, D-10).
-  validateSearch: (search: Record<string, unknown>): { open?: string } => ({
+  validateSearch: (
+    search: Record<string, unknown>,
+  ): { open?: string; view?: "list" | "calendar" } => ({
     open: typeof search.open === "string" ? search.open : undefined,
+    view: search.view === "list" || search.view === "calendar" ? search.view : undefined,
   }),
   component: SessionsRoute,
 });

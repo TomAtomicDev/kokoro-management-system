@@ -31,6 +31,18 @@ export const sessionsLabels = {
     OTHER: "Otro",
   } satisfies Record<SessionType, string>,
 
+  calendar: {
+    activeLabel: "Activa",
+    moreSessions: (count: number) => `+${count} más`,
+    noSessionsWeek: "No hay sesiones esta semana.",
+    viewList: "Lista",
+    viewCalendar: "Semana",
+    today: "Hoy",
+    prevWeek: "Semana anterior",
+    nextWeek: "Semana siguiente",
+    weekRangeLabel: (start: string, end: string) => `${start}–${end}`,
+  },
+
   statusLabels: {
     OPEN: "Abierta",
     CLOSED: "Cerrada",
