@@ -54,6 +54,8 @@ export const ordersLabels = {
   fieldNotes: "Notas",
   notesPlaceholder: "Opcional",
   linesTitle: "Artículos del pedido",
+  linesHint:
+    "Opcional: puedes dejarlo en blanco o describirlo con texto libre; vincula el ítem del catálogo más tarde, antes de entregar.",
   lineItem: "Ítem (opcional)",
   lineDescription: "Descripción libre",
   lineDescriptionPlaceholder: "Si aún no hay un ítem del catálogo",
