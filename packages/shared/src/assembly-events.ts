@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { confirmFlagSchema } from "./costing.js";
-import { businessDateSchema, occurredAtSchema } from "./production-runs.js";
+import { businessDateSchema, occurredAtSchema } from "./dates.js";
 import { safeText } from "./text.js";
 
 export const assemblyLineCommandSchema = z.object({

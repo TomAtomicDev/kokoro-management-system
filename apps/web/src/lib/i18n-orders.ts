@@ -100,6 +100,7 @@ export const ordersLabels = {
   confirmFieldAgreedTotal: "Total acordado (Bs)",
   confirmFieldDepositAmount: "Anticipo (Bs)",
   confirmFieldPaymentAccount: "Cuenta y método de pago",
+  confirmFieldDate: "Fecha del anticipo",
   confirmSubmit: "Confirmar y cobrar anticipo",
 
   deliverDialogTitle: "Entregar pedido",
@@ -109,6 +110,7 @@ export const ordersLabels = {
   deliverBalancePaid: "Pagado",
   deliverBalanceOnCredit: "Por cobrar",
   deliverFieldPaymentAccount: "Cuenta y método de pago",
+  deliverFieldDate: "Fecha de entrega",
   deliverSubmit: "Confirmar entrega",
   deliverBalanceZero: "El anticipo cubre el total; no queda saldo por cobrar.",
 

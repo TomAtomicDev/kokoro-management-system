@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_TIMEZONE, nowIso, toBusinessDate } from "./dates";
+import {
+  businessDateSchema,
+  DEFAULT_TIMEZONE,
+  nowIso,
+  occurredAtSchema,
+  toBusinessDate,
+} from "./dates";
 
 describe("toBusinessDate (INV-3, America/La_Paz = UTC-4, no DST)", () => {
   it("maps a late-night UTC instant back to the previous local day", () => {
@@ -39,5 +45,39 @@ describe("nowIso", () => {
     const iso = nowIso();
     expect(iso).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
     expect(Number.isNaN(new Date(iso).getTime())).toBe(false);
+  });
+});
+
+describe("shared event date schemas", () => {
+  const shiftedDate = (days: number): string => {
+    const shifted = new Date();
+    shifted.setUTCDate(shifted.getUTCDate() + days);
+    return toBusinessDate(shifted);
+  };
+
+  it("accepts today's business date", () => {
+    expect(businessDateSchema.safeParse(toBusinessDate(new Date())).success).toBe(true);
+  });
+
+  it("accepts yesterday's business date", () => {
+    expect(businessDateSchema.safeParse(shiftedDate(-1)).success).toBe(true);
+  });
+
+  it("rejects tomorrow's business date with the agreed message", () => {
+    const result = businessDateSchema.safeParse(shiftedDate(1));
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues[0]?.message).toBe("La fecha no puede ser futura.");
+    }
+  });
+
+  it("checks occurredAt through its La Paz business date", () => {
+    const tomorrow = shiftedDate(1);
+    const tomorrowLateInLaPaz = new Date(`${tomorrow}T23:30:00-04:00`).toISOString();
+
+    expect(tomorrowLateInLaPaz.slice(0, 10)).not.toBe(tomorrow);
+    expect(toBusinessDate(tomorrowLateInLaPaz)).toBe(tomorrow);
+    expect(occurredAtSchema.safeParse(tomorrowLateInLaPaz).success).toBe(false);
   });
 });

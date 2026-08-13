@@ -26,6 +26,7 @@
 
 import { z } from "zod";
 import { confirmFlagSchema } from "./costing.js";
+import { businessDateSchema, occurredAtSchema } from "./dates.js";
 import {
   type CancelResolution,
   type CustomOrderStatus,
@@ -46,14 +47,6 @@ import { toMilliUnits } from "./qty.js";
 import type { SaleDto } from "./sales.js";
 import { safeText } from "./text.js";
 
-/** `YYYY-MM-DD`, America/La_Paz local calendar date (Doc 04 §1, INV-3). */
-const businessDateSchema = z
-  .string()
-  .regex(/^\d{4}-\d{2}-\d{2}$/, "La fecha debe tener el formato AAAA-MM-DD.");
-/** UTC ISO-8601 instant (Doc 04 §1). */
-const occurredAtSchema = z
-  .string()
-  .datetime({ offset: true, message: "occurredAt debe ser una fecha ISO-8601." });
 /** Centavos (INV-6). The price agreed with the customer; required before an order can be CONFIRMED
  * (Doc 04 §3.3's "required to confirm"), hence optional at quote time. Strictly positive: an order
  * worth nothing has no deposit to take and no sale to create. */
