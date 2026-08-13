@@ -1011,6 +1011,113 @@ interface SessionHoursViewRow {
   linked_event_count: number;
 }
 
+/** One session's effective interval for S-5 union arithmetic. `endedAt` here is always a real
+ * instant — synthesized from `startedAt + duration_min` minutes when the session was closed with
+ * a direct duration instead of an end timestamp (S-2's two mutually-exclusive close modes: end
+ * timestamp OR direct duration, never both). */
+export interface SessionInterval {
+  sessionId: string;
+  startedAt: string;
+  endedAt: string;
+}
+
+/** Pure arithmetic, no DB access (Doc 03 §6 S-5): total minutes covered by the union of the given
+ * intervals, counting any overlapped time once. The result does not depend on input order. */
+export function unionIntervalMinutes(intervals: readonly SessionInterval[]): number {
+  const sorted = intervals
+    .map((interval) => ({
+      startMs: Date.parse(interval.startedAt),
+      endMs: Date.parse(interval.endedAt),
+    }))
+    .sort((left, right) => left.startMs - right.startMs);
+  const [first, ...rest] = sorted;
+  if (!first) return 0;
+
+  let mergedStartMs = first.startMs;
+  let mergedEndMs = first.endMs;
+  let totalMs = 0;
+
+  for (const interval of rest) {
+    if (interval.startMs <= mergedEndMs) {
+      mergedEndMs = Math.max(mergedEndMs, interval.endMs);
+      continue;
+    }
+    totalMs += mergedEndMs - mergedStartMs;
+    mergedStartMs = interval.startMs;
+    mergedEndMs = interval.endMs;
+  }
+  totalMs += mergedEndMs - mergedStartMs;
+
+  return Math.round(totalMs / 60_000);
+}
+
+export interface DeduplicatedSessionHoursResult {
+  /** Naive sum of each included session's own `duration_min` (S-4's existing per-session figure,
+   * summed with no dedup — what a naive monthly total would have been before S-5). */
+  naiveSummedMinutes: number;
+  /** S-5: union of session intervals in the range, overlapped time counted once. Always
+   * <= naiveSummedMinutes. */
+  dedupedMinutes: number;
+  /** Sessions whose business_date falls in [fromDate, toDate] but have no resolvable duration
+   * (`v_session_hours.duration_min IS NULL` — still OPEN with no end/duration recorded yet).
+   * Excluded from BOTH totals above, never imputed. */
+  excludedSessionCount: number;
+}
+
+type DeduplicatedSessionHoursViewRow = Pick<
+  SessionHoursViewRow,
+  "session_id" | "started_at" | "ended_at" | "duration_min"
+>;
+
+/** Doc 03 §6 S-5. `fromDate`/`toDate` are business-date bounds, inclusive, same semantics as
+ * `ListSessionsFilters.fromDate/toDate`. */
+export async function getDeduplicatedSessionHours(
+  db: Db,
+  range: { fromDate: string; toDate: string },
+): Promise<DeduplicatedSessionHoursResult> {
+  const conditions: SQL[] = [];
+  if (range.fromDate) conditions.push(sql`business_date >= ${range.fromDate}`);
+  if (range.toDate) conditions.push(sql`business_date <= ${range.toDate}`);
+  const whereClause =
+    conditions.length > 0 ? sql`WHERE ${sql.join(conditions, sql` AND `)}` : sql``;
+  const rows = await db.all<DeduplicatedSessionHoursViewRow>(sql`
+    SELECT session_id, started_at, ended_at, duration_min
+    FROM v_session_hours
+    ${whereClause}
+  `);
+
+  let naiveSummedMinutes = 0;
+  let excludedSessionCount = 0;
+  const intervals: SessionInterval[] = [];
+
+  for (const row of rows) {
+    if (row.duration_min === null) {
+      excludedSessionCount += 1;
+      continue;
+    }
+    if (row.started_at === null) {
+      throw validationError("La sesión no tiene una hora de inicio válida.", {
+        sessionId: row.session_id,
+      });
+    }
+
+    naiveSummedMinutes += row.duration_min;
+    intervals.push({
+      sessionId: row.session_id,
+      startedAt: row.started_at,
+      endedAt:
+        row.ended_at ??
+        new Date(Date.parse(row.started_at) + row.duration_min * 60_000).toISOString(),
+    });
+  }
+
+  return {
+    naiveSummedMinutes,
+    dedupedMinutes: unionIntervalMinutes(intervals),
+    excludedSessionCount,
+  };
+}
+
 /**
  * Read query for the sessions list (Doc 07 SC-09): `v_session_hours` (duration/linked-event count)
  * joined, in application code (two queries, not a raw SQL join — this task's own scope note), with

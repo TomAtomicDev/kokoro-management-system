@@ -21,11 +21,14 @@ import {
   assertNoConflictingOpenSession,
   closeAndStartSession,
   deleteSession,
+  getDeduplicatedSessionHours,
   getSession,
   listSessions,
   recordSession as recordSessionCore,
   resolveSessionForEvent,
   restoreSession,
+  type SessionInterval,
+  unionIntervalMinutes,
   updateSession as updateSessionCore,
 } from "../src/core/sessions/index.js";
 import { createDb } from "../src/db/index.js";
@@ -1008,6 +1011,244 @@ describe("listSessions", () => {
     });
     expect(rows).toHaveLength(1);
     expect(rows[0]?.businessDate).toBe("2026-07-20");
+  });
+});
+
+describe("getDeduplicatedSessionHours (Doc 03 S-5)", () => {
+  it("counts overlapping session time once", async () => {
+    const db = createDb(env.DB);
+    await recordSession(
+      db,
+      {
+        type: "ADMIN",
+        businessDate: BUSINESS_DATE,
+        startedAt: "2026-07-16T09:00:00.000Z",
+        endedAt: "2026-07-16T11:00:00.000Z",
+      },
+      ACTOR,
+    );
+    await recordSession(
+      db,
+      {
+        type: "PURCHASE_TRIP",
+        businessDate: BUSINESS_DATE,
+        startedAt: "2026-07-16T10:00:00.000Z",
+        endedAt: "2026-07-16T12:00:00.000Z",
+      },
+      ACTOR,
+    );
+
+    await expect(
+      getDeduplicatedSessionHours(db, { fromDate: BUSINESS_DATE, toDate: BUSINESS_DATE }),
+    ).resolves.toEqual({
+      naiveSummedMinutes: 240,
+      dedupedMinutes: 180,
+      excludedSessionCount: 0,
+    });
+  });
+
+  it("preserves the naive total for non-overlapping sessions", async () => {
+    const db = createDb(env.DB);
+    await recordSession(
+      db,
+      {
+        type: "ADMIN",
+        businessDate: BUSINESS_DATE,
+        startedAt: "2026-07-16T09:00:00.000Z",
+        endedAt: "2026-07-16T10:00:00.000Z",
+      },
+      ACTOR,
+    );
+    await recordSession(
+      db,
+      {
+        type: "PURCHASE_TRIP",
+        businessDate: BUSINESS_DATE,
+        startedAt: "2026-07-16T11:00:00.000Z",
+        endedAt: "2026-07-16T12:00:00.000Z",
+      },
+      ACTOR,
+    );
+
+    const result = await getDeduplicatedSessionHours(db, {
+      fromDate: BUSINESS_DATE,
+      toDate: BUSINESS_DATE,
+    });
+    expect(result.dedupedMinutes).toBe(result.naiveSummedMinutes);
+    expect(result.naiveSummedMinutes).toBe(120);
+  });
+
+  it("excludes an unresolved OPEN session from both totals", async () => {
+    const db = createDb(env.DB);
+    await recordSession(db, { type: "OTHER", businessDate: BUSINESS_DATE }, ACTOR);
+
+    await expect(
+      getDeduplicatedSessionHours(db, { fromDate: BUSINESS_DATE, toDate: BUSINESS_DATE }),
+    ).resolves.toEqual({
+      naiveSummedMinutes: 0,
+      dedupedMinutes: 0,
+      excludedSessionCount: 1,
+    });
+  });
+
+  it("synthesizes an end instant for a direct-duration close", async () => {
+    const db = createDb(env.DB);
+    await recordSession(
+      db,
+      {
+        type: "ADMIN",
+        businessDate: BUSINESS_DATE,
+        startedAt: "2026-07-16T09:00:00.000Z",
+        durationMin: 120,
+      },
+      ACTOR,
+    );
+    await recordSession(
+      db,
+      {
+        type: "PURCHASE_TRIP",
+        businessDate: BUSINESS_DATE,
+        startedAt: "2026-07-16T10:00:00.000Z",
+        endedAt: "2026-07-16T12:00:00.000Z",
+      },
+      ACTOR,
+    );
+
+    await expect(
+      getDeduplicatedSessionHours(db, { fromDate: BUSINESS_DATE, toDate: BUSINESS_DATE }),
+    ).resolves.toMatchObject({ naiveSummedMinutes: 240, dedupedMinutes: 180 });
+  });
+
+  it("applies inclusive business-date bounds", async () => {
+    const db = createDb(env.DB);
+    await recordSession(db, { type: "ADMIN", businessDate: "2026-07-01", durationMin: 30 }, ACTOR);
+    await recordSession(
+      db,
+      { type: "PURCHASE_TRIP", businessDate: BUSINESS_DATE, durationMin: 60 },
+      ACTOR,
+    );
+
+    await expect(
+      getDeduplicatedSessionHours(db, { fromDate: BUSINESS_DATE, toDate: BUSINESS_DATE }),
+    ).resolves.toEqual({
+      naiveSummedMinutes: 60,
+      dedupedMinutes: 60,
+      excludedSessionCount: 0,
+    });
+  });
+});
+
+const INTERVAL_BASE_MS = Date.UTC(2026, 0, 1);
+
+function intervalFromMinutes(startMinute: number, durationMinute: number): SessionInterval {
+  return {
+    sessionId: `session-${startMinute}-${durationMinute}`,
+    startedAt: new Date(INTERVAL_BASE_MS + startMinute * 60_000).toISOString(),
+    endedAt: new Date(INTERVAL_BASE_MS + (startMinute + durationMinute) * 60_000).toISOString(),
+  };
+}
+
+function intervalDurationMinutes(interval: SessionInterval): number {
+  return (Date.parse(interval.endedAt) - Date.parse(interval.startedAt)) / 60_000;
+}
+
+const sessionIntervalArb = fc
+  .record({
+    startMinute: fc.integer({ min: 0, max: 60 * 24 * 31 }),
+    durationMinute: fc.integer({ min: 1, max: 60 * 24 }),
+  })
+  .map(({ startMinute, durationMinute }) => intervalFromMinutes(startMinute, durationMinute));
+
+const nonOverlappingIntervalsArb = fc
+  .array(
+    fc.record({
+      durationMinute: fc.integer({ min: 1, max: 240 }),
+      gapMinute: fc.integer({ min: 1, max: 120 }),
+    }),
+    { maxLength: 20 },
+  )
+  .map((parts) => {
+    let cursor = 0;
+    return parts.map(({ durationMinute, gapMinute }) => {
+      const interval = intervalFromMinutes(cursor, durationMinute);
+      cursor += durationMinute + gapMinute;
+      return interval;
+    });
+  });
+
+const nestedIntervalsArb = fc
+  .record({
+    outerStartMinute: fc.integer({ min: 0, max: 60 * 24 * 31 }),
+    outerDurationMinute: fc.integer({ min: 1, max: 60 * 24 }),
+    innerSeeds: fc.array(fc.tuple(fc.nat(), fc.nat()), { maxLength: 20 }),
+  })
+  .map(({ outerStartMinute, outerDurationMinute, innerSeeds }) => {
+    const outer = intervalFromMinutes(outerStartMinute, outerDurationMinute);
+    const nested = innerSeeds.map(([rawOffset, rawDuration]) => {
+      const offset = rawOffset % outerDurationMinute;
+      const duration = 1 + (rawDuration % (outerDurationMinute - offset));
+      return intervalFromMinutes(outerStartMinute + offset, duration);
+    });
+    return { outer, intervals: [outer, ...nested] };
+  });
+
+describe("property: unionIntervalMinutes (Doc 03 S-5)", () => {
+  it("never exceeds the naive sum", () => {
+    fc.assert(
+      fc.property(fc.array(sessionIntervalArb, { maxLength: 30 }), (intervals) => {
+        const naiveMinutes = intervals.reduce(
+          (total, interval) => total + intervalDurationMinutes(interval),
+          0,
+        );
+        expect(unionIntervalMinutes(intervals)).toBeLessThanOrEqual(naiveMinutes);
+      }),
+    );
+  });
+
+  it("is independent of input order", () => {
+    const orderedIntervalsArb = fc.array(
+      fc.record({ interval: sessionIntervalArb, order: fc.integer() }),
+      { maxLength: 30 },
+    );
+    fc.assert(
+      fc.property(orderedIntervalsArb, (entries) => {
+        const original = entries.map(({ interval }) => interval);
+        const shuffled = [...entries]
+          .sort((left, right) => left.order - right.order)
+          .map(({ interval }) => interval);
+        expect(unionIntervalMinutes(shuffled)).toBe(unionIntervalMinutes(original));
+      }),
+    );
+  });
+
+  it("equals the naive sum for non-overlapping intervals", () => {
+    fc.assert(
+      fc.property(nonOverlappingIntervalsArb, (intervals) => {
+        const naiveMinutes = intervals.reduce(
+          (total, interval) => total + intervalDurationMinutes(interval),
+          0,
+        );
+        expect(unionIntervalMinutes(intervals)).toBe(naiveMinutes);
+      }),
+    );
+  });
+
+  it("equals the outer length for fully nested or identical intervals", () => {
+    fc.assert(
+      fc.property(nestedIntervalsArb, ({ outer, intervals }) => {
+        expect(unionIntervalMinutes(intervals)).toBe(intervalDurationMinutes(outer));
+      }),
+    );
+  });
+
+  it("is idempotent when every interval is duplicated", () => {
+    fc.assert(
+      fc.property(fc.array(sessionIntervalArb, { maxLength: 30 }), (intervals) => {
+        expect(unionIntervalMinutes([...intervals, ...intervals])).toBe(
+          unionIntervalMinutes(intervals),
+        );
+      }),
+    );
   });
 });
 
