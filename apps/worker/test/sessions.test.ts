@@ -106,7 +106,7 @@ describe("resolveSessionForEvent (Doc 03 S-1)", () => {
       occurredAt: STARTED_AT,
       businessDate: BUSINESS_DATE,
     });
-    expect(resolved).toEqual({ sessionId: session.id, statements: [] });
+    expect(resolved).toEqual({ sessionId: session.id, status: "OPEN", statements: [] });
   });
 
   it("returns a minimal matching session insert when none is OPEN", async () => {
@@ -150,7 +150,7 @@ describe("resolveSessionForEvent (Doc 03 S-1)", () => {
         businessDate: BUSINESS_DATE,
         explicitSessionId: session.id,
       }),
-    ).resolves.toEqual({ sessionId: session.id, statements: [] });
+    ).resolves.toEqual({ sessionId: session.id, status: "CLOSED", statements: [] });
   });
 
   it("rejects an explicit session of the wrong type", async () => {

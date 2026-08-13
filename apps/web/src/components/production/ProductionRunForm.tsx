@@ -4,14 +4,15 @@
 // (here rendered live from client-side arithmetic, not gated on a saved server response, since the
 // whole point of this preview is to update as the owner types â€” no round-trip needed for a sum of
 // numbers already on the client). Validated with the exact same `recordProductionRunCommandSchema`
-// the API route parses with (D-4). No session/custom-order picker â€” Sessions (KOK-027) and custom
-// orders (KOK-033) don't exist yet; the schema's optional `sessionId`/`customOrderId` are simply
-// never set from this form, same precedent as PurchaseForm's `sessionId` omission.
+// the API route parses with (D-4). Create mode threads `sessionId` from `preselectedSessionId`;
+// `customOrderId` still has no picker in this form.
 
 import type {
   ItemDto,
   ProductionRunDto,
   RecipeDto,
+  RecordProductionRunCommand,
+  RecordProductionRunResult,
   UpdateProductionRunCommand,
   UpdateProductionRunResult,
 } from "@kokoro/shared";
@@ -56,6 +57,8 @@ export interface ProductionRunFormProps {
    * in `useReplayConfirmableMutation` for the R-5 confirmation dance). Absent -> create mode,
    * submits via `useRecordProductionRun`. */
   productionRun?: ProductionRunDto;
+  /** Create mode only: threaded into the create command's `sessionId`; ignored in edit mode. */
+  preselectedSessionId?: string;
 }
 
 interface ProductionLineValue extends LineEditorLine {
@@ -128,7 +131,12 @@ function quantityForBatches(quantity: number, batches: number): string {
   return formatIntAsDecimalInput(toMilliUnits(Math.round(quantity * batches)), 3);
 }
 
-export function ProductionRunForm({ open, onOpenChange, productionRun }: ProductionRunFormProps) {
+export function ProductionRunForm({
+  open,
+  onOpenChange,
+  productionRun,
+  preselectedSessionId,
+}: ProductionRunFormProps) {
   const isEditMode = Boolean(productionRun);
 
   const [recipeId, setRecipeId] = useState("");
@@ -145,6 +153,10 @@ export function ProductionRunForm({ open, onOpenChange, productionRun }: Product
   const dirtyLineKeysRef = useRef(new Set<string>());
 
   const createMutation = useRecordProductionRun();
+  const createReplay = useReplayConfirmableMutation<
+    RecordProductionRunCommand,
+    RecordProductionRunResult
+  >((command) => createMutation.mutateAsync(command), { onSuccess: () => onOpenChange(false) });
   // Called unconditionally (rules of hooks) even in create mode â€” `productionRun?.id` is only ""
   // then, and the mutation is never actually invoked unless `isEditMode` is true (see handleSubmit).
   const updateMutation = useUpdateProductionRun(productionRun?.id ?? "");
@@ -218,7 +230,7 @@ export function ProductionRunForm({ open, onOpenChange, productionRun }: Product
     }
   }, [open, productionRun?.id]);
 
-  const disabled = isEditMode ? editReplay.isPending : createMutation.isPending;
+  const disabled = isEditMode ? editReplay.isPending : createReplay.isPending;
 
   /** Recipe â†’ line prefill (UI convenience default, not a validated number â€” the user edits freely
    * afterward). Automatic values are remembered so a later `batches` edit updates untouched fields
@@ -340,6 +352,7 @@ export function ProductionRunForm({ open, onOpenChange, productionRun }: Product
 
     const parsed = recordProductionRunCommandSchema.safeParse({
       recipeId,
+      sessionId: productionRun ? undefined : preselectedSessionId,
       batches: batchesValue,
       actualOutputQty: actualOutputQtyValue,
       indirectCost: indirectCostValue,
@@ -360,23 +373,24 @@ export function ProductionRunForm({ open, onOpenChange, productionRun }: Product
       return;
     }
 
-    try {
-      await createMutation.mutateAsync(parsed.data);
-      onOpenChange(false);
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : productionLabels.errors.generic);
-    }
+    createReplay.execute(parsed.data);
   }
 
   /** Combines client-side validation errors (`error` state) with a genuine (non-confirmation)
-   * failure surfaced by `editReplay` â€” mirrors PurchaseForm's identical `displayError`. */
+   * failure surfaced by the active replay wrapper â€” mirrors PurchaseForm's `displayError`. */
   const displayError =
     error ??
-    (isEditMode && editReplay.error
+    (isEditMode
       ? editReplay.error instanceof ApiError
         ? editReplay.error.message
-        : productionLabels.errors.generic
-      : null);
+        : editReplay.error
+          ? productionLabels.errors.generic
+          : null
+      : createReplay.error instanceof ApiError
+        ? createReplay.error.message
+        : createReplay.error
+          ? productionLabels.errors.generic
+          : null);
 
   function renderLineExtra(line: ProductionLineValue) {
     const item = line.itemId ? itemsById.get(line.itemId) : undefined;
@@ -701,6 +715,18 @@ export function ProductionRunForm({ open, onOpenChange, productionRun }: Product
           title={productionLabels.impactEditTitle}
           description={productionLabels.impactEditDescription}
           confirmLabel={productionLabels.save}
+        />
+      ) : null}
+      {!isEditMode && createReplay.pendingConfirmation ? (
+        <ImpactConfirmDialog
+          open
+          impact={createReplay.pendingConfirmation.impact}
+          onConfirm={createReplay.confirm}
+          onCancel={createReplay.cancel}
+          confirmLoading={createReplay.isPending}
+          title={productionLabels.impactCreateTitle}
+          description={productionLabels.impactCreateDescription}
+          confirmLabel={productionLabels.submit}
         />
       ) : null}
     </>

@@ -84,6 +84,10 @@ export const sessionsLabels = {
   linkedSales: "Ventas",
   linkedStockExits: "Salidas de stock",
   noLinkedEvents: "Sin eventos vinculados.",
+  linkedEvents: {
+    registerProductionRun: "Registrar producción",
+    registerPurchase: "Registrar compra",
+  },
 
   closeAction: "Cerrar sesión",
   closeTitle: "Cerrar sesión",

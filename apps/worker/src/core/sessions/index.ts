@@ -276,7 +276,7 @@ export async function resolveSessionForEvent(
     businessDate: string;
     explicitSessionId?: string | null;
   },
-): Promise<{ sessionId: string; statements: Statement[] }> {
+): Promise<{ sessionId: string; status: SessionStatus; statements: Statement[] }> {
   if (params.explicitSessionId) {
     const explicit = await db.query.sessions.findFirst({
       where: (t, { and: andOp, eq: eqOp, isNull: isNullOp }) =>
@@ -291,14 +291,14 @@ export async function resolveSessionForEvent(
         { sessionId: explicit.id, actualType: explicit.type, requiredType: params.type },
       );
     }
-    return { sessionId: explicit.id, statements: [] };
+    return { sessionId: explicit.id, status: explicit.status, statements: [] };
   }
 
   const open = await db.query.sessions.findFirst({
     where: (t, { and: andOp, eq: eqOp, isNull: isNullOp }) =>
       andOp(eqOp(t.type, params.type), eqOp(t.status, "OPEN"), isNullOp(t.deletedAt)),
   });
-  if (open) return { sessionId: open.id, statements: [] };
+  if (open) return { sessionId: open.id, status: "OPEN", statements: [] };
 
   const sessionId = generateUuidV7();
   const now = nowIso();
@@ -315,7 +315,7 @@ export async function resolveSessionForEvent(
     createdAt: now,
     updatedAt: now,
   };
-  return { sessionId, statements: [db.insert(sessions).values(row)] };
+  return { sessionId, status: "OPEN", statements: [db.insert(sessions).values(row)] };
 }
 
 /** Doc 03 S-1b service guard mirroring the partial unique index with a typed domain conflict. */
