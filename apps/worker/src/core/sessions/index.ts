@@ -46,6 +46,8 @@
 
 import type {
   AuditActor,
+  CloseAndStartSessionCommand,
+  CloseAndStartSessionResult,
   DeleteSessionCommand,
   DeleteSessionResult,
   GetSessionResult,
@@ -58,6 +60,7 @@ import type {
   SessionDto,
   SessionLinkedEventsDto,
   SessionStatus,
+  SessionType,
   UpdateSessionCommand,
   UpdateSessionResult,
 } from "@kokoro/shared";
@@ -263,28 +266,86 @@ async function buildSessionCostTransactionReplacementStatements(
   return { statements };
 }
 
-/**
- * Doc 04 §5's soft rule: "one OPEN session per type at a time" is overridable, never blocking.
- * Returns the Spanish warning `recordSession` surfaces when another non-deleted OPEN session of
- * `type` already exists, or null.
- */
-async function checkOpenSessionWarning(db: Db, type: SessionRow["type"]): Promise<string | null> {
-  const existing = await db.query.sessions.findFirst({
+/** Doc 03 S-1: resolve an event's mandatory session without executing a batch. Any minimal
+ * session insert is returned for the caller to place before its FK-dependent event statement. */
+export async function resolveSessionForEvent(
+  db: Db,
+  params: {
+    type: SessionType;
+    occurredAt: string;
+    businessDate: string;
+    explicitSessionId?: string | null;
+  },
+): Promise<{ sessionId: string; statements: Statement[] }> {
+  if (params.explicitSessionId) {
+    const explicit = await db.query.sessions.findFirst({
+      where: (t, { and: andOp, eq: eqOp, isNull: isNullOp }) =>
+        andOp(eqOp(t.id, params.explicitSessionId as string), isNullOp(t.deletedAt)),
+    });
+    if (!explicit) {
+      throw notFound("No se encontró la sesión.", { id: params.explicitSessionId });
+    }
+    if (explicit.type !== params.type) {
+      throw validationError(
+        `La sesión es de tipo ${explicit.type} pero el evento requiere tipo ${params.type}.`,
+        { sessionId: explicit.id, actualType: explicit.type, requiredType: params.type },
+      );
+    }
+    return { sessionId: explicit.id, statements: [] };
+  }
+
+  const open = await db.query.sessions.findFirst({
     where: (t, { and: andOp, eq: eqOp, isNull: isNullOp }) =>
-      andOp(eqOp(t.type, type), eqOp(t.status, "OPEN"), isNullOp(t.deletedAt)),
+      andOp(eqOp(t.type, params.type), eqOp(t.status, "OPEN"), isNullOp(t.deletedAt)),
   });
-  if (!existing) return null;
-  return (
-    `Ya hay una sesión de tipo ${type} abierta (id ${existing.id}, iniciada ` +
-    `${existing.startedAt ?? existing.businessDate}). Se registró esta de todas formas.`
-  );
+  if (open) return { sessionId: open.id, statements: [] };
+
+  const sessionId = generateUuidV7();
+  const now = nowIso();
+  const row: SessionRow = {
+    id: sessionId,
+    type: params.type,
+    businessDate: params.businessDate,
+    startedAt: params.occurredAt,
+    endedAt: null,
+    durationMin: null,
+    status: "OPEN",
+    notes: null,
+    deletedAt: null,
+    createdAt: now,
+    updatedAt: now,
+  };
+  return { sessionId, statements: [db.insert(sessions).values(row)] };
+}
+
+/** Doc 03 S-1b service guard mirroring the partial unique index with a typed domain conflict. */
+export async function assertNoConflictingOpenSession(
+  db: Db,
+  type: SessionType,
+  excludeSessionId?: string,
+): Promise<void> {
+  const existing = await db.query.sessions.findFirst({
+    where: (t, { and: andOp, eq: eqOp, isNull: isNullOp, ne: neOp }) =>
+      andOp(
+        eqOp(t.type, type),
+        eqOp(t.status, "OPEN"),
+        isNullOp(t.deletedAt),
+        ...(excludeSessionId ? [neOp(t.id, excludeSessionId)] : []),
+      ),
+  });
+  if (existing) {
+    throw conflict(`Ya existe una sesión abierta de tipo ${type}.`, {
+      type,
+      existingSessionId: existing.id,
+    });
+  }
 }
 
 /**
  * UC-14 create (Doc 03 §6 S-1/S-2): a session + its shared-cost lines + one `financial_transactions`
  * row per non-estimate line (+ its account balance delta) + the audit_log row, in ONE atomic batch
- * (D-3). Always created OPEN (`sessions.status`'s own DB default) — there is no `status` field on
- * this command at all.
+ * (D-3). Status is derived rather than accepted from the caller: an end or direct duration creates
+ * the session CLOSED; otherwise the start-now path creates it OPEN.
  */
 export async function recordSession(
   db: Db,
@@ -303,9 +364,10 @@ export async function recordSession(
     await findActiveAccountRowOrThrow(db, accountId);
   }
 
-  // Read-only, BEFORE the batch — this is a warning, never a refusal (Doc 04 §5), so it must never
-  // throw and must never block the write below.
-  const openSessionWarning = await checkOpenSessionWarning(db, command.type);
+  const status: SessionStatus = hasResolvableDuration(command) ? "CLOSED" : "OPEN";
+  if (status === "OPEN") {
+    await assertNoConflictingOpenSession(db, command.type);
+  }
 
   const sessionId = generateUuidV7();
   const now = nowIso();
@@ -314,10 +376,10 @@ export async function recordSession(
     id: sessionId,
     type: command.type,
     businessDate: command.businessDate,
-    startedAt: command.startedAt ?? null,
+    startedAt: command.startedAt,
     endedAt: command.endedAt ?? null,
     durationMin: command.durationMin ?? null,
-    status: "OPEN",
+    status,
     notes: command.notes ?? null,
     deletedAt: null,
     createdAt: now,
@@ -340,6 +402,23 @@ export async function recordSession(
   const balanceDeltas = new Map<string, number>();
   for (const input of transactionInputs) {
     balanceDeltas.set(input.accountId, (balanceDeltas.get(input.accountId) ?? 0) - input.amount);
+  }
+
+  const allocationStatements: Statement[] = [];
+  if (sessionRow.type === "PRODUCTION" && sessionRow.status === "CLOSED") {
+    let totalSharedCost = 0;
+    for (const row of costRows) totalSharedCost += row.amount;
+    // Keep the S-3 trigger uniform across every CLOSED production-session write; a new id has no
+    // linked runs yet, so the planner normally returns no statements here.
+    const allocation = await planSessionCostAllocation(
+      db,
+      sessionId,
+      totalSharedCost,
+      sessionRow.businessDate,
+      sessionTransactionOccurredAt(sessionRow),
+      actor,
+    );
+    allocationStatements.push(...allocation.statements);
   }
 
   const statements: Statement[] = [
@@ -374,11 +453,12 @@ export async function recordSession(
       before: null,
       after: { ...sessionRow, costLines: costRows },
     }),
+    ...allocationStatements,
   ];
 
   await db.batch(statements as [Statement, ...Statement[]]);
 
-  return { session: toSessionDto(sessionRow, costRows), openSessionWarning };
+  return { session: toSessionDto(sessionRow, costRows) };
 }
 
 /** Loads a session and its cost lines for mutation, refusing one that is missing or already
@@ -407,12 +487,17 @@ async function loadSessionForMutation(
  * POST-EDIT command fields (this command is a full replacement, same convention as every other
  * command in this codebase), not against the row being replaced.
  */
+function hasResolvableDuration(command: {
+  startedAt: string;
+  endedAt?: string;
+  durationMin?: number;
+}): boolean {
+  return command.durationMin !== undefined || command.endedAt !== undefined;
+}
+
 function assertClosableDuration(command: UpdateSessionCommand): void {
   if (command.status !== "CLOSED") return;
-  const resolvable =
-    command.durationMin !== undefined ||
-    (command.startedAt !== undefined && command.endedAt !== undefined);
-  if (!resolvable) {
+  if (!hasResolvableDuration(command)) {
     throw validationError(
       "Para cerrar una sesión se requiere la duración: indica minutos directos o inicio y fin.",
       {},
@@ -453,6 +538,10 @@ export async function updateSession(
   assertCostLinesValid(costLines);
 
   const { row: existing, costRows: existingCostRows } = await loadSessionForMutation(db, id);
+
+  if (command.status === "OPEN") {
+    await assertNoConflictingOpenSession(db, command.type, id);
+  }
 
   const accountIds = new Set(
     costLines.filter((l) => !l.isEstimate && l.accountId).map((l) => l.accountId as string),
@@ -546,6 +635,149 @@ export async function updateSession(
   await db.batch(statements as [Statement, ...Statement[]]);
 
   return { session: toSessionDto(newRow, newCostRows) };
+}
+
+/** Doc 03 S-1b: close one OPEN session and start its same-type replacement in one atomic batch.
+ * This is the conflict-resolution action for the hard one-OPEN-per-type invariant. */
+export async function closeAndStartSession(
+  db: Db,
+  command: CloseAndStartSessionCommand,
+  actor: AuditActor,
+): Promise<CloseAndStartSessionResult> {
+  const { row: existing, costRows: existingCostRows } = await loadSessionForMutation(
+    db,
+    command.closeSessionId,
+  );
+  if (existing.status === "CLOSED") {
+    throw validationError("La sesión que deseas cerrar ya está cerrada.", {
+      id: command.closeSessionId,
+    });
+  }
+  if (existing.type !== command.newSession.type) {
+    throw validationError(
+      `La sesión que se cierra es de tipo ${existing.type} pero la nueva sesión es de tipo ${command.newSession.type}.`,
+      { closeType: existing.type, newType: command.newSession.type },
+    );
+  }
+
+  const newCostLines = command.newSession.costLines ?? [];
+  assertCostLinesValid(newCostLines);
+  const accountIds = new Set(
+    newCostLines
+      .filter((line) => !line.isEstimate && line.accountId)
+      .map((line) => line.accountId as string),
+  );
+  for (const accountId of accountIds) {
+    await findActiveAccountRowOrThrow(db, accountId);
+  }
+
+  const now = nowIso();
+  const durationResolvable =
+    existing.durationMin !== null || (existing.startedAt !== null && existing.endedAt !== null);
+  const closedRow: SessionRow = {
+    ...existing,
+    endedAt: durationResolvable ? existing.endedAt : (existing.endedAt ?? now),
+    status: "CLOSED",
+    updatedAt: now,
+  };
+
+  const newSessionId = generateUuidV7();
+  const newRow: SessionRow = {
+    id: newSessionId,
+    type: command.newSession.type,
+    businessDate: command.newSession.businessDate,
+    startedAt: command.newSession.startedAt,
+    endedAt: command.newSession.endedAt ?? null,
+    durationMin: command.newSession.durationMin ?? null,
+    status: "OPEN",
+    notes: command.newSession.notes ?? null,
+    deletedAt: null,
+    createdAt: now,
+    updatedAt: now,
+  };
+  const newCostRows: SessionCostRow[] = newCostLines.map((line) => ({
+    id: generateUuidV7(),
+    sessionId: newSessionId,
+    label: line.label,
+    amount: line.amount,
+    isEstimate: line.isEstimate ? 1 : 0,
+    accountId: line.accountId ?? null,
+  }));
+  const transactionInputs = newCostRows
+    .map((row) => buildSessionCostTransactionInput(newRow, row.id, row))
+    .filter((input): input is FinancialTransactionInput => input !== null);
+  const balanceDeltas = new Map<string, number>();
+  for (const input of transactionInputs) {
+    balanceDeltas.set(input.accountId, (balanceDeltas.get(input.accountId) ?? 0) - input.amount);
+  }
+
+  const allocationStatements: Statement[] = [];
+  if (closedRow.type === "PRODUCTION") {
+    let totalSharedCost = 0;
+    for (const row of existingCostRows) totalSharedCost += row.amount;
+    const allocation = await planSessionCostAllocation(
+      db,
+      existing.id,
+      totalSharedCost,
+      closedRow.businessDate,
+      sessionTransactionOccurredAt(closedRow),
+      actor,
+    );
+    allocationStatements.push(...allocation.statements);
+  }
+
+  const statements: Statement[] = [
+    db
+      .update(sessions)
+      .set({ endedAt: closedRow.endedAt, status: closedRow.status, updatedAt: closedRow.updatedAt })
+      .where(eq(sessions.id, existing.id)),
+    buildAuditLogInsert(db, {
+      actor,
+      action: "update",
+      entityType: "sessions",
+      entityId: existing.id,
+      before: { ...existing, costLines: existingCostRows },
+      after: { ...closedRow, costLines: existingCostRows },
+    }),
+    db.insert(sessions).values(newRow),
+    ...newCostRows.map((row) => db.insert(sessionCosts).values(row)),
+    ...transactionInputs.map((input) =>
+      db.insert(financialTransactions).values({
+        id: generateUuidV7(),
+        occurredAt: input.occurredAt,
+        businessDate: input.businessDate,
+        accountId: input.accountId,
+        type: input.type,
+        category: input.category,
+        amount: input.amount,
+        counterpartTxId: null,
+        sourceEventType: input.sourceEventType,
+        sourceEventId: input.sourceEventId,
+        description: input.description ?? null,
+        deletedAt: null,
+        createdAt: now,
+        updatedAt: now,
+      }),
+    ),
+    ...[...balanceDeltas.entries()].map(([accountId, delta]) =>
+      buildAccountBalanceDelta(db, accountId, delta),
+    ),
+    buildAuditLogInsert(db, {
+      actor,
+      action: "create",
+      entityType: "sessions",
+      entityId: newSessionId,
+      before: null,
+      after: { ...newRow, costLines: newCostRows },
+    }),
+    ...allocationStatements,
+  ];
+
+  await db.batch(statements as [Statement, ...Statement[]]);
+  return {
+    closedSession: toSessionDto(closedRow, existingCostRows),
+    newSession: toSessionDto(newRow, newCostRows),
+  };
 }
 
 /**

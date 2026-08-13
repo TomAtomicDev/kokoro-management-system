@@ -47,6 +47,7 @@ import {
   buildStockMovementStatements,
 } from "../inventory/movements.js";
 import type { StockMovementInput } from "../inventory/types.js";
+import { resolveSessionForEvent } from "../sessions/index.js";
 import { computeAssemblyCost } from "./cost.js";
 
 type Statement = BatchItem<"sqlite">;
@@ -105,13 +106,6 @@ async function validateDefinition(
   return definition;
 }
 
-async function validateSession(db: Db, sessionId: string): Promise<void> {
-  const session = await db.query.sessions.findFirst({
-    where: (t, { eq: eqOp }) => eqOp(t.id, sessionId),
-  });
-  if (!session) throw notFound("No se encontró la sesión.", { id: sessionId });
-}
-
 function buildAssemblyMovementsFromConsumptions(
   assemblyId: string,
   consumptions: readonly AssemblyConsumptionRow[],
@@ -154,12 +148,18 @@ async function buildAssemblyCreateInputs(
   consumptionRows: AssemblyConsumptionRow[];
   newOutputWacMc: MilliCentavosPerUnit;
   assemblyRow: AssemblyRow;
+  sessionStatements: Statement[];
 }> {
   if (command.lines.length === 0) {
     throw validationError("Se requiere al menos un componente consumido.", {});
   }
   await validateDefinition(db, command.definitionId, command.outputItemId);
-  await validateSession(db, command.sessionId);
+  const resolvedSession = await resolveSessionForEvent(db, {
+    type: "PRODUCTION",
+    occurredAt: command.occurredAt,
+    businessDate: command.businessDate,
+    explicitSessionId: command.sessionId ?? null,
+  });
   await validateAssemblyItemKinds(db, command.outputItemId, command.lines);
 
   const assemblyId = generateUuidV7();
@@ -214,7 +214,7 @@ async function buildAssemblyCreateInputs(
     occurredAt: command.occurredAt,
     businessDate: command.businessDate,
     definitionId: command.definitionId ?? null,
-    sessionId: command.sessionId,
+    sessionId: resolvedSession.sessionId,
     customOrderId: command.customOrderId ?? null,
     outputItemId: command.outputItemId,
     plannedOutputQty: command.plannedOutputQty ?? null,
@@ -225,7 +225,15 @@ async function buildAssemblyCreateInputs(
     createdAt: now,
     updatedAt: now,
   };
-  return { assemblyId, now, movements, consumptionRows, newOutputWacMc, assemblyRow };
+  return {
+    assemblyId,
+    now,
+    movements,
+    consumptionRows,
+    newOutputWacMc,
+    assemblyRow,
+    sessionStatements: resolvedSession.statements,
+  };
 }
 
 export async function recordAssembly(
@@ -268,6 +276,7 @@ export async function recordAssembly(
           .where(eq(items.id, built.assemblyRow.outputItemId)),
       ];
   const statements: Statement[] = [
+    ...built.sessionStatements,
     db.insert(assemblies).values(built.assemblyRow),
     ...built.consumptionRows.map((row) => db.insert(assemblyConsumptions).values(row)),
     ...movementStatements,
@@ -390,6 +399,7 @@ interface AssemblyMutationPlan {
   newMovements: StockMovementInput[];
   confirm: boolean;
   actor: AuditActor;
+  sessionStatements?: readonly Statement[];
 }
 
 async function planAssemblyMutationCostingImpact(
@@ -474,6 +484,7 @@ async function commitAssemblyMutation(db: Db, plan: AssemblyMutationPlan): Promi
   }
 
   const statements: Statement[] = [
+    ...(plan.sessionStatements ?? []),
     db
       .update(assemblies)
       .set({
@@ -537,6 +548,7 @@ async function buildAssemblyUpdateInputs(
   newRow: AssemblyRow;
   newConsumptions: AssemblyConsumptionRow[];
   newMovements: StockMovementInput[];
+  sessionStatements: Statement[];
 }> {
   if (command.lines.length === 0) {
     throw validationError("Se requiere al menos un componente consumido.", {});
@@ -546,7 +558,12 @@ async function buildAssemblyUpdateInputs(
     id,
   );
   await validateDefinition(db, command.definitionId, command.outputItemId);
-  await validateSession(db, command.sessionId);
+  const resolvedSession = await resolveSessionForEvent(db, {
+    type: "PRODUCTION",
+    occurredAt: command.occurredAt,
+    businessDate: command.businessDate,
+    explicitSessionId: command.sessionId ?? null,
+  });
   await validateAssemblyItemKinds(db, command.outputItemId, command.lines);
   const now = nowIso();
 
@@ -593,7 +610,7 @@ async function buildAssemblyUpdateInputs(
     occurredAt: command.occurredAt,
     businessDate: command.businessDate,
     definitionId: command.definitionId ?? null,
-    sessionId: command.sessionId,
+    sessionId: resolvedSession.sessionId,
     customOrderId: command.customOrderId ?? null,
     outputItemId: command.outputItemId,
     plannedOutputQty: command.plannedOutputQty ?? null,
@@ -612,7 +629,14 @@ async function buildAssemblyUpdateInputs(
     newRow.occurredAt,
     newRow.businessDate,
   );
-  return { existing, existingConsumptions, newRow, newConsumptions, newMovements };
+  return {
+    existing,
+    existingConsumptions,
+    newRow,
+    newConsumptions,
+    newMovements,
+    sessionStatements: resolvedSession.statements,
+  };
 }
 
 async function buildAssemblyDeleteInputs(
@@ -641,8 +665,14 @@ export async function updateAssembly(
   command: UpdateAssemblyCommand,
   actor: AuditActor,
 ): Promise<UpdateAssemblyResult> {
-  const { existing, existingConsumptions, newRow, newConsumptions, newMovements } =
-    await buildAssemblyUpdateInputs(db, id, command);
+  const {
+    existing,
+    existingConsumptions,
+    newRow,
+    newConsumptions,
+    newMovements,
+    sessionStatements,
+  } = await buildAssemblyUpdateInputs(db, id, command);
   await commitAssemblyMutation(db, {
     action: "update",
     existing,
@@ -650,6 +680,7 @@ export async function updateAssembly(
     newRow,
     newConsumptions,
     newMovements,
+    sessionStatements,
     confirm: command.confirm === true,
     actor,
   });

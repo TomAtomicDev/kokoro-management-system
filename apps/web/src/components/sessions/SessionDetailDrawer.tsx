@@ -28,6 +28,7 @@ import {
   useSession,
   useUpdateSession,
 } from "@/features/sessions/api";
+import { ApiError } from "@/lib/api";
 import { sessionsLabels } from "@/lib/i18n-sessions";
 
 import { datetimeLocalToIso, parseDurationMinutes, SessionForm } from "./SessionForm";
@@ -133,8 +134,8 @@ export function SessionDetailDrawer({
       setCloseFormOpen(false);
       setCloseEndedAt("");
       setCloseDurationMin("");
-    } catch {
-      setCloseError(sessionsLabels.errors.generic);
+    } catch (err) {
+      setCloseError(err instanceof ApiError ? err.message : sessionsLabels.errors.generic);
     }
   }
 

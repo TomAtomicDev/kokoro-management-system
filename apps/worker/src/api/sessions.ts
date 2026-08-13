@@ -6,6 +6,7 @@
 // core/sessions/index.ts's header), so there is nothing to dry-run.
 
 import {
+  closeAndStartSessionCommandSchema,
   deleteSessionCommandSchema,
   listSessionsFiltersSchema,
   recordSessionCommandSchema,
@@ -14,6 +15,7 @@ import {
 import { Hono } from "hono";
 
 import {
+  closeAndStartSession,
   deleteSession,
   getSession,
   listSessions,
@@ -40,6 +42,11 @@ export const sessionsRoute = new Hono<{ Bindings: Env; Variables: Variables }>()
     const db = createDb(c.env.DB);
     const body = recordSessionCommandSchema.parse(await c.req.json());
     return c.json(await recordSession(db, body, ACTOR), 201);
+  })
+  .post("/sessions/close-and-start", async (c) => {
+    const db = createDb(c.env.DB);
+    const body = closeAndStartSessionCommandSchema.parse(await c.req.json());
+    return c.json(await closeAndStartSession(db, body, ACTOR), 201);
   })
   .get("/sessions/:id", async (c) => {
     const db = createDb(c.env.DB);

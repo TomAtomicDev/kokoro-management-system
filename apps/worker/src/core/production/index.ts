@@ -104,6 +104,7 @@ import {
   buildStockMovementStatements,
 } from "../inventory/movements.js";
 import type { StockMovementInput } from "../inventory/types.js";
+import { resolveSessionForEvent } from "../sessions/index.js";
 
 type Statement = BatchItem<"sqlite">;
 type ProductionRunRow = typeof productionRuns.$inferSelect;
@@ -301,6 +302,7 @@ async function buildProductionRunCreateInputs(
   consumptionRows: ProductionConsumptionRow[];
   newOutputWacMc: MilliCentavosPerUnit;
   runRow: ProductionRunRow;
+  sessionStatements: Statement[];
 }> {
   // Defensive re-check (D-2) — mirrors recordProductionRunCommandSchema's `.min(1)` on `lines`.
   if (command.lines.length === 0) {
@@ -308,6 +310,12 @@ async function buildProductionRunCreateInputs(
   }
 
   const recipe = await findActiveRecipeRowOrThrow(db, command.recipeId);
+  const resolvedSession = await resolveSessionForEvent(db, {
+    type: "PRODUCTION",
+    occurredAt: command.occurredAt,
+    businessDate: command.businessDate,
+    explicitSessionId: command.sessionId ?? null,
+  });
   const consumptionItemStates = await validateProductionConsumptionItemKinds(db, command.lines);
 
   const runId = generateUuidV7();
@@ -382,7 +390,7 @@ async function buildProductionRunCreateInputs(
     occurredAt: command.occurredAt,
     businessDate: command.businessDate,
     recipeId: command.recipeId,
-    sessionId: command.sessionId ?? null,
+    sessionId: resolvedSession.sessionId,
     customOrderId: command.customOrderId ?? null,
     batches: command.batches,
     outputItemId: recipe.outputItemId,
@@ -397,7 +405,15 @@ async function buildProductionRunCreateInputs(
     updatedAt: now,
   };
 
-  return { runId, now, movements, consumptionRows, newOutputWacMc, runRow };
+  return {
+    runId,
+    now,
+    movements,
+    consumptionRows,
+    newOutputWacMc,
+    runRow,
+    sessionStatements: resolvedSession.statements,
+  };
 }
 
 /** UC-02: record a production run in one atomic batch (D-3). See this module's header for the full
@@ -450,6 +466,7 @@ export async function recordProductionRun(
       ];
 
   const statements: Statement[] = [
+    ...built.sessionStatements,
     db.insert(productionRuns).values(built.runRow),
     ...built.consumptionRows.map((row) => db.insert(productionConsumptions).values(row)),
     ...movementStatements,
@@ -598,6 +615,7 @@ interface ProductionRunMutationPlan {
   newMovements: StockMovementInput[];
   confirm: boolean;
   actor: AuditActor;
+  sessionStatements?: readonly Statement[];
 }
 
 /**
@@ -709,6 +727,7 @@ async function commitProductionRunMutation(db: Db, plan: ProductionRunMutationPl
   }
 
   const statements: Statement[] = [
+    ...(plan.sessionStatements ?? []),
     db
       .update(productionRuns)
       .set({
@@ -790,6 +809,7 @@ async function buildProductionRunUpdateInputs(
   newRow: ProductionRunRow;
   newConsumptions: ProductionConsumptionRow[];
   newMovements: StockMovementInput[];
+  sessionStatements: Statement[];
 }> {
   // Defensive re-check (D-2).
   if (command.lines.length === 0) {
@@ -801,6 +821,12 @@ async function buildProductionRunUpdateInputs(
     id,
   );
   const recipe = await findActiveRecipeRowOrThrow(db, command.recipeId);
+  const resolvedSession = await resolveSessionForEvent(db, {
+    type: "PRODUCTION",
+    occurredAt: command.occurredAt,
+    businessDate: command.businessDate,
+    explicitSessionId: command.sessionId ?? null,
+  });
   const consumptionItemStates = await validateProductionConsumptionItemKinds(db, command.lines);
 
   const now = nowIso();
@@ -861,7 +887,7 @@ async function buildProductionRunUpdateInputs(
     occurredAt: command.occurredAt,
     businessDate: command.businessDate,
     recipeId: command.recipeId,
-    sessionId: command.sessionId ?? null,
+    sessionId: resolvedSession.sessionId,
     customOrderId: command.customOrderId ?? null,
     batches: command.batches,
     outputItemId: recipe.outputItemId,
@@ -885,7 +911,14 @@ async function buildProductionRunUpdateInputs(
     newRow.businessDate,
   );
 
-  return { existing, existingConsumptions, newRow, newConsumptions, newMovements };
+  return {
+    existing,
+    existingConsumptions,
+    newRow,
+    newConsumptions,
+    newMovements,
+    sessionStatements: resolvedSession.statements,
+  };
 }
 
 /** Everything `deleteProductionRun` needs, AND everything `previewProductionRunImpact`'s "delete"
@@ -920,8 +953,14 @@ export async function updateProductionRun(
   command: UpdateProductionRunCommand,
   actor: AuditActor,
 ): Promise<UpdateProductionRunResult> {
-  const { existing, existingConsumptions, newRow, newConsumptions, newMovements } =
-    await buildProductionRunUpdateInputs(db, id, command);
+  const {
+    existing,
+    existingConsumptions,
+    newRow,
+    newConsumptions,
+    newMovements,
+    sessionStatements,
+  } = await buildProductionRunUpdateInputs(db, id, command);
 
   await commitProductionRunMutation(db, {
     action: "update",
@@ -930,6 +969,7 @@ export async function updateProductionRun(
     newRow,
     newConsumptions,
     newMovements,
+    sessionStatements,
     confirm: command.confirm === true,
     actor,
   });

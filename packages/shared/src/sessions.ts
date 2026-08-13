@@ -13,7 +13,7 @@
 //     without a confirmation gate (see that module's header for why) — but nothing about that
 //     behavior is visible on this schema; the command a caller sends is identical either way.
 //   - A session has no `occurred_at` column of its own (Doc 04 §3.2: only `business_date` +
-//     `started_at`/`ended_at`/`duration_min`) — apps/worker/src/core/sessions derives one for its
+//     required `started_at` and optional `ended_at`/`duration_min`) — apps/worker/src/core/sessions derives one for its
 //     cost-line `financial_transactions` rows (see that module's `sessionTransactionOccurredAt`).
 //   - `session_costs` lines are NOT all cash: `is_estimate` lines never create a
 //     `financial_transactions` row or touch an account balance (Doc 03 §6 S-2) — they exist purely
@@ -78,10 +78,10 @@ export const sessionCostLineCommandSchema = z
  * reasoning as purchasing.ts's `RecordPurchaseCommand`. */
 export type SessionCostLineCommand = z.input<typeof sessionCostLineCommandSchema>;
 
-export const recordSessionCommandSchema = z.object({
+const recordSessionCommandObjectSchema = z.object({
   type: sessionTypeSchema,
   businessDate: businessDateSchema,
-  startedAt: instantSchema.optional(),
+  startedAt: instantSchema,
   endedAt: instantSchema.optional(),
   durationMin: durationMinSchema.optional(),
   notes: z.string().trim().pipe(safeText(2000)).optional(),
@@ -90,10 +90,39 @@ export const recordSessionCommandSchema = z.object({
   // cost line" rule for sessions).
   costLines: z.array(sessionCostLineCommandSchema).optional().default([]),
 });
+
+export const recordSessionCommandSchema = recordSessionCommandObjectSchema.superRefine(
+  (command, ctx) => {
+    if (command.endedAt !== undefined && command.durationMin !== undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["durationMin"],
+        message: "Indica la hora de fin o la duración, no ambas.",
+      });
+    }
+    if (
+      command.endedAt !== undefined &&
+      new Date(command.endedAt).getTime() <= new Date(command.startedAt).getTime()
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["endedAt"],
+        message: "La hora de fin debe ser posterior al inicio.",
+      });
+    }
+  },
+);
 /** `z.input` — `costLines`'s and its own lines' `.default()`s, same reasoning throughout this
- * module. A session is always created OPEN (`sessions.status`'s own DB default, Doc 04 §3.2); there
- * is no `status` field on this command at all. */
+ * module. There is intentionally no `status` field: core derives CLOSED when an end or duration is
+ * supplied, while the start-now path (neither supplied) creates the session OPEN. */
 export type RecordSessionCommand = z.input<typeof recordSessionCommandSchema>;
+
+/** Doc 03 S-1b: atomically close the current OPEN session and start its same-type replacement. */
+export const closeAndStartSessionCommandSchema = z.object({
+  closeSessionId: z.string().min(1),
+  newSession: recordSessionCommandSchema,
+});
+export type CloseAndStartSessionCommand = z.input<typeof closeAndStartSessionCommandSchema>;
 
 /**
  * UC-14 edit / close (Doc 03 §6 S-2/S-3). Full replacement, same convention as
@@ -103,9 +132,9 @@ export type RecordSessionCommand = z.input<typeof recordSessionCommandSchema>;
  * a cross-field rule that reads as "the post-edit state", so `core/sessions` enforces it against
  * THIS command's own fields, not against the row being replaced.
  */
-export const updateSessionCommandSchema = recordSessionCommandSchema.extend({
-  status: sessionStatusSchema,
-});
+export const updateSessionCommandSchema = recordSessionCommandSchema.and(
+  z.object({ status: sessionStatusSchema }),
+);
 export type UpdateSessionCommand = z.input<typeof updateSessionCommandSchema>;
 
 /** DELETE/restore body (D-8 soft delete). No `confirm` flag anywhere in this module — unlike every
@@ -154,20 +183,12 @@ export interface SessionDto {
 
 export interface RecordSessionResult {
   session: SessionDto;
-  /**
-   * Doc 04 §5: "one OPEN session per type at a time" is a SOFT, overridable rule, not a DB
-   * constraint — `recordSession` never refuses on it, it only warns. Non-null (a Spanish message)
-   * when another non-deleted OPEN session of the same `type` already existed at the moment this one
-   * was recorded; null otherwise.
-   *
-   * JUDGMENT CALL: no existing result DTO in this codebase surfaces a non-blocking warning today —
-   * the closest thing, `item_stock.negativeSince` (inventory-views.ts), is a persisted flag read
-   * back via `v_stock`, not a command-result field, and SC-03's "stock going negative" warning is
-   * computed client-side, not returned by any service. This field is this module's own shape:
-   * minimal, Spanish-first like every `message_es` in this codebase, but a plain result field
-   * rather than a thrown error, since the command must still succeed.
-   */
-  openSessionWarning: string | null;
+}
+
+/** Doc 03 S-1b composite result: both states committed by the same atomic command batch. */
+export interface CloseAndStartSessionResult {
+  closedSession: SessionDto;
+  newSession: SessionDto;
 }
 
 export interface UpdateSessionResult {

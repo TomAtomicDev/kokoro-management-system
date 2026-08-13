@@ -20,7 +20,10 @@ import {
 } from "../src/core/assembly-events/index.js";
 import { createItem } from "../src/core/catalog/index.js";
 import { recordPurchase } from "../src/core/purchasing/index.js";
-import { recordSession } from "../src/core/sessions/index.js";
+import {
+  recordSession as recordSessionCore,
+  updateSession as updateSessionCore,
+} from "../src/core/sessions/index.js";
 import { createDb } from "../src/db/index.js";
 import { costingAdjustments, financialTransactions, items } from "../src/db/schema.js";
 
@@ -28,6 +31,23 @@ const ACTOR = "OWNER_WEB" as const;
 const BUSINESS_DATE = "2026-08-12";
 const OCCURRED_AT = "2026-08-12T15:00:00.000Z";
 type Db = ReturnType<typeof createDb>;
+
+function recordSession(
+  db: Db,
+  command: Omit<Parameters<typeof recordSessionCore>[1], "startedAt"> & { startedAt?: string },
+  actor: Parameters<typeof recordSessionCore>[2],
+) {
+  return recordSessionCore(db, { startedAt: OCCURRED_AT, ...command }, actor);
+}
+
+function updateSession(
+  db: Db,
+  id: string,
+  command: Omit<Parameters<typeof updateSessionCore>[2], "startedAt"> & { startedAt?: string },
+  actor: Parameters<typeof updateSessionCore>[3],
+) {
+  return updateSessionCore(db, id, { startedAt: OCCURRED_AT, ...command }, actor);
+}
 
 async function createFinished(db: Db, name: string, unit: "UNIT" | "KG" = "UNIT") {
   return createItem(
@@ -76,6 +96,11 @@ async function createComponent(
 }
 
 async function createProductionSession(db: Db): Promise<string> {
+  const existing = await db.query.sessions.findFirst({
+    where: (table, { and: andOp, eq: eqOp, isNull: isNullOp }) =>
+      andOp(eqOp(table.type, "PRODUCTION"), eqOp(table.status, "OPEN"), isNullOp(table.deletedAt)),
+  });
+  if (existing) return existing.id;
   const result = await recordSession(
     db,
     { type: "PRODUCTION", businessDate: BUSINESS_DATE },
@@ -123,6 +148,53 @@ async function recordSimpleAssembly(
 }
 
 describe("recordAssembly", () => {
+  it("links an existing PRODUCTION session, creates one when absent, and rejects the wrong type", async () => {
+    const db = createDb(env.DB);
+    const component = await createComponent(db, "Session component", "PACKAGING", 100);
+    const output = await createFinished(db, "Session output");
+    const command = {
+      occurredAt: OCCURRED_AT,
+      businessDate: BUSINESS_DATE,
+      outputItemId: output.id,
+      actualOutputQty: 1000,
+      lines: [{ itemId: component.id, qty: 1000 }],
+    };
+    const existing = await recordSession(
+      db,
+      { type: "PRODUCTION", businessDate: BUSINESS_DATE },
+      ACTOR,
+    );
+    const linked = await recordAssembly(db, command, ACTOR);
+    expect(linked.assembly.sessionId).toBe(existing.session.id);
+
+    await updateSession(
+      db,
+      existing.session.id,
+      { type: "PRODUCTION", businessDate: BUSINESS_DATE, durationMin: 1, status: "CLOSED" },
+      ACTOR,
+    );
+    const autoCreated = await recordAssembly(
+      db,
+      { ...command, occurredAt: "2026-08-12T16:00:00.000Z" },
+      ACTOR,
+    );
+    expect(autoCreated.assembly.sessionId).not.toBe(existing.session.id);
+    expect(
+      await db.query.sessions.findFirst({
+        where: (table, { eq: eqOp }) => eqOp(table.id, autoCreated.assembly.sessionId),
+      }),
+    ).toMatchObject({ type: "PRODUCTION", status: "OPEN", startedAt: "2026-08-12T16:00:00.000Z" });
+
+    const wrongType = await recordSession(
+      db,
+      { type: "PURCHASE_TRIP", businessDate: BUSINESS_DATE },
+      ACTOR,
+    );
+    await expect(
+      recordAssembly(db, { ...command, sessionId: wrongType.session.id }, ACTOR),
+    ).rejects.toMatchObject({ code: "VALIDATION" });
+  });
+
   it("records the Desayuno Kokoro golden-number value transfer", async () => {
     const db = createDb(env.DB);
     const sessionId = await createProductionSession(db);

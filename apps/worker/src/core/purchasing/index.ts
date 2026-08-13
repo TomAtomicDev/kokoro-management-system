@@ -69,6 +69,7 @@ import {
   buildStockMovementStatements,
 } from "../inventory/movements.js";
 import type { StockMovementInput } from "../inventory/types.js";
+import { resolveSessionForEvent } from "../sessions/index.js";
 
 type Statement = BatchItem<"sqlite">;
 type PurchaseRow = typeof purchases.$inferSelect;
@@ -173,6 +174,12 @@ async function buildPurchaseCreateMovements(db: Db, command: RecordPurchaseComma
   }
 
   const account = await findActiveAccountRowOrThrow(db, command.accountId);
+  const resolvedSession = await resolveSessionForEvent(db, {
+    type: "PURCHASE_TRIP",
+    occurredAt: command.occurredAt,
+    businessDate: command.businessDate,
+    explicitSessionId: command.sessionId ?? null,
+  });
 
   // Seed one ItemPurchaseState per DISTINCT item up front (one items query + one item_stock query
   // per distinct itemId, never per line), then thread it through the lines below in order ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â see
@@ -237,7 +244,7 @@ async function buildPurchaseCreateMovements(db: Db, command: RecordPurchaseComma
     occurredAt: command.occurredAt,
     businessDate: command.businessDate,
     supplierName: command.supplierName ?? null,
-    sessionId: command.sessionId ?? null,
+    sessionId: resolvedSession.sessionId,
     accountId: command.accountId,
     total,
     receiptPhotoKey: command.receiptPhotoKey ?? null,
@@ -255,7 +262,17 @@ async function buildPurchaseCreateMovements(db: Db, command: RecordPurchaseComma
     lineTotal: line.lineTotal,
   }));
 
-  return { account, itemStates, purchaseId, now, movements, total, purchaseRow, purchaseLineRows };
+  return {
+    account,
+    itemStates,
+    purchaseId,
+    now,
+    movements,
+    total,
+    purchaseRow,
+    purchaseLineRows,
+    sessionStatements: resolvedSession.statements,
+  };
 }
 
 /** UC-01: record a multi-line purchase in one atomic batch (D-3). See this module's header for the
@@ -265,8 +282,9 @@ export async function recordPurchase(
   command: RecordPurchaseCommand,
   actor: AuditActor,
 ): Promise<RecordPurchaseResult> {
+  const built = await buildPurchaseCreateMovements(db, command);
   const { account, itemStates, purchaseId, now, movements, total, purchaseRow, purchaseLineRows } =
-    await buildPurchaseCreateMovements(db, command);
+    built;
 
   // ---- INV-11 / R-2 ordering guard (ADR-016 Ãƒâ€šÃ‚Â§1) --------------------------------------------
   // A purchase is not exempt from the replay just because it is a CREATE: recording today's
@@ -372,6 +390,7 @@ export async function recordPurchase(
       : [];
 
   const statements: Statement[] = [
+    ...built.sessionStatements,
     db.insert(purchases).values(purchaseRow),
     ...purchaseLineRows.map((row) => db.insert(purchaseLines).values(row)),
     ...movementStatements,
@@ -653,6 +672,7 @@ interface PurchaseMutationPlan {
   newTransactions: FinancialTransactionInput[];
   confirm: boolean;
   actor: AuditActor;
+  sessionStatements?: readonly Statement[];
 }
 
 /**
@@ -839,6 +859,7 @@ async function commitPurchaseMutation(db: Db, plan: PurchaseMutationPlan): Promi
   }
 
   const statements: Statement[] = [
+    ...(plan.sessionStatements ?? []),
     // The EVENT itself. On delete this carries `deleted_at` (R-3/D-8: the event is soft-deleted;
     // only its DERIVED rows above are hard-replaced, which is the carve-out D-8 names explicitly).
     db
@@ -985,6 +1006,7 @@ async function buildPurchaseUpdateMutationInputs(
   newLines: PurchaseLineRow[];
   newMovements: StockMovementInput[];
   newTransactions: FinancialTransactionInput[];
+  sessionStatements: Statement[];
 }> {
   // Defensive re-check (core/ services never trust a caller already ran Zod, D-2).
   if (command.lines.length === 0) {
@@ -996,6 +1018,12 @@ async function buildPurchaseUpdateMutationInputs(
   // NOT checked: money already left it, and refusing to correct an invoice because the account it
   // was booked against has since been archived would strand the error permanently.
   await findActiveAccountRowOrThrow(db, command.accountId);
+  const resolvedSession = await resolveSessionForEvent(db, {
+    type: "PURCHASE_TRIP",
+    occurredAt: command.occurredAt,
+    businessDate: command.businessDate,
+    explicitSessionId: command.sessionId ?? null,
+  });
 
   const now = nowIso();
   const total = addMoney(...command.lines.map((l) => toCentavos(l.lineTotal)));
@@ -1005,7 +1033,7 @@ async function buildPurchaseUpdateMutationInputs(
     occurredAt: command.occurredAt,
     businessDate: command.businessDate,
     supplierName: command.supplierName ?? null,
-    sessionId: command.sessionId ?? null,
+    sessionId: resolvedSession.sessionId,
     accountId: command.accountId,
     total,
     receiptPhotoKey: command.receiptPhotoKey ?? null,
@@ -1036,6 +1064,7 @@ async function buildPurchaseUpdateMutationInputs(
     newLines,
     newMovements,
     newTransactions: buildPurchaseTransactionInputs(newRow),
+    sessionStatements: resolvedSession.statements,
   };
 }
 
@@ -1067,8 +1096,15 @@ export async function updatePurchase(
   command: UpdatePurchaseCommand,
   actor: AuditActor,
 ): Promise<UpdatePurchaseResult> {
-  const { existing, existingLines, newRow, newLines, newMovements, newTransactions } =
-    await buildPurchaseUpdateMutationInputs(db, id, command);
+  const {
+    existing,
+    existingLines,
+    newRow,
+    newLines,
+    newMovements,
+    newTransactions,
+    sessionStatements,
+  } = await buildPurchaseUpdateMutationInputs(db, id, command);
 
   await commitPurchaseMutation(db, {
     action: "update",
@@ -1078,6 +1114,7 @@ export async function updatePurchase(
     newLines,
     newMovements,
     newTransactions,
+    sessionStatements,
     confirm: command.confirm === true,
     actor,
   });

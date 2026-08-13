@@ -1,7 +1,8 @@
 import type { SessionDto } from "@kokoro/shared";
+import { recordSessionCommandSchema, toBusinessDate } from "@kokoro/shared";
 import { describe, expect, it } from "vitest";
 
-import { sessionToFormState } from "./SessionForm";
+import { buildStartNowCommand, sessionToFormState } from "./SessionForm";
 
 // `sessionToFormState` is the SessionDto -> form-initial-state mapper SessionForm's edit mode
 // seeds its local state from. Exercised as a plain function, same rationale as
@@ -74,5 +75,18 @@ describe("sessionToFormState", () => {
 
     expect(state.startedAt).toBe("");
     expect(state.endedAt).toBe("");
+  });
+});
+
+describe("buildStartNowCommand", () => {
+  it("builds a valid startedAt-required record command with no closing fields", () => {
+    const command = buildStartNowCommand("DELIVERY_RUN");
+
+    expect(recordSessionCommandSchema.safeParse(command).success).toBe(true);
+    expect(command.type).toBe("DELIVERY_RUN");
+    expect(command.startedAt).toBeTruthy();
+    expect(command.businessDate).toBe(toBusinessDate(command.startedAt));
+    expect(command.endedAt).toBeUndefined();
+    expect(command.durationMin).toBeUndefined();
   });
 });

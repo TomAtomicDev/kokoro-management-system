@@ -199,6 +199,9 @@ export const sessions = sqliteTable(
       sql`${t.type} IN ('PRODUCTION','PURCHASE_TRIP','DELIVERY_RUN','ADMIN','OTHER')`,
     ),
     statusCheck: check("sessions_status_check", sql`${t.status} IN ('OPEN','CLOSED')`),
+    uxOpenPerType: uniqueIndex("ux_sessions_open_per_type")
+      .on(t.type)
+      .where(sql`${t.status} = 'OPEN' AND ${t.deletedAt} IS NULL`),
   }),
 );
 
@@ -231,7 +234,9 @@ export const purchases = sqliteTable("purchases", {
   occurredAt: text("occurred_at").notNull(),
   businessDate: text("business_date").notNull(),
   supplierName: text("supplier_name"),
-  sessionId: text("session_id").references(() => sessions.id, { onDelete: "restrict" }),
+  sessionId: text("session_id")
+    .notNull()
+    .references(() => sessions.id, { onDelete: "restrict" }),
   // Forward reference ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â financial_accounts is declared later (Doc 04 Ãƒâ€šÃ‚Â§3.4).
   accountId: text("account_id")
     .notNull()
@@ -272,7 +277,9 @@ export const productionRuns = sqliteTable(
     recipeId: text("recipe_id")
       .notNull()
       .references(() => recipes.id, { onDelete: "restrict" }),
-    sessionId: text("session_id").references(() => sessions.id, { onDelete: "restrict" }),
+    sessionId: text("session_id")
+      .notNull()
+      .references(() => sessions.id, { onDelete: "restrict" }),
     // Forward reference ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â custom_orders is declared later (Doc 04 Ãƒâ€šÃ‚Â§3.3, O-4).
     customOrderId: text("custom_order_id").references((): AnySQLiteColumn => customOrders.id, {
       onDelete: "restrict",
