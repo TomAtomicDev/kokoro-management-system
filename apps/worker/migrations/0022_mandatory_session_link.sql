@@ -2,8 +2,14 @@
 -- and at most one non-deleted session may remain OPEN for each session type.
 -- SQLite cannot alter column nullability in place, so both event tables use the standard
 -- drop-view/rebuild/swap/recreate-view pattern from migration 0011.
-PRAGMA foreign_keys=OFF;--> statement-breakpoint
+-- See 0012 for why this uses `defer_foreign_keys` (D1 ignores foreign_keys=OFF mid-transaction).
+-- `purchase_lines` (ON DELETE cascade from purchases) and `production_consumptions`
+-- (ON DELETE cascade from production_runs) are snapshotted before their parent is dropped and
+-- restored after the rename, since cascade actions fire immediately regardless of that pragma.
+PRAGMA defer_foreign_keys=ON;--> statement-breakpoint
 DROP VIEW `v_session_hours`;--> statement-breakpoint
+CREATE TABLE `__backup_purchase_lines` AS SELECT * FROM `purchase_lines`;--> statement-breakpoint
+CREATE TABLE `__backup_production_consumptions` AS SELECT * FROM `production_consumptions`;--> statement-breakpoint
 
 -- Defensive forward-only backfill. Readable prefixes keep the generated relationship auditable;
 -- the event primary key suffix makes each generated session id stable and collision-resistant.
@@ -75,6 +81,10 @@ SELECT `id`, `occurred_at`, `business_date`, `recipe_id`, `session_id`, `custom_
 FROM `production_runs`;--> statement-breakpoint
 DROP TABLE `production_runs`;--> statement-breakpoint
 ALTER TABLE `__new_production_runs` RENAME TO `production_runs`;--> statement-breakpoint
+INSERT INTO `purchase_lines` SELECT * FROM `__backup_purchase_lines`;--> statement-breakpoint
+DROP TABLE `__backup_purchase_lines`;--> statement-breakpoint
+INSERT INTO `production_consumptions` SELECT * FROM `__backup_production_consumptions`;--> statement-breakpoint
+DROP TABLE `__backup_production_consumptions`;--> statement-breakpoint
 
 -- Normalize legacy duplicate OPEN sessions before installing the hard S-1b invariant. The oldest
 -- session (created_at, then id) remains OPEN; later duplicates are closed at their start time.
@@ -97,7 +107,6 @@ WHERE `duplicate`.`status` = 'OPEN'
 	);--> statement-breakpoint
 CREATE UNIQUE INDEX `ux_sessions_open_per_type` ON `sessions` (`type`) WHERE `status` = 'OPEN' AND `deleted_at` IS NULL;--> statement-breakpoint
 
-PRAGMA foreign_keys=ON;--> statement-breakpoint
 CREATE VIEW v_session_hours AS
 SELECT
   s.id AS session_id, s.type, s.business_date, s.status,

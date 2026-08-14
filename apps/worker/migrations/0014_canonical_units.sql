@@ -1,8 +1,11 @@
 -- BI-22: staging is disposable, so this forward-only canonical-unit CHECK narrowing intentionally has no conversion/backfill.
-PRAGMA foreign_keys=OFF;--> statement-breakpoint
+-- See 0012 for why this uses `defer_foreign_keys` (D1 ignores foreign_keys=OFF mid-transaction)
+-- and snapshots/restores `item_aliases` (its ON DELETE cascade fires regardless of that pragma).
+PRAGMA defer_foreign_keys=ON;--> statement-breakpoint
 DROP VIEW `v_stock`;--> statement-breakpoint
 DROP VIEW `v_kardex`;--> statement-breakpoint
 DROP VIEW `v_price_health`;--> statement-breakpoint
+CREATE TABLE `__backup_item_aliases` AS SELECT * FROM `item_aliases`;--> statement-breakpoint
 CREATE TABLE `__new_items` (
 	`id` text PRIMARY KEY NOT NULL,
 	`name` text NOT NULL,
@@ -28,7 +31,8 @@ INSERT INTO `__new_items`("id", "name", "kind", "category", "unit", "wac_mc", "r
 DROP TABLE `items`;--> statement-breakpoint
 ALTER TABLE `__new_items` RENAME TO `items`;--> statement-breakpoint
 CREATE UNIQUE INDEX `items_name_unique` ON `items` (`name`);--> statement-breakpoint
-PRAGMA foreign_keys=ON;--> statement-breakpoint
+INSERT INTO `item_aliases` SELECT * FROM `__backup_item_aliases`;--> statement-breakpoint
+DROP TABLE `__backup_item_aliases`;--> statement-breakpoint
 CREATE VIEW v_stock AS
 SELECT
   i.id AS item_id,

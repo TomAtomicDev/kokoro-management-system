@@ -1,10 +1,18 @@
 -- KOK-097: add the PASTRY item category and M (metre) unit. SQLite CHECK constraints
 -- require the standard table recreation; both item CHECK constraints widen together in
 -- this single migration. Only views that reference `items` are dropped and recreated.
-PRAGMA foreign_keys=OFF;--> statement-breakpoint
+-- D1 runs a migration file inside one implicit transaction, so `PRAGMA foreign_keys=OFF`
+-- is a no-op here (SQLite only allows toggling it outside a transaction) — it was silently
+-- ineffective and only "worked" against an empty dev DB. `defer_foreign_keys` is the pragma
+-- D1 actually supports mid-transaction: it defers restrict/no-action FK checks to commit,
+-- by which point `items` exists again with the same ids. It does NOT stop `ON DELETE cascade`,
+-- which fires immediately on the implicit DELETE from DROP TABLE — so `item_aliases` (the one
+-- cascade child of `items`) is snapshotted before the drop and restored after the rename.
+PRAGMA defer_foreign_keys=ON;--> statement-breakpoint
 DROP VIEW `v_stock`;--> statement-breakpoint
 DROP VIEW `v_kardex`;--> statement-breakpoint
 DROP VIEW `v_price_health`;--> statement-breakpoint
+CREATE TABLE `__backup_item_aliases` AS SELECT * FROM `item_aliases`;--> statement-breakpoint
 CREATE TABLE `__new_items` (
 	`id` text PRIMARY KEY NOT NULL,
 	`name` text NOT NULL,
@@ -31,7 +39,8 @@ SELECT "id", "name", "kind", "category", "unit", "wac_mc", "replacement_cost_mc"
 DROP TABLE `items`;--> statement-breakpoint
 ALTER TABLE `__new_items` RENAME TO `items`;--> statement-breakpoint
 CREATE UNIQUE INDEX `items_name_unique` ON `items` (`name`);--> statement-breakpoint
-PRAGMA foreign_keys=ON;--> statement-breakpoint
+INSERT INTO `item_aliases` SELECT * FROM `__backup_item_aliases`;--> statement-breakpoint
+DROP TABLE `__backup_item_aliases`;--> statement-breakpoint
 CREATE VIEW v_stock AS
 SELECT
   i.id AS item_id,
