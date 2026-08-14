@@ -552,7 +552,6 @@ async function buildAssemblyUpdateInputs(
   newMovements: StockMovementInput[];
   sessionStatements: Statement[];
 }> {
-  if (command.customOrderId) await assertOrderLinkable(db, command.customOrderId);
   if (command.lines.length === 0) {
     throw validationError("Se requiere al menos un componente consumido.", {});
   }
@@ -560,6 +559,11 @@ async function buildAssemblyUpdateInputs(
     db,
     id,
   );
+  // KOK-137: only validate when the link is actually CHANGING — see the identical rationale in
+  // core/production/index.ts's buildProductionRunUpdateInputs.
+  if (command.customOrderId && command.customOrderId !== existing.customOrderId) {
+    await assertOrderLinkable(db, command.customOrderId);
+  }
   await validateDefinition(db, command.definitionId, command.outputItemId);
   const resolvedSession = await resolveSessionForEvent(db, {
     type: "PRODUCTION",

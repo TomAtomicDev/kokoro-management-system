@@ -884,7 +884,6 @@ async function buildProductionRunUpdateInputs(
   newMovements: StockMovementInput[];
   sessionStatements: Statement[];
 }> {
-  if (command.customOrderId) await assertOrderLinkable(db, command.customOrderId);
   // Defensive re-check (D-2).
   if (command.lines.length === 0) {
     throw validationError("Se requiere al menos un insumo consumido.", {});
@@ -894,6 +893,14 @@ async function buildProductionRunUpdateInputs(
     db,
     id,
   );
+  // KOK-137: only validate when the link is actually CHANGING. An edit that leaves
+  // customOrderId untouched must stay editable even after that order later became
+  // DELIVERED/CANCELLED — the link is historical fact at that point (O-4), not something this
+  // edit is newly asserting, so re-validating it here would make an already-linked run
+  // permanently unsavable for reasons unrelated to what the user is actually changing.
+  if (command.customOrderId && command.customOrderId !== existing.customOrderId) {
+    await assertOrderLinkable(db, command.customOrderId);
+  }
   const recipe = await findActiveRecipeRowOrThrow(db, command.recipeId);
   const resolvedSession = await resolveSessionForEvent(db, {
     type: "PRODUCTION",

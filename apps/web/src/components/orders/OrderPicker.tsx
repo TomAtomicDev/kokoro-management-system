@@ -4,7 +4,7 @@ import type { JSX } from "react";
 import { useEffect, useRef, useState } from "react";
 
 import { Input } from "@/components/ui/input";
-import { useOrders } from "@/features/orders/api";
+import { useOrder, useOrders } from "@/features/orders/api";
 import { ordersLabels } from "@/lib/i18n-orders";
 
 export interface OrderPickerProps {
@@ -22,7 +22,12 @@ export function OrderPicker(props: OrderPickerProps): JSX.Element {
 
   const ordersQuery = useOrders({ excludeStatuses: ["DELIVERED", "CANCELLED"] });
   const orders = ordersQuery.data?.orders ?? [];
-  const selectedOrder = orders.find((order) => order.id === value) ?? null;
+  // KOK-137: resolved via its OWN query, not `orders.find(...)` — a run/assembly's existing link
+  // can point at an order that's since gone DELIVERED/CANCELLED (excluded from `orders` above),
+  // and it must still render instead of silently showing blank (same reason CustomerPicker fetches
+  // its selection with a separate useCustomerQuery(value) rather than searching its own list).
+  const selectedOrderQuery = useOrder(value ?? undefined);
+  const selectedOrder = selectedOrderQuery.data ?? null;
 
   useEffect(() => {
     if (!open) return;
