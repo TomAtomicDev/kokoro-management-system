@@ -249,8 +249,14 @@ export type OrderImpactRequest = z.input<typeof orderImpactRequestSchema>;
  * `created_at` timestamp while results remain ordered by `delivery_date` (O-5). */
 export const listOrdersFiltersSchema = z.object({
   status: customOrderStatusSchema.optional(),
+  /** KOK-137: comma-separated on the wire ("DELIVERED,CANCELLED"), typed as an array for callers.
+   * Lets the order picker exclude terminal statuses without a second endpoint. */
+  excludeStatuses: z
+    .union([z.array(customOrderStatusSchema), z.string()])
+    .transform((v) => (Array.isArray(v) ? v : v.split(",")))
+    .pipe(z.array(customOrderStatusSchema))
+    .optional(),
   customerId: z.string().min(1).optional(),
-  /** Filters on the order creation date, not on `delivery_date`. */
   fromDate: businessDateSchema.optional(),
   toDate: businessDateSchema.optional(),
   limit: z.coerce.number().int().positive().max(500).optional(),

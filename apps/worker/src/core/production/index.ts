@@ -105,6 +105,7 @@ import {
   buildStockMovementStatements,
 } from "../inventory/movements.js";
 import type { StockMovementInput } from "../inventory/types.js";
+import { assertOrderLinkable } from "../orders/index.js";
 import { resolveSessionForEvent } from "../sessions/index.js";
 
 type Statement = BatchItem<"sqlite">;
@@ -306,6 +307,7 @@ async function buildProductionRunCreateInputs(
   sessionStatements: Statement[];
   resolvedSessionStatus: SessionStatus;
 }> {
+  if (command.customOrderId) await assertOrderLinkable(db, command.customOrderId);
   // Defensive re-check (D-2) — mirrors recordProductionRunCommandSchema's `.min(1)` on `lines`.
   if (command.lines.length === 0) {
     throw validationError("Se requiere al menos un insumo consumido.", {});
@@ -882,6 +884,7 @@ async function buildProductionRunUpdateInputs(
   newMovements: StockMovementInput[];
   sessionStatements: Statement[];
 }> {
+  if (command.customOrderId) await assertOrderLinkable(db, command.customOrderId);
   // Defensive re-check (D-2).
   if (command.lines.length === 0) {
     throw validationError("Se requiere al menos un insumo consumido.", {});

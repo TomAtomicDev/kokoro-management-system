@@ -47,6 +47,7 @@ import {
   buildStockMovementStatements,
 } from "../inventory/movements.js";
 import type { StockMovementInput } from "../inventory/types.js";
+import { assertOrderLinkable } from "../orders/index.js";
 import { resolveSessionForEvent } from "../sessions/index.js";
 import { computeAssemblyCost } from "./cost.js";
 
@@ -150,6 +151,7 @@ async function buildAssemblyCreateInputs(
   assemblyRow: AssemblyRow;
   sessionStatements: Statement[];
 }> {
+  if (command.customOrderId) await assertOrderLinkable(db, command.customOrderId);
   if (command.lines.length === 0) {
     throw validationError("Se requiere al menos un componente consumido.", {});
   }
@@ -550,6 +552,7 @@ async function buildAssemblyUpdateInputs(
   newMovements: StockMovementInput[];
   sessionStatements: Statement[];
 }> {
+  if (command.customOrderId) await assertOrderLinkable(db, command.customOrderId);
   if (command.lines.length === 0) {
     throw validationError("Se requiere al menos un componente consumido.", {});
   }

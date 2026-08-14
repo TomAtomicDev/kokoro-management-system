@@ -49,6 +49,8 @@ function orderDetailKey(id: string) {
 function filtersToQueryString(filters: ListOrdersFilters): string {
   const params = new URLSearchParams();
   if (filters.status) params.set("status", filters.status);
+  if (filters.excludeStatuses?.length)
+    params.set("excludeStatuses", filters.excludeStatuses.join(","));
   if (filters.customerId) params.set("customerId", filters.customerId);
   if (filters.fromDate) params.set("fromDate", filters.fromDate);
   if (filters.toDate) params.set("toDate", filters.toDate);

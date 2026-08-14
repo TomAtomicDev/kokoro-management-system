@@ -29,6 +29,7 @@ import { createItem } from "../src/core/catalog/index.js";
 import { createCustomer } from "../src/core/customers/index.js";
 import { recordExit } from "../src/core/inventory/exits.js";
 import {
+  assertOrderLinkable,
   cancelOrder,
   confirmOrder,
   deliverOrder,
@@ -1485,6 +1486,20 @@ describe("getOrder / listOrders", () => {
     expect(orders[0]?.description).toBe("De B");
   });
 
+  it("excludes terminal statuses", async () => {
+    const db = createDb(env.DB);
+    await seedOrderInStatus(db, "QUOTING");
+    await seedOrderInStatus(db, "DELIVERED");
+    await seedOrderInStatus(db, "CANCELLED");
+
+    const { orders } = await listOrders(db, {
+      excludeStatuses: ["DELIVERED", "CANCELLED"],
+    });
+
+    expect(orders).toHaveLength(1);
+    expect(orders[0]?.status).toBe("QUOTING");
+  });
+
   it("filters by creation date instead of delivery date", async () => {
     const db = createDb(env.DB);
     const customer = await seedCustomer(db);
@@ -1514,6 +1529,28 @@ describe("getOrder / listOrders", () => {
     });
 
     expect(orders.map((order) => order.description)).toEqual(["Creado hoy", "También creado hoy"]);
+  });
+});
+
+describe("assertOrderLinkable", () => {
+  it.each(["QUOTING", "CONFIRMED", "IN_PRODUCTION", "READY"] as const)(
+    "accepts a %s order",
+    async (status) => {
+      const db = createDb(env.DB);
+      const { orderId } = await seedOrderInStatus(db, status);
+
+      await expect(assertOrderLinkable(db, orderId)).resolves.toBeUndefined();
+    },
+  );
+
+  it.each(["DELIVERED", "CANCELLED"] as const)("rejects a %s order", async (status) => {
+    const db = createDb(env.DB);
+    const { orderId } = await seedOrderInStatus(db, status);
+
+    await expect(assertOrderLinkable(db, orderId)).rejects.toMatchObject({
+      code: "VALIDATION",
+      details: { id: orderId, status },
+    });
   });
 });
 

@@ -254,7 +254,7 @@ function toSaleDto(row: SaleRow, lineRows: readonly SaleLineRow[]): SaleDto {
 
 // ---- Loading ----------------------------------------------------------------------------------
 
-async function loadOrderRowOrThrow(db: Db, id: string): Promise<OrderRow> {
+export async function loadOrderRowOrThrow(db: Db, id: string): Promise<OrderRow> {
   const row = await db.query.customOrders.findFirst({
     where: (t, { and, eq: eqOp, isNull }) => and(eqOp(t.id, id), isNull(t.deletedAt)),
   });
@@ -262,6 +262,21 @@ async function loadOrderRowOrThrow(db: Db, id: string): Promise<OrderRow> {
     throw notFound("No se encontró el pedido.", { id });
   }
   return row;
+}
+
+/** KOK-137: production_runs/assemblies write `customOrderId` with no existence/status check
+ * today (the backlog row's own flagged hole) — both modules call this before persisting a link.
+ * DELIVERED/CANCELLED orders are historical fact. validationError, not conflict: this validates
+ * a foreign key on the CALLER's command, not a transition on this order's own lifecycle (see
+ * resolveOrderLine's conflict a few lines below for the contrasting case). */
+export async function assertOrderLinkable(db: Db, customOrderId: string): Promise<void> {
+  const row = await loadOrderRowOrThrow(db, customOrderId);
+  if (row.status === "DELIVERED" || row.status === "CANCELLED") {
+    throw validationError(
+      `No se puede vincular producción a un pedido ${STATUS_LABEL_ES[row.status]}.`,
+      { id: customOrderId, status: row.status },
+    );
+  }
 }
 
 async function loadOrderLineRows(db: Db, orderId: string): Promise<OrderLineRow[]> {
@@ -1281,9 +1296,11 @@ export async function listOrders(
   filters: ListOrdersFilters = {},
 ): Promise<ListOrdersResult> {
   const rows = await db.query.customOrders.findMany({
-    where: (t, { and, eq: eqOp, gte, isNull, lte }) => {
+    where: (t, { and, eq: eqOp, gte, isNull, lte, notInArray }) => {
       const clauses = [isNull(t.deletedAt)];
       if (filters.status !== undefined) clauses.push(eqOp(t.status, filters.status));
+      if (filters.excludeStatuses !== undefined && filters.excludeStatuses.length > 0)
+        clauses.push(notInArray(t.status, filters.excludeStatuses));
       if (filters.customerId !== undefined) clauses.push(eqOp(t.customerId, filters.customerId));
       if (filters.fromDate !== undefined)
         clauses.push(gte(t.createdAt, `${filters.fromDate}T00:00:00.000Z`));
