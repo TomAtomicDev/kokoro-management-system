@@ -97,6 +97,16 @@ export const ordersLabels = {
   actionMarkReady: "Marcar listo",
   actionDeliver: "Entregar",
   actionCancel: "Cancelar pedido",
+  actionUndoStart: "Volver a confirmado",
+  actionUndoReady: "Volver a en producción",
+  actionUndoDeliver: "Deshacer entrega",
+  confirmUndoStart: "¿Volver este pedido a confirmado?",
+  confirmUndoReady: "¿Volver este pedido a en producción?",
+  confirmUndoDeliver:
+    "¿Deshacer la entrega de este pedido? Se eliminará la venta generada y se revertirá el saldo cobrado; el anticipo volverá a contar como pendiente.",
+  impactUndoDeliverTitle: "¿Deshacer esta entrega?",
+  impactUndoDeliverDescription:
+    "Esta entrega tiene movimientos posteriores que dependen de su costo. Deshacerla recalculará esos costos.",
 
   confirmDialogTitle: "Confirmar pedido",
   confirmFieldAgreedTotal: "Total acordado (Bs)",

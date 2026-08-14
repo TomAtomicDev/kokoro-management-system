@@ -29,6 +29,7 @@ import type {
   ReplayImpactDto,
   ResolveOrderLineCommand,
   ResolveOrderLineResult,
+  UndoDeliverOrderCommand,
 } from "@kokoro/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -113,12 +114,42 @@ export function useMarkOrderReady(id: string) {
   });
 }
 
+export function useUndoStartOrderProduction(id: string) {
+  const invalidate = useInvalidateOrders();
+  return useMutation({
+    mutationFn: () => api.post<OrderTransitionResult>(`/orders/${id}/undo-start-production`, {}),
+    onSuccess: invalidate,
+  });
+}
+
+export function useUndoMarkOrderReady(id: string) {
+  const invalidate = useInvalidateOrders();
+  return useMutation({
+    mutationFn: () => api.post<OrderTransitionResult>(`/orders/${id}/undo-ready`, {}),
+    onSuccess: invalidate,
+  });
+}
+
 export function useDeliverOrder(id: string) {
   const invalidate = useInvalidateOrders();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (command: DeliverOrderCommand) =>
       api.post<DeliverOrderResult>(`/orders/${id}/deliver`, command),
+    onSuccess: () => {
+      invalidate();
+      queryClient.invalidateQueries({ queryKey: ACCOUNTS_KEY });
+    },
+  });
+}
+
+// Mirrors useDeliverOrder exactly (invalidates ACCOUNTS_KEY too — money moves).
+export function useUndoDeliverOrder(id: string) {
+  const invalidate = useInvalidateOrders();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (command: UndoDeliverOrderCommand) =>
+      api.post<OrderTransitionResult>(`/orders/${id}/undo-deliver`, command),
     onSuccess: () => {
       invalidate();
       queryClient.invalidateQueries({ queryKey: ACCOUNTS_KEY });
