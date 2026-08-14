@@ -189,7 +189,8 @@ export type DeliverOrderCommand = z.input<typeof deliverOrderCommandSchema>;
  * in full (a backdated delivery may have re-weighted WAC for later events; undoing it replays the
  * same way deleting a sale does). */
 export const undoDeliverOrderCommandSchema = z.object({ confirm: confirmFlagSchema });
-export type UndoDeliverOrderCommand = z.infer<typeof undoDeliverOrderCommandSchema>;
+/** `z.input` — `confirm` carries a `.default()`, same reasoning as `DeliverOrderCommand`. */
+export type UndoDeliverOrderCommand = z.input<typeof undoDeliverOrderCommandSchema>;
 
 /**
  * UC-08 cancel (O-3). Legal from every non-terminal status. `resolution` is required EXACTLY when
