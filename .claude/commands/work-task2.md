@@ -6,15 +6,19 @@ argument-hint: <TASK-ID> | <FIRST-ID>..<LAST-ID> | <ID,ID,ID>
 
 Source of truth: `docs/system-design-knowledge-base/10-implementation-backlog.md`.
 
-You are the **orchestrator**: strategist, architect, decision-maker. Codex workers implement scoped mechanical units  
-through Orca. You own architecture, ambiguity resolution, interfaces, dependency  
+You are the **orchestrator**: strategist, architect, decision-maker. Codex workers
+(GPT-5.6-luna, fast and cheap, moderately smart) implement scoped mechanical units
+through Orca. You own architecture, ambiguity resolution, interfaces, dependency
 ordering and every decision gate.
 
-`$ARGUMENTS` may be a single task, a range or a list. A single task is just a block of one: the whole procedure below applies, and the block phases collapse to near-zero work.
+`$ARGUMENTS` may be a single task, a range or a list.  
+A single task is just a block of one: the whole procedure below applies, and the  
+block phases collapse to near-zero work.
 
 ## Prime directive: your context is the scarce resource
 
-Your own context window is the bottleneck, not worker time and not worker cost. A fifty-task block **will not fit in one session of yours** — the workflow is designed
+Your own context window is the bottleneck, not worker time and not worker cost. A
+twenty-task block **will not fit in one session of yours** — the workflow is designed
 so that it does not have to. Everything durable lives in the ledger; you carry as
 little as possible between tasks.
 
@@ -32,17 +36,17 @@ When in doubt: dispatch a worker to answer in ≤30 lines instead of reading sou
 ## Phase 0 — Bootstrap the block
 
 1. Derive `BLOCK-ID` (e.g. `KOK-100..120`, or the task id if scope is one task) and
-   read `docs/development/.runs/{BLOCK-ID}/ledger.md`.
-   - **If it exists this is a resume.** Read *only* the ledger. Verify the Run and
-     worktrees still exist (`orca status --json`, `orca orchestration run-show`).
-     Jump to the first task whose status is not `done` or `blocked`. Do not re-ground,
-     do not re-plan, do not re-read accepted diffs, do not re-read rows of finished
-     tasks.
-   - If it does not exist, continue.
+ read `docs/development/.runs/{BLOCK-ID}/ledger.md`.
+  - **If it exists this is a resume.** Read *only* the ledger. Verify the Run and
+   worktrees still exist (`orca status --json`, `orca orchestration run-show`).
+   Jump to the first task whose status is not `done` or `blocked`. Do not re-ground,
+   do not re-plan, do not re-read accepted diffs, do not re-read rows of finished
+   tasks.
+  - If it does not exist, continue.
 2. `orca status --json`.
 3. Load the version-matched skills, both of them, before dispatching anything:
-   - `orca skills get orca-cli`
-   - `orca skills get orchestration --full`
+  - `orca skills get orca-cli`
+  - `orca skills get orchestration --full`
 
    These are **authoritative**. Where this prompt and a skill disagree on a command
    name, a flag, a lifecycle state or a completion semantic, **the skill wins and this
@@ -54,7 +58,7 @@ When in doubt: dispatch a worker to answer in ≤30 lines instead of reading sou
    the ledger records state, not procedure. Do not re-load them between tasks within
    the same session.
 4. Create one Run for the whole block:
-   `orca orchestration run-create --objective "{BLOCK-ID}: <block objective>" --json`
+ `orca orchestration run-create --objective "{BLOCK-ID}: <block objective>" --json`
 5. Create `docs/development/.runs/{BLOCK-ID}/ledger.md` (template at the end).
 
 ---
@@ -65,17 +69,17 @@ Read **all** rows in scope once. This is the only time you read them all togethe
 Produce, into the ledger:
 
 - **Domain clusters.** Group rows by the surface they touch (schema/domain, service,
-  web, i18n…). Rows in the same cluster share contracts and must be serialized.
+web, i18n…). Rows in the same cluster share contracts and must be serialized.
 - **Task DAG.** Edges come from: schema/migration before anything consuming it;
-  service contract before its callers; `full`-area rows before `web` rows on the same
-  noun; explicit references between descriptions. When a row's description already
-  states that another row's change is a prerequisite, that is an edge — do not rely
-  on ID order, which is not dependency order.
+service contract before its callers; `full`-area rows before `web` rows on the same
+noun; explicit references between descriptions. When a row's description already
+states that another row's change is a prerequisite, that is an edge — do not rely
+on ID order, which is not dependency order.
 - **Migration ordering owner.** If more than one task ships a migration, fix their
-  relative order now and record it. Two workers inventing migration timestamps in
-  parallel is a merge conflict you cannot delegate away.
+relative order now and record it. Two workers inventing migration timestamps in
+parallel is a merge conflict you cannot delegate away.
 - **KB amendment collisions.** If several rows amend the same doc section, decide who
-  writes the amendment and who merely references it.
+writes the amendment and who merely references it.
 - **Per-task lane** from 🧠 and Size (see Phase 4).
 
 Then **stop and show the user** the task order, the clusters, the parallelism plan and
@@ -119,7 +123,7 @@ Before any implementation dispatch, write into the ledger, as literal code:
 - schema/migration shape and order;
 - every type/signature crossing a **task** boundary;
 - validation and error-shape conventions the whole block must share (e.g. how
-  `message_es` surfaces to the client);
+`message_es` surfaces to the client);
 - i18n key ownership: which task adds which keys, so two tasks do not both add them.
 
 These are frozen. A task that needs to change a frozen contract does not change it —
@@ -152,11 +156,13 @@ previous task's details into it.
 
 ### 5.1 Lane
 
-| 🧠  | Extra grounding | Planning |
-| --- | --------------- | -------- |
-| 1–2 | none | worker proposes the unit list, you approve in one pass |
-| 3   | only if the task touches something outside the cluster grounding | you write the plan |
-| 4–5 | narrow, targeted at the specific gap | you write the plan and resolve every ambiguity first |
+
+| 🧠  | Extra grounding                                                  | Planning                                               |
+| --- | ---------------------------------------------------------------- | ------------------------------------------------------ |
+| 1–2 | none                                                             | worker proposes the unit list, you approve in one pass |
+| 3   | only if the task touches something outside the cluster grounding | you write the plan                                     |
+| 4–5 | narrow, targeted at the specific gap                             | you write the plan and resolve every ambiguity first   |
+
 
 ### 5.2 Plan and decompose
 
@@ -215,8 +221,7 @@ signal. Failures cluster in freshly created worktrees (three consecutive failed
 pre-existing worktree succeeded immediately).
 
 **Warm the worktree before the first real dispatch.** After creating a worktree, start
-the terminal, wait for idle, then send a trivial probe turn (e.g. `pwd && git branch
---show-current`) and confirm from the terminal that Codex actually produced a turn and
+the terminal, wait for idle, then send a trivial probe turn (e.g. `pwd && git branch --show-current`) and confirm from the terminal that Codex actually produced a turn and
 returned to idle. Only then dispatch real work. A worktree that has served one
 successful turn is far less likely to eat the next injection. Never let the first thing
 a fresh worktree receives be a real specification.
@@ -224,26 +229,34 @@ a fresh worktree receives be a real specification.
 Then, per unit:
 
 1. Create the Orca Task preserving dependency order. Record task id, dispatch id,
-   terminal handle and worktree in the ledger row.
-2. Attempt the supervised path: `orca orchestration worker-start ... --agent codex
-   --json`. A successful return proves nothing.
+ terminal handle and worktree in the ledger row.
+2. Attempt the supervised path **first, always**: `orca orchestration worker-start ...  --agent codex --json`, or the documented `orca orchestration dispatch --inject` when
+ dispatching into an existing terminal. A successful return proves nothing.
+
+  **Never send with `orca terminal send` before attempting supervised injection.** A
+   terminal that received its instruction that way holds no capability token, so
+   `worker_done` is impossible for it and the unit is silently stuck in degraded mode
+   with an empty `dispatch_id` — for the rest of that unit's life, and for anyone
+   resuming the block later. This has already happened on this backlog and it is
+   orchestrator error, not an Orca limitation. `terminal send` is a recovery tool
+   (§5.5), never an opening move.
 3. **Verify a real Codex turn started.** `input_accepted`, `tui-idle` and command
-   success are all insufficient. Use `worker-show` / `worker-read` / `dispatch-show`
-   and, when needed, the terminal tail. What counts as proof is evidence of an actual
-   turn or task start — the model working, not the text existing.
+ success are all insufficient. Use `worker-show` / `worker-read` / `dispatch-show`
+ and, when needed, the terminal tail. What counts as proof is evidence of an actual
+ turn or task start — the model working, not the text existing.
 4. If the text is in the composer but unsubmitted, send a **separate, empty submit**
-   (`terminal send --text "" --enter`). A combined send-with-enter is not sufficient;
-   verification and resubmission are two distinct steps. Never re-paste content that
-   is already present.
+ (`terminal send --text "" --enter`). A combined send-with-enter is not sufficient;
+ verification and resubmission are two distinct steps. Never re-paste content that
+ is already present.
 5. If two submit attempts do not produce a turn, stop retrying the supervised path and
-   degrade this attempt to §5.5. Do not spawn additional workers before inspecting the
-   existing terminal — a second worker on a stuck worktree has failed every time it
-   has been tried here.
+ degrade this attempt to §5.5. Do not spawn additional workers before inspecting the
+ existing terminal — a second worker on a stuck worktree has failed every time it
+ has been tried here.
 6. Once a turn is confirmed, wait with Orca's own primitive
-   (`orca orchestration check --wait --types worker_done,escalation,question ... --json`).
-   A timeout is neither completion nor failure: inspect `worker-show`, `worker-read`,
-   `dispatch-show`, and decide whether the worker is working, finished but lost its
-   lifecycle report, or never started.
+ (`orca orchestration check --wait --types worker_done,escalation,question ... --json`).
+ A timeout is neither completion nor failure: inspect `worker-show`, `worker-read`,
+ `dispatch-show`, and decide whether the worker is working, finished but lost its
+ lifecycle report, or never started.
 
 ### 5.5 Degraded mode — manual terminal dispatch
 
@@ -256,46 +269,88 @@ fail for it. Therefore:
 
 1. Reuse the existing stable terminal; wait for idle. Do not create a new one.
 2. Generate a nonce for this attempt. The instruction (short, per §5.3) must state
-   explicitly: **do not call `orca orchestration send`, `worker_done`, heartbeat, ask,
-   gate, or any other orchestration command**; finish by printing
-   `TASKCOMPLETE-{nonce}: <summary>` as the final line.
+ explicitly: **do not call `orca orchestration send`, `worker_done`, heartbeat, ask,
+ gate, or any other orchestration command**; finish by printing
+ `TASKCOMPLETE-{nonce}: <summary>` as the final line.
 3. Send, then verify delivery in the terminal tail, then submit separately with an
-   empty `--enter`. Confirm a turn started before waiting for anything.
+ empty `--enter`. Confirm a turn started before waiting for anything.
 4. Poll for the sentinel with **≥2 occurrences required**, never a substring test: the
-   instruction itself is echoed into scrollback and matches on the first tick. If the
-   short-instruction convention of §5.3 is followed the sentinel appears only in the
-   spec file, but keep the ≥2 rule regardless — it costs nothing and it is the exact
-   false positive that has already burned a run here.
+ instruction itself is echoed into scrollback and matches on the first tick. If the
+ short-instruction convention of §5.3 is followed the sentinel appears only in the
+ spec file, but keep the ≥2 rule regardless — it costs nothing and it is the exact
+ false positive that has already burned a run here.
 5. Poll with the durable Monitor mechanism (`persistent: true`), **quiet**: emit output
-   only on a real match, never per tick, or it gets throttled for noise. Do not use
-   backgrounded Bash loops — they have been killed unpredictably at ~30 s and at
-   ~630 s with no diagnostic. Monitor itself has died mid-run (`exit 4`), so bound the
-   wait: on monitor death, re-inspect the terminal and the report file once before
-   assuming anything, and never treat monitor termination as task failure.
+ only on a real match, never per tick, or it gets throttled for noise. Do not use
+ backgrounded Bash loops — they have been killed unpredictably at ~30 s and at
+ ~630 s with no diagnostic. Monitor itself has died mid-run (`exit 4`), so bound the
+ wait: on monitor death, re-inspect the terminal and the report file once before
+ assuming anything, and never treat monitor termination as task failure.
 6. Verify the work independently of the sentinel: the expected files changed, the
-   report file written, the acceptance command run. The sentinel proves the worker
-   stopped, not that it succeeded.
+ report file written, the acceptance command run. The sentinel proves the worker
+ stopped, not that it succeeded.
 7. **Reconcile the Orca Dispatch.** It is now orphaned and still looks active. Close or
-   recover it with the documented lifecycle commands before moving on, and never record
-   a sentinel as a `worker_done`.
+ recover it with the documented lifecycle commands before moving on, and never record
+ a sentinel as a `worker_done`.
 
 Log every degradation in the ledger: unit, why supervised injection failed, and whether
 the worktree was fresh. If a worktree degrades twice, stop using it for new workers and
 say so in the ledger — that is a worktree problem, not a unit problem.
 
-### 5.6 Reuse settled terminals rather than starting workers
+### 5.6 Dispatch granularity — batch units, do not batch context
 
-Because startup is the fragile step and execution is not, **a settled terminal is a
-valuable asset**. Prefer running the sequential units of a task through one already-warm
-Codex session over starting a fresh worker per unit. Reuse only after Orca confirms the
-previous Dispatch settled — `worker_done` alone does not make a terminal reusable — and
-use the documented lifecycle commands (`worker-release`, `worker-retain`, follow-up
-dispatch, retry). If reuse is rejected or ambiguous, inspect the previous Dispatch
-rather than re-injecting.
+Every Dispatch re-injects Orca's lifecycle preamble (task id, worker_done/escalation/
+question contract, capability token). This is not chatter you can suppress: the
+preamble is what authenticates that specific `worker_done` back to that specific
+dispatch, and there is no CLI knob to shrink it on a reused terminal. It is re-injected
+per **Dispatch**, not per terminal — so reusing a warm terminal does not reduce it, it
+merely stacks several preambles plus unrelated prior work into one context window.
 
-This also revises §5.2: unit granularity should stay small, but *dispatch* granularity
-should not. Group consecutive units with the same file scope into one warm session,
-one spec file at a time, keeping the decision gate per unit.
+**Unit granularity and dispatch granularity are different decisions.** Keep units small
+— they are your review boundary. Make dispatches coarser: a run of sequential,
+same-scope, low-stakes units belongs in **one** Dispatch, with one spec file per unit
+read in order within a single Codex turn:
+
+> Read `.orca/specs/KOK-133-u2.md`, execute it, then `.orca/specs/KOK-133-u3.md`, then
+> `.orca/specs/KOK-133-u4.md`, in that order. Complete each fully, including its
+> acceptance command, before starting the next. Commit after each one, with the unit id
+> in the message. Write one report per unit to `.orca/reports/`.
+
+Batch a run of units when **all** of these hold:
+
+- same file scope, or scopes that do not overlap each other;
+- 🧠 1–2 and mechanical;
+- no unit's spec depends on reading or reviewing the previous unit's produced code;
+- no unit in the run unblocks a *different* task in the block DAG;
+- nothing in the run touches a frozen contract.
+
+Split into separate Dispatches when a unit is architecturally load-bearing, when you
+must review and commit before the next unit can even be specified correctly, or when
+the run has a genuine escalation risk you want to catch early.
+
+The cost of batching is coarser feedback: five units arrive together, and a wrong
+decision in the first may have propagated. Mitigate with per-unit commits (so the
+review gate stays per unit even though the dispatch was one) and by keeping batches to
+roughly 3–5 units.
+
+### 5.6b Terminal reuse — only for genuine context continuity
+
+A warm terminal is worth reusing **only when the next work actually needs what that
+session already holds**: a correction to the unit it just wrote, a follow-up on the same
+files, a question about its own diff. In those cases reuse saves a real re-explanation.
+
+For anything else, **prefer a fresh terminal**. Carrying an unrelated task's history
+into a new unit is not free context, it is contamination: the worker has stale file
+contents, superseded instructions, an earlier unit's ANTI-SCOPE, and now several Orca
+preambles competing for attention. GPT-5.6-luna is moderately smart — a clean, short
+context is the main thing keeping it on rails.
+
+The warm-up finding in §5.4 is about *worktrees*, not about hoarding sessions: warm a
+fresh terminal with a probe turn, do not reuse a dirty one to avoid warming a clean one.
+
+Reuse only after Orca confirms the previous Dispatch settled — `worker_done` alone does
+not make a terminal reusable — and use the documented lifecycle commands
+(`worker-release`, `worker-retain`, follow-up dispatch, retry). If reuse is rejected or
+ambiguous, inspect the previous Dispatch rather than re-injecting.
 
 ### 5.7 Decision gate — two stages
 
@@ -317,29 +372,29 @@ No dependent unit unlocks before its upstream verdict is `accepted`.
 spec is wrong (rewrite it, restart the unit as a new Task) or the unit is not
 mechanical (do it yourself, note why in the ledger).
 
-### 5.8 Task close and **checkpoint & forget**
+### 5.8 Task close and **checkpoint &amp; forget**
 
 When every unit of the task is accepted:
 
 1. Tests/UI verification as their own scoped units, same REPORT contract. Trust a
-   green result only when the worker ran the specified command, the output matches
-   this worktree, and the dispatch settled normally. A failing test caused by a wrong
-   design escalates to you — never let a worker redesign to make a test pass.
+ green result only when the worker ran the specified command, the output matches
+ this worktree, and the dispatch settled normally. A failing test caused by a wrong
+ design escalates to you — never let a worker redesign to make a test pass.
 2. Mechanical unit: commit referencing the task id; backlog row → `✅ Done`.
 3. `docs/development/{task-id}-{slug}.md` **only** if the task produced a decision,
-   deviation, subtle edge case or reusable precedent. Routine implementation gets no doc.
+ deviation, subtle edge case or reusable precedent. Routine implementation gets no doc.
 4. Update the ledger: task status `done`, plus — and this is the part that makes the
-   block work — **any contract delta, precedent or gotcha the *next* tasks need, in
-   ≤10 lines.** Everything else about this task is now disposable.
+ block work — **any contract delta, precedent or gotcha the *next* tasks need, in
+ ≤10 lines.** Everything else about this task is now disposable.
 5. Then deliberately drop the task from your working memory. Do not re-read its diff,
-   its report or its row again. If a later task needs something from it, the ledger has
-   it; if the ledger does not have it, that is a ledger bug — fix the ledger, not your
-   memory.
+ its report or its row again. If a later task needs something from it, the ledger has
+ it; if the ledger does not have it, that is a ledger bug — fix the ledger, not your
+ memory.
 6. **Context check.** If you judge you are past roughly two thirds of your usable
-   context, stop here. Tell the user the block is checkpointed at task N and that a
-   fresh session running this same command with the same block id will resume from the
-   ledger. Do not start another task on fumes — a task abandoned mid-DAG costs more to
-   recover than it cost to run.
+ context, stop here. Tell the user the block is checkpointed at task N and that a
+ fresh session running this same command with the same block id will resume from the
+ ledger. Do not start another task on fumes — a task abandoned mid-DAG costs more to
+ recover than it cost to run.
 
 ### 5.9 Blocked tasks
 
@@ -355,14 +410,14 @@ guess your way past it.
 Only once every task is `done` or `blocked`:
 
 1. One mechanical unit: `pnpm lint:fix && pnpm format && pnpm check` (confirmation
-   only — each unit already passed its own check).
+ only — each unit already passed its own check).
 2. Review the cumulative diff yourself, restricted to the `SHARED` surfaces from
-   Phase 2 and to anything Stage 2 flagged. This is the review that catches what
-   per-task review structurally cannot: two tasks that each honoured the contract but
-   are inconsistent with each other.
+ Phase 2 and to anything Stage 2 flagged. This is the review that catches what
+ per-task review structurally cannot: two tasks that each honoured the contract but
+ are inconsistent with each other.
 3. Present to the user: tasks done, tasks blocked and why, decisions you made that the
-   KB did not settle, contract deltas that outlive the block, and the proposed merge.
-   **The merge into `develop` is the user's call, not yours.**
+ KB did not settle, contract deltas that outlive the block, and the proposed merge.
+ **The merge into `develop` is the user's call, not yours.**
 4. Delete the ledger only after the user confirms.
 
 ---
@@ -389,7 +444,9 @@ run_id: | branch: | worktree(s): | started:
 ## Open questions for the user
 ## Units (current task only)
 | id | scope | deps | task_id | dispatch_id | mode | status | verdict |
-(mode: supervised | degraded — record why, and whether the worktree was fresh)
+(mode: supervised | degraded — record why, and whether the worktree was fresh.
+ An empty dispatch_id with no recorded supervised failure is an orchestrator error.)
+ Batched units share one dispatch_id; keep one row per unit anyway.
 ## Terminal health
 <worktree -> warm/settled terminal handle, degradations so far>
 ```
@@ -400,23 +457,26 @@ Prune the `Units` table when a task closes; it is scratch space, not history.
 
 ## Invariants
 
-0. Both Orca skills are loaded before the first dispatch of every session, and they —
-   not this prompt — define command names, flags, lifecycle states and completion
-   semantics.
-1. Worker output that reaches your eyes is always bounded and formatted by contract.
-2. A worker never resolves KB ambiguity, never picks between valid interpretations of a
-   golden rule, never widens its own scope. Uncertainty escalates to you.
-3. Frozen contracts are changed by you in the ledger, never by a worker in a diff.
-4. Never start a dependent unit or task before its upstream verdict is `accepted`.
-5. Never blindly re-send an injected prompt; verify, then submit separately.
+1. Both Orca skills are loaded before the first dispatch of every session, and they —
+ not this prompt — define command names, flags, lifecycle states and completion
+ semantics.
+2. Worker output that reaches your eyes is always bounded and formatted by contract.
+3. A worker never resolves KB ambiguity, never picks between valid interpretations of a
+ golden rule, never widens its own scope. Uncertainty escalates to you.
+4. Frozen contracts are changed by you in the ledger, never by a worker in a diff.
+5. Never start a dependent unit or task before its upstream verdict is `accepted`.
+6. Never blindly re-send an injected prompt; verify, then submit separately.
+5a. Supervised injection is always attempted before any `terminal send`. An empty
+ `dispatch_id` in the ledger means the unit was degraded — if it was degraded without
+ a failed supervised attempt recorded above it, that is a bug in your own procedure.
 5b. Supervised completion (`worker_done`) and sentinel completion are mutually
-   exclusive. A manually dispatched worker never uses `worker_done`; a supervised
-   worker never uses a sentinel unless explicitly degraded.
+ exclusive. A manually dispatched worker never uses `worker_done`; a supervised
+ worker never uses a sentinel unless explicitly degraded.
 5c. Never poll a sentinel by substring; require ≥2 occurrences.
-6. Never leave an orphaned Dispatch appearing active after a degraded dispatch.
-7. Never poll for completion with a background Bash loop. Every wait is bounded, and
-   the death of a monitor is not the failure of a task.
-8. Two corrective dispatches per unit, then re-spec or self-implement.
-9. One blocked task never halts the block.
-10. The ledger is updated before you move on, always.
+7. Never leave an orphaned Dispatch appearing active after a degraded dispatch.
+8. Never poll for completion with a background Bash loop. Every wait is bounded, and
+ the death of a monitor is not the failure of a task.
+9. Two corrective dispatches per unit, then re-spec or self-implement.
+10. One blocked task never halts the block.
+11. The ledger is updated before you move on, always.
 
