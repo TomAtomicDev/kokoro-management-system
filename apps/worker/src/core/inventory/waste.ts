@@ -1,61 +1,94 @@
-// Read query against `v_waste` (KOK-018, Doc 04 §4, Doc 03 §3's "the invisible cost" reporting
-// surface). Like `v_stock`/`v_kardex` (queries.ts), `v_waste` is defined only in
-// apps/worker/migrations/0001_init.sql — a partial aggregation Drizzle's SQLite dialect has no
-// table binding for — so this queries it via `db.all(sql\`...\`)` and hand-maps the raw
-// snake_case rows into `WasteSummaryRowDto` (packages/shared/src/exits.ts), mirroring queries.ts's
-// exact technique.
+// Read query for `v_waste`'s reporting shape (KOK-018, Doc 04 §4, Doc 03 §3's "the invisible"
+// cost surface). The view is month-based for broad reports, but this screen accepts arbitrary day
+// ranges, so this query applies the boundaries to stock_exits before the same projection.
 //
 // Kept in its own file, separate from exits.ts (the WRITE command module for `stock_exits`) —
 // same read/write split as queries.ts vs movements.ts. READ-ONLY: no commands, no db.batch().
 
 import type {
+  Centavos,
   ListWasteSummaryFilters,
   ListWasteSummaryResult,
   StockExitReason,
+} from "@kokoro/shared";
+import {
+  addMoney,
+  toCentavos,
+  toMilliCentavosPerUnit,
+  toMilliUnits,
+  totalCentavos,
 } from "@kokoro/shared";
 import { type SQL, sql } from "drizzle-orm";
 
 import type { Db } from "../../db/index.js";
 
-/** Raw `v_waste` row shape (snake_case, exactly the view's SELECT list — Doc 04 §4). */
-interface WasteViewRow {
+/** Raw stock-exit row shape (snake_case, matching the persisted column names). */
+interface RawWasteRow {
+  business_date: string;
+  reason: StockExitReason;
+  qty: number;
+  unit_cost_snapshot_mc: number;
+}
+
+interface WasteGroup {
   month: string;
   reason: StockExitReason;
-  exit_count: number;
-  total_cost: number;
+  exitCount: number;
+  totalCost: Centavos;
 }
 
 /**
  * Doc 03 §3's "what's costing me the most lately" read: most-recent-month first, and within a
- * month, the reason bucket with the largest total_cost first. `fromDate`/`toDate` filter on the
- * view's `month` column (YYYY-MM) using their own YYYY-MM-DD business-date filters truncated to
- * the month boundary — a caller passing a `YYYY-MM-DD` string still compares correctly against
- * `month` because `'YYYY-MM' <= 'YYYY-MM-DD'[0..7]` lexicographic comparison holds for the shared
- * prefix, so this just compares the two strings' shared `YYYY-MM` prefix directly.
+ * month, the reason bucket with the largest total_cost first. Date filters apply to raw
+ * `business_date` rows before this month/reason projection, so partial-month ranges are exact.
  */
 export async function listWasteSummary(
   db: Db,
   filters: ListWasteSummaryFilters = {},
 ): Promise<ListWasteSummaryResult> {
-  const conditions: SQL[] = [];
-  if (filters.fromDate) conditions.push(sql`month >= ${filters.fromDate.slice(0, 7)}`);
-  if (filters.toDate) conditions.push(sql`month <= ${filters.toDate.slice(0, 7)}`);
+  const conditions: SQL[] = [sql`deleted_at IS NULL`];
+  if (filters.fromDate) conditions.push(sql`business_date >= ${filters.fromDate}`);
+  if (filters.toDate) conditions.push(sql`business_date <= ${filters.toDate}`);
 
-  const whereClause =
-    conditions.length > 0 ? sql`WHERE ${sql.join(conditions, sql` AND `)}` : sql``;
+  const whereClause = sql`WHERE ${sql.join(conditions, sql` AND `)}`;
 
-  const rows = await db.all<WasteViewRow>(sql`
-    SELECT * FROM v_waste
+  const rows = await db.all<RawWasteRow>(sql`
+    SELECT
+      business_date,
+      reason,
+      qty,
+      unit_cost_snapshot_mc
+    FROM stock_exits
     ${whereClause}
-    ORDER BY month DESC, total_cost DESC
   `);
 
-  return {
-    summary: rows.map((row) => ({
-      month: row.month,
-      reason: row.reason,
-      exitCount: row.exit_count,
-      totalCost: row.total_cost,
-    })),
-  };
+  const groups = new Map<string, WasteGroup>();
+  for (const row of rows) {
+    const month = row.business_date.slice(0, 7);
+    const key = `${month}:${row.reason}`;
+    const rowCost = totalCentavos(
+      toMilliCentavosPerUnit(row.unit_cost_snapshot_mc),
+      toMilliUnits(row.qty),
+    );
+    const group = groups.get(key);
+    if (group) {
+      group.exitCount += 1;
+      group.totalCost = addMoney(group.totalCost, rowCost);
+    } else {
+      groups.set(key, {
+        month,
+        reason: row.reason,
+        exitCount: 1,
+        totalCost: addMoney(toCentavos(0), rowCost),
+      });
+    }
+  }
+
+  const summary = [...groups.values()].sort((left, right) => {
+    if (left.month !== right.month) return left.month > right.month ? -1 : 1;
+    if (left.totalCost === right.totalCost) return 0;
+    return left.totalCost > right.totalCost ? -1 : 1;
+  });
+
+  return { summary };
 }

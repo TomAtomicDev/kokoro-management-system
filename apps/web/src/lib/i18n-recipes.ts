@@ -3,7 +3,17 @@
 // TODO: migrate into packages/shared/i18n/es.ts once that module exists (KOK-006+), same as
 // i18n-purchases.ts / i18n-catalog.ts.
 
-import type { Unit } from "@kokoro/shared";
+import type { QtyDisplayUnit } from "@kokoro/shared";
+
+export const qtyDisplayUnitLabels = {
+  G: "Gramos (g)",
+  KG: "Kilogramos (kg)",
+  ML: "Mililitros (ml)",
+  L: "Litros (L)",
+  CM: "Centímetros (cm)",
+  M: "Metros (m)",
+  UNIT: "Unidad (u)",
+} satisfies Record<QtyDisplayUnit, string>;
 
 export const recipesLabels = {
   title: "Recetas",
@@ -34,12 +44,13 @@ export const recipesLabels = {
   fieldLaborMin: "Tiempo estimado (min)",
   laborMinPlaceholder: "Opcional",
   fieldDefault: "Receta predeterminada para este ítem",
-  fieldNotes: "Notas",
+  fieldNotes: "Preparación",
   notesPlaceholder: "Opcional",
 
   linesTitle: "Ingredientes",
   lineItem: "Ingrediente",
   lineQty: "Cantidad",
+  unit: "Unidad",
   addLine: "Agregar ingrediente",
   removeLine: "Quitar ingrediente",
   lineContribution: "Aporte al costo",
@@ -64,18 +75,10 @@ export const recipesLabels = {
   deactivate: "Desactivar",
   reactivate: "Reactivar",
 
-  /** Abbreviation for the "/ kg" style suffix — mirrors purchasesLabels.unitAbbrev. */
-  unitAbbrev: {
-    G: "g",
-    KG: "kg",
-    ML: "ml",
-    L: "l",
-    UNIT: "u",
-  } satisfies Record<Unit, string>,
-
   errors: {
     generic: "Ocurrió un error inesperado. Intenta de nuevo.",
     invalidLine: "Cada ingrediente necesita un ítem y una cantidad válida.",
+    invalidQtyUnit: "Revisa la cantidad y la unidad seleccionada.",
     outputItemRequired: "Selecciona el ítem de salida.",
     yieldRequired: "Ingresa un rendimiento esperado válido (mayor a cero).",
   },

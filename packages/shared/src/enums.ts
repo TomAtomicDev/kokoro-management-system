@@ -7,22 +7,25 @@
 import { z } from "zod";
 
 // --- items ---------------------------------------------------------------
-export const ITEM_KINDS = ["RAW_MATERIAL", "SEMI_FINISHED", "FINISHED"] as const;
+// PACKAGING is a kind, not a category: stocked like RAW_MATERIAL but never a recipe input,
+// consumed only as a second sale_line alongside the FINISHED line at sale time (Doc 03 §3).
+export const ITEM_KINDS = ["RAW_MATERIAL", "SEMI_FINISHED", "FINISHED", "PACKAGING"] as const;
 export type ItemKind = (typeof ITEM_KINDS)[number];
 export const itemKindSchema = z.enum(ITEM_KINDS);
 
+// NOT_EATABLE covers non-food raw materials (labels, tape, cleaning supplies) — Doc 03 §3.
 export const ITEM_CATEGORIES = [
   "INGREDIENT",
-  "PACKAGING",
-  "LABEL",
+  "NOT_EATABLE",
   "BAKERY",
   "DAIRY",
+  "PASTRY",
   "OTHER",
 ] as const;
 export type ItemCategory = (typeof ITEM_CATEGORIES)[number];
 export const itemCategorySchema = z.enum(ITEM_CATEGORIES);
 
-export const UNITS = ["G", "KG", "ML", "L", "UNIT"] as const;
+export const UNITS = ["KG", "L", "M", "UNIT"] as const;
 export type Unit = (typeof UNITS)[number];
 export const unitSchema = z.enum(UNITS);
 
@@ -89,6 +92,9 @@ export const STOCK_MOVEMENT_TYPES = [
   "SALE_OUT",
   "EXIT_OUT",
   "ADJUST",
+  "OPENING_IN",
+  "ASSEMBLY_IN",
+  "ASSEMBLY_OUT",
 ] as const;
 export type StockMovementType = (typeof STOCK_MOVEMENT_TYPES)[number];
 export const stockMovementTypeSchema = z.enum(STOCK_MOVEMENT_TYPES);
@@ -97,6 +103,29 @@ export const stockMovementTypeSchema = z.enum(STOCK_MOVEMENT_TYPES);
 export const FINANCIAL_ACCOUNT_TYPES = ["BANK", "CASH"] as const;
 export type FinancialAccountType = (typeof FINANCIAL_ACCOUNT_TYPES)[number];
 export const financialAccountTypeSchema = z.enum(FINANCIAL_ACCOUNT_TYPES);
+
+/** The only valid account for each payment method (Doc 03 A-12). */
+export const PAYMENT_METHOD_ACCOUNT_TYPES: Readonly<Record<PaymentMethod, FinancialAccountType>> = {
+  CASH: "CASH",
+  BANK_QR: "BANK",
+};
+
+export function isPaymentMethodAccountTypePair(
+  paymentMethod: PaymentMethod,
+  accountType: FinancialAccountType,
+): boolean {
+  return PAYMENT_METHOD_ACCOUNT_TYPES[paymentMethod] === accountType;
+}
+
+export function paymentMethodForAccountType(accountType: FinancialAccountType): PaymentMethod {
+  const paymentMethod = PAYMENT_METHODS.find(
+    (method) => PAYMENT_METHOD_ACCOUNT_TYPES[method] === accountType,
+  );
+  if (!paymentMethod) {
+    throw new Error(`No hay un método de pago para el tipo de cuenta ${accountType}.`);
+  }
+  return paymentMethod;
+}
 
 // --- financial_transactions ---------------------------------------------
 export const FINANCIAL_TRANSACTION_TYPES = [

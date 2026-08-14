@@ -27,7 +27,7 @@ here. If a rule is missing, the KB must be amended first (see [08 — AI Develop
 | 09 | [Technical Roadmap](09-technical-roadmap.md) | Phases, milestones, dependencies |
 | 10 | [Implementation Backlog](10-implementation-backlog.md) | Prioritized tasks (UI, backend, AI, infra, deployment) |
 | 11 | [Testing Strategy](11-testing-strategy.md) | Unit, integration, E2E, AI evals, acceptance criteria |
-| 12 | [Architecture Decision Records](12-architecture-decision-records.md) | ADR-001 … ADR-014 |
+| 12 | [Architecture Decision Records](12-architecture-decision-records.md) | ADR-001 … ADR-021 |
 | 13 | [Project Glossary](13-project-glossary.md) | Official terminology (EN ↔ ES) |
 
 ## How to read this KB
@@ -43,6 +43,18 @@ here. If a rule is missing, the KB must be amended first (see [08 — AI Develop
   manual) is the source of truth for the design language, not [06 — UX/UI Specification](06-ux-ui-specification.md)
   §3 alone — that section summarizes their outcome and defers to them. Start there before
   inventing a color, a font choice, or a spacing value.
+
+## Decisions taken after the baseline
+
+Rules decided with the owner after this KB's 1.0 baseline are folded into the documents above and
+tagged with the phase and task that will implement them. Where a rule is **decided but not yet
+built**, it says so inline — read it as the target the code is moving toward, not as a description
+of what ships today; Doc 10's status column is the authority on what exists.
+
+The largest such set is the **user-test-1 review (2026-08-11)**, whose full record — including what
+was rejected and why, which is not repeated in the KB — lives at
+[`docs/development/acuerdos-prueba-usuario-1.md`](../development/acuerdos-prueba-usuario-1.md). It
+governs Doc 10's Phase 3.2 and introduced ADR-018…ADR-021.
 
 ## Normative language
 

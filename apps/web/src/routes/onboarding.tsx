@@ -5,6 +5,8 @@
 // own form state and mutations (see components/onboarding/Step*.tsx).
 
 import type { ItemDto } from "@kokoro/shared";
+import { Link } from "@tanstack/react-router";
+import { ChevronLeft } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { StepBalances } from "@/components/onboarding/StepBalances";
@@ -13,33 +15,96 @@ import { StepCount } from "@/components/onboarding/StepCount";
 import { StepPassword } from "@/components/onboarding/StepPassword";
 import { Stepper } from "@/components/onboarding/Stepper";
 import { StepRecipes } from "@/components/onboarding/StepRecipes";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { useItemsQuery } from "@/features/catalog/api";
+import { useOnboardingStatus } from "@/features/onboarding/api";
 import { onboardingLabels } from "@/lib/i18n-onboarding";
 
 const STEP_COUNT = 5;
 
 export function OnboardingRoute() {
+  const statusQuery = useOnboardingStatus();
   const [currentStep, setCurrentStep] = useState(1);
+  const [maxReachedStep, setMaxReachedStep] = useState(1);
+  const [committedSteps, setCommittedSteps] = useState<Set<number>>(() => new Set());
 
-  // Only step 5 (the count checklist) needs the item name/unit lookup — fetched here so it's
-  // ready by the time the owner reaches that step, mirroring routes/inventory.tsx's itemLookup.
+  // Steps 4 and 5 need the catalog item list — step 4 resolves starter recipe names and step 5
+  // needs the item name/unit lookup, fetched here so both are ready when reached.
   const itemsQuery = useItemsQuery({});
   const itemLookup = useMemo(() => {
-    const map = new Map<string, { name: string; unit: ItemDto["unit"] }>();
+    const map = new Map<string, { name: string; unit: ItemDto["unit"]; kind: ItemDto["kind"] }>();
     for (const item of itemsQuery.data?.items ?? []) {
-      map.set(item.id, { name: item.name, unit: item.unit });
+      map.set(item.id, { name: item.name, unit: item.unit, kind: item.kind });
     }
     return map;
   }, [itemsQuery.data]);
 
-  const completedSteps = Array.from({ length: currentStep - 1 }, (_, i) => i + 1);
-
-  function goToStep(step: number) {
-    setCurrentStep(Math.min(step, STEP_COUNT));
+  if (statusQuery.isLoading) {
+    return (
+      <div className="mx-auto flex max-w-2xl flex-col gap-6">
+        <div className="rounded-lg border border-border bg-card p-5">
+          <p className="text-muted-foreground text-sm">{onboardingLabels.loading}</p>
+        </div>
+      </div>
+    );
   }
 
+  if (statusQuery.data?.completed) {
+    return (
+      <div className="mx-auto flex max-w-2xl flex-col gap-6">
+        <div className="rounded-lg border border-border bg-card p-5">
+          <div className="flex flex-col gap-4">
+            <div>
+              <h1 className="font-semibold text-2xl text-foreground">
+                {onboardingLabels.completedTitle}
+              </h1>
+              <p className="text-muted-foreground text-sm">{onboardingLabels.completedBody}</p>
+            </div>
+            <div>
+              <Link to="/" className={buttonVariants()}>
+                {onboardingLabels.goToPanel}
+              </Link>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (statusQuery.isError || !statusQuery.data) {
+    return (
+      <div className="mx-auto flex max-w-2xl flex-col gap-6">
+        <div className="rounded-lg border border-border bg-card p-5">
+          <p className="text-negative text-sm">{onboardingLabels.errors.generic}</p>
+        </div>
+      </div>
+    );
+  }
+
+  const reachedSteps = Array.from({ length: maxReachedStep }, (_, i) => i + 1);
+  const completedSteps = Array.from(committedSteps).filter((step) => step !== currentStep);
+
+  function goToStep(step: number) {
+    const nextStep = Math.max(1, Math.min(step, STEP_COUNT));
+    setCurrentStep(nextStep);
+    setMaxReachedStep((previous) => Math.max(previous, nextStep));
+  }
+
+  function commitStepAndGoTo(step: number, committedStep: number) {
+    setCommittedSteps((previous) => {
+      const next = new Set(previous);
+      next.add(committedStep);
+      return next;
+    });
+    goToStep(step);
+  }
+
+  const catalogCommitted = committedSteps.has(3);
+  const isReviewingCommittedStep = committedSteps.has(currentStep);
+  const shellWidth = currentStep === 3 ? "max-w-6xl" : "max-w-2xl";
+
   return (
-    <div className="mx-auto flex max-w-2xl flex-col gap-6">
+    <div className={`mx-auto flex w-full ${shellWidth} flex-col gap-6`}>
       <div>
         <h1 className="font-semibold text-2xl text-foreground">{onboardingLabels.title}</h1>
         <p className="text-muted-foreground text-sm">{onboardingLabels.subtitle}</p>
@@ -48,20 +113,47 @@ export function OnboardingRoute() {
       <Stepper
         currentStep={currentStep}
         completedSteps={completedSteps}
+        reachedSteps={reachedSteps}
         stepLabels={onboardingLabels.stepLabels}
+        onStepClick={goToStep}
       />
 
-      <div className="rounded-lg border border-border bg-card p-5">
+      <div className="relative rounded-lg border border-border bg-card p-5">
+        {currentStep > 1 ? (
+          <Button
+            className="absolute bottom-5 left-5"
+            type="button"
+            variant="outline"
+            size="icon"
+            onClick={() => goToStep(currentStep - 1)}
+            aria-label={onboardingLabels.backButton}
+            title={onboardingLabels.backButton}
+          >
+            <ChevronLeft />
+          </Button>
+        ) : null}
         {currentStep === 1 ? (
           <StepPassword onContinue={() => goToStep(2)} />
         ) : currentStep === 2 ? (
-          <StepBalances onDone={() => goToStep(3)} onSkip={() => goToStep(3)} />
+          <StepBalances
+            onDone={() => commitStepAndGoTo(3, 2)}
+            onSkip={() => goToStep(3)}
+            readOnly={isReviewingCommittedStep}
+          />
         ) : currentStep === 3 ? (
-          <StepCatalog onDone={() => goToStep(4)} onSkip={() => goToStep(4)} />
+          <StepCatalog
+            onDone={() => commitStepAndGoTo(4, 3)}
+            onSkip={() => goToStep(4)}
+            readOnly={isReviewingCommittedStep}
+          />
         ) : currentStep === 4 ? (
-          <StepRecipes onContinue={() => goToStep(5)} />
+          <StepRecipes
+            items={itemsQuery.data?.items ?? []}
+            catalogCommitted={catalogCommitted}
+            onContinue={() => goToStep(5)}
+          />
         ) : (
-          <StepCount items={itemLookup} />
+          <StepCount items={itemLookup} catalogCommitted={catalogCommitted} />
         )}
       </div>
     </div>

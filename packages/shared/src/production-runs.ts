@@ -24,8 +24,9 @@
 // header for the exact C-4 arithmetic this schema's fields feed.
 
 import { z } from "zod";
-
 import { confirmFlagSchema } from "./costing.js";
+import { businessDateSchema, occurredAtSchema } from "./dates.js";
+import { safeText } from "./text.js";
 
 /** Milli-units of the item's own stored unit (Doc 04 §2), matching qty.ts's representation.
  * Always positive — a production consumption line removes stock, it never adds it (the OUTPUT
@@ -52,15 +53,6 @@ const indirectCostSchema = z
   .nonnegative("El costo indirecto debe ser un entero no negativo (centavos).")
   .optional()
   .default(0);
-/** `YYYY-MM-DD`, America/La_Paz local calendar date (Doc 04 §1, INV-3). */
-const businessDateSchema = z
-  .string()
-  .regex(/^\d{4}-\d{2}-\d{2}$/, "La fecha debe tener el formato AAAA-MM-DD.");
-/** UTC ISO-8601 instant (Doc 04 §1). */
-const occurredAtSchema = z
-  .string()
-  .datetime({ offset: true, message: "occurredAt debe ser una fecha ISO-8601." });
-
 export const productionLineCommandSchema = z.object({
   itemId: z.string().min(1),
   qty: lineQtySchema,
@@ -77,7 +69,7 @@ export const recordProductionRunCommandSchema = z.object({
   batches: batchesSchema,
   actualOutputQty: actualOutputQtySchema,
   indirectCost: indirectCostSchema,
-  notes: z.string().trim().max(2000).optional(),
+  notes: z.string().trim().pipe(safeText(2000)).optional(),
   occurredAt: occurredAtSchema,
   businessDate: businessDateSchema,
   lines: z.array(productionLineCommandSchema).min(1, "Se requiere al menos un insumo consumido."),

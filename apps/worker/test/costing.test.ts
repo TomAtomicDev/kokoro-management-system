@@ -175,6 +175,14 @@ describe("recomputeWacFromMovements (R-2)", () => {
     expect(recomputeWacFromMovements(movements)).toBe(400);
   });
 
+  it("OPENING_IN is a WAC entry and uses its caller-supplied cost", () => {
+    const movements: ReplayMovement[] = [
+      { type: "OPENING_IN", qty: 1000, unitCostMc: mc(275) },
+      { type: "PURCHASE_IN", qty: 1000, unitCostMc: mc(525) },
+    ];
+    expect(recomputeWacFromMovements(movements)).toBe(400);
+  });
+
   it("empty history returns wac=0", () => {
     expect(recomputeWacFromMovements([])).toBe(0);
   });
@@ -344,6 +352,7 @@ describe("property: WAC stays bounded by the entry unit costs used to compute it
     // entryUnitCost, by definition), so the result never leaves that range either. It can, however,
     // legitimately fall below min(entry costs) when phantom pre-purchase ADJUST weight is present.
     const movementArb = fc.oneof(
+      entryArb.map((e) => ({ type: "OPENING_IN" as const, qty: e.qty, unitCostMc: e.unitCost })),
       entryArb.map((e) => ({ type: "PURCHASE_IN" as const, qty: e.qty, unitCostMc: e.unitCost })),
       fc
         .integer({ min: 1, max: 500_000 })
@@ -358,17 +367,32 @@ describe("property: WAC stays bounded by the entry unit costs used to compute it
       fc.property(
         fc.array(movementArb, { minLength: 1, maxLength: 60 }).filter((movements) =>
           // At least one entry must exist, else max over entry costs is undefined.
-          movements.some((m) => m.type === "PURCHASE_IN"),
+          movements.some((m) => m.type === "PURCHASE_IN" || m.type === "OPENING_IN"),
         ),
         (movements) => {
           const wac = recomputeWacFromMovements(movements);
           const entryCosts = movements
-            .filter((m) => m.type === "PURCHASE_IN")
+            .filter((m) => m.type === "PURCHASE_IN" || m.type === "OPENING_IN")
             .map((m) => m.unitCostMc);
           const max = Math.max(...entryCosts);
           // integers throughout, no epsilon needed (see the property above).
           expect(wac).toBeGreaterThanOrEqual(0);
           expect(wac).toBeLessThanOrEqual(max);
+        },
+      ),
+    );
+  });
+
+  it("∀ positive opening quantities and costs: a first OPENING_IN sets WAC exactly to its cost", () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 1, max: 1_000_000 }),
+        fc.integer({ min: 1, max: 100_000 }).map(mc),
+        (qty, unitCostMc) => {
+          const final = replayWacFrom({ onHand: 0, wac: mc(0) }, [
+            { type: "OPENING_IN", qty, unitCostMc },
+          ]);
+          expect(final).toEqual({ onHand: qty, wac: unitCostMc });
         },
       ),
     );

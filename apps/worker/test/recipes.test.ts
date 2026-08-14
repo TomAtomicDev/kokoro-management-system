@@ -59,6 +59,7 @@ async function createIngredientItem(
     .set({
       wacMc: rateFromTotal(toCentavos(wac), toMilliUnits(1)),
       replacementCostMc: rateFromTotal(toCentavos(replacementCostMc), toMilliUnits(1)),
+      replacementCostUpdatedAt: replacementCostMc === 0 ? null : "2026-08-07T00:00:00.000Z",
     })
     .where(eq(items.id, item.id));
   return item;
@@ -114,6 +115,32 @@ describe("recordRecipe", () => {
     expect(auditRow).toMatchObject({ actor: ACTOR, entityType: "recipe" });
   });
 
+  it("uses opening-balance WAC for live replacement cost before the first purchase", async () => {
+    const db = createDb(env.DB);
+    const output = await createOutputItem(db, 8_000_000);
+    const flour = await createIngredientItem(db, 10, 0);
+
+    const result = await recordRecipe(
+      db,
+      {
+        name: `Receta WAC inicial ${crypto.randomUUID()}`,
+        outputItemId: output.id,
+        expectedYieldQty: 1000,
+        estLaborMin: null,
+        isDefault: true,
+        notes: null,
+        lines: [{ itemId: flour.id, qty: 1000 }],
+      },
+      ACTOR,
+    );
+
+    expect(result.recipe.theoreticalCostReplacement.costPerOutputUnit).toBe(10_000);
+    expect(result.recipe.theoreticalCostReplacement.margin).toEqual({
+      amount: -2000,
+      pctBasisPoints: -2500,
+    });
+  });
+
   it("rejects an output item of kind RAW_MATERIAL with VALIDATION", async () => {
     const db = createDb(env.DB);
     const rawOutput = await createIngredientItem(db, 0, 0);
@@ -123,13 +150,77 @@ describe("recordRecipe", () => {
       recordRecipe(
         db,
         {
-          name: "Receta invÃ¡lida",
+          name: "Receta inválida",
           outputItemId: rawOutput.id,
           expectedYieldQty: 1000,
           estLaborMin: null,
           isDefault: false,
           notes: null,
           lines: [{ itemId: flour.id, qty: 100 }],
+        },
+        ACTOR,
+      ),
+    ).rejects.toMatchObject({ code: "VALIDATION" });
+  });
+
+  it("rejects an output item of kind PACKAGING with VALIDATION (Doc 03 §3, PACKAGING is never a recipe output)", async () => {
+    const db = createDb(env.DB);
+    const packagingOutput = await createItem(
+      db,
+      {
+        name: `Bolsa ${crypto.randomUUID()}`,
+        kind: "PACKAGING",
+        category: "NOT_EATABLE",
+        unit: "UNIT",
+        minStockQty: 0,
+      },
+      ACTOR,
+    );
+    const flour = await createIngredientItem(db, 5, 5);
+
+    await expect(
+      recordRecipe(
+        db,
+        {
+          name: "Receta inválida",
+          outputItemId: packagingOutput.id,
+          expectedYieldQty: 1000,
+          estLaborMin: null,
+          isDefault: false,
+          notes: null,
+          lines: [{ itemId: flour.id, qty: 100 }],
+        },
+        ACTOR,
+      ),
+    ).rejects.toMatchObject({ code: "VALIDATION" });
+  });
+
+  it("rejects a line item of kind PACKAGING with VALIDATION (Doc 03 §3, PACKAGING is never a recipe input)", async () => {
+    const db = createDb(env.DB);
+    const output = await createOutputItem(db);
+    const packagingLine = await createItem(
+      db,
+      {
+        name: `Caja ${crypto.randomUUID()}`,
+        kind: "PACKAGING",
+        category: "NOT_EATABLE",
+        unit: "UNIT",
+        minStockQty: 0,
+      },
+      ACTOR,
+    );
+
+    await expect(
+      recordRecipe(
+        db,
+        {
+          name: "Receta inválida",
+          outputItemId: output.id,
+          expectedYieldQty: 1000,
+          estLaborMin: null,
+          isDefault: false,
+          notes: null,
+          lines: [{ itemId: packagingLine.id, qty: 100 }],
         },
         ACTOR,
       ),
@@ -149,13 +240,42 @@ describe("recordRecipe", () => {
       recordRecipe(
         db,
         {
-          name: "Receta invÃ¡lida",
+          name: "Receta inválida",
           outputItemId: output.id,
           expectedYieldQty: 1000,
           estLaborMin: null,
           isDefault: false,
           notes: null,
           lines: [{ itemId: finishedLine.id, qty: 100 }],
+        },
+        ACTOR,
+      ),
+    ).rejects.toMatchObject({ code: "VALIDATION" });
+  });
+
+  it("rejects a line item that is the recipe's own output item with VALIDATION", async () => {
+    const db = createDb(env.DB);
+    // SEMI_FINISHED is a legal output kind AND a legal ingredient kind, so nothing about the
+    // per-line kind check (above) would catch a starter feeding itself — this is the KOK-029
+    // staging incident: a sourdough-starter recipe listing the starter as its own ingredient
+    // makes the C-3 recipe graph cyclical, silently zeroing replacement_cost_mc catalog-wide.
+    const starter = await createIngredientItem(db, 5, 5, "SEMI_FINISHED");
+    const flour = await createIngredientItem(db, 5, 5);
+
+    await expect(
+      recordRecipe(
+        db,
+        {
+          name: "Alimentar la masa madre",
+          outputItemId: starter.id,
+          expectedYieldQty: 1000,
+          estLaborMin: null,
+          isDefault: false,
+          notes: null,
+          lines: [
+            { itemId: starter.id, qty: 100 },
+            { itemId: flour.id, qty: 100 },
+          ],
         },
         ACTOR,
       ),
@@ -202,6 +322,78 @@ describe("recordRecipe", () => {
       where: (t, { eq: eqOp }) => eqOp(t.id, first.recipe.id),
     });
     expect(firstRow?.isDefault).toBe(0);
+  });
+
+  it("rejects a duplicate active recipe name with CONFLICT (KOK-025 KB amendment, ux_recipes_name)", async () => {
+    const db = createDb(env.DB);
+    const output = await createOutputItem(db);
+    const flour = await createIngredientItem(db, 5, 5);
+
+    await recordRecipe(
+      db,
+      {
+        name: "Alimentar masa madre",
+        outputItemId: output.id,
+        expectedYieldQty: 1000,
+        estLaborMin: null,
+        isDefault: false,
+        notes: null,
+        lines: [{ itemId: flour.id, qty: 100 }],
+      },
+      ACTOR,
+    );
+
+    await expect(
+      recordRecipe(
+        db,
+        {
+          name: "Alimentar masa madre",
+          outputItemId: output.id,
+          expectedYieldQty: 2000,
+          estLaborMin: null,
+          isDefault: false,
+          notes: null,
+          lines: [{ itemId: flour.id, qty: 200 }],
+        },
+        ACTOR,
+      ),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+  });
+
+  it("allows reusing a name once the original recipe is deactivated (ux_recipes_name is active-only)", async () => {
+    const db = createDb(env.DB);
+    const output = await createOutputItem(db);
+    const flour = await createIngredientItem(db, 5, 5);
+
+    const original = await recordRecipe(
+      db,
+      {
+        name: "Receta reciclable",
+        outputItemId: output.id,
+        expectedYieldQty: 1000,
+        estLaborMin: null,
+        isDefault: false,
+        notes: null,
+        lines: [{ itemId: flour.id, qty: 100 }],
+      },
+      ACTOR,
+    );
+    await setRecipeActive(db, { id: original.recipe.id, isActive: false }, ACTOR);
+
+    const reused = await recordRecipe(
+      db,
+      {
+        name: "Receta reciclable",
+        outputItemId: output.id,
+        expectedYieldQty: 1000,
+        estLaborMin: null,
+        isDefault: false,
+        notes: null,
+        lines: [{ itemId: flour.id, qty: 100 }],
+      },
+      ACTOR,
+    );
+    expect(reused.recipe.name).toBe("Receta reciclable");
   });
 });
 
@@ -278,6 +470,135 @@ describe("updateRecipe", () => {
         ACTOR,
       ),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  it("rejects editing a line item to be the recipe's own output item with VALIDATION", async () => {
+    const db = createDb(env.DB);
+    const starter = await createIngredientItem(db, 5, 5, "SEMI_FINISHED");
+    const flour = await createIngredientItem(db, 5, 5);
+
+    const created = await recordRecipe(
+      db,
+      {
+        name: "Alimentar la masa madre",
+        outputItemId: starter.id,
+        expectedYieldQty: 1000,
+        estLaborMin: null,
+        isDefault: false,
+        notes: null,
+        lines: [{ itemId: flour.id, qty: 100 }],
+      },
+      ACTOR,
+    );
+
+    await expect(
+      updateRecipe(
+        db,
+        created.recipe.id,
+        {
+          name: "Alimentar la masa madre",
+          outputItemId: starter.id,
+          expectedYieldQty: 1000,
+          estLaborMin: null,
+          isDefault: false,
+          notes: null,
+          lines: [
+            { itemId: starter.id, qty: 100 },
+            { itemId: flour.id, qty: 100 },
+          ],
+        },
+        ACTOR,
+      ),
+    ).rejects.toMatchObject({ code: "VALIDATION" });
+  });
+
+  it("rejects renaming into another active recipe's name with CONFLICT", async () => {
+    const db = createDb(env.DB);
+    const output = await createOutputItem(db);
+    const flour = await createIngredientItem(db, 5, 5);
+
+    // Distinct from the recordRecipe describe block's "Receta A"/"Receta B" fixtures above â€”
+    // this test file's D1 storage persists across `it()`s, so recipe names must stay unique
+    // file-wide now that ux_recipes_name is enforced.
+    await recordRecipe(
+      db,
+      {
+        name: "Receta única A",
+        outputItemId: output.id,
+        expectedYieldQty: 1000,
+        estLaborMin: null,
+        isDefault: false,
+        notes: null,
+        lines: [{ itemId: flour.id, qty: 100 }],
+      },
+      ACTOR,
+    );
+    const recipeB = await recordRecipe(
+      db,
+      {
+        name: "Receta única B",
+        outputItemId: output.id,
+        expectedYieldQty: 1000,
+        estLaborMin: null,
+        isDefault: false,
+        notes: null,
+        lines: [{ itemId: flour.id, qty: 100 }],
+      },
+      ACTOR,
+    );
+
+    await expect(
+      updateRecipe(
+        db,
+        recipeB.recipe.id,
+        {
+          name: "Receta única A",
+          outputItemId: output.id,
+          expectedYieldQty: 1000,
+          estLaborMin: null,
+          isDefault: false,
+          notes: null,
+          lines: [{ itemId: flour.id, qty: 100 }],
+        },
+        ACTOR,
+      ),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+  });
+
+  it("allows an update that keeps the recipe's own unchanged name", async () => {
+    const db = createDb(env.DB);
+    const output = await createOutputItem(db);
+    const flour = await createIngredientItem(db, 5, 5);
+
+    const created = await recordRecipe(
+      db,
+      {
+        name: "Receta estable",
+        outputItemId: output.id,
+        expectedYieldQty: 1000,
+        estLaborMin: null,
+        isDefault: false,
+        notes: null,
+        lines: [{ itemId: flour.id, qty: 100 }],
+      },
+      ACTOR,
+    );
+
+    const updated = await updateRecipe(
+      db,
+      created.recipe.id,
+      {
+        name: "Receta estable",
+        outputItemId: output.id,
+        expectedYieldQty: 1500,
+        estLaborMin: null,
+        isDefault: false,
+        notes: null,
+        lines: [{ itemId: flour.id, qty: 150 }],
+      },
+      ACTOR,
+    );
+    expect(updated.recipe.name).toBe("Receta estable");
   });
 });
 
@@ -403,6 +724,46 @@ describe("setRecipeActive", () => {
       where: (t, { eq: eqOp }) => eqOp(t.id, recipeA.recipe.id),
     });
     expect(aRowStillDefault?.isDefault).toBe(1);
+  });
+
+  it("rejects reactivating into a name collision created while the recipe was inactive", async () => {
+    const db = createDb(env.DB);
+    const output = await createOutputItem(db);
+    const flour = await createIngredientItem(db, 5, 5);
+
+    const original = await recordRecipe(
+      db,
+      {
+        name: "Receta compartida",
+        outputItemId: output.id,
+        expectedYieldQty: 1000,
+        estLaborMin: null,
+        isDefault: false,
+        notes: null,
+        lines: [{ itemId: flour.id, qty: 100 }],
+      },
+      ACTOR,
+    );
+    await setRecipeActive(db, { id: original.recipe.id, isActive: false }, ACTOR);
+
+    // A new active recipe now holds the name the deactivated one used to have.
+    await recordRecipe(
+      db,
+      {
+        name: "Receta compartida",
+        outputItemId: output.id,
+        expectedYieldQty: 1000,
+        estLaborMin: null,
+        isDefault: false,
+        notes: null,
+        lines: [{ itemId: flour.id, qty: 200 }],
+      },
+      ACTOR,
+    );
+
+    await expect(
+      setRecipeActive(db, { id: original.recipe.id, isActive: true }, ACTOR),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
   });
 });
 

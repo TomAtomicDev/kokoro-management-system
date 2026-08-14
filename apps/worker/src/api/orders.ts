@@ -20,6 +20,7 @@ import {
   orderImpactRequestSchema,
   quoteOrderCommandSchema,
   resolveOrderLineCommandSchema,
+  undoDeliverOrderCommandSchema,
 } from "@kokoro/shared";
 import { Hono } from "hono";
 
@@ -34,6 +35,9 @@ import {
   quoteOrder,
   resolveOrderLine,
   startOrderProduction,
+  undoDeliverOrder,
+  undoMarkOrderReady,
+  undoStartOrderProduction,
 } from "../core/orders/index.js";
 import { createDb } from "../db/index.js";
 import type { Env, Variables } from "../env.js";
@@ -77,10 +81,23 @@ export const ordersRoute = new Hono<{ Bindings: Env; Variables: Variables }>()
     const db = createDb(c.env.DB);
     return c.json(await markOrderReady(db, c.req.param("id"), ACTOR));
   })
+  .post("/orders/:id/undo-start-production", async (c) => {
+    const db = createDb(c.env.DB);
+    return c.json(await undoStartOrderProduction(db, c.req.param("id"), ACTOR));
+  })
+  .post("/orders/:id/undo-ready", async (c) => {
+    const db = createDb(c.env.DB);
+    return c.json(await undoMarkOrderReady(db, c.req.param("id"), ACTOR));
+  })
   .post("/orders/:id/deliver", async (c) => {
     const db = createDb(c.env.DB);
     const body = deliverOrderCommandSchema.parse(await c.req.json());
     return c.json(await deliverOrder(db, c.req.param("id"), body, ACTOR));
+  })
+  .post("/orders/:id/undo-deliver", async (c) => {
+    const db = createDb(c.env.DB);
+    const body = undoDeliverOrderCommandSchema.parse(await c.req.json());
+    return c.json(await undoDeliverOrder(db, c.req.param("id"), body, ACTOR));
   })
   .post("/orders/:id/cancel", async (c) => {
     const db = createDb(c.env.DB);

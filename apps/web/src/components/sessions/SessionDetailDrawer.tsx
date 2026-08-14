@@ -18,6 +18,8 @@ import { Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 
 import { DetailDrawer } from "@/components/data-table/DetailDrawer";
+import { ProductionRunForm } from "@/components/production/ProductionRunForm";
+import { PurchaseForm } from "@/components/purchases/PurchaseForm";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,6 +30,7 @@ import {
   useSession,
   useUpdateSession,
 } from "@/features/sessions/api";
+import { ApiError } from "@/lib/api";
 import { sessionsLabels } from "@/lib/i18n-sessions";
 
 import { datetimeLocalToIso, parseDurationMinutes, SessionForm } from "./SessionForm";
@@ -50,6 +53,8 @@ export function SessionDetailDrawer({
 
   const [editOpen, setEditOpen] = useState(false);
   const [closeFormOpen, setCloseFormOpen] = useState(false);
+  const [productionFormOpen, setProductionFormOpen] = useState(false);
+  const [purchaseFormOpen, setPurchaseFormOpen] = useState(false);
   const [closeEndedAt, setCloseEndedAt] = useState("");
   const [closeDurationMin, setCloseDurationMin] = useState("");
   const [closeError, setCloseError] = useState<string | null>(null);
@@ -133,8 +138,8 @@ export function SessionDetailDrawer({
       setCloseFormOpen(false);
       setCloseEndedAt("");
       setCloseDurationMin("");
-    } catch {
-      setCloseError(sessionsLabels.errors.generic);
+    } catch (err) {
+      setCloseError(err instanceof ApiError ? err.message : sessionsLabels.errors.generic);
     }
   }
 
@@ -165,6 +170,26 @@ export function SessionDetailDrawer({
                 {sessionsLabels.statusLabels[session.status]}
               </Badge>
               <div className="flex items-center gap-2">
+                {session.type === "PRODUCTION" ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setProductionFormOpen(true)}
+                  >
+                    {sessionsLabels.linkedEvents.registerProductionRun}
+                  </Button>
+                ) : null}
+                {session.type === "PURCHASE_TRIP" ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setPurchaseFormOpen(true)}
+                  >
+                    {sessionsLabels.linkedEvents.registerPurchase}
+                  </Button>
+                ) : null}
                 {session.status === "OPEN" ? (
                   <Button
                     type="button"
@@ -333,12 +358,25 @@ export function SessionDetailDrawer({
       </DetailDrawer>
 
       {session ? (
-        <SessionForm
-          open={editOpen}
-          onOpenChange={setEditOpen}
-          accounts={accounts}
-          session={session}
-        />
+        <>
+          <SessionForm
+            open={editOpen}
+            onOpenChange={setEditOpen}
+            accounts={accounts}
+            session={session}
+          />
+          <ProductionRunForm
+            open={productionFormOpen}
+            onOpenChange={setProductionFormOpen}
+            preselectedSessionId={session.id}
+          />
+          <PurchaseForm
+            open={purchaseFormOpen}
+            onOpenChange={setPurchaseFormOpen}
+            accounts={accounts}
+            preselectedSessionId={session.id}
+          />
+        </>
       ) : null}
     </>
   );

@@ -57,11 +57,11 @@ import {
   REPLAY_CONFIRMATION_REQUIRED,
   toMilliCentavosPerUnit,
 } from "@kokoro/shared";
-import { eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 
 import type { Db } from "../../db/index.js";
-import { stockExits } from "../../db/schema.js";
+import { assemblyDefinitions, stockExitPackagingLines, stockExits } from "../../db/schema.js";
 import { buildAuditLogInsert } from "../audit.js";
 import { getCurrentWac } from "../costing/repair.js";
 import type { CostingReplayInput, CostingReplayPlan } from "../costing/replay.js";
@@ -76,8 +76,12 @@ import type { StockMovementInput } from "./types.js";
 
 type Statement = BatchItem<"sqlite">;
 type StockExitRow = typeof stockExits.$inferSelect;
+type StockExitPackagingLineRow = typeof stockExitPackagingLines.$inferSelect;
 
-function toStockExitDto(row: StockExitRow): StockExitDto {
+function toStockExitDto(
+  row: StockExitRow,
+  packagingLineRows: readonly StockExitPackagingLineRow[],
+): StockExitDto {
   return {
     id: row.id,
     occurredAt: row.occurredAt,
@@ -86,11 +90,126 @@ function toStockExitDto(row: StockExitRow): StockExitDto {
     qty: row.qty,
     reason: row.reason,
     unitCostSnapshotMc: row.unitCostSnapshotMc,
+    packagingLines: packagingLineRows.map((line) => ({
+      id: line.id,
+      itemId: line.itemId,
+      qty: line.qty,
+      unitCostSnapshotMc: line.unitCostSnapshotMc,
+    })),
     sessionId: row.sessionId,
     notes: row.notes,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
+}
+
+async function loadPackagingLines(
+  db: Db,
+  stockExitId: string,
+): Promise<StockExitPackagingLineRow[]> {
+  return db.query.stockExitPackagingLines.findMany({
+    where: (t, { eq: eqOp }) => eqOp(t.stockExitId, stockExitId),
+  });
+}
+
+async function assertPackagingLinesAllowed(
+  db: Db,
+  itemId: string,
+  packagingLines: readonly { itemId: string; qty: number }[],
+): Promise<void> {
+  if (packagingLines.length === 0) return;
+  const definition = await db.query.assemblyDefinitions.findFirst({
+    where: and(
+      eq(assemblyDefinitions.outputItemId, itemId),
+      eq(assemblyDefinitions.isDefault, 1),
+      eq(assemblyDefinitions.isActive, 1),
+    ),
+  });
+  if (definition) {
+    throw validationError(
+      "Este ítem ya es una presentación armada: su costo ya incluye el empaque. No agregues líneas de empaque a esta salida.",
+      { itemId },
+    );
+  }
+}
+
+async function buildPackagingLineRows(
+  db: Db,
+  stockExitId: string,
+  itemId: string,
+  commandLines: readonly { itemId: string; qty: number }[],
+  existingRows: readonly StockExitPackagingLineRow[] = [],
+): Promise<StockExitPackagingLineRow[]> {
+  await assertPackagingLinesAllowed(db, itemId, commandLines);
+  const unmatchedExisting = [...existingRows];
+  const rows: StockExitPackagingLineRow[] = [];
+  for (const line of commandLines) {
+    if (!Number.isInteger(line.qty) || line.qty <= 0) {
+      throw validationError("La cantidad de empaque debe ser un entero positivo (mili-unidades).", {
+        itemId: line.itemId,
+        qty: line.qty,
+      });
+    }
+    const item = await db.query.items.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.id, line.itemId),
+    });
+    if (!item) throw notFound("No se encontró el ítem de empaque.", { id: line.itemId });
+    if (item.kind !== "PACKAGING") {
+      throw validationError("Las líneas de empaque solo pueden usar ítems de tipo PACKAGING.", {
+        itemId: line.itemId,
+        kind: item.kind,
+      });
+    }
+
+    const matchIndex = unmatchedExisting.findIndex((existing) => existing.itemId === line.itemId);
+    const matched = matchIndex >= 0 ? unmatchedExisting.splice(matchIndex, 1)[0] : undefined;
+    const unitCostSnapshotMc = matched
+      ? toMilliCentavosPerUnit(matched.unitCostSnapshotMc)
+      : snapshotUnitCost(await getCurrentWac(db, line.itemId));
+    rows.push({
+      id: generateUuidV7(),
+      stockExitId,
+      itemId: line.itemId,
+      qty: line.qty,
+      unitCostSnapshotMc,
+    });
+  }
+  return rows;
+}
+
+function buildExitMovements(
+  exitId: string,
+  row: {
+    itemId: string;
+    qty: number;
+    unitCostSnapshotMc: number;
+    occurredAt: string;
+    businessDate: string;
+  },
+  packagingLineRows: readonly StockExitPackagingLineRow[],
+): StockMovementInput[] {
+  return [
+    {
+      itemId: row.itemId,
+      occurredAt: row.occurredAt,
+      businessDate: row.businessDate,
+      type: "EXIT_OUT",
+      qty: -row.qty,
+      unitCostMc: toMilliCentavosPerUnit(row.unitCostSnapshotMc),
+      sourceEventType: "stock_exit",
+      sourceEventId: exitId,
+    },
+    ...packagingLineRows.map((line) => ({
+      itemId: line.itemId,
+      occurredAt: row.occurredAt,
+      businessDate: row.businessDate,
+      type: "EXIT_OUT" as const,
+      qty: -line.qty,
+      unitCostMc: toMilliCentavosPerUnit(line.unitCostSnapshotMc),
+      sourceEventType: "stock_exit",
+      sourceEventId: exitId,
+    })),
+  ];
 }
 
 /**
@@ -109,7 +228,8 @@ async function buildRecordExitMovement(
   command: RecordStockExitCommand,
 ): Promise<{
   exitId: string;
-  movement: StockMovementInput;
+  movements: StockMovementInput[];
+  packagingLineRows: StockExitPackagingLineRow[];
   unitCostSnapshotMc: MilliCentavosPerUnit;
   now: string;
 }> {
@@ -130,31 +250,35 @@ async function buildRecordExitMovement(
 
   // C-6: value at the item's CURRENT WAC, snapshotted onto this exit's own unit_cost_snapshot_mc —
   // never recomputed via applyWacEntry (that's only for PURCHASE_IN/PRODUCTION_IN entries).
+  if (itemRow.isUnmetered === 1) {
+    throw validationError("Este ítem no se puede sacar: es un insumo no medido.", {
+      itemId: command.itemId,
+    });
+  }
+
   const currentWac = await getCurrentWac(db, command.itemId);
   const unitCostSnapshotMc = snapshotUnitCost(currentWac);
 
   const exitId = generateUuidV7();
   const now = nowIso();
+  const packagingLineRows = await buildPackagingLineRows(
+    db,
+    exitId,
+    command.itemId,
+    command.packagingLines ?? [],
+  );
+  const movements = buildExitMovements(
+    exitId,
+    { ...command, unitCostSnapshotMc },
+    packagingLineRows,
+  );
 
-  const movement: StockMovementInput = {
-    itemId: command.itemId,
-    occurredAt: command.occurredAt,
-    businessDate: command.businessDate,
-    type: "EXIT_OUT",
-    // stock_exits.qty is stored POSITIVE (its own CHECK constraint); the kardex sign convention
-    // (EXIT_OUT is always an OUT movement) is applied only here, at the movements boundary.
-    qty: -command.qty,
-    unitCostMc: unitCostSnapshotMc,
-    sourceEventType: "stock_exit",
-    sourceEventId: exitId,
-  };
-
-  return { exitId, movement, unitCostSnapshotMc, now };
+  return { exitId, movements, packagingLineRows, unitCostSnapshotMc, now };
 }
 
 /**
  * UC-09: record one non-commercial stock exit in one atomic batch (D-3): the `stock_exits`
- * insert + the single EXIT_OUT `stock_movements` insert + `item_stock` upsert (both from
+ * insert + its main and optional-packaging EXIT_OUT movements + `item_stock` upserts (from
  * core/inventory's `buildStockMovementStatements`) + the `audit_log` row. See this module's
  * header for why there is deliberately no financial_transactions row, no account balance delta,
  * and no `items.wac` update (C-6).
@@ -170,7 +294,8 @@ export async function recordExit(
   command: RecordStockExitCommand,
   actor: AuditActor,
 ): Promise<RecordStockExitResult> {
-  const { exitId, movement, unitCostSnapshotMc, now } = await buildRecordExitMovement(db, command);
+  const { exitId, movements, packagingLineRows, unitCostSnapshotMc, now } =
+    await buildRecordExitMovement(db, command);
   // ---- INV-11 / R-2 ordering guard (ADR-016 §1) --------------------------------------------
   // C-6 says an exit is not a WAC entry, and that stays true here: this exit books NO WAC of its
   // own and the plan can never attribute one to it. What a BACKDATED exit does change is
@@ -186,7 +311,7 @@ export async function recordExit(
       businessDate: command.businessDate,
       occurredAt: command.occurredAt,
     },
-    changes: [{ sourceEventType: "stock_exit", sourceEventId: exitId, newMovements: [movement] }],
+    changes: [{ sourceEventType: "stock_exit", sourceEventId: exitId, newMovements: movements }],
     actor,
   });
 
@@ -199,7 +324,7 @@ export async function recordExit(
     );
   }
 
-  const { statements: movementStatements } = buildStockMovementStatements(db, [movement]);
+  const { statements: movementStatements } = buildStockMovementStatements(db, movements);
 
   const exitRow = {
     id: exitId,
@@ -218,6 +343,7 @@ export async function recordExit(
 
   const statements: Statement[] = [
     db.insert(stockExits).values(exitRow),
+    ...packagingLineRows.map((line) => db.insert(stockExitPackagingLines).values(line)),
     ...movementStatements,
     // Intentionally NO financial_transactions insert, NO buildAccountBalanceDelta, NO items.wac
     // update — see this module's header (C-6, "invisible cost").
@@ -227,7 +353,7 @@ export async function recordExit(
       entityType: "stock_exits",
       entityId: exitId,
       before: null,
-      after: exitRow,
+      after: { ...exitRow, packagingLines: packagingLineRows },
     }),
     // R-2: the downstream WAC correction a BACKDATED exit forces lands in THIS batch (D-3), and
     // LAST — specifically after `movementStatements`, per replay.ts's module header, because the
@@ -241,7 +367,7 @@ export async function recordExit(
   // same cast technique as core/purchasing/index.ts's recordPurchase, for the same reason.
   await db.batch(statements as [Statement, ...Statement[]]);
 
-  return { exit: toStockExitDto(exitRow) };
+  return { exit: toStockExitDto(exitRow, packagingLineRows) };
 }
 
 /**
@@ -252,14 +378,17 @@ export async function recordExit(
  * nothing, and an "edit" would resurrect an event the owner retired without ever saying so. R-3's
  * 90-day reversal is a separate, explicit undo — not a side effect of PUT.
  */
-async function loadLiveExit(db: Db, id: string): Promise<StockExitRow> {
+async function loadLiveExit(
+  db: Db,
+  id: string,
+): Promise<{ row: StockExitRow; packagingLineRows: StockExitPackagingLineRow[] }> {
   const row = await db.query.stockExits.findFirst({
     where: (t, { and, eq: eqOp, isNull }) => and(eqOp(t.id, id), isNull(t.deletedAt)),
   });
   if (!row) {
     throw notFound("No se encontró la salida de stock.", { id });
   }
-  return row;
+  return { row, packagingLineRows: await loadPackagingLines(db, id) };
 }
 
 /**
@@ -278,8 +407,13 @@ async function loadLiveExit(db: Db, id: string): Promise<StockExitRow> {
 async function buildUpdateExitMovement(
   db: Db,
   current: StockExitRow,
+  currentPackagingLines: readonly StockExitPackagingLineRow[],
   command: UpdateStockExitCommand,
-): Promise<{ movement: StockMovementInput; unitCostSnapshotMc: MilliCentavosPerUnit }> {
+): Promise<{
+  movements: StockMovementInput[];
+  packagingLineRows: StockExitPackagingLineRow[];
+  unitCostSnapshotMc: MilliCentavosPerUnit;
+}> {
   const itemRow = await db.query.items.findFirst({
     where: (t, { eq: eqOp }) => eqOp(t.id, command.itemId),
   });
@@ -295,7 +429,14 @@ async function buildUpdateExitMovement(
     ? snapshotUnitCost(await getCurrentWac(db, command.itemId))
     : toMilliCentavosPerUnit(current.unitCostSnapshotMc);
 
-  const movement: StockMovementInput = {
+  const packagingLineRows = await buildPackagingLineRows(
+    db,
+    current.id,
+    command.itemId,
+    command.packagingLines ?? [],
+    currentPackagingLines,
+  );
+  const mainMovement: StockMovementInput = {
     itemId: command.itemId,
     occurredAt: command.occurredAt,
     businessDate: command.businessDate,
@@ -308,7 +449,13 @@ async function buildUpdateExitMovement(
     sourceEventId: current.id,
   };
 
-  return { movement, unitCostSnapshotMc };
+  const movements = buildExitMovements(
+    current.id,
+    { ...command, unitCostSnapshotMc },
+    packagingLineRows,
+  );
+  movements[0] = mainMovement;
+  return { movements, packagingLineRows, unitCostSnapshotMc };
 }
 
 /** Canonical identity of one kardex row for the "did the kardex actually change?" comparison below —
@@ -328,9 +475,9 @@ function movementKey(m: {
 }
 
 /** True when `newMovements` describes exactly the kardex row that already exists for this exit —
- * i.e. the edit changed only descriptive fields (reason/notes/sessionId). An exit only ever
- * produces one movement, but compared as a multiset for the same shape as the other modules'
- * copies (identical reasoning to `core/purchasing/index.ts`'s `movementSetsEqual`). */
+ * i.e. the edit changed only descriptive fields (reason/notes/sessionId). Compared as a multiset
+ * because the main item and every packaging line each produce a movement (identical reasoning to
+ * `core/purchasing/index.ts`'s `movementSetsEqual`). */
 function movementSetsEqual(
   existingRows: readonly {
     itemId: string;
@@ -357,6 +504,7 @@ const NO_KARDEX_CHANGE_PLAN: CostingReplayPlan = {
     affectedSaleLineIds: [],
     affectedStockExitIds: [],
     affectedProductionRunIds: [],
+    affectedAssemblyIds: [],
     affectedItemIds: [],
     costDelta: 0,
     requiresConfirmation: false,
@@ -450,9 +598,14 @@ export async function updateStockExit(
     });
   }
 
-  const current = await loadLiveExit(db, id);
+  const { row: current, packagingLineRows: currentPackagingLines } = await loadLiveExit(db, id);
 
-  const { movement, unitCostSnapshotMc } = await buildUpdateExitMovement(db, current, command);
+  const { movements, packagingLineRows, unitCostSnapshotMc } = await buildUpdateExitMovement(
+    db,
+    current,
+    currentPackagingLines,
+    command,
+  );
 
   const now = nowIso();
 
@@ -474,7 +627,7 @@ export async function updateStockExit(
     db,
     id,
     command,
-    [movement],
+    movements,
     actor,
   );
 
@@ -488,7 +641,7 @@ export async function updateStockExit(
 
   const movementStatements = kardexUnchanged
     ? []
-    : (await buildReplaceMovementsForSourceStatements(db, "stock_exit", id, [movement])).statements;
+    : (await buildReplaceMovementsForSourceStatements(db, "stock_exit", id, movements)).statements;
 
   const updatedRow = {
     ...current,
@@ -518,6 +671,8 @@ export async function updateStockExit(
         updatedAt: updatedRow.updatedAt,
       })
       .where(eq(stockExits.id, id)),
+    db.delete(stockExitPackagingLines).where(eq(stockExitPackagingLines.stockExitId, id)),
+    ...packagingLineRows.map((line) => db.insert(stockExitPackagingLines).values(line)),
     ...movementStatements,
     // Still NO financial_transactions statement and NO items.wac write of our own (C-6).
     // INV-9/INV-10: the full before/after is what makes R-3's 90-day reversal possible.
@@ -526,8 +681,8 @@ export async function updateStockExit(
       action: "update",
       entityType: "stock_exits",
       entityId: id,
-      before: current,
-      after: updatedRow,
+      before: { ...current, packagingLines: currentPackagingLines },
+      after: { ...updatedRow, packagingLines: packagingLineRows },
     }),
     // MUST stay after `movementStatements` — replay.ts's module header: the `item_stock` upsert
     // there recomputes `negative_since` incrementally, while the plan's UPDATE is the authoritative
@@ -537,7 +692,7 @@ export async function updateStockExit(
 
   await db.batch(statements as [Statement, ...Statement[]]);
 
-  return { exit: toStockExitDto(updatedRow) };
+  return { exit: toStockExitDto(updatedRow, packagingLineRows) };
 }
 
 /**
@@ -576,7 +731,7 @@ export async function deleteStockExit(
   command: DeleteStockExitCommand,
   actor: AuditActor,
 ): Promise<DeleteStockExitResult> {
-  const current = await loadLiveExit(db, id);
+  const { row: current, packagingLineRows } = await loadLiveExit(db, id);
 
   // Deleting a backdated exit re-weights C-1 for every later entry of the item exactly as creating
   // one does — see `buildDeleteExitReplayInput`'s header for why the trigger is built there now.
@@ -610,8 +765,8 @@ export async function deleteStockExit(
       action: "delete",
       entityType: "stock_exits",
       entityId: id,
-      before: current,
-      after: deletedRow,
+      before: { ...current, packagingLines: packagingLineRows },
+      after: { ...deletedRow, packagingLines: packagingLineRows },
     }),
     // After `movementStatements`, for the same `negative_since` reason as above.
     ...plan.statements,
@@ -619,7 +774,7 @@ export async function deleteStockExit(
 
   await db.batch(statements as [Statement, ...Statement[]]);
 
-  return { exit: toStockExitDto(deletedRow), deletedAt: now };
+  return { exit: toStockExitDto(deletedRow, packagingLineRows), deletedAt: now };
 }
 
 /**
@@ -640,7 +795,7 @@ export async function previewStockExitImpact(
   request: StockExitImpactRequest,
 ): Promise<ReplayImpactDto> {
   if (request.op === "create") {
-    const { exitId, movement } = await buildRecordExitMovement(db, request.command);
+    const { exitId, movements } = await buildRecordExitMovement(db, request.command);
     const plan = await planCostingReplay(db, {
       trigger: {
         eventType: "stock_exit",
@@ -648,7 +803,7 @@ export async function previewStockExitImpact(
         businessDate: request.command.businessDate,
         occurredAt: request.command.occurredAt,
       },
-      changes: [{ sourceEventType: "stock_exit", sourceEventId: exitId, newMovements: [movement] }],
+      changes: [{ sourceEventType: "stock_exit", sourceEventId: exitId, newMovements: movements }],
       actor: "SYSTEM",
     });
     return plan.impact;
@@ -662,20 +817,25 @@ export async function previewStockExitImpact(
         qty: request.command.qty,
       });
     }
-    const current = await loadLiveExit(db, request.id);
-    const { movement } = await buildUpdateExitMovement(db, current, request.command);
+    const { row: current, packagingLineRows } = await loadLiveExit(db, request.id);
+    const { movements } = await buildUpdateExitMovement(
+      db,
+      current,
+      packagingLineRows,
+      request.command,
+    );
     const { costingPlan } = await planStockExitUpdateCostingImpact(
       db,
       request.id,
       request.command,
-      [movement],
+      movements,
       "SYSTEM",
     );
     return costingPlan.impact;
   }
 
   // request.op === "delete"
-  const current = await loadLiveExit(db, request.id);
+  const { row: current } = await loadLiveExit(db, request.id);
   const plan = await planCostingReplay(db, buildDeleteExitReplayInput(current, "SYSTEM"));
   return plan.impact;
 }
@@ -685,14 +845,17 @@ export async function previewStockExitImpact(
  * image of `loadLiveExit`: a row that is missing OR currently live has nothing for a restore to
  * undo (D-8/R-3's reversal is for a row that WAS soft-deleted, not an ordinary edit target).
  */
-async function loadDeletedExit(db: Db, id: string): Promise<StockExitRow> {
+async function loadDeletedExit(
+  db: Db,
+  id: string,
+): Promise<{ row: StockExitRow; packagingLineRows: StockExitPackagingLineRow[] }> {
   const row = await db.query.stockExits.findFirst({
     where: (t, { and, eq: eqOp, isNotNull }) => and(eqOp(t.id, id), isNotNull(t.deletedAt)),
   });
   if (!row) {
     throw notFound("No se encontró la salida de stock.", { id });
   }
-  return row;
+  return { row, packagingLineRows: await loadPackagingLines(db, id) };
 }
 
 /**
@@ -701,8 +864,8 @@ async function loadDeletedExit(db: Db, id: string): Promise<StockExitRow> {
  * exit's derived rows, in ONE atomic batch (D-3).
  *
  * The exit row's own fields survived the delete unchanged (only its kardex row was removed), so
- * restoring means: rebuild the ONE EXIT_OUT movement from those stored fields — same qty sign-flip
- * convention as recordExit/updateStockExit — reusing the EXISTING `unit_cost_snapshot` VERBATIM
+ * restoring means: rebuild every EXIT_OUT movement from those stored fields — same qty sign-flip
+ * convention as recordExit/updateStockExit — reusing every EXISTING snapshot VERBATIM
  * (never re-snapshotted at today's WAC: C-6/R-4's spirit says a restore brings back exactly what
  * was deleted, not a freshly-priced version of it), then clear `deleted_at`.
  *
@@ -720,7 +883,7 @@ export async function restoreStockExit(
   command: DeleteStockExitCommand,
   actor: AuditActor,
 ): Promise<UpdateStockExitResult> {
-  const current = await loadDeletedExit(db, id);
+  const { row: current, packagingLineRows } = await loadDeletedExit(db, id);
 
   const movement: StockMovementInput = {
     itemId: current.itemId,
@@ -734,6 +897,8 @@ export async function restoreStockExit(
     sourceEventType: "stock_exit",
     sourceEventId: id,
   };
+  const movements = buildExitMovements(id, current, packagingLineRows);
+  movements[0] = movement;
 
   // R-2/R-5, same contract as updateStockExit: reinserting this movement can land behind history
   // recorded AFTER the exit was deleted, re-weighting C-1 for everything after it.
@@ -744,7 +909,7 @@ export async function restoreStockExit(
       businessDate: current.businessDate,
       occurredAt: current.occurredAt,
     },
-    changes: [{ sourceEventType: "stock_exit", sourceEventId: id, newMovements: [movement] }],
+    changes: [{ sourceEventType: "stock_exit", sourceEventId: id, newMovements: movements }],
     actor,
   });
 
@@ -760,7 +925,7 @@ export async function restoreStockExit(
     db,
     "stock_exit",
     id,
-    [movement],
+    movements,
   );
 
   const now = nowIso();
@@ -776,8 +941,8 @@ export async function restoreStockExit(
       action: "restore",
       entityType: "stock_exits",
       entityId: id,
-      before: current,
-      after: restoredRow,
+      before: { ...current, packagingLines: packagingLineRows },
+      after: { ...restoredRow, packagingLines: packagingLineRows },
     }),
     // MUST stay after `movementStatements` — replay.ts's module header: the `item_stock` upsert
     // there recomputes `negative_since` incrementally, while the plan's UPDATE is the authoritative
@@ -787,7 +952,7 @@ export async function restoreStockExit(
 
   await db.batch(statements as [Statement, ...Statement[]]);
 
-  return { exit: toStockExitDto(restoredRow) };
+  return { exit: toStockExitDto(restoredRow, packagingLineRows) };
 }
 
 export async function getStockExit(db: Db, id: string): Promise<StockExitDto> {
@@ -797,7 +962,7 @@ export async function getStockExit(db: Db, id: string): Promise<StockExitDto> {
   if (!row) {
     throw notFound("No se encontró la salida de stock.", { id });
   }
-  return toStockExitDto(row);
+  return toStockExitDto(row, await loadPackagingLines(db, id));
 }
 
 /** Read query for the (later) Exits screen's list — mirrors core/purchasing's listPurchases.
@@ -819,5 +984,22 @@ export async function listStockExits(
     limit: filters.limit ?? 200,
   });
 
-  return { exits: rows.map(toStockExitDto) };
+  const ids = rows.map((row) => row.id);
+  const packagingRows =
+    ids.length === 0
+      ? []
+      : await db
+          .select()
+          .from(stockExitPackagingLines)
+          .where(inArray(stockExitPackagingLines.stockExitId, ids));
+  const packagingByExitId = new Map<string, StockExitPackagingLineRow[]>();
+  for (const line of packagingRows) {
+    const existing = packagingByExitId.get(line.stockExitId);
+    if (existing) existing.push(line);
+    else packagingByExitId.set(line.stockExitId, [line]);
+  }
+
+  return {
+    exits: rows.map((row) => toStockExitDto(row, packagingByExitId.get(row.id) ?? [])),
+  };
 }

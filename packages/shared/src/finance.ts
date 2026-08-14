@@ -9,13 +9,13 @@
 // for that later task (Doc 04 §5: rows with `source_event_id` set are system-owned).
 
 import { z } from "zod";
-
 import type {
   FinancialAccountType,
   FinancialTransactionCategory,
   FinancialTransactionType,
 } from "./enums.js";
 import { financialTransactionCategorySchema } from "./enums.js";
+import { safeText } from "./text.js";
 
 /** Centavos, matching money.ts's Centavos representation (INV-6). Always positive — direction
  * comes from `type`, never a signed amount (Doc 04 §3.4). */
@@ -28,7 +28,7 @@ const businessDateSchema = z
 const occurredAtSchema = z
   .string()
   .datetime({ offset: true, message: "occurredAt debe ser una fecha ISO-8601." });
-const descriptionSchema = z.string().trim().max(2000).optional();
+const descriptionSchema = z.string().trim().pipe(safeText(2000)).optional();
 
 /**
  * Legal `category` values per `type` for `recordTransaction` (UC-11). The rest of

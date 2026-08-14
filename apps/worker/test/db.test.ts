@@ -50,7 +50,7 @@ const EXPECTED_VIEWS = [
 ];
 
 describe("migration 0001", () => {
-  it("creates every table from Doc 04 Â§3", async () => {
+  it("creates every table from Doc 04 §3", async () => {
     const { results } = await env.DB.prepare(
       "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name",
     ).all<{ name: string }>();
@@ -60,7 +60,7 @@ describe("migration 0001", () => {
     }
   });
 
-  it("creates every view from Doc 04 Â§4", async () => {
+  it("creates every view from Doc 04 §4", async () => {
     const { results } = await env.DB.prepare(
       "SELECT name FROM sqlite_master WHERE type = 'view' ORDER BY name",
     ).all<{ name: string }>();
@@ -70,7 +70,7 @@ describe("migration 0001", () => {
     }
   });
 
-  it("seeds the two financial accounts (Doc 04 Â§7)", async () => {
+  it("seeds the two financial accounts (Doc 04 §7)", async () => {
     const { results } = await env.DB.prepare(
       "SELECT id, type, balance FROM financial_accounts ORDER BY id",
     ).all<{ id: string; type: string; balance: number }>();
@@ -80,7 +80,7 @@ describe("migration 0001", () => {
     ]);
   });
 
-  it("seeds app_settings defaults (Doc 04 Â§7)", async () => {
+  it("seeds app_settings defaults (Doc 04 §7)", async () => {
     const row = await env.DB.prepare(
       "SELECT value FROM app_settings WHERE key = 'min_margin_pct'",
     ).first<{ value: string }>();
@@ -95,6 +95,31 @@ describe("migration 0001", () => {
       ).run(),
     ).rejects.toThrow();
   });
+
+  it.each(["G", "ML", "CM"])("rejects non-canonical unit %s via items_unit_check", async (unit) => {
+    await expect(
+      env.DB.prepare(
+        `INSERT INTO items (id, name, kind, category, unit, created_at, updated_at)
+           VALUES (?, ?, 'RAW_MATERIAL', 'INGREDIENT', ?, '2026-01-01', '2026-01-01')`,
+      )
+        .bind(`item_noncanonical_${unit}`, `Non-canonical ${unit}`, unit)
+        .run(),
+    ).rejects.toThrow();
+  });
+
+  it.each(["KG", "L", "M", "UNIT"])(
+    "accepts canonical unit %s via items_unit_check",
+    async (unit) => {
+      await expect(
+        env.DB.prepare(
+          `INSERT INTO items (id, name, kind, category, unit, created_at, updated_at)
+           VALUES (?, ?, 'RAW_MATERIAL', 'INGREDIENT', ?, '2026-01-01', '2026-01-01')`,
+        )
+          .bind(`item_canonical_${unit}`, `Canonical ${unit}`, unit)
+          .run(),
+      ).resolves.toBeDefined();
+    },
+  );
 
   it("v_stock computes stock_value = qty_on_hand x wac_mc / 1e6 and flags low stock", async () => {
     const now = "2026-07-14T10:00:00.000Z";

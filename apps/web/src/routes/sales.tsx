@@ -8,8 +8,14 @@
 // (`enabled: receivableOnly`), since it exists solely to feed that column. Edit/delete for a sale
 // itself remains KOK-064's scope.
 
+import { getRouteApi } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 
+import {
+  type DateRange,
+  DateRangeFilter,
+  getDefaultDateRange,
+} from "@/components/common/DateRangeFilter";
 import { SaleDetailDrawer } from "@/components/sales/SaleDetailDrawer";
 import { SaleForm } from "@/components/sales/SaleForm";
 import { SalesTable } from "@/components/sales/SalesTable";
@@ -19,16 +25,40 @@ import { useReceivables, useSales } from "@/features/sales/api";
 import { salesLabels } from "@/lib/i18n-sales";
 import { cn } from "@/lib/utils";
 
+const routeApi = getRouteApi("/_authenticated/sales");
+
 export function SalesRoute() {
-  const [receivableOnly, setReceivableOnly] = useState(false);
+  const search = routeApi.useSearch();
+  const navigate = routeApi.useNavigate();
+  const defaults = getDefaultDateRange();
+  const fromDate = search.fromDate ?? defaults.fromDate;
+  const toDate = search.toDate ?? defaults.toDate;
+  const receivableOnly = search.paymentStatus === "ON_CREDIT";
   const accountsQuery = useAccounts();
-  const salesQuery = useSales(receivableOnly ? { paymentStatus: "ON_CREDIT" } : {});
+  const salesQuery = useSales({
+    fromDate,
+    toDate,
+    paymentStatus: search.paymentStatus,
+  });
   const receivablesQuery = useReceivables(receivableOnly);
 
   const [formOpen, setFormOpen] = useState(false);
   const [selectedSaleId, setSelectedSaleId] = useState<string | null>(null);
 
   const accounts = accountsQuery.data?.accounts ?? [];
+
+  function updateDateRange(range: DateRange): void {
+    void navigate({ search: (previous) => ({ ...previous, ...range }) });
+  }
+
+  function updateReceivableOnly(nextReceivableOnly: boolean): void {
+    void navigate({
+      search: (previous) => ({
+        ...previous,
+        paymentStatus: nextReceivableOnly ? "ON_CREDIT" : undefined,
+      }),
+    });
+  }
 
   const daysOutstandingBySaleId = useMemo(() => {
     if (!receivableOnly) return undefined;
@@ -45,31 +75,35 @@ export function SalesRoute() {
         <div>
           <h1 className="font-semibold text-2xl text-foreground">{salesLabels.title}</h1>
           <p className="text-muted-foreground text-sm">{salesLabels.subtitle}</p>
+          <p className="text-muted-foreground text-xs">{salesLabels.orderClarification}</p>
         </div>
         <Button type="button" onClick={() => setFormOpen(true)}>
           {salesLabels.actionRecord}
         </Button>
       </div>
 
-      <div className="flex gap-2">
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className={cn(!receivableOnly && "bg-accent")}
-          onClick={() => setReceivableOnly(false)}
-        >
-          {salesLabels.filterAll}
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className={cn(receivableOnly && "bg-accent")}
-          onClick={() => setReceivableOnly(true)}
-        >
-          {salesLabels.filterReceivable}
-        </Button>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <DateRangeFilter fromDate={fromDate} toDate={toDate} onChange={updateDateRange} />
+        <div className="flex gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className={cn(!receivableOnly && "bg-accent")}
+            onClick={() => updateReceivableOnly(false)}
+          >
+            {salesLabels.filterAll}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className={cn(receivableOnly && "bg-accent")}
+            onClick={() => updateReceivableOnly(true)}
+          >
+            {salesLabels.filterReceivable}
+          </Button>
+        </div>
       </div>
 
       <SalesTable

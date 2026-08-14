@@ -30,7 +30,7 @@ export async function bulkCreateItems(
   const seenNames = new Set<string>();
   for (const item of command.items) {
     if (seenNames.has(item.name)) {
-      throw conflict(`El nombre "${item.name}" aparece mÃƒÆ’Ã‚Â¡s de una vez en el lote.`, {
+      throw conflict(`El nombre "${item.name}" aparece más de una vez en el lote.`, {
         field: "name",
         name: item.name,
       });
@@ -39,7 +39,7 @@ export async function bulkCreateItems(
 
     const duplicate = await findItemRowByName(db, item.name);
     if (duplicate) {
-      throw conflict(`Ya existe un ÃƒÆ’Ã‚Â­tem llamado "${item.name}".`, {
+      throw conflict(`Ya existe un ítem llamado "${item.name}".`, {
         field: "name",
         name: item.name,
       });
@@ -54,10 +54,11 @@ export async function bulkCreateItems(
     category: item.category,
     unit: item.unit,
     wacMc: toMilliCentavosPerUnit(0),
-    replacementCostMc: 0,
-    replacementCostUpdatedAt: null,
+    replacementCostMc: item.replacementCostMc ?? 0,
+    replacementCostUpdatedAt: item.replacementCostMc != null ? now : null,
     salePriceMc: item.salePriceMc ?? null,
     minStockQty: item.minStockQty ?? null,
+    isUnmetered: item.isUnmetered ? 1 : 0,
     isActive: 1,
     notes: item.notes ?? null,
     createdAt: now,

@@ -29,6 +29,7 @@ import {
   PAYMENT_METHODS,
   type PaymentMethod,
   type PaymentStatus,
+  paymentMethodForAccountType,
   rateFromTotal,
   recordSaleCommandSchema,
   toBusinessDate,
@@ -38,7 +39,9 @@ import {
   totalCentavos,
   WHOLE_UNIT_MILLI_UNITS,
 } from "@kokoro/shared";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { PaymentAccountSelect } from "@/components/common/PaymentAccountSelect";
+import { PinnedSummaryFooter } from "@/components/common/PinnedSummaryFooter";
 import { CustomerPicker } from "@/components/customers/CustomerPicker";
 import { LineEditor, type LineEditorLine } from "@/components/line-editor/LineEditor";
 import { MarginBadge } from "@/components/pricing/MarginBadge";
@@ -77,7 +80,11 @@ interface SaleLineValue extends LineEditorLine {
 }
 
 function emptyLine(): SaleLineValue {
-  return { itemId: null, qty: "", amount: "" };
+  return {
+    itemId: null,
+    qty: "",
+    amount: "",
+  };
 }
 
 interface SaleFormState {
@@ -131,6 +138,7 @@ export function SaleForm({ open, onOpenChange, accounts, sale }: SaleFormProps) 
   const [notes, setNotes] = useState("");
   const [lines, setLines] = useState<SaleLineValue[]>([emptyLine()]);
   const [error, setError] = useState<string | null>(null);
+  const initializedRef = useRef<string | null>(null);
 
   const createMutation = useRecordSale();
   const createReplay = useReplayConfirmableMutation<RecordSaleCommand, RecordSaleResult>(
@@ -147,12 +155,12 @@ export function SaleForm({ open, onOpenChange, accounts, sale }: SaleFormProps) 
 
   const pricingSettingsQuery = usePricingSettings();
 
-  const itemsQuery = useItemsQuery({ isActive: true, kind: "FINISHED" });
+  const finishedItemsQuery = useItemsQuery({ isActive: true, kind: "FINISHED" });
   const itemsById = useMemo(() => {
     const map = new Map<string, ItemDto>();
-    for (const item of itemsQuery.data?.items ?? []) map.set(item.id, item);
+    for (const item of finishedItemsQuery.data?.items ?? []) map.set(item.id, item);
     return map;
-  }, [itemsQuery.data]);
+  }, [finishedItemsQuery.data]);
 
   // Current on-hand qty per item (v_stock, INV-5) â€” used for the amber "stock would go negative"
   // warning below. Unfiltered (all kinds): fine to fetch the whole table at this app's scale, same
@@ -160,37 +168,66 @@ export function SaleForm({ open, onOpenChange, accounts, sale }: SaleFormProps) 
   const stockQuery = useStock();
   const onHandByItemId = useMemo(() => {
     const map = new Map<string, number>();
-    for (const row of stockQuery.data?.stock ?? []) map.set(row.itemId, row.qtyOnHand);
+    for (const row of stockQuery.data?.stock ?? []) {
+      map.set(row.itemId, toMilliUnits(row.qtyOnHand));
+    }
     return map;
   }, [stockQuery.data]);
+
+  // In edit mode, the live stock view already includes this sale's original SALE_OUT movement.
+  // Add that committed quantity back before comparing the edited request so an unchanged line is
+  // not charged against stock twice. A missing item in this map is a newly added line, so its
+  // baseline remains the live on-hand quantity.
+  const alreadyDeductedByItemId = useMemo(() => {
+    const map = new Map<string, number>();
+    if (!sale) return map;
+    for (const line of sale.lines) {
+      map.set(line.itemId, toMilliUnits((map.get(line.itemId) ?? 0) + line.qty));
+    }
+    return map;
+  }, [sale]);
 
   // Reset only on the open transition (or a switch to a different sale while open) â€” `sale?.id`
   // stands in for `sale` itself so a background refetch of the SAME sale never clobbers
   // in-progress edits, mirroring PurchaseForm's identical precedent.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: reset-on-open precedent, see above.
   useEffect(() => {
-    if (open) {
-      if (sale) {
-        const initial = saleToFormState(sale, accounts);
-        setPaymentStatus(initial.paymentStatus);
-        setPaymentMethod(initial.paymentMethod);
-        setAccountId(initial.accountId);
-        setCustomerId(initial.customerId);
-        setBusinessDate(initial.businessDate);
-        setNotes(initial.notes);
-        setLines(initial.lines);
-      } else {
-        setPaymentStatus("PAID");
-        setPaymentMethod(PAYMENT_METHODS[0] as PaymentMethod);
-        setAccountId(accounts[0]?.id ?? "");
-        setCustomerId(null);
-        setBusinessDate(toBusinessDate(nowIso()));
-        setNotes("");
-        setLines([emptyLine()]);
-      }
-      setError(null);
+    if (!open) {
+      initializedRef.current = null;
+      return;
     }
-  }, [open, sale?.id]);
+
+    const initializationKey = sale?.id ?? "new";
+    if (initializedRef.current === initializationKey) return;
+    if (sale && sale.lines.length > 0 && finishedItemsQuery.isLoading) {
+      return;
+    }
+
+    if (sale) {
+      const initial = saleToFormState(sale, accounts);
+      setPaymentStatus(initial.paymentStatus);
+      setPaymentMethod(initial.paymentMethod);
+      setAccountId(initial.accountId);
+      setCustomerId(initial.customerId);
+      setBusinessDate(initial.businessDate);
+      setNotes(initial.notes);
+      setLines(initial.lines);
+    } else {
+      setPaymentStatus("PAID");
+      const firstAccount = accounts[0];
+      setPaymentMethod(
+        firstAccount
+          ? paymentMethodForAccountType(firstAccount.type)
+          : (PAYMENT_METHODS[0] as PaymentMethod),
+      );
+      setAccountId(firstAccount?.id ?? "");
+      setCustomerId(null);
+      setBusinessDate(toBusinessDate(nowIso()));
+      setNotes("");
+      setLines([emptyLine()]);
+    }
+    setError(null);
+    initializedRef.current = initializationKey;
+  }, [open, sale, accounts, finishedItemsQuery.isLoading]);
 
   const disabled = isEditMode ? editReplay.isPending : createReplay.isPending;
   const isPaid = paymentStatus === "PAID";
@@ -201,23 +238,25 @@ export function SaleForm({ open, onOpenChange, accounts, sale }: SaleFormProps) 
    * itself only forwards `itemId` to its `onChange` (see LineEditor.tsx), so the lookup happens
    * here, against the previous line at the same index, rather than inside LineEditor. */
   function handleLinesChange(nextLines: SaleLineValue[]) {
-    const withPrefill = nextLines.map((line, index) => {
-      const prevItemId = lines[index]?.itemId ?? null;
-      if (line.itemId && line.itemId !== prevItemId && line.amount.trim() === "") {
-        const item = itemsById.get(line.itemId);
-        if (item?.salePriceMc != null) {
-          return {
-            ...line,
-            amount: formatIntAsDecimalInput(
-              totalCentavos(item.salePriceMc, WHOLE_UNIT_MILLI_UNITS),
-              2,
-            ),
-          };
+    setLines((currentLines) => {
+      const withPrefill = nextLines.map((line, index) => {
+        const prevItemId = currentLines[index]?.itemId ?? null;
+        if (line.itemId && line.itemId !== prevItemId && line.amount.trim() === "") {
+          const item = itemsById.get(line.itemId);
+          if (item?.salePriceMc != null) {
+            return {
+              ...line,
+              amount: formatIntAsDecimalInput(
+                totalCentavos(item.salePriceMc, WHOLE_UNIT_MILLI_UNITS),
+                2,
+              ),
+            };
+          }
         }
-      }
-      return line;
+        return line;
+      });
+      return withPrefill;
     });
-    setLines(withPrefill);
   }
 
   // Aggregate requested qty per item across ALL lines (a sale can list the same FINISHED item
@@ -229,10 +268,27 @@ export function SaleForm({ open, onOpenChange, accounts, sale }: SaleFormProps) 
       if (!line.itemId) continue;
       const qty = parseDecimalToInt(line.qty, 3);
       if (qty === null || qty <= 0) continue;
-      map.set(line.itemId, (map.get(line.itemId) ?? 0) + qty);
+      map.set(line.itemId, toMilliUnits((map.get(line.itemId) ?? 0) + qty));
     }
     return map;
   }, [lines]);
+
+  const negativeStockWarnings = useMemo(() => {
+    const warnings: { itemId: string; itemName: string }[] = [];
+    for (const [itemId, requested] of qtyByItemId) {
+      const item = itemsById.get(itemId);
+      if (!item) continue;
+
+      const onHand = onHandByItemId.get(itemId) ?? 0;
+      const alreadyDeducted = isEditMode ? (alreadyDeductedByItemId.get(itemId) ?? 0) : 0;
+      const baseline = toMilliUnits(onHand + alreadyDeducted);
+      const remaining = toMilliUnits(baseline - requested);
+      if (requested > 0 && remaining < 0) {
+        warnings.push({ itemId, itemName: item.name });
+      }
+    }
+    return warnings;
+  }, [alreadyDeductedByItemId, isEditMode, itemsById, onHandByItemId, qtyByItemId]);
 
   const totalPreview = useMemo(() => {
     let sum = 0;
@@ -326,10 +382,6 @@ export function SaleForm({ open, onOpenChange, accounts, sale }: SaleFormProps) 
           )
         : null;
 
-    const onHand = onHandByItemId.get(item.id) ?? 0;
-    const requested = qtyByItemId.get(item.id) ?? 0;
-    const negativeStockWarning = requested > 0 && onHand - requested < 0;
-
     // C-5 margin-vs-replacement-cost, live as the price is typed (KOK-036, Doc 07 SC-03) —
     // replaces the old plain-text "below replacement cost" warning with the same `MarginBadge`
     // SC-06/SC-12 use, since this is the one place in Sales where the metric genuinely matches
@@ -352,9 +404,6 @@ export function SaleForm({ open, onOpenChange, accounts, sale }: SaleFormProps) 
             {subtotal !== null ? formatMoney(subtotal) : "—"}
           </span>
         </span>
-        {negativeStockWarning ? (
-          <span className="font-medium text-warning">{salesLabels.warnings.negativeStock}</span>
-        ) : null}
         {unitPrice !== null && item.replacementCostMc === 0 ? (
           <span className="text-muted-foreground">{pricingLabels.costPending}</span>
         ) : marginReplacement !== null && pricingSettingsQuery.data ? (
@@ -376,7 +425,7 @@ export function SaleForm({ open, onOpenChange, accounts, sale }: SaleFormProps) 
         <div className="border-border border-b px-5 py-4">
           <h2 className="font-medium text-foreground text-md">{dialogTitle}</h2>
         </div>
-        <div className="flex flex-1 flex-col gap-4 overflow-y-auto px-5 py-4 text-sm">
+        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-5 py-4 text-sm">
           <div className="grid grid-cols-2 gap-3">
             <div className="flex flex-col gap-1.5">
               <label className="font-medium text-foreground" htmlFor="sf-status">
@@ -414,46 +463,6 @@ export function SaleForm({ open, onOpenChange, accounts, sale }: SaleFormProps) 
               disabled={disabled}
             />
           </div>
-
-          {isPaid ? (
-            <div className="grid grid-cols-2 gap-3">
-              <div className="flex flex-col gap-1.5">
-                <label className="font-medium text-foreground" htmlFor="sf-method">
-                  {salesLabels.fieldPaymentMethod}
-                </label>
-                <Select
-                  id="sf-method"
-                  value={paymentMethod}
-                  onChange={(e) => setPaymentMethod(e.target.value as PaymentMethod)}
-                  disabled={disabled}
-                >
-                  {PAYMENT_METHODS.map((method) => (
-                    <option key={method} value={method}>
-                      {salesLabels.paymentMethodLabels[method]}
-                    </option>
-                  ))}
-                </Select>
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <label className="font-medium text-foreground" htmlFor="sf-account">
-                  {salesLabels.fieldAccount}
-                </label>
-                <Select
-                  id="sf-account"
-                  value={accountId}
-                  onChange={(e) => setAccountId(e.target.value)}
-                  disabled={disabled}
-                >
-                  {accounts.map((account) => (
-                    <option key={account.id} value={account.id}>
-                      {account.name}
-                    </option>
-                  ))}
-                </Select>
-              </div>
-            </div>
-          ) : null}
-
           <div className="flex flex-col gap-1.5">
             <label className="font-medium text-foreground" htmlFor="sf-notes">
               {salesLabels.fieldNotes}
@@ -468,7 +477,7 @@ export function SaleForm({ open, onOpenChange, accounts, sale }: SaleFormProps) 
           </div>
 
           <div className="flex flex-col gap-1.5">
-            <span className="font-medium text-foreground">{salesLabels.linesTitle}</span>
+            <span className="font-medium text-foreground">{salesLabels.productLinesTitle}</span>
             <LineEditor
               lines={lines}
               onChange={handleLinesChange}
@@ -481,41 +490,72 @@ export function SaleForm({ open, onOpenChange, accounts, sale }: SaleFormProps) 
                 amount: salesLabels.lineUnitPrice,
                 addLine: salesLabels.addLine,
                 removeLine: salesLabels.removeLine,
-                amountPlaceholder: "0.00",
-                qtyPlaceholder: "0",
+                amountPlaceholder: salesLabels.lineUnitPricePlaceholder,
+                qtyPlaceholder: salesLabels.lineQtyPlaceholder,
               }}
               renderExtraColumns={renderLineExtra}
             />
           </div>
-
-          <div className="flex items-center justify-between rounded-md border border-border bg-muted px-4 py-3">
-            <span className="font-medium text-foreground text-sm">
-              {salesLabels.totalPreviewLabel}
-            </span>
-            <span className="numeric-cell font-semibold text-foreground text-lg">
-              {formatMoney(toCentavos(totalPreview))}
-            </span>
-          </div>
-
-          {displayError ? <p className="text-negative text-sm">{displayError}</p> : null}
         </div>
-        <div className="flex justify-end gap-2 border-border border-t px-5 py-3">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-            disabled={disabled}
-          >
-            {salesLabels.cancel}
-          </Button>
-          <Button
-            type="button"
-            onClick={handleSubmit}
-            disabled={disabled || (isPaid && !accountId)}
-          >
-            {isEditMode ? salesLabels.save : salesLabels.submit}
-          </Button>
-        </div>
+        <PinnedSummaryFooter
+          destination={
+            isPaid ? (
+              <PaymentAccountSelect
+                id="sf-payment-account"
+                accounts={accounts}
+                accountId={accountId}
+                label={salesLabels.fieldPaymentAccount}
+                paymentMethodLabels={salesLabels.paymentMethodLabels}
+                onChange={({ accountId: nextAccountId, paymentMethod: nextPaymentMethod }) => {
+                  setAccountId(nextAccountId);
+                  setPaymentMethod(nextPaymentMethod);
+                }}
+                disabled={disabled}
+              />
+            ) : undefined
+          }
+          total={
+            <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted px-4 py-2">
+              <span className="font-medium text-foreground text-sm">
+                {salesLabels.totalPreviewLabel}
+              </span>
+              <span className="numeric-cell font-semibold text-foreground text-lg">
+                {formatMoney(toCentavos(totalPreview))}
+              </span>
+            </div>
+          }
+          warnings={
+            negativeStockWarnings.length > 0 || displayError ? (
+              <>
+                {negativeStockWarnings.map((warning) => (
+                  <span key={warning.itemId} className="font-medium text-warning">
+                    {warning.itemName}: {salesLabels.warnings.negativeStock}
+                  </span>
+                ))}
+                {displayError ? <p className="text-negative text-sm">{displayError}</p> : null}
+              </>
+            ) : undefined
+          }
+          actions={
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => onOpenChange(false)}
+                disabled={disabled}
+              >
+                {salesLabels.cancel}
+              </Button>
+              <Button
+                type="button"
+                onClick={handleSubmit}
+                disabled={disabled || (isPaid && !accountId)}
+              >
+                {isEditMode ? salesLabels.save : salesLabels.submit}
+              </Button>
+            </>
+          }
+        />
       </Dialog>
       {isEditMode && editReplay.pendingConfirmation ? (
         <ImpactConfirmDialog

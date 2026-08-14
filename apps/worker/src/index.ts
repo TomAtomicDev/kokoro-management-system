@@ -3,6 +3,8 @@
 // this file wires together, and §4.4 for the cron table.
 
 import { Hono } from "hono";
+import { assembliesRoute } from "./api/assemblies.js";
+import { assemblyDefinitionsRoute } from "./api/assembly-definitions.js";
 import { auditRoute } from "./api/audit.js";
 import { authRoute } from "./api/auth.js";
 import { backupsRoute } from "./api/backups.js";
@@ -43,6 +45,8 @@ app.route("/api", authRoute);
 app.route("/api", catalogRoute); // KOK-011 — items & aliases (Doc 07 SC-15).
 app.route("/api", customersRoute); // KOK-032 — customers (Doc 04 §3.3, CustomerPicker inline-create).
 app.route("/api", recipesRoute); // KOK-025 — recipes (Doc 07 SC-06).
+app.route("/api", assemblyDefinitionsRoute); // KOK-123 — assembly definitions (Doc 07 SC-19/20).
+app.route("/api", assembliesRoute); // KOK-124 — assembly events (Doc 07 SC-20).
 app.route("/api", financeRoute); // KOK-014 — standalone transactions, transfers, withdrawals (Doc 03 UC-11/12/13).
 app.route("/api", purchasingRoute); // KOK-016 — purchases (Doc 03 UC-01), the template event vertical.
 app.route("/api", productionRunsRoute); // KOK-026 — production runs (Doc 03 UC-02), the second full event vertical.

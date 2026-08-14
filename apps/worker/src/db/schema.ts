@@ -31,16 +31,19 @@ export const items = sqliteTable(
   {
     id: text("id").primaryKey(),
     name: text("name").notNull().unique(),
-    kind: text("kind", { enum: ["RAW_MATERIAL", "SEMI_FINISHED", "FINISHED"] }).notNull(),
-    category: text("category", {
-      enum: ["INGREDIENT", "PACKAGING", "LABEL", "BAKERY", "DAIRY", "OTHER"],
+    kind: text("kind", {
+      enum: ["RAW_MATERIAL", "SEMI_FINISHED", "FINISHED", "PACKAGING"],
     }).notNull(),
-    unit: text("unit", { enum: ["G", "KG", "ML", "L", "UNIT"] }).notNull(),
+    category: text("category", {
+      enum: ["INGREDIENT", "NOT_EATABLE", "BAKERY", "DAIRY", "PASTRY", "OTHER"],
+    }).notNull(),
+    unit: text("unit", { enum: ["KG", "L", "M", "UNIT"] }).notNull(),
     wacMc: integer("wac_mc").notNull().default(0),
     replacementCostMc: integer("replacement_cost_mc").notNull().default(0),
     replacementCostUpdatedAt: text("replacement_cost_updated_at"),
     salePriceMc: integer("sale_price_mc"),
     minStockQty: integer("min_stock_qty"),
+    isUnmetered: integer("is_unmetered").notNull().default(0),
     isActive: integer("is_active").notNull().default(1),
     notes: text("notes"),
     createdAt: text("created_at").notNull(),
@@ -49,13 +52,13 @@ export const items = sqliteTable(
   (t) => ({
     kindCheck: check(
       "items_kind_check",
-      sql`${t.kind} IN ('RAW_MATERIAL','SEMI_FINISHED','FINISHED')`,
+      sql`${t.kind} IN ('RAW_MATERIAL','SEMI_FINISHED','FINISHED','PACKAGING')`,
     ),
     categoryCheck: check(
       "items_category_check",
-      sql`${t.category} IN ('INGREDIENT','PACKAGING','LABEL','BAKERY','DAIRY','OTHER')`,
+      sql`${t.category} IN ('INGREDIENT','NOT_EATABLE','BAKERY','DAIRY','PASTRY','OTHER')`,
     ),
-    unitCheck: check("items_unit_check", sql`${t.unit} IN ('G','KG','ML','L','UNIT')`),
+    unitCheck: check("items_unit_check", sql`${t.unit} IN ('KG','L','M','UNIT')`),
   }),
 );
 
@@ -92,6 +95,9 @@ export const recipes = sqliteTable(
     uxDefault: uniqueIndex("ux_recipes_default")
       .on(t.outputItemId)
       .where(sql`${t.isDefault} = 1 AND ${t.isActive} = 1`),
+    // Partial unique index: no two ACTIVE recipes share a name (Doc 04 Ãƒâ€šÃ‚Â§3.1, KOK-025 KB
+    // amendment) â€” a deactivated recipe's name is free to reuse.
+    uxName: uniqueIndex("ux_recipes_name").on(t.name).where(sql`${t.isActive} = 1`),
   }),
 );
 
@@ -109,6 +115,48 @@ export const recipeLines = sqliteTable(
   },
   (t) => ({
     qtyCheck: check("recipe_lines_qty_check", sql`${t.qty} > 0`),
+  }),
+);
+
+export const assemblyDefinitions = sqliteTable(
+  "assembly_definitions",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    outputItemId: text("output_item_id")
+      .notNull()
+      .references(() => items.id, { onDelete: "restrict" }),
+    outputQty: integer("output_qty").notNull(),
+    isDefault: integer("is_default").notNull().default(0),
+    isActive: integer("is_active").notNull().default(1),
+    notes: text("notes"),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (t) => ({
+    outputQtyCheck: check("assembly_definitions_output_qty_check", sql`${t.outputQty} > 0`),
+    uxDefault: uniqueIndex("ux_assembly_defs_default")
+      .on(t.outputItemId)
+      .where(sql`${t.isDefault} = 1 AND ${t.isActive} = 1`),
+    uxName: uniqueIndex("ux_assembly_defs_name").on(t.name).where(sql`${t.isActive} = 1`),
+  }),
+);
+
+export const assemblyDefinitionLines = sqliteTable(
+  "assembly_definition_lines",
+  {
+    id: text("id").primaryKey(),
+    definitionId: text("definition_id")
+      .notNull()
+      .references(() => assemblyDefinitions.id, { onDelete: "cascade" }),
+    itemId: text("item_id")
+      .notNull()
+      .references(() => items.id, { onDelete: "restrict" }),
+    qty: integer("qty").notNull(),
+  },
+  (t) => ({
+    qtyCheck: check("assembly_definition_lines_qty_check", sql`${t.qty} > 0`),
+    ixItem: index("ix_assembly_def_lines_item").on(t.itemId),
   }),
 );
 
@@ -151,6 +199,9 @@ export const sessions = sqliteTable(
       sql`${t.type} IN ('PRODUCTION','PURCHASE_TRIP','DELIVERY_RUN','ADMIN','OTHER')`,
     ),
     statusCheck: check("sessions_status_check", sql`${t.status} IN ('OPEN','CLOSED')`),
+    uxOpenPerType: uniqueIndex("ux_sessions_open_per_type")
+      .on(t.type)
+      .where(sql`${t.status} = 'OPEN' AND ${t.deletedAt} IS NULL`),
   }),
 );
 
@@ -183,7 +234,9 @@ export const purchases = sqliteTable("purchases", {
   occurredAt: text("occurred_at").notNull(),
   businessDate: text("business_date").notNull(),
   supplierName: text("supplier_name"),
-  sessionId: text("session_id").references(() => sessions.id, { onDelete: "restrict" }),
+  sessionId: text("session_id")
+    .notNull()
+    .references(() => sessions.id, { onDelete: "restrict" }),
   // Forward reference ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â financial_accounts is declared later (Doc 04 Ãƒâ€šÃ‚Â§3.4).
   accountId: text("account_id")
     .notNull()
@@ -224,7 +277,9 @@ export const productionRuns = sqliteTable(
     recipeId: text("recipe_id")
       .notNull()
       .references(() => recipes.id, { onDelete: "restrict" }),
-    sessionId: text("session_id").references(() => sessions.id, { onDelete: "restrict" }),
+    sessionId: text("session_id")
+      .notNull()
+      .references(() => sessions.id, { onDelete: "restrict" }),
     // Forward reference ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â custom_orders is declared later (Doc 04 Ãƒâ€šÃ‚Â§3.3, O-4).
     customOrderId: text("custom_order_id").references((): AnySQLiteColumn => customOrders.id, {
       onDelete: "restrict",
@@ -264,6 +319,64 @@ export const productionConsumptions = sqliteTable(
   },
   (t) => ({
     qtyCheck: check("production_consumptions_qty_check", sql`${t.qty} > 0`),
+  }),
+);
+
+export const assemblies = sqliteTable(
+  "assemblies",
+  {
+    id: text("id").primaryKey(),
+    occurredAt: text("occurred_at").notNull(),
+    businessDate: text("business_date").notNull(),
+    definitionId: text("definition_id").references(() => assemblyDefinitions.id, {
+      onDelete: "restrict",
+    }),
+    sessionId: text("session_id")
+      .notNull()
+      .references(() => sessions.id, { onDelete: "restrict" }),
+    customOrderId: text("custom_order_id").references((): AnySQLiteColumn => customOrders.id, {
+      onDelete: "restrict",
+    }),
+    outputItemId: text("output_item_id")
+      .notNull()
+      .references(() => items.id, { onDelete: "restrict" }),
+    plannedOutputQty: integer("planned_output_qty"),
+    actualOutputQty: integer("actual_output_qty").notNull(),
+    directCost: integer("direct_cost").notNull().default(0),
+    notes: text("notes"),
+    deletedAt: text("deleted_at"),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (t) => ({
+    plannedOutputQtyCheck: check(
+      "assemblies_planned_output_qty_check",
+      sql`${t.plannedOutputQty} > 0`,
+    ),
+    actualOutputQtyCheck: check(
+      "assemblies_actual_output_qty_check",
+      sql`${t.actualOutputQty} > 0`,
+    ),
+    ixDate: index("ix_assemblies_date").on(t.businessDate),
+    ixOrder: index("ix_assemblies_order").on(t.customOrderId),
+  }),
+);
+
+export const assemblyConsumptions = sqliteTable(
+  "assembly_consumptions",
+  {
+    id: text("id").primaryKey(),
+    assemblyId: text("assembly_id")
+      .notNull()
+      .references(() => assemblies.id, { onDelete: "cascade" }),
+    itemId: text("item_id")
+      .notNull()
+      .references(() => items.id, { onDelete: "restrict" }),
+    qty: integer("qty").notNull(),
+    unitCostSnapshotMc: integer("unit_cost_snapshot_mc").notNull(),
+  },
+  (t) => ({
+    qtyCheck: check("assembly_consumptions_qty_check", sql`${t.qty} > 0`),
   }),
 );
 
@@ -420,6 +533,24 @@ export const stockExits = sqliteTable(
   }),
 );
 
+export const stockExitPackagingLines = sqliteTable(
+  "stock_exit_packaging_lines",
+  {
+    id: text("id").primaryKey(),
+    stockExitId: text("stock_exit_id")
+      .notNull()
+      .references(() => stockExits.id, { onDelete: "cascade" }),
+    itemId: text("item_id")
+      .notNull()
+      .references(() => items.id, { onDelete: "restrict" }),
+    qty: integer("qty").notNull(),
+    unitCostSnapshotMc: integer("unit_cost_snapshot_mc").notNull(),
+  },
+  (t) => ({
+    qtyCheck: check("stock_exit_packaging_lines_qty_check", sql`${t.qty} > 0`),
+  }),
+);
+
 export const inventoryCounts = sqliteTable(
   "inventory_counts",
   {
@@ -471,7 +602,17 @@ export const stockMovements = sqliteTable(
       .notNull()
       .references(() => items.id, { onDelete: "restrict" }),
     type: text("type", {
-      enum: ["PURCHASE_IN", "PRODUCTION_IN", "PRODUCTION_OUT", "SALE_OUT", "EXIT_OUT", "ADJUST"],
+      enum: [
+        "PURCHASE_IN",
+        "PRODUCTION_IN",
+        "PRODUCTION_OUT",
+        "SALE_OUT",
+        "EXIT_OUT",
+        "ADJUST",
+        "OPENING_IN",
+        "ASSEMBLY_IN",
+        "ASSEMBLY_OUT",
+      ],
     }).notNull(),
     qty: integer("qty").notNull(),
     unitCostMc: integer("unit_cost_mc").notNull(),
@@ -483,7 +624,7 @@ export const stockMovements = sqliteTable(
   (t) => ({
     typeCheck: check(
       "stock_movements_type_check",
-      sql`${t.type} IN ('PURCHASE_IN','PRODUCTION_IN','PRODUCTION_OUT','SALE_OUT','EXIT_OUT','ADJUST')`,
+      sql`${t.type} IN ('PURCHASE_IN','PRODUCTION_IN','PRODUCTION_OUT','SALE_OUT','EXIT_OUT','ADJUST','OPENING_IN','ASSEMBLY_IN','ASSEMBLY_OUT')`,
     ),
     ixItemDate: index("ix_movements_item_date").on(t.itemId, t.businessDate),
     ixSource: index("ix_movements_source").on(t.sourceEventType, t.sourceEventId),
@@ -598,7 +739,7 @@ export const costingAdjustments = sqliteTable(
       .notNull()
       .references(() => items.id, { onDelete: "restrict" }),
     triggerEventType: text("trigger_event_type", {
-      enum: ["purchase", "production_run", "stock_exit", "session", "sale"],
+      enum: ["purchase", "production_run", "stock_exit", "session", "sale", "assembly"],
     }).notNull(),
     // The create/edit/delete that triggered the replay.
     triggerEventId: text("trigger_event_id").notNull(),
@@ -613,7 +754,7 @@ export const costingAdjustments = sqliteTable(
   (t) => ({
     triggerEventTypeCheck: check(
       "costing_adjustments_trigger_event_type_check",
-      sql`${t.triggerEventType} IN ('purchase','production_run','stock_exit','session','sale')`,
+      sql`${t.triggerEventType} IN ('purchase','production_run','stock_exit','session','sale','assembly')`,
     ),
     ixItemDate: index("ix_costing_adj_item_date").on(t.itemId, t.businessDate),
   }),

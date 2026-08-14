@@ -16,12 +16,15 @@
 // Storage is isolated per test FILE, not per test — the `beforeEach` below restores the guarantee
 // this file's tests were written against.
 import { env } from "cloudflare:test";
+import { addMoney, toMilliCentavosPerUnit, toMilliUnits, totalCentavos } from "@kokoro/shared";
 import { eq } from "drizzle-orm";
+import fc from "fast-check";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { createItem } from "../src/core/catalog/index.js";
+import { createItem, updateItem } from "../src/core/catalog/index.js";
 import { recordExit } from "../src/core/inventory/exits.js";
 import {
+  computeProductionCosts,
   deleteProductionRun,
   getProductionRun,
   listProductionRuns,
@@ -30,28 +33,57 @@ import {
   restoreProductionRun,
   updateProductionRun,
 } from "../src/core/production/index.js";
+import { recordPurchase } from "../src/core/purchasing/index.js";
 import { recordRecipe, setRecipeActive } from "../src/core/recipes/index.js";
+import {
+  recordSession as recordSessionCore,
+  updateSession as updateSessionCore,
+} from "../src/core/sessions/index.js";
 import { createDb } from "../src/db/index.js";
 import {
   auditLog,
   costingAdjustments,
   financialTransactions,
   productionRuns,
+  purchases,
+  sessions,
   stockMovements,
 } from "../src/db/schema.js";
 
 const ACTOR = "OWNER_WEB" as const;
 const NOW = "2026-07-16T10:00:00.000Z";
 const BUSINESS_DATE = "2026-07-16";
+const SESSION_STARTED_AT = "2026-07-16T09:00:00.000Z";
 
 type TestDb = ReturnType<typeof createDb>;
+
+function recordSession(
+  db: TestDb,
+  command: Omit<Parameters<typeof recordSessionCore>[1], "startedAt"> & { startedAt?: string },
+  actor: Parameters<typeof recordSessionCore>[2],
+) {
+  return recordSessionCore(db, { startedAt: SESSION_STARTED_AT, ...command }, actor);
+}
+
+function updateSession(
+  db: TestDb,
+  id: string,
+  command: Omit<Parameters<typeof updateSessionCore>[2], "startedAt"> & { startedAt?: string },
+  actor: Parameters<typeof updateSessionCore>[3],
+) {
+  return updateSessionCore(db, id, { startedAt: SESSION_STARTED_AT, ...command }, actor);
+}
 
 async function seedItem(
   db: TestDb,
   name: string,
-  kind: "RAW_MATERIAL" | "SEMI_FINISHED" | "FINISHED" = "RAW_MATERIAL",
+  kind: "RAW_MATERIAL" | "SEMI_FINISHED" | "FINISHED" | "PACKAGING" = "RAW_MATERIAL",
 ) {
-  return createItem(db, { name, kind, category: "INGREDIENT", unit: "KG" }, ACTOR);
+  return createItem(
+    db,
+    { name, kind, category: kind === "PACKAGING" ? "NOT_EATABLE" : "INGREDIENT", unit: "KG" },
+    ACTOR,
+  );
 }
 
 async function seedRecipe(
@@ -74,6 +106,8 @@ beforeEach(async () => {
   await db.delete(stockMovements).where(eq(stockMovements.sourceEventType, "production_run"));
   // Cascades to production_consumptions (onDelete: cascade FK, schema.ts).
   await db.delete(productionRuns);
+  await db.delete(purchases);
+  await db.delete(sessions);
 });
 
 async function runMovements(db: TestDb, runId: string) {
@@ -89,6 +123,57 @@ async function runConsumptions(db: TestDb, runId: string) {
 }
 
 describe("recordProductionRun (UC-02)", () => {
+  it("links an existing PRODUCTION session, creates one when absent, and rejects the wrong type", async () => {
+    const db = createDb(env.DB);
+    const input = await seedItem(db, "Production session input");
+    const output = await seedItem(db, "Production session output", "SEMI_FINISHED");
+    const recipe = await seedRecipe(db, output.id, [{ itemId: input.id, qty: 100 }]);
+    const command = {
+      recipeId: recipe.id,
+      batches: 1,
+      actualOutputQty: 1000,
+      occurredAt: NOW,
+      businessDate: BUSINESS_DATE,
+      lines: [{ itemId: input.id, qty: 100 }],
+    };
+    const existing = await recordSession(
+      db,
+      { type: "PRODUCTION", businessDate: BUSINESS_DATE },
+      ACTOR,
+    );
+    const linked = await recordProductionRun(db, command, ACTOR);
+    expect(linked.productionRun.sessionId).toBe(existing.session.id);
+
+    await updateSession(
+      db,
+      existing.session.id,
+      { type: "PRODUCTION", businessDate: BUSINESS_DATE, durationMin: 1, status: "CLOSED" },
+      ACTOR,
+    );
+    const autoCreated = await recordProductionRun(
+      db,
+      { ...command, occurredAt: "2026-07-16T11:00:00.000Z" },
+      ACTOR,
+    );
+    expect(autoCreated.productionRun.sessionId).not.toBe(existing.session.id);
+    const autoSessionId = autoCreated.productionRun.sessionId;
+    if (!autoSessionId) throw new Error("production run did not resolve a session");
+    expect(
+      await db.query.sessions.findFirst({
+        where: (table, { eq: eqOp }) => eqOp(table.id, autoSessionId),
+      }),
+    ).toMatchObject({ type: "PRODUCTION", status: "OPEN", startedAt: "2026-07-16T11:00:00.000Z" });
+
+    const wrongType = await recordSession(
+      db,
+      { type: "PURCHASE_TRIP", businessDate: BUSINESS_DATE },
+      ACTOR,
+    );
+    await expect(
+      recordProductionRun(db, { ...command, sessionId: wrongType.session.id }, ACTOR),
+    ).rejects.toMatchObject({ code: "VALIDATION" });
+  });
+
   it("records a run: N PRODUCTION_OUT + 1 PRODUCTION_IN movements, C-4 direct/total/output costs, C-1 output WAC, unchanged consumption WAC, no financial_transactions, audit_log", async () => {
     const db = createDb(env.DB);
     const itemA = await seedItem(db, "Production A — harina");
@@ -213,6 +298,106 @@ describe("recordProductionRun (UC-02)", () => {
     expect(auditRow).toMatchObject({ actor: ACTOR, entityType: "production_runs" });
   });
 
+  it("prices an unmetered consumption from replacement cost and emits no PRODUCTION_OUT movement", async () => {
+    const db = createDb(env.DB);
+    const unmetered = await seedItem(db, "Agua no medible para producción");
+    const output = await seedItem(db, "Producto con agua no medible", "SEMI_FINISHED");
+
+    await recordPurchase(
+      db,
+      {
+        accountId: "acc_bank",
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        lines: [{ itemId: unmetered.id, qty: 1000, lineTotal: 500_000 }],
+      },
+      ACTOR,
+    );
+    await recordPurchase(
+      db,
+      {
+        accountId: "acc_bank",
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        lines: [{ itemId: unmetered.id, qty: 1000, lineTotal: 300_000 }],
+      },
+      ACTOR,
+    );
+    await updateItem(db, { id: unmetered.id, isUnmetered: true }, ACTOR);
+
+    const recipe = await seedRecipe(db, output.id, [{ itemId: unmetered.id, qty: 100 }]);
+    const result = await recordProductionRun(
+      db,
+      {
+        recipeId: recipe.id,
+        batches: 1,
+        actualOutputQty: 1000,
+        lines: [{ itemId: unmetered.id, qty: 100 }],
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+      },
+      ACTOR,
+    );
+
+    const storedItem = await db.query.items.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.id, unmetered.id),
+    });
+    expect(storedItem).toMatchObject({ wacMc: 400_000_000, replacementCostMc: 300_000_000 });
+
+    const consumption = (await runConsumptions(db, result.productionRun.id))[0];
+    expect(consumption).toMatchObject({
+      itemId: unmetered.id,
+      unitCostSnapshotMc: 300_000_000,
+    });
+    expect(result.productionRun.directCost).toBe(
+      totalCentavos(toMilliCentavosPerUnit(300_000_000), toMilliUnits(100)),
+    );
+
+    const movements = await runMovements(db, result.productionRun.id);
+    expect(movements.filter((movement) => movement.type === "PRODUCTION_OUT")).toHaveLength(0);
+    expect(movements).toHaveLength(1);
+    expect(movements[0]).toMatchObject({
+      type: "PRODUCTION_IN",
+      itemId: output.id,
+      qty: 1000,
+    });
+  });
+
+  it("keeps C-4 direct cost equal to every integer qty × selected WAC/replacement rate", () => {
+    fc.assert(
+      fc.property(
+        fc.array(
+          fc.record({
+            qty: fc.integer({ min: 1, max: 1_000_000 }),
+            wacMc: fc.integer({ min: 0, max: 10_000_000 }),
+            replacementCostMc: fc.integer({ min: 0, max: 10_000_000 }),
+            isUnmetered: fc.boolean(),
+          }),
+          { minLength: 1, maxLength: 20 },
+        ),
+        (lines) => {
+          const consumptions = lines.map((line) => ({
+            qty: line.qty,
+            unitCostSnapshotMc: toMilliCentavosPerUnit(
+              line.isUnmetered ? line.replacementCostMc : line.wacMc,
+            ),
+          }));
+          const expectedDirectCost = addMoney(
+            ...consumptions.map((line) =>
+              totalCentavos(line.unitCostSnapshotMc, toMilliUnits(line.qty)),
+            ),
+          );
+          const costs = computeProductionCosts(consumptions, 0, 0, 1_000_000);
+
+          expect(costs.directCost).toBe(expectedDirectCost);
+          expect(Number.isSafeInteger(costs.directCost)).toBe(true);
+          expect(Number.isSafeInteger(costs.totalCost)).toBe(true);
+          expect(Number.isSafeInteger(costs.outputUnitCostMc)).toBe(true);
+        },
+      ),
+    );
+  });
+
   it("rejects a consumption line referencing a FINISHED item with VALIDATION", async () => {
     const db = createDb(env.DB);
     const finishedItem = await seedItem(db, "Production — producto terminado", "FINISHED");
@@ -230,6 +415,29 @@ describe("recordProductionRun (UC-02)", () => {
           occurredAt: NOW,
           businessDate: BUSINESS_DATE,
           lines: [{ itemId: finishedItem.id, qty: 100 }],
+        },
+        ACTOR,
+      ),
+    ).rejects.toMatchObject({ code: "VALIDATION" });
+  });
+
+  it("rejects a consumption line referencing a PACKAGING item with VALIDATION (Doc 03 §3, PACKAGING is never a recipe/production input)", async () => {
+    const db = createDb(env.DB);
+    const packagingItem = await seedItem(db, "Production — empaque", "PACKAGING");
+    const output = await seedItem(db, "Production output — reject packaging", "SEMI_FINISHED");
+    const rawItem = await seedItem(db, "Production raw — reject packaging");
+    const recipe = await seedRecipe(db, output.id, [{ itemId: rawItem.id, qty: 100 }]);
+
+    await expect(
+      recordProductionRun(
+        db,
+        {
+          recipeId: recipe.id,
+          batches: 1,
+          actualOutputQty: 500,
+          occurredAt: NOW,
+          businessDate: BUSINESS_DATE,
+          lines: [{ itemId: packagingItem.id, qty: 100 }],
         },
         ACTOR,
       ),
@@ -380,6 +588,11 @@ describe("batch atomicity (INV-1)", () => {
   it("a failing statement in the same shape of batch as recordProductionRun leaves nothing persisted", async () => {
     const db = createDb(env.DB);
     const rawItem = await seedItem(db, "Production atomicity item");
+    const { session } = await recordSession(
+      db,
+      { type: "PRODUCTION", businessDate: BUSINESS_DATE, startedAt: NOW },
+      ACTOR,
+    );
 
     // Mirrors the statement shape recordProductionRun() builds (run insert + a
     // production_consumptions insert), but the consumption row violates
@@ -389,9 +602,9 @@ describe("batch atomicity (INV-1)", () => {
     await expect(
       env.DB.batch([
         env.DB.prepare(
-          `INSERT INTO production_runs (id, occurred_at, business_date, recipe_id, batches, output_item_id, actual_output_qty, created_at, updated_at)
-           VALUES ('run_atomicity_test', ?, ?, 'does_not_matter', 1, ?, 500, ?, ?)`,
-        ).bind(NOW, BUSINESS_DATE, rawItem.id, NOW, NOW),
+          `INSERT INTO production_runs (id, occurred_at, business_date, recipe_id, session_id, batches, output_item_id, actual_output_qty, created_at, updated_at)
+           VALUES ('run_atomicity_test', ?, ?, 'does_not_matter', ?, 1, ?, 500, ?, ?)`,
+        ).bind(NOW, BUSINESS_DATE, session.id, rawItem.id, NOW, NOW),
         env.DB.prepare(
           `INSERT INTO production_consumptions (id, production_run_id, item_id, qty, unit_cost_snapshot_mc)
            VALUES ('consumption_atomicity_test', 'run_atomicity_test', ?, 0, 1)`,

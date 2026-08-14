@@ -22,4 +22,5 @@ apps/worker/worker-configuration.d.ts
 .playwright-mcp/*
 .playwright-cli/*
 .codegraph
+.orca
 /graphify-out/

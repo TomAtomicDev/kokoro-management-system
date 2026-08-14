@@ -13,7 +13,9 @@
     "db:migrate:staging": "wrangler d1 migrations apply kokoro-staging --remote --env staging",
     "db:migrate:prod": "wrangler d1 migrations apply kokoro-prod --remote --env prod",
     "db:seed:dev": "wrangler d1 execute kokoro-dev --local --env dev --file=./src/db/seed-fixtures.sql",
-    "db:seed:staging": "wrangler d1 execute kokoro-staging --remote --env staging --file=./src/db/seed-fixtures.sql"
+    "db:seed:staging": "wrangler d1 execute kokoro-staging --remote --env staging --file=./src/db/seed-fixtures.sql",
+    "db:reset:dev": "node -e \"require('fs').rmSync('.wrangler/state', { recursive: true, force: true })\" && pnpm run db:migrate:dev",
+    "db:reset:staging": "node scripts/reset-remote-d1.mjs staging"
   },
   "dependencies": {
     "@kokoro/shared": "workspace:*",

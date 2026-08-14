@@ -43,7 +43,13 @@ async function createItem(auth: { cookie: string; csrf: string }, name: string):
   const res = await SELF.fetch("https://example.com/api/items", {
     method: "POST",
     headers: authHeaders(auth),
-    body: JSON.stringify({ name, kind: "RAW_MATERIAL", category: "INGREDIENT", unit: "KG" }),
+    body: JSON.stringify({
+      name,
+      kind: "RAW_MATERIAL",
+      category: "INGREDIENT",
+      unit: "KG",
+      minStockQty: 0,
+    }),
   });
   expect(res.status).toBe(201);
   const created = (await res.json()) as { id: string };

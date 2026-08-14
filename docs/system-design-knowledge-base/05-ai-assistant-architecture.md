@@ -84,13 +84,30 @@ commit; commits happen through the confirmation flow only (A-1).
 
 ### Draft tools (CAPTURE)
 
-`draft_purchase`, `draft_production_run`, `draft_sale`, `draft_stock_exit`,
+`draft_purchase`, `draft_production_run`, `draft_assembly`, `draft_sale`, `draft_stock_exit`,
 `draft_order_quote`, `draft_order_confirm`, `draft_order_deliver`, `draft_expense`,
 `draft_transfer`, `draft_withdrawal`, `draft_session_open`, `draft_session_close`,
 `draft_collect_receivable`, `draft_stock_adjust` (single item).
 
 Input schemas are the same Command DTOs used by the HTTP API (`packages/shared`), so a confirmed
 draft is passed to the service verbatim — zero translation layer, zero drift (ADR-008).
+
+**Phase 3.2 consequences for capture (decided 2026-08-11, implementation pending).** Two of the
+model's rules are things the assistant can get wrong in a way the owner would not notice on a
+confirmation card, so they belong in the prompt and in the eval fixtures, not only in the schema:
+
+- **`draft_assembly` covers *Envasado/Armado*** (UC-21, C-10) — utterances like "envasé diez
+  botellas de kéfir de 500 ml", "puse cinco panes en sus bolsas", "armé cuatro desayunos Kokoro",
+  "preparé tres cajas de degustación". Its distinguishing question versus `draft_production_run`
+  is *"is this a food transformation or a packing/bundling one?"*: baking is production, bottling
+  is assembly. The card must show the actual quantity **obtained**, not the planned one — that
+  difference is where breakage becomes visible (C-10).
+- **`draft_sale` never emits a PACKAGING line.** A sale is of a presentation or combo, and its
+  packaging is already inside that item's cost. "Vendí dos kéfir de medio litro" resolves to the
+  *Kéfir natural 500 ml* presentation, not to bulk kéfir plus a bottle. Entity resolution must
+  therefore disambiguate between an item's bulk base and its presentations (they are distinct
+  catalog items with distinct aliases) and clarify (A-4) rather than guess when the utterance is
+  genuinely ambiguous about size.
 
 ## 3. CAPTURE pipeline
 
@@ -136,6 +153,10 @@ The configured text model with read tools, max 6 tool rounds, streaming. Answer 
   costó 120 en total"), sale ("vendí 3 kéfir a la señora Rosa, me pagó por QR"), production
   ("horneé 2 tandas de pan, salieron 17"), exit ("se me quemaron 2 panes"), deposit ("me
   adelantaron 100 para la torta del sábado"), transfer, withdrawal, session close with hours.
+  **Phase 3.2 adds a ninth few-shot pair for assembly** ("envasé 10 botellas de kéfir de 500 ml,
+  se me rompió una" → `draft_assembly` with planned 10 / actual 9), plus the
+  production-vs-assembly discrimination rule and the "a sale never carries packaging" rule from
+  §2. Both need golden fixtures before the prompt change merges (D-7).
 - `system.query.md` — grounding rules, tone (concise, warm, es-BO), formatting contract,
   anti-hallucination clause.
 - Prompt changes follow Doc 08 rule D-7 (eval suite must pass before merge). Prompt files carry

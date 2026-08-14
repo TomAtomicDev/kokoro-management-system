@@ -31,6 +31,18 @@ export const sessionsLabels = {
     OTHER: "Otro",
   } satisfies Record<SessionType, string>,
 
+  calendar: {
+    activeLabel: "Activa",
+    moreSessions: (count: number) => `+${count} más`,
+    noSessionsWeek: "No hay sesiones esta semana.",
+    viewList: "Lista",
+    viewCalendar: "Semana",
+    today: "Hoy",
+    prevWeek: "Semana anterior",
+    nextWeek: "Semana siguiente",
+    weekRangeLabel: (start: string, end: string) => `${start}–${end}`,
+  },
+
   statusLabels: {
     OPEN: "Abierta",
     CLOSED: "Cerrada",
@@ -38,6 +50,10 @@ export const sessionsLabels = {
 
   recordTitle: "Nueva sesión",
   editTitle: "Editar sesión",
+  modeLabel: "Modo de registro",
+  startNowTab: "Iniciar ahora",
+  logPastTab: "Registrar sesión pasada",
+  required: "requerido",
   fieldType: "Tipo",
   fieldDate: "Fecha",
   fieldNotes: "Notas",
@@ -48,10 +64,16 @@ export const sessionsLabels = {
   durationHint: "Completa el inicio y fin, o directamente la duración en minutos.",
 
   costLinesTitle: "Costos compartidos",
+  tooltipCostLinesTitle:
+    "Son costos indirectos o compartidos de la sesión, como gas o alquiler, que se distribuyen entre sus eventos y no están ligados a un ítem específico.",
   costLineLabel: "Etiqueta",
   costLineLabelPlaceholder: "Ej. transporte, alquiler de local",
+  costLineLabelPlaceholderPurchaseTrip: "Combustible o Transporte",
+  costLineLabelPlaceholderProduction: "Energía eléctrica Horno",
   costLineAmount: "Monto (Bs)",
   costLineEstimate: "Estimación",
+  tooltipCostLineEstimate:
+    "Al marcar un costo como estimación, este no mueve el efectivo: las estimaciones nunca afectan la caja.",
   costLineAccount: "Cuenta",
   addLine: "Agregar costo",
   removeLine: "Quitar costo",
@@ -74,6 +96,10 @@ export const sessionsLabels = {
   linkedSales: "Ventas",
   linkedStockExits: "Salidas de stock",
   noLinkedEvents: "Sin eventos vinculados.",
+  linkedEvents: {
+    registerProductionRun: "Registrar producción",
+    registerPurchase: "Registrar compra",
+  },
 
   closeAction: "Cerrar sesión",
   closeTitle: "Cerrar sesión",
@@ -87,15 +113,11 @@ export const sessionsLabels = {
   undo: "Deshacer",
   restoreFailed: "No se pudo deshacer la eliminación. Intenta de nuevo.",
 
-  /** RecordSessionResult.openSessionWarning is a plain Spanish string built by core/sessions — this
-   * entry is unused for that (server-provided) case, but kept in case a client-side echo is ever
-   * needed. */
-  openSessionWarningTitle: "Aviso",
-
   errors: {
     generic: "Ocurrió un error inesperado. Intenta de nuevo.",
     typeRequired: "Selecciona un tipo de sesión.",
     dateRequired: "Selecciona una fecha.",
+    startRequired: "Indica la hora de inicio.",
     invalidCostLine: "Cada costo compartido necesita una etiqueta y un monto válido.",
     accountRequired: "Selecciona una cuenta para un costo que no es una estimación.",
     closeRequiresDuration: "Indica la hora de fin o la duración para cerrar la sesión.",
@@ -105,5 +127,16 @@ export const sessionsLabels = {
     noOpenSession: "Sin sesión abierta",
     multipleOpen: (count: number) => `${count} sesiones abiertas`,
     elapsedUnknown: "en curso",
+    viewDetail: "Ver detalle",
+    stopNow: "Detener sesión ahora",
+  },
+
+  quickStart: {
+    title: "Iniciar sesión",
+    chooseType: "Elige el tipo de sesión a iniciar.",
+    conflictMessage: (typeLabel: string) =>
+      `Ya hay una sesión de ${typeLabel} abierta. ¿Cerrarla ahora e iniciar una nueva?`,
+    confirmCloseAndStart: "Cerrar la anterior e iniciar",
+    cancel: "Cancelar",
   },
 } as const;

@@ -1,21 +1,26 @@
 {
   "hooks": {
-    "PreToolUse": [
+    "PostToolUse": [
       {
-        "matcher": "Bash|Grep",
+        "matcher": "Edit|Write|apply_patch",
         "hooks": [
           {
             "type": "command",
-            "command": "C:/Users/tommy/AppData/Local/Programs/Python/Python313/Scripts/graphify.EXE hook-guard search"
+            "command": "[ ! -f \".agents/skills/impeccable/scripts/hook.mjs\" ] || node \".agents/skills/impeccable/scripts/hook.mjs\"",
+            "timeout": 5,
+            "statusMessage": "Checking UI changes"
           }
         ]
-      },
+      }
+    ],
+    "Stop": [
       {
-        "matcher": "Read|Glob",
         "hooks": [
           {
             "type": "command",
-            "command": "C:/Users/tommy/AppData/Local/Programs/Python/Python313/Scripts/graphify.EXE hook-guard read"
+            "command": "[ ! -f \".agents/skills/impeccable/scripts/hook.mjs\" ] || node \".agents/skills/impeccable/scripts/hook.mjs\"",
+            "timeout": 30,
+            "statusMessage": "Design deep pass"
           }
         ]
       }

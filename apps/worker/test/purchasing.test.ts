@@ -34,6 +34,10 @@ import {
   restorePurchase,
   updatePurchase,
 } from "../src/core/purchasing/index.js";
+import {
+  recordSession as recordSessionCore,
+  updateSession as updateSessionCore,
+} from "../src/core/sessions/index.js";
 import { createDb } from "../src/db/index.js";
 import {
   auditLog,
@@ -41,15 +45,34 @@ import {
   financialAccounts,
   financialTransactions,
   purchases,
+  sessions,
 } from "../src/db/schema.js";
 
 const ACTOR = "OWNER_WEB" as const;
 const NOW = "2026-07-16T10:00:00.000Z";
 const BUSINESS_DATE = "2026-07-16";
+const SESSION_STARTED_AT = "2026-07-16T09:00:00.000Z";
 // ADR-017: brand alias, local to this file for readability ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â see costing.test.ts.
 const mc = toMilliCentavosPerUnit;
 
 type TestDb = ReturnType<typeof createDb>;
+
+function recordSession(
+  db: TestDb,
+  command: Omit<Parameters<typeof recordSessionCore>[1], "startedAt"> & { startedAt?: string },
+  actor: Parameters<typeof recordSessionCore>[2],
+) {
+  return recordSessionCore(db, { startedAt: SESSION_STARTED_AT, ...command }, actor);
+}
+
+function updateSession(
+  db: TestDb,
+  id: string,
+  command: Omit<Parameters<typeof updateSessionCore>[2], "startedAt"> & { startedAt?: string },
+  actor: Parameters<typeof updateSessionCore>[3],
+) {
+  return updateSessionCore(db, id, { startedAt: SESSION_STARTED_AT, ...command }, actor);
+}
 
 /** DB rows carry a plain `number` for `unit_cost_mc`; `recomputeWacFromMovements` wants the branded
  * `MilliCentavosPerUnit`. Mirrors invariants/wac-replay.test.ts's identical helper. */
@@ -93,6 +116,7 @@ beforeEach(async () => {
   // filter-by-accountId test would see every prior test's purchases against the same seeded
   // accounts, not just the ones it created itself.
   await db.delete(purchases);
+  await db.delete(sessions);
   await db
     .delete(financialAccounts)
     .where(inArray(financialAccounts.id, ["acc_inactive_purchase_1"]));
@@ -102,9 +126,78 @@ beforeEach(async () => {
 });
 
 describe("recordPurchase (UC-01)", () => {
+  it("links an existing PURCHASE_TRIP session, creates one when absent, and rejects the wrong type", async () => {
+    const db = createDb(env.DB);
+    const item = await seedItem(db, "Harina — session resolution");
+    const existing = await recordSession(
+      db,
+      { type: "PURCHASE_TRIP", businessDate: BUSINESS_DATE },
+      ACTOR,
+    );
+    const linked = await recordPurchase(
+      db,
+      {
+        accountId: "acc_bank",
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        lines: [{ itemId: item.id, qty: 1000, lineTotal: 1000 }],
+      },
+      ACTOR,
+    );
+    expect(linked.purchase.sessionId).toBe(existing.session.id);
+
+    await updateSession(
+      db,
+      existing.session.id,
+      { type: "PURCHASE_TRIP", businessDate: BUSINESS_DATE, durationMin: 1, status: "CLOSED" },
+      ACTOR,
+    );
+    const autoCreated = await recordPurchase(
+      db,
+      {
+        accountId: "acc_bank",
+        occurredAt: "2026-07-16T11:00:00.000Z",
+        businessDate: BUSINESS_DATE,
+        lines: [{ itemId: item.id, qty: 1000, lineTotal: 1000 }],
+      },
+      ACTOR,
+    );
+    expect(autoCreated.purchase.sessionId).not.toBe(existing.session.id);
+    const autoSessionId = autoCreated.purchase.sessionId;
+    if (!autoSessionId) throw new Error("purchase did not resolve a session");
+    expect(
+      await db.query.sessions.findFirst({
+        where: (table, { eq: eqOp }) => eqOp(table.id, autoSessionId),
+      }),
+    ).toMatchObject({
+      type: "PURCHASE_TRIP",
+      status: "OPEN",
+      startedAt: "2026-07-16T11:00:00.000Z",
+    });
+
+    const wrongType = await recordSession(
+      db,
+      { type: "PRODUCTION", businessDate: BUSINESS_DATE },
+      ACTOR,
+    );
+    await expect(
+      recordPurchase(
+        db,
+        {
+          accountId: "acc_bank",
+          occurredAt: NOW,
+          businessDate: BUSINESS_DATE,
+          sessionId: wrongType.session.id,
+          lines: [{ itemId: item.id, qty: 1000, lineTotal: 1000 }],
+        },
+        ACTOR,
+      ),
+    ).rejects.toMatchObject({ code: "VALIDATION" });
+  });
+
   it("records a single-line purchase: kardex movement, item_stock, WAC, replacement_cost_mc, EXPENSE tx, account balance, audit_log", async () => {
     const db = createDb(env.DB);
-    const item = await seedItem(db, "Harina ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â single line");
+    const item = await seedItem(db, "Harina — single line");
 
     const result = await recordPurchase(
       db,
@@ -171,6 +264,76 @@ describe("recordPurchase (UC-01)", () => {
         and(eqOp(t.entityId, result.purchase.id), eqOp(t.action, "create")),
     });
     expect(auditRow).toMatchObject({ actor: ACTOR, entityType: "purchases" });
+  });
+
+  it("rejects a purchase line for an unmetered item before writing any purchase or movement", async () => {
+    const db = createDb(env.DB);
+    const item = await createItem(
+      db,
+      {
+        name: "Agua no medible en compras",
+        kind: "RAW_MATERIAL",
+        category: "NOT_EATABLE",
+        unit: "L",
+        minStockQty: 0,
+        isUnmetered: true,
+      },
+      ACTOR,
+    );
+
+    await expect(
+      recordPurchase(
+        db,
+        {
+          accountId: "acc_bank",
+          occurredAt: NOW,
+          businessDate: BUSINESS_DATE,
+          lines: [{ itemId: item.id, qty: 1000, lineTotal: 1000 }],
+        },
+        ACTOR,
+      ),
+    ).rejects.toMatchObject({
+      code: "VALIDATION",
+      message_es: "Este ítem no se compra: es un insumo no medido.",
+    });
+
+    expect(await db.query.purchases.findMany()).toHaveLength(0);
+    expect(
+      await db.query.stockMovements.findMany({
+        where: (t, { eq: eqOp }) => eqOp(t.itemId, item.id),
+      }),
+    ).toHaveLength(0);
+  });
+
+  it("updates replacement cost for PACKAGING purchases just like RAW_MATERIAL purchases", async () => {
+    const db = createDb(env.DB);
+    const packaging = await createItem(
+      db,
+      {
+        name: "Caja de cartón para compra",
+        kind: "PACKAGING",
+        category: "NOT_EATABLE",
+        unit: "UNIT",
+        minStockQty: 0,
+      },
+      ACTOR,
+    );
+
+    await recordPurchase(
+      db,
+      {
+        accountId: "acc_bank",
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        lines: [{ itemId: packaging.id, qty: 1000, lineTotal: 2000 }],
+      },
+      ACTOR,
+    );
+
+    const row = await db.query.items.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.id, packaging.id),
+    });
+    expect(row).toMatchObject({ wacMc: 2_000_000, replacementCostMc: 2_000_000 });
   });
 
   it("records a multi-line purchase across different items, updating each item's stock/WAC independently", async () => {
@@ -290,7 +453,7 @@ describe("recordPurchase (UC-01)", () => {
     expect(itemRow?.replacementCostUpdatedAt).toBeNull(); // untouched default
   });
 
-  it("always server-recomputes total as ÃƒÅ½Ã‚Â£ lineTotal", async () => {
+  it("always server-recomputes total as Î£ lineTotal", async () => {
     const db = createDb(env.DB);
     const item = await seedItem(db, "Total recompute item");
 
@@ -434,7 +597,7 @@ describe("recordPurchase (UC-01)", () => {
 // already-processed movement ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â a plain backdated CREATE included. Before this phase `recordPurchase`
 // read `items.wac_mc` / `item_stock.qty_on_hand` at their CURRENT value and applied C-1 regardless of
 // `business_date`, with no ordering guard anywhere; these tests are that hole.
-describe("recordPurchase ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â backdated capture: INV-11 replay guard (R-2/R-5, ADR-016)", () => {
+describe("recordPurchase — backdated capture: INV-11 replay guard (R-2/R-5, ADR-016)", () => {
   /**
    * The canonical scenario, numbers worked by hand (identical to costing-replay.test.ts's, so the
    * planner test and this committed-result test name the same regression from both sides).
@@ -453,7 +616,7 @@ describe("recordPurchase ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â backdated captur
    */
   it("refuses a backdated purchase landing behind an existing exit without `confirm`, carrying the impact", async () => {
     const db = createDb(env.DB);
-    const item = await seedItem(db, "Harina ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â compra retroactiva rechazada");
+    const item = await seedItem(db, "Harina — compra retroactiva rechazada");
 
     await recordPurchase(
       db,
@@ -534,7 +697,7 @@ describe("recordPurchase ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â backdated captur
 
   it("commits the same purchase with `confirm: true`, landing the FULL-KARDEX WAC and booking the correction forward (R-4)", async () => {
     const db = createDb(env.DB);
-    const item = await seedItem(db, "Harina ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â compra retroactiva confirmada");
+    const item = await seedItem(db, "Harina — compra retroactiva confirmada");
 
     await recordPurchase(
       db,
@@ -623,7 +786,7 @@ describe("recordPurchase ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â backdated captur
 
   it("commits a backdated purchase with NO frozen consumer downstream WITHOUT `confirm`, still replaying the WAC", async () => {
     const db = createDb(env.DB);
-    const item = await seedItem(db, "Harina ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â retroactiva sin consumidores");
+    const item = await seedItem(db, "Harina — retroactiva sin consumidores");
 
     // Two entries and nothing that consumed the item: INV-11 still fires (there IS a later
     // movement) but no already-reported cost is contradicted, so R-5 has nothing to confirm.
@@ -678,10 +841,10 @@ describe("recordPurchase ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â backdated captur
 // not last RECORDED. Backdating last week's invoice must not roll today's replacement cost back to
 // last week's price ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â in a high-inflation context that quietly makes C-5's margin look better than
 // it is.
-describe("recordPurchase ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â C-3 replacement_cost_mc is last by business_date", () => {
+describe("recordPurchase — C-3 replacement_cost_mc is last by business_date", () => {
   it("a BACKDATED purchase does not overwrite a replacement_cost_mc set by a later-dated one; a FORWARD-dated one does", async () => {
     const db = createDb(env.DB);
-    const item = await seedItem(db, "Harina ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â C-3 por fecha de negocio");
+    const item = await seedItem(db, "Harina — C-3 por fecha de negocio");
 
     // 07-16 @ unit cost 5 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â the current replacement cost.
     await recordPurchase(
@@ -713,7 +876,7 @@ describe("recordPurchase ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â C-3 replacement_
     const afterBackdated = await db.query.items.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
     });
-    expect(afterBackdated?.replacementCostMc).toBe(5_000_000); // unchanged ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 07-16 is still the last date
+    expect(afterBackdated?.replacementCostMc).toBe(5_000_000); // unchanged — 07-16 is still the last date
     expect(afterBackdated?.replacementCostUpdatedAt).toBe(afterFirst?.replacementCostUpdatedAt);
     // The WAC, unlike the replacement cost, absolutely does move: it is a weighted average over
     // ALL entries, so a backdated one belongs in it (C-1 vs C-3 are different questions).
@@ -739,7 +902,7 @@ describe("recordPurchase ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â C-3 replacement_
 
   it("keeps same-day capture order as the tiebreak: a second purchase on the SAME business_date still wins", async () => {
     const db = createDb(env.DB);
-    const item = await seedItem(db, "Harina ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â C-3 empate mismo dÃƒÆ’Ã‚Â­a");
+    const item = await seedItem(db, "Harina — C-3 empate mismo día");
 
     for (const lineTotal of [5_000, 9_000]) {
       await recordPurchase(
@@ -830,6 +993,11 @@ describe("batch atomicity (INV-1)", () => {
   it("a failing statement in the same shape of batch as recordPurchase leaves the account balance and purchase rows unchanged", async () => {
     const db = createDb(env.DB);
     const item = await seedItem(db, "Atomicity item");
+    const { session } = await recordSession(
+      db,
+      { type: "PURCHASE_TRIP", businessDate: BUSINESS_DATE, startedAt: NOW },
+      ACTOR,
+    );
 
     // Mirrors the statement shape recordPurchase() builds (purchase insert + account balance
     // update + a purchase_lines insert), but the purchase_lines row violates
@@ -839,9 +1007,9 @@ describe("batch atomicity (INV-1)", () => {
     await expect(
       env.DB.batch([
         env.DB.prepare(
-          `INSERT INTO purchases (id, occurred_at, business_date, account_id, total, created_at, updated_at)
-           VALUES ('purchase_atomicity_test', ?, ?, 'acc_bank', 1000, ?, ?)`,
-        ).bind(NOW, BUSINESS_DATE, NOW, NOW),
+          `INSERT INTO purchases (id, occurred_at, business_date, session_id, account_id, total, created_at, updated_at)
+           VALUES ('purchase_atomicity_test', ?, ?, ?, 'acc_bank', 1000, ?, ?)`,
+        ).bind(NOW, BUSINESS_DATE, session.id, NOW, NOW),
         env.DB.prepare(
           "UPDATE financial_accounts SET balance = balance + -1000 WHERE id = 'acc_bank'",
         ),
@@ -870,7 +1038,7 @@ describe("batch atomicity (INV-1)", () => {
 // ---------------------------------------------------------------------------
 
 describe("property: purchase sequences keep item_stock and WAC consistent (INV-5 in miniature)", () => {
-  it("ÃƒÂ¢Ã‹â€ Ã¢â€šÂ¬ sequences of purchase commands against a fresh pair of items: qty_on_hand = ÃƒÅ½Ã‚Â£ PURCHASE_IN qtys, and wac stays within [min(costs), max(costs)] of that item's entry unit costs", async () => {
+  it("∀ sequences of purchase commands against a fresh pair of items: qty_on_hand = Σ PURCHASE_IN qtys, and wac stays within [min(costs), max(costs)] of that item's entry unit costs", async () => {
     const db = createDb(env.DB);
 
     const lineArb = fc.record({
@@ -929,7 +1097,7 @@ describe("property: purchase sequences keep item_stock and WAC consistent (INV-5
             expect(stockRow?.qtyOnHand ?? 0).toBe(qtyByItem.get(itemId) ?? 0);
 
             const costs = entryCostsByItem.get(itemId) ?? [];
-            if (costs.length === 0) continue; // item never purchased this run ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â nothing to check.
+            if (costs.length === 0) continue; // item never purchased this run — nothing to check.
 
             const itemRow = await db.query.items.findFirst({
               where: (t, { eq: eqOp }) => eqOp(t.id, itemId),
@@ -973,7 +1141,7 @@ async function purchaseTx(db: TestDb, purchaseId: string) {
 describe("updatePurchase (R-1)", () => {
   it("descriptive-only edit (supplierName/notes) leaves the kardex byte-identical, writes no items UPDATE, no costing_adjustments row, and needs no confirmation", async () => {
     const db = createDb(env.DB);
-    const item = await seedItem(db, "Purchase edit ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â solo descriptivo");
+    const item = await seedItem(db, "Purchase edit — solo descriptivo");
 
     const created = await recordPurchase(
       db,
@@ -1006,7 +1174,7 @@ describe("updatePurchase (R-1)", () => {
         occurredAt: NOW,
         businessDate: BUSINESS_DATE,
         supplierName: "Proveedor B",
-        notes: "despuÃƒÆ’Ã‚Â©s",
+        notes: "después",
         lines: [{ itemId: item.id, qty: 1000, lineTotal: 2000 }],
       },
       ACTOR,
@@ -1014,7 +1182,7 @@ describe("updatePurchase (R-1)", () => {
 
     expect(updated.purchase).toMatchObject({
       supplierName: "Proveedor B",
-      notes: "despuÃƒÆ’Ã‚Â©s",
+      notes: "después",
     });
 
     // Kardex byte-identical (same qty/unitCost/dates) => NOT regenerated at all: same row, same id.
@@ -1062,16 +1230,13 @@ describe("updatePurchase (R-1)", () => {
     expect(after).toMatchObject({
       id: created.purchase.id,
       supplierName: "Proveedor B",
-      notes: "despuÃƒÆ’Ã‚Â©s",
+      notes: "después",
     });
   });
 
   it("edit changing qty/unit cost with NO downstream history recomputes WAC/replacementCostMc automatically, no confirmation needed", async () => {
     const db = createDb(env.DB);
-    const item = await seedItem(
-      db,
-      "Purchase edit ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â qty/costo sin historial posterior",
-    );
+    const item = await seedItem(db, "Purchase edit — qty/costo sin historial posterior");
 
     const created = await recordPurchase(
       db,
@@ -1119,10 +1284,7 @@ describe("updatePurchase (R-1)", () => {
 
   it("edit changing a line BEFORE stock already consumed downstream requires confirmation, and commits the replayed WAC + a costing_adjustments row with confirm:true (R-4/R-5)", async () => {
     const db = createDb(env.DB);
-    const item = await seedItem(
-      db,
-      "Purchase edit ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â retroactivo con consumo posterior",
-    );
+    const item = await seedItem(db, "Purchase edit — retroactivo con consumo posterior");
 
     const p1 = await recordPurchase(
       db,
@@ -1246,7 +1408,7 @@ describe("updatePurchase (R-1)", () => {
 
   it("edit moving the purchase to a different financial account nets exactly two account balance deltas", async () => {
     const db = createDb(env.DB);
-    const item = await seedItem(db, "Purchase edit ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â cambio de cuenta");
+    const item = await seedItem(db, "Purchase edit — cambio de cuenta");
 
     const created = await recordPurchase(
       db,
@@ -1291,7 +1453,7 @@ describe("updatePurchase (R-1)", () => {
 
   it("rejects an unknown or already-deleted purchase with NOT_FOUND", async () => {
     const db = createDb(env.DB);
-    const item = await seedItem(db, "Purchase edit ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â not found");
+    const item = await seedItem(db, "Purchase edit — not found");
     const command = {
       accountId: "acc_bank",
       occurredAt: NOW,
@@ -1312,7 +1474,7 @@ describe("updatePurchase (R-1)", () => {
 
   it("rejects an empty lines array with VALIDATION (defensive re-check, D-2)", async () => {
     const db = createDb(env.DB);
-    const item = await seedItem(db, "Purchase edit ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â lines vacÃƒÆ’Ã‚Â­o");
+    const item = await seedItem(db, "Purchase edit — lines vacío");
     const created = await recordPurchase(
       db,
       {
@@ -1343,7 +1505,7 @@ describe("updatePurchase (R-1)", () => {
 describe("deletePurchase (R-3, D-8)", () => {
   it("delete of an untouched purchase reverses kardex/cash and recomputes WAC/replacementCostMc as if it never existed (no other purchase => falls back to 0)", async () => {
     const db = createDb(env.DB);
-    const item = await seedItem(db, "Purchase delete ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â sin consumo");
+    const item = await seedItem(db, "Purchase delete — sin consumo");
 
     const created = await recordPurchase(
       db,
@@ -1406,7 +1568,7 @@ describe("deletePurchase (R-3, D-8)", () => {
 
   it("delete of a purchase whose stock has ALREADY been consumed (INV-8) drives qty_on_hand negative, sets negative_since, and requires confirm when the replay contradicts a frozen exit", async () => {
     const db = createDb(env.DB);
-    const item = await seedItem(db, "Purchase delete ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â INV-8 consumo previo");
+    const item = await seedItem(db, "Purchase delete — INV-8 consumo previo");
 
     const created = await recordPurchase(
       db,
@@ -1486,7 +1648,7 @@ describe("deletePurchase (R-3, D-8)", () => {
 
   it("C-3: deleting the LATER of two purchases falls the replacement_cost_mc back to the earlier live purchase's unit cost", async () => {
     const db = createDb(env.DB);
-    const item = await seedItem(db, "Purchase delete ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â C-3 fallback a la anterior");
+    const item = await seedItem(db, "Purchase delete — C-3 fallback a la anterior");
 
     await recordPurchase(
       db,
@@ -1525,7 +1687,7 @@ describe("deletePurchase (R-3, D-8)", () => {
 
   it("rejects an unknown or already-deleted purchase with NOT_FOUND", async () => {
     const db = createDb(env.DB);
-    const item = await seedItem(db, "Purchase delete ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â not found");
+    const item = await seedItem(db, "Purchase delete — not found");
     const created = await recordPurchase(
       db,
       {
@@ -1554,10 +1716,10 @@ describe("deletePurchase (R-3, D-8)", () => {
 // through the SAME commitPurchaseMutation path update/delete already share, audited as "restore".
 // ---------------------------------------------------------------------------
 
-describe("restorePurchase (Doc 06 principle 6 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â 'Deshacer')", () => {
+describe("restorePurchase (Doc 06 principle 6 — 'Deshacer')", () => {
   it("restores a purchase that touched nothing downstream: kardex/cash/WAC/replacementCostMc come back exactly as they were, reads see it again, audit row carries action 'restore'", async () => {
     const db = createDb(env.DB);
-    const item = await seedItem(db, "Purchase restore ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â sin efecto posterior");
+    const item = await seedItem(db, "Purchase restore — sin efecto posterior");
 
     const created = await recordPurchase(
       db,
@@ -1644,7 +1806,7 @@ describe("restorePurchase (Doc 06 principle 6 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬
 
   it("restores a purchase whose kardex has been superseded by intervening history: refuses without confirm, then commits with confirm:true and books a costing_adjustments correction (R-4/R-5)", async () => {
     const db = createDb(env.DB);
-    const item = await seedItem(db, "Purchase restore ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â historial posterior");
+    const item = await seedItem(db, "Purchase restore — historial posterior");
 
     const p1 = await recordPurchase(
       db,
@@ -1758,7 +1920,7 @@ describe("restorePurchase (Doc 06 principle 6 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬
 
   it("rejects an id that does not exist or is not currently deleted with NOT_FOUND", async () => {
     const db = createDb(env.DB);
-    const item = await seedItem(db, "Purchase restore ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â not found");
+    const item = await seedItem(db, "Purchase restore — not found");
 
     await expect(restorePurchase(db, "does_not_exist", {}, ACTOR)).rejects.toMatchObject({
       code: "NOT_FOUND",

@@ -3,6 +3,7 @@
 // @cloudflare/vitest-pool-workers (test/setup.ts applies migrations/0001_init.sql first).
 import { env } from "cloudflare:test";
 import { toMilliCentavosPerUnit } from "@kokoro/shared";
+import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -16,6 +17,7 @@ import {
   updateItem,
 } from "../src/core/catalog/index.js";
 import { createDb } from "../src/db/index.js";
+import { items } from "../src/db/schema.js";
 
 const ACTOR = "OWNER_WEB" as const;
 const mc = toMilliCentavosPerUnit;
@@ -44,18 +46,63 @@ describe("createItem", () => {
     expect(auditRow).toMatchObject({ actor: ACTOR, entityType: "item" });
   });
 
+  it("sets replacementCostMc and stamps replacementCostUpdatedAt for an isUnmetered item (Doc 03 C-9)", async () => {
+    const db = createDb(env.DB);
+    const item = await createItem(
+      db,
+      {
+        name: "Agua",
+        kind: "RAW_MATERIAL",
+        category: "INGREDIENT",
+        unit: "L",
+        minStockQty: 0,
+        isUnmetered: true,
+        replacementCostMc: mc(5),
+      },
+      ACTOR,
+    );
+
+    expect(item.isUnmetered).toBe(true);
+    expect(item.replacementCostMc).toBe(mc(5));
+    expect(item.replacementCostUpdatedAt).not.toBeNull();
+  });
+
+  it("projects opening-balance WAC as replacement cost until the first real purchase", async () => {
+    const db = createDb(env.DB);
+    const item = await createItem(
+      db,
+      { name: "Avena inicial", kind: "RAW_MATERIAL", category: "INGREDIENT", unit: "KG" },
+      ACTOR,
+    );
+    await db
+      .update(items)
+      .set({ wacMc: mc(7) })
+      .where(eq(items.id, item.id));
+
+    const projected = await getItem(db, item.id);
+    expect(projected.wacMc).toBe(mc(7));
+    expect(projected.replacementCostMc).toBe(mc(7));
+    expect(projected.replacementCostUpdatedAt).toBeNull();
+
+    const stored = await db.query.items.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.id, item.id),
+    });
+    expect(stored?.replacementCostMc).toBe(0);
+    expect(stored?.replacementCostUpdatedAt).toBeNull();
+  });
+
   it("rejects a duplicate name with CONFLICT", async () => {
     const db = createDb(env.DB);
     await createItem(
       db,
-      { name: "AzÃºcar blanca", kind: "RAW_MATERIAL", category: "INGREDIENT", unit: "KG" },
+      { name: "Azúcar blanca", kind: "RAW_MATERIAL", category: "INGREDIENT", unit: "KG" },
       ACTOR,
     );
 
     await expect(
       createItem(
         db,
-        { name: "AzÃºcar blanca", kind: "RAW_MATERIAL", category: "INGREDIENT", unit: "KG" },
+        { name: "Azúcar blanca", kind: "RAW_MATERIAL", category: "INGREDIENT", unit: "KG" },
         ACTOR,
       ),
     ).rejects.toMatchObject({ code: "CONFLICT" });
@@ -99,6 +146,50 @@ describe("updateItem", () => {
       },
     );
   });
+
+  it("updates replacementCostMc and stamps replacementCostUpdatedAt for an isUnmetered item (Doc 03 C-9)", async () => {
+    const db = createDb(env.DB);
+    const created = await createItem(
+      db,
+      {
+        name: "Gas",
+        kind: "RAW_MATERIAL",
+        category: "INGREDIENT",
+        unit: "UNIT",
+        minStockQty: 0,
+        isUnmetered: true,
+        replacementCostMc: mc(10),
+      },
+      ACTOR,
+    );
+
+    const updated = await updateItem(db, { id: created.id, replacementCostMc: mc(20) }, ACTOR);
+
+    expect(updated.replacementCostMc).toBe(mc(20));
+    expect(updated.replacementCostUpdatedAt).not.toBeNull();
+  });
+
+  it("clearing replacementCostMc to null resets it to 0 and clears the timestamp", async () => {
+    const db = createDb(env.DB);
+    const created = await createItem(
+      db,
+      {
+        name: "Electricidad",
+        kind: "RAW_MATERIAL",
+        category: "INGREDIENT",
+        unit: "UNIT",
+        minStockQty: 0,
+        isUnmetered: true,
+        replacementCostMc: mc(10),
+      },
+      ACTOR,
+    );
+
+    const updated = await updateItem(db, { id: created.id, replacementCostMc: null }, ACTOR);
+
+    expect(updated.replacementCostMc).toBe(0);
+    expect(updated.replacementCostUpdatedAt).toBeNull();
+  });
 });
 
 describe("setItemActive", () => {
@@ -106,7 +197,7 @@ describe("setItemActive", () => {
     const db = createDb(env.DB);
     const created = await createItem(
       db,
-      { name: "Levadura fresca", kind: "RAW_MATERIAL", category: "INGREDIENT", unit: "G" },
+      { name: "Levadura fresca", kind: "RAW_MATERIAL", category: "INGREDIENT", unit: "KG" },
       ACTOR,
     );
 
@@ -165,12 +256,18 @@ describe("listItems", () => {
     await addItemAlias(db, { itemId: flour.id, alias: "wholemeal" }, ACTOR);
     const box = await createItem(
       db,
-      { name: "Caja de cartÃ³n", kind: "RAW_MATERIAL", category: "PACKAGING", unit: "UNIT" },
+      {
+        name: "Caja de cartón",
+        kind: "PACKAGING",
+        category: "NOT_EATABLE",
+        unit: "UNIT",
+        minStockQty: 0,
+      },
       ACTOR,
     );
     await setItemActive(db, { id: box.id, isActive: false }, ACTOR);
 
-    const byCategory = await listItems(db, { category: "PACKAGING" });
+    const byCategory = await listItems(db, { category: "NOT_EATABLE" });
     expect(byCategory.items.map((i) => i.id)).toEqual([box.id]);
 
     const onlyActive = await listItems(db, { isActive: true });
@@ -240,7 +337,7 @@ describe("mergeItems", () => {
     const db = createDb(env.DB);
     const item = await createItem(
       db,
-      { name: "Vainilla", kind: "RAW_MATERIAL", category: "INGREDIENT", unit: "ML" },
+      { name: "Vainilla", kind: "RAW_MATERIAL", category: "INGREDIENT", unit: "L" },
       ACTOR,
     );
     await expect(
@@ -276,7 +373,7 @@ describe("price_history (KOK-035, Doc 07 SC-12)", () => {
     const db = createDb(env.DB);
     const item = await createItem(
       db,
-      { name: "Sin precio aÃºn", kind: "FINISHED", category: "BAKERY", unit: "UNIT" },
+      { name: "Sin precio aún", kind: "FINISHED", category: "BAKERY", unit: "UNIT" },
       ACTOR,
     );
 

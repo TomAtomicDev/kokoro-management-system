@@ -46,25 +46,31 @@ consideration, not a requirement (see Non-goals).
 
 ### In scope (v1)
 
-1. **Catalog & inventory** — unified item catalog (raw material, semi-finished, finished),
-   kardex-based stock, minimum-stock alerts, inventory counts and adjustments.
+1. **Catalog & inventory** — unified item catalog (raw material, semi-finished, finished,
+   packaging), kardex-based stock, minimum-stock alerts, inventory counts and adjustments.
 2. **Purchases** — purchase events with lines, updates stock, weighted-average cost, and
    replacement cost; paid from bank or cash box.
 3. **Production** — recipe-driven batch transformations (raw → semi-finished → finished),
    actual-yield costing, indirect/shared cost allocation, multi-run production sessions.
-4. **Sales** — catalog sales (Modality 1) with fixed prices, cash/QR, paid or on-credit.
-5. **Custom orders** (Modality 2) — quote → 50% deposit (liability) → production → delivery →
+4. **Packing & bundling** — presentations ("Kéfir natural 500 ml") and combos ("Desayuno
+   Kokoro") as stockable finished goods with their own price, cost and margin, produced by an
+   *Envasado/Armado* event that consumes base product and packaging (Phase 3.2; Doc 03 C-10).
+   This is what makes packaging cost land inside the product's margin instead of beside it.
+5. **Sales** — catalog sales (Modality 1) with fixed prices, cash/QR, paid or on-credit.
+6. **Custom orders** (Modality 2) — quote → 50% deposit (liability) → production → delivery →
    balance collection; multiple concurrent orders.
-6. **Non-commercial exits** — waste, self-consumption, gifts/samples, spoilage, valued at cost.
-7. **Finance** — two accounts (bank, cash box), all income/expense categorized, transfers,
+7. **Non-commercial exits** — waste, self-consumption, gifts/samples, spoilage, valued at cost.
+8. **Finance** — two accounts (bank, cash box), all income/expense categorized, transfers,
    owner withdrawals, accounts receivable, deposit liability, cash-flow reporting.
-8. **Sessions & time** — purchase trips, production sessions, delivery runs as containers for
-   events, shared costs (fuel, energy), and person-hours.
-9. **Insights** — dashboard, price-health report (margin at WAC and at replacement cost),
-   Bs/hour metrics, sales/production/cash trends, waste report.
-10. **AI assistant** — (a) Telegram bot: natural-language event capture with confirmation, quick
+9. **Sessions & time** — purchase trips, production sessions, delivery runs as containers for
+   events, shared costs (fuel, energy), and person-hours. Purchases, production and packing must
+   belong to one — the system attaches it automatically rather than asking (Doc 03 S-1).
+10. **Insights** — dashboard, price-health report (margin at WAC and at replacement cost),
+    Bs/hour metrics, sales/production/cash trends, waste report.
+11. **AI assistant** — (a) Telegram bot: natural-language event capture with confirmation, quick
     queries; (b) web chat: analytical Q&A over curated tools.
-11. **Web app (desktop-first)** — tables, charts, full CRUD/editing of events, settings.
+12. **Web app (desktop-first)** — tables, charts, full CRUD/editing of events, settings.
+    Installable on the phone as a PWA shell (online-only — see non-goals).
 
 ### Out of scope (v1) — non-goals
 
@@ -76,7 +82,11 @@ consideration, not a requirement (see Non-goals).
 - Multi-currency (BOB only; inflation handled via replacement cost, not FX).
 - Demand forecasting / automatic production planning (production remains owner's judgment; the
   system informs, it does not plan).
-- Offline-first sync (Telegram queueing is the resilience mechanism for connectivity gaps).
+- Offline-first sync (Telegram queueing is the resilience mechanism for connectivity gaps). The
+  web app **is** installable as a PWA shell — icon on the phone, instant open — but it stays
+  online-only: no deferred API queue, no background sync. A queued event replayed days later is a
+  backdated event whose cost replay may need the owner's confirmation (R-5), which cannot be
+  obtained offline without inventing consent. Reaffirmed 2026-08-11; see ADR-020.
 
 ## 6. Product principles
 

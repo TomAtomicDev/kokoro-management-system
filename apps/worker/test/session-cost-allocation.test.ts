@@ -20,13 +20,18 @@
 // resetting in `beforeEach`.
 import { env } from "cloudflare:test";
 import { eq } from "drizzle-orm";
+import fc from "fast-check";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { createItem } from "../src/core/catalog/index.js";
 import { recordExit } from "../src/core/inventory/exits.js";
-import { recordProductionRun } from "../src/core/production/index.js";
+import { previewProductionRunImpact, recordProductionRun } from "../src/core/production/index.js";
 import { recordRecipe } from "../src/core/recipes/index.js";
-import { recordSession, updateSession } from "../src/core/sessions/index.js";
+import {
+  closeAndStartSession,
+  recordSession as recordSessionCore,
+  updateSession as updateSessionCore,
+} from "../src/core/sessions/index.js";
 import { createDb } from "../src/db/index.js";
 import {
   auditLog,
@@ -34,6 +39,7 @@ import {
   financialAccounts,
   financialTransactions,
   productionRuns,
+  purchases,
   sessions,
   stockExits,
   stockMovements,
@@ -41,8 +47,26 @@ import {
 
 const ACTOR = "OWNER_WEB" as const;
 const BUSINESS_DATE = "2026-07-16";
+const SESSION_STARTED_AT = "2026-07-16T09:00:00.000Z";
 
 type TestDb = ReturnType<typeof createDb>;
+
+function recordSession(
+  db: TestDb,
+  command: Omit<Parameters<typeof recordSessionCore>[1], "startedAt"> & { startedAt?: string },
+  actor: Parameters<typeof recordSessionCore>[2],
+) {
+  return recordSessionCore(db, { startedAt: SESSION_STARTED_AT, ...command }, actor);
+}
+
+function updateSession(
+  db: TestDb,
+  id: string,
+  command: Omit<Parameters<typeof updateSessionCore>[2], "startedAt"> & { startedAt?: string },
+  actor: Parameters<typeof updateSessionCore>[3],
+) {
+  return updateSessionCore(db, id, { startedAt: SESSION_STARTED_AT, ...command }, actor);
+}
 
 async function seedItem(
   db: TestDb,
@@ -152,6 +176,7 @@ beforeEach(async () => {
   await db.delete(stockMovements).where(eq(stockMovements.sourceEventType, "production_run"));
   await db.delete(stockMovements).where(eq(stockMovements.sourceEventType, "purchase"));
   await db.delete(productionRuns); // cascades production_consumptions
+  await db.delete(purchases);
   await db.delete(sessions); // cascades session_costs
   for (const id of ["acc_bank", "acc_cash"] as const) {
     await db.update(financialAccounts).set({ balance: 0 }).where(eq(financialAccounts.id, id));
@@ -159,6 +184,52 @@ beforeEach(async () => {
 });
 
 describe("planSessionCostAllocation via updateSession (KOK-028, S-3)", () => {
+  it("closeAndStartSession allocates the closing PRODUCTION session's existing costs in the same batch", async () => {
+    const db = createDb(env.DB);
+    const input = await seedItem(db, "KOK-130 swap — input");
+    const output = await seedItem(db, "KOK-130 swap — output", "SEMI_FINISHED");
+    await seedPurchase(db, input.id, 1000, 100);
+    const recipe = await seedRecipe(db, output.id, [{ itemId: input.id, qty: 1000 }]);
+    const { session } = await recordSession(
+      db,
+      {
+        type: "PRODUCTION",
+        businessDate: BUSINESS_DATE,
+        costLines: [{ label: "Gas", amount: 50_000, isEstimate: true }],
+      },
+      ACTOR,
+    );
+    const { productionRun } = await recordProductionRun(
+      db,
+      {
+        recipeId: recipe.id,
+        sessionId: session.id,
+        batches: 1,
+        actualOutputQty: 1000,
+        occurredAt: `${BUSINESS_DATE}T09:00:00.000Z`,
+        businessDate: BUSINESS_DATE,
+        lines: [{ itemId: input.id, qty: 1000 }],
+      },
+      ACTOR,
+    );
+
+    const result = await closeAndStartSession(
+      db,
+      {
+        closeSessionId: session.id,
+        newSession: {
+          type: "PRODUCTION",
+          businessDate: "2026-07-17",
+          startedAt: "2026-07-17T09:00:00.000Z",
+        },
+      },
+      ACTOR,
+    );
+    expect(result.closedSession.status).toBe("CLOSED");
+    expect(result.newSession).toMatchObject({ type: "PRODUCTION", status: "OPEN" });
+    expect((await runRow(db, productionRun.id)).allocatedSessionCost).toBe(50_000);
+  });
+
   it("a single linked run gets 100% of the shared cost; total_cost/output unit cost update and the output item's WAC is corrected via the no-downstream fallback path", async () => {
     const db = createDb(env.DB);
     const itemA = await seedItem(db, "KOK-028 single-run — harina");
@@ -353,7 +424,7 @@ describe("planSessionCostAllocation via updateSession (KOK-028, S-3)", () => {
     expect(result.session.status).toBe("CLOSED");
   });
 
-  it("a non-PRODUCTION session type never allocates, even when CLOSED with a linked run", async () => {
+  it("a non-PRODUCTION session closes without invoking production allocation", async () => {
     const db = createDb(env.DB);
     const itemA = await seedItem(db, "KOK-028 non-production — harina");
     const output = await seedItem(db, "KOK-028 non-production — masa", "SEMI_FINISHED");
@@ -362,7 +433,7 @@ describe("planSessionCostAllocation via updateSession (KOK-028, S-3)", () => {
 
     const { session } = await recordSession(
       db,
-      { type: "DELIVERY_RUN", businessDate: BUSINESS_DATE, durationMin: 30, costLines: [] },
+      { type: "PRODUCTION", businessDate: BUSINESS_DATE, durationMin: 30, costLines: [] },
       ACTOR,
     );
     const { productionRun } = await recordProductionRun(
@@ -472,5 +543,249 @@ describe("planSessionCostAllocation via updateSession (KOK-028, S-3)", () => {
     });
     expect(JSON.parse(adjustment?.affectedStockExitIds ?? "[]")).toEqual([exit.id]);
     expect(JSON.parse(adjustment?.affectedSaleLineIds ?? "[]")).toEqual([]);
+  });
+});
+
+describe("KOK-133: adding a production run to a CLOSED session — S-3 reallocation-on-add", () => {
+  it("a run added to a CLOSED session with zero existing runs gets 100% of the shared cost in one call (the exact bug u1 fixes — empty allRuns must not short-circuit)", async () => {
+    const db = createDb(env.DB);
+    const input = await seedItem(db, "KOK-133 u2 — empty closed — input");
+    const output = await seedItem(db, "KOK-133 u2 — empty closed — output", "SEMI_FINISHED");
+    await seedPurchase(db, input.id, 1000, 1); // WAC(input) = 1; qty 100 makes directCost = 100.
+    const recipe = await seedRecipe(db, output.id, [{ itemId: input.id, qty: 100 }]);
+    const session = await seedOpenProductionSession(db);
+    await closeSession(db, session.id, [
+      { label: "Gas", amount: 300, isEstimate: false, accountId: "acc_bank" },
+    ]);
+
+    const { productionRun } = await recordProductionRun(
+      db,
+      {
+        recipeId: recipe.id,
+        sessionId: session.id,
+        batches: 1,
+        actualOutputQty: 1000,
+        occurredAt: `${BUSINESS_DATE}T09:00:00.000Z`,
+        businessDate: BUSINESS_DATE,
+        lines: [{ itemId: input.id, qty: 100 }],
+      },
+      ACTOR,
+    );
+
+    expect(productionRun.directCost).toBe(100);
+    expect(productionRun.allocatedSessionCost).toBe(300);
+    expect(productionRun.totalCost).toBe(400);
+    expect(await itemWac(db, output.id)).toBe(400_000);
+  });
+
+  it("adding a second run to a CLOSED session with one already-allocated run redistributes the total exactly between both, in one atomic call", async () => {
+    const db = createDb(env.DB);
+    const input = await seedItem(db, "KOK-133 u2 — equal split — input");
+    const output1 = await seedItem(db, "KOK-133 u2 — equal split — output 1", "SEMI_FINISHED");
+    const output2 = await seedItem(db, "KOK-133 u2 — equal split — output 2", "SEMI_FINISHED");
+    await seedPurchase(db, input.id, 1000, 1); // WAC(input) = 1; qty 100 makes D1 = D2 = 100.
+    const recipe1 = await seedRecipe(db, output1.id, [{ itemId: input.id, qty: 100 }]);
+    const recipe2 = await seedRecipe(db, output2.id, [{ itemId: input.id, qty: 100 }]);
+    const session = await seedOpenProductionSession(db);
+    const { productionRun: run1 } = await recordProductionRun(
+      db,
+      {
+        recipeId: recipe1.id,
+        sessionId: session.id,
+        batches: 1,
+        actualOutputQty: 1000,
+        occurredAt: `${BUSINESS_DATE}T09:00:00.000Z`,
+        businessDate: BUSINESS_DATE,
+        lines: [{ itemId: input.id, qty: 100 }],
+      },
+      ACTOR,
+    );
+    await closeSession(db, session.id, [
+      { label: "Gas", amount: 300, isEstimate: false, accountId: "acc_bank" },
+    ]);
+    expect((await runRow(db, run1.id)).allocatedSessionCost).toBe(300);
+
+    const { productionRun: run2 } = await recordProductionRun(
+      db,
+      {
+        recipeId: recipe2.id,
+        sessionId: session.id,
+        batches: 1,
+        actualOutputQty: 1000,
+        occurredAt: `${BUSINESS_DATE}T09:30:00.000Z`,
+        businessDate: BUSINESS_DATE,
+        lines: [{ itemId: input.id, qty: 100 }],
+        confirm: true,
+      },
+      ACTOR,
+    );
+
+    const persistedRun1 = await runRow(db, run1.id);
+    expect(persistedRun1.allocatedSessionCost).toBe(150);
+    expect(run2.allocatedSessionCost).toBe(150);
+    expect(persistedRun1.allocatedSessionCost + run2.allocatedSessionCost).toBe(300);
+  });
+
+  it("refuses without confirm, carrying the impact that matches previewProductionRunImpact's create branch (D-1: preview must never drift from the real path)", async () => {
+    const db = createDb(env.DB);
+    const input = await seedItem(db, "KOK-133 u2 — preview parity — input");
+    const output = await seedItem(db, "KOK-133 u2 — preview parity — output", "SEMI_FINISHED");
+    await seedPurchase(db, input.id, 1000, 1); // WAC(input) = 1; both direct costs are 100.
+    const recipe = await seedRecipe(db, output.id, [{ itemId: input.id, qty: 100 }]);
+    const session = await seedOpenProductionSession(db);
+    const { productionRun: run1 } = await recordProductionRun(
+      db,
+      {
+        recipeId: recipe.id,
+        sessionId: session.id,
+        batches: 1,
+        actualOutputQty: 1000,
+        occurredAt: `${BUSINESS_DATE}T09:00:00.000Z`,
+        businessDate: BUSINESS_DATE,
+        lines: [{ itemId: input.id, qty: 100 }],
+      },
+      ACTOR,
+    );
+    const { exit } = await recordExit(
+      db,
+      {
+        itemId: output.id,
+        qty: 500,
+        reason: "WASTE",
+        occurredAt: `${BUSINESS_DATE}T10:00:00.000Z`,
+        businessDate: BUSINESS_DATE,
+      },
+      ACTOR,
+    );
+    expect(exit.unitCostSnapshotMc).toBe(100_000);
+    await closeSession(db, session.id, [
+      { label: "Gas", amount: 300, isEstimate: false, accountId: "acc_bank" },
+    ]);
+    expect((await runRow(db, run1.id)).allocatedSessionCost).toBe(300);
+
+    const command = {
+      recipeId: recipe.id,
+      sessionId: session.id,
+      batches: 1,
+      actualOutputQty: 1000,
+      occurredAt: `${BUSINESS_DATE}T09:30:00.000Z`,
+      businessDate: BUSINESS_DATE,
+      lines: [{ itemId: input.id, qty: 100 }],
+    };
+    const impact = await previewProductionRunImpact(db, { op: "create", command });
+
+    await expect(recordProductionRun(db, command, ACTOR)).rejects.toMatchObject({
+      code: "CONFLICT",
+      details: {
+        reason: "REPLAY_CONFIRMATION_REQUIRED",
+        impact: expect.objectContaining(impact),
+      },
+    });
+    expect(impact.requiresConfirmation).toBe(true);
+    expect((await runRow(db, run1.id)).allocatedSessionCost).toBe(300);
+    const sessionRuns = await db.query.productionRuns.findMany({
+      where: (t, { eq: eqOp }) => eqOp(t.sessionId, session.id),
+    });
+    expect(sessionRuns).toHaveLength(1);
+  });
+
+  it("estimate-only cost lines still form the allocation basis when adding to a CLOSED session", async () => {
+    const db = createDb(env.DB);
+    const input = await seedItem(db, "KOK-133 u2 — estimate basis — input");
+    const output = await seedItem(db, "KOK-133 u2 — estimate basis — output", "SEMI_FINISHED");
+    await seedPurchase(db, input.id, 1000, 1); // Equal 100-centavo direct-cost weights.
+    const recipe = await seedRecipe(db, output.id, [{ itemId: input.id, qty: 100 }]);
+    const session = await seedOpenProductionSession(db);
+    const { productionRun: run1 } = await recordProductionRun(
+      db,
+      {
+        recipeId: recipe.id,
+        sessionId: session.id,
+        batches: 1,
+        actualOutputQty: 1000,
+        occurredAt: `${BUSINESS_DATE}T09:00:00.000Z`,
+        businessDate: BUSINESS_DATE,
+        lines: [{ itemId: input.id, qty: 100 }],
+      },
+      ACTOR,
+    );
+    await closeSession(db, session.id, [
+      { label: "Gasolina", amount: 6000, isEstimate: false, accountId: "acc_bank" },
+      { label: "Energía (estimado)", amount: 4000, isEstimate: true },
+    ]);
+
+    const { productionRun: run2 } = await recordProductionRun(
+      db,
+      {
+        recipeId: recipe.id,
+        sessionId: session.id,
+        batches: 1,
+        actualOutputQty: 1000,
+        occurredAt: `${BUSINESS_DATE}T09:30:00.000Z`,
+        businessDate: BUSINESS_DATE,
+        lines: [{ itemId: input.id, qty: 100 }],
+        confirm: true,
+      },
+      ACTOR,
+    );
+    const persistedRun1 = await runRow(db, run1.id);
+    // Cash 6000 + estimate 4000 = 10000; equal weights receive 5000 each.
+    expect(persistedRun1.allocatedSessionCost).toBe(5000);
+    expect(run2.allocatedSessionCost).toBe(5000);
+    expect(persistedRun1.allocatedSessionCost + run2.allocatedSessionCost).toBe(10_000);
+  });
+
+  it("property: Σ allocatedSessionCost across all runs in a CLOSED session equals the total shared cost exactly, after adding N runs one at a time via recordProductionRun (Doc 11 §2)", async () => {
+    let iteration = 0;
+    await fc.assert(
+      fc.asyncProperty(
+        fc.integer({ min: 0, max: 30_000 }),
+        fc.array(fc.integer({ min: 1, max: 5_000 }), { minLength: 1, maxLength: 4 }),
+        async (totalSharedCost, directCosts) => {
+          const db = createDb(env.DB);
+          const unique = iteration++;
+          const input = await seedItem(db, `KOK-133 u2 — property ${unique} — input`);
+          const output = await seedItem(
+            db,
+            `KOK-133 u2 — property ${unique} — output`,
+            "SEMI_FINISHED",
+          );
+          const totalInputQty = directCosts.reduce((sum, cost) => sum + cost, 0);
+          await seedPurchase(db, input.id, totalInputQty, 1);
+          const recipe = await seedRecipe(db, output.id, [{ itemId: input.id, qty: 1 }]);
+          const session = await seedOpenProductionSession(db);
+          await closeSession(db, session.id, [
+            { label: "Costo compartido", amount: totalSharedCost, isEstimate: true },
+          ]);
+
+          for (let index = 0; index < directCosts.length; index++) {
+            const directCost = directCosts[index];
+            if (directCost === undefined) continue;
+            await recordProductionRun(
+              db,
+              {
+                recipeId: recipe.id,
+                sessionId: session.id,
+                batches: 1,
+                actualOutputQty: 1000,
+                occurredAt: `${BUSINESS_DATE}T${String(9 + index).padStart(2, "0")}:00:00.000Z`,
+                businessDate: BUSINESS_DATE,
+                lines: [{ itemId: input.id, qty: directCost }],
+                confirm: true,
+              },
+              ACTOR,
+            );
+          }
+
+          const rows = await db.query.productionRuns.findMany({
+            where: (t, { eq: eqOp }) => eqOp(t.sessionId, session.id),
+          });
+          expect(rows.reduce((sum, row) => sum + row.allocatedSessionCost, 0)).toBe(
+            totalSharedCost,
+          );
+        },
+      ),
+      { numRuns: 15 },
+    );
   });
 });

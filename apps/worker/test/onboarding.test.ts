@@ -9,6 +9,7 @@
 // audit_log rows this file's tests create so counts don't leak across tests. Items get unique
 // names per test (items.name is UNIQUE) so seeded rows never collide across tests.
 import { env } from "cloudflare:test";
+import { toMilliCentavosPerUnit } from "@kokoro/shared";
 import { eq, inArray } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 
@@ -35,7 +36,7 @@ beforeEach(async () => {
   }
 });
 
-describe("core/settings Ã¢â‚¬â€ getSetting/setSetting", () => {
+describe("core/settings — getSetting/setSetting", () => {
   it("returns null for a never-set key", async () => {
     const db = createDb(env.DB);
     expect(await getSetting(db, "does_not_exist_key")).toBeNull();
@@ -59,7 +60,7 @@ describe("core/settings Ã¢â‚¬â€ getSetting/setSetting", () => {
   });
 });
 
-describe("core/settings Ã¢â‚¬â€ onboarding status semantics", () => {
+describe("core/settings — onboarding status semantics", () => {
   it("no setting -> not completed; after setSetting -> completed", async () => {
     const db = createDb(env.DB);
     expect(await getSetting(db, ONBOARDING_KEY)).toBeNull();
@@ -116,7 +117,7 @@ describe("bulkCreateItems", () => {
       {
         items: [
           { name: "Bulk item A", kind: "RAW_MATERIAL", category: "INGREDIENT", unit: "KG" },
-          { name: "Bulk item B", kind: "RAW_MATERIAL", category: "PACKAGING", unit: "UNIT" },
+          { name: "Bulk item B", kind: "PACKAGING", category: "NOT_EATABLE", unit: "UNIT" },
           { name: "Bulk item C", kind: "FINISHED", category: "BAKERY", unit: "UNIT" },
         ],
       },
@@ -148,6 +149,31 @@ describe("bulkCreateItems", () => {
     for (const row of auditRows) {
       expect(row).toMatchObject({ actor: ACTOR, action: "create", entityType: "item" });
     }
+  });
+
+  it("sets replacementCostMc and stamps replacementCostUpdatedAt for an isUnmetered item (Doc 03 C-9)", async () => {
+    const db = createDb(env.DB);
+    const result = await bulkCreateItems(
+      db,
+      {
+        items: [
+          {
+            name: "Bulk Agua",
+            kind: "RAW_MATERIAL",
+            category: "INGREDIENT",
+            unit: "L",
+            minStockQty: 0,
+            isUnmetered: true,
+            replacementCostMc: toMilliCentavosPerUnit(5),
+          },
+        ],
+      },
+      ACTOR,
+    );
+
+    expect(result.items[0]?.isUnmetered).toBe(true);
+    expect(result.items[0]?.replacementCostMc).toBe(5);
+    expect(result.items[0]?.replacementCostUpdatedAt).not.toBeNull();
   });
 
   it("rejects wholesale when item 2 of 3 self-duplicates item 1's name; none of the three are persisted", async () => {

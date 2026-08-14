@@ -87,7 +87,7 @@ export function RecipeDetailDrawer({ recipeId, open, onOpenChange }: RecipeDetai
         footer={
           recipe ? (
             <span>
-              Creado {new Date(recipe.createdAt).toLocaleDateString("es-BO")} Â· Actualizado{" "}
+              Creado {new Date(recipe.createdAt).toLocaleDateString("es-BO")} · Actualizado{" "}
               {new Date(recipe.updatedAt).toLocaleDateString("es-BO")}
             </span>
           ) : undefined
@@ -177,9 +177,9 @@ export function RecipeDetailDrawer({ recipeId, open, onOpenChange }: RecipeDetai
                     minMarginPct={settings.minMarginPct}
                   />
                 </div>
-              ) : (
+              ) : !recipe.theoreticalCostReplacement.margin && outputItem?.kind === "FINISHED" ? (
                 <p className="text-muted-foreground text-xs">{recipesLabels.noSalePrice}</p>
-              )}
+              ) : null}
             </div>
 
             <div className="flex flex-col gap-2">

@@ -34,7 +34,7 @@ export const purchasesLabels = {
   photoUploading: "Subiendo…",
   photoReady: "Foto lista ✓",
 
-  linesTitle: "Líneas de compra",
+  linesTitle: "Artículos comprados",
   lineItem: "Ítem",
   lineQty: "Cantidad",
   lineTotal: "Total de línea (Bs)",
@@ -56,11 +56,10 @@ export const purchasesLabels = {
   /** Abbreviation for the "/ kg" style suffix on unit-cost figures — mirrors ItemForm's private
    * UNIT_ABBREV map, exported here so both PurchaseForm and PurchaseDetailDrawer share one copy. */
   unitAbbrev: {
-    G: "g",
     KG: "kg",
-    ML: "ml",
-    L: "l",
+    L: "L",
     UNIT: "u",
+    M: "m",
   } satisfies Record<Unit, string>,
 
   errors: {

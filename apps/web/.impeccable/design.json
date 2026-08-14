@@ -1,0 +1,341 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-12T02:51:13Z",
+  "title": "Design System: Kokoro Management",
+  "extensions": {
+    "colorMeta": {
+      "ink": {
+        "role": "primary",
+        "displayName": "UI Ink",
+        "canonical": "#241A12",
+        "tonalRamp": [
+          "#1A130D",
+          "#241A12",
+          "#3A2A1C",
+          "#5A4230",
+          "#7C6248",
+          "#A08462",
+          "#C7AC85",
+          "#E8D9BC"
+        ]
+      },
+      "brand-brown": {
+        "role": "secondary",
+        "displayName": "Brand Brown",
+        "canonical": "#5A3B27",
+        "tonalRamp": [
+          "#2E1D12",
+          "#432A1B",
+          "#5A3B27",
+          "#7A5439",
+          "#9C7455",
+          "#BC9975",
+          "#D8B48C",
+          "#EEDCC4"
+        ]
+      },
+      "background": {
+        "role": "neutral",
+        "displayName": "Warm Cream",
+        "canonical": "#FAF6EF",
+        "tonalRamp": [
+          "#1C140F",
+          "#3A2E24",
+          "#6B5D4C",
+          "#9C8D76",
+          "#D9CCB3",
+          "#E9E0D0",
+          "#F4EEE3",
+          "#FAF6EF"
+        ]
+      },
+      "card": {
+        "role": "neutral",
+        "displayName": "Card White",
+        "canonical": "#FFFFFF",
+        "tonalRamp": [
+          "#1C140F",
+          "#3A2E24",
+          "#6B5D4C",
+          "#9C8D76",
+          "#D9CCB3",
+          "#E9E0D0",
+          "#F4EEE3",
+          "#FFFFFF"
+        ]
+      },
+      "sidebar": {
+        "role": "neutral",
+        "displayName": "Warm Sand",
+        "canonical": "#F4EEE3",
+        "tonalRamp": [
+          "#1C140F",
+          "#332619",
+          "#4A3B2C",
+          "#6B5D4C",
+          "#9C8D76",
+          "#D9CCB3",
+          "#E9E0D0",
+          "#F4EEE3"
+        ]
+      },
+      "accent": {
+        "role": "neutral",
+        "displayName": "Toasted Wheat",
+        "canonical": "#EFE6D3",
+        "tonalRamp": [
+          "#1C140F",
+          "#332619",
+          "#4A3B2C",
+          "#6B5D4C",
+          "#9C8D76",
+          "#D9CCB3",
+          "#E9E0D0",
+          "#EFE6D3"
+        ]
+      },
+      "matcha-green": {
+        "role": "semantic-positive",
+        "displayName": "Matcha Green",
+        "canonical": "#3F7038",
+        "tonalRamp": [
+          "#152510",
+          "#20351A",
+          "#2C4A25",
+          "#3F7038",
+          "#5C9450",
+          "#86BD72",
+          "#B4D9A6",
+          "#E9F0E4"
+        ]
+      },
+      "living-red": {
+        "role": "semantic-negative",
+        "displayName": "Living Red",
+        "canonical": "#B33F2F",
+        "tonalRamp": [
+          "#2A0F0A",
+          "#3A211B",
+          "#5E2E22",
+          "#B33F2F",
+          "#CB5E4B",
+          "#E38268",
+          "#F0AB98",
+          "#FAEAE6"
+        ]
+      },
+      "contained-ochre": {
+        "role": "semantic-warning",
+        "displayName": "Contained Ochre",
+        "canonical": "#8F660F",
+        "tonalRamp": [
+          "#241A05",
+          "#362A14",
+          "#4F3D14",
+          "#8F660F",
+          "#B08429",
+          "#D6A852",
+          "#E8C888",
+          "#FBF3E1"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display (Cinzel)",
+        "purpose": "Brand-only headline: login screen and first onboarding step only. Never daily-flow UI."
+      },
+      "page-title": {
+        "displayName": "Page Title",
+        "purpose": "Top-of-screen heading for every route."
+      },
+      "kpi": {
+        "displayName": "KPI Figure",
+        "purpose": "Hero dashboard numbers; the one context where 700-weight body type is used."
+      },
+      "subheading": { "displayName": "Subheading", "purpose": "Card and section headers." },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Default UI text across tables, forms, and copy."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Field labels, table headers, badges, captions."
+      }
+    },
+    "shadows": [
+      {
+        "name": "shadow-sm",
+        "value": "0 1px 2px rgb(36 26 18 / 0.06)",
+        "purpose": "Resting cards, stat tiles, list rows, the login panel."
+      },
+      {
+        "name": "shadow-md",
+        "value": "0 4px 10px rgb(36 26 18 / 0.08), 0 1px 2px rgb(36 26 18 / 0.06)",
+        "purpose": "Dropdowns, popovers, hover-elevated elements."
+      },
+      {
+        "name": "shadow-lg",
+        "value": "0 12px 24px rgb(36 26 18 / 0.1), 0 2px 6px rgb(36 26 18 / 0.06)",
+        "purpose": "Modals and the right-side detail drawer."
+      }
+    ],
+    "motion": [
+      { "name": "duration-fast", "value": "150ms", "purpose": "Hover/focus color transitions." },
+      {
+        "name": "duration-normal",
+        "value": "220ms",
+        "purpose": "Panel/drawer open-close transitions."
+      },
+      {
+        "name": "ease-default",
+        "value": "cubic-bezier(0.4, 0, 0.2, 1)",
+        "purpose": "Default easing for state transitions; no bounce/spring easing anywhere in the system."
+      }
+    ],
+    "breakpoints": [{ "name": "md", "value": "768px" }]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "UI Ink fill, cream text. The default action button everywhere.",
+      "html": "<button class=\"ds-btn-primary\">Guardar</button>",
+      "css": ".ds-btn-primary { background: #241A12; color: #FBF6EC; padding: 8px 16px; border-radius: 8px; border: none; font-family: Inter, ui-sans-serif, system-ui, sans-serif; font-size: 13px; font-weight: 600; cursor: pointer; transition: background 150ms cubic-bezier(0.4,0,0.2,1); } .ds-btn-primary:hover { background: #3A2A1C; } .ds-btn-primary:focus-visible { outline: 2px solid #241A12; outline-offset: 2px; } .ds-btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Warm Sand fill, one step quieter than Primary.",
+      "html": "<button class=\"ds-btn-secondary\">Cancelar</button>",
+      "css": ".ds-btn-secondary { background: #F4EEE3; color: #241A12; padding: 8px 16px; border-radius: 8px; border: none; font-family: Inter, ui-sans-serif, system-ui, sans-serif; font-size: 13px; font-weight: 600; cursor: pointer; transition: background 150ms cubic-bezier(0.4,0,0.2,1); } .ds-btn-secondary:hover { background: #EFE6D3; } .ds-btn-secondary:focus-visible { outline: 2px solid #241A12; outline-offset: 2px; }"
+    },
+    {
+      "name": "Outline Button",
+      "kind": "button",
+      "refersTo": "button-outline",
+      "description": "Card White with hairline border, hover fills Toasted Wheat.",
+      "html": "<button class=\"ds-btn-outline\">Ver más</button>",
+      "css": ".ds-btn-outline { background: #FFFFFF; color: #241A12; padding: 8px 16px; border-radius: 8px; border: 1px solid #D9CCB3; font-family: Inter, ui-sans-serif, system-ui, sans-serif; font-size: 13px; font-weight: 600; cursor: pointer; transition: background 150ms cubic-bezier(0.4,0,0.2,1); } .ds-btn-outline:hover { background: #EFE6D3; } .ds-btn-outline:focus-visible { outline: 2px solid #241A12; outline-offset: 2px; }"
+    },
+    {
+      "name": "Text Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Card White field, soft resting border, ink focus ring carries the accessibility guarantee.",
+      "html": "<input class=\"ds-input\" type=\"text\" placeholder=\"Buscar producto...\" />",
+      "css": ".ds-input { height: 36px; width: 100%; background: #FFFFFF; color: #241A12; border: 1px solid #D9CCB3; border-radius: 8px; padding: 4px 12px; font-family: Inter, ui-sans-serif, system-ui, sans-serif; font-size: 13px; box-shadow: 0 1px 2px rgb(36 26 18 / 0.06); } .ds-input::placeholder { color: #9C8D76; } .ds-input:focus-visible { outline: 2px solid #241A12; outline-offset: 2px; }"
+    },
+    {
+      "name": "Positive Badge",
+      "kind": "chip",
+      "refersTo": "badge-positive",
+      "description": "Matcha Green pill, e.g. a healthy margin percentage.",
+      "html": "<span class=\"ds-badge-positive\">30,5%</span>",
+      "css": ".ds-badge-positive { display: inline-flex; align-items: center; gap: 4px; border-radius: 999px; padding: 2px 8px; font-family: Inter, ui-sans-serif, system-ui, sans-serif; font-size: 12px; font-weight: 500; background: #E9F0E4; color: #3F7038; }"
+    },
+    {
+      "name": "Negative Badge",
+      "kind": "chip",
+      "refersTo": "badge-negative",
+      "description": "Living Red pill for below-cost / negative values — deliberately alarming.",
+      "html": "<span class=\"ds-badge-negative\">-4,2%</span>",
+      "css": ".ds-badge-negative { display: inline-flex; align-items: center; gap: 4px; border-radius: 999px; padding: 2px 8px; font-family: Inter, ui-sans-serif, system-ui, sans-serif; font-size: 12px; font-weight: 500; background: #FAEAE6; color: #B33F2F; }"
+    },
+    {
+      "name": "Stat Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "Dashboard KPI tile: label, tabular hero figure, whole card links to the underlying filtered list.",
+      "html": "<a class=\"ds-stat-card\" href=\"#\"><span class=\"ds-stat-label\">Caja + Banco</span><span class=\"ds-stat-value\">Bs 4.230,50</span></a>",
+      "css": ".ds-stat-card { display: flex; flex-direction: column; gap: 8px; border-radius: 12px; border: 1px solid #E9E0D0; background: #FFFFFF; padding: 16px; box-shadow: 0 1px 2px rgb(36 26 18 / 0.06); text-decoration: none; transition: background 150ms cubic-bezier(0.4,0,0.2,1); } .ds-stat-card:hover { background: #EFE6D3; } .ds-stat-label { font-family: Inter, ui-sans-serif, system-ui, sans-serif; font-size: 12px; color: #6B5D4C; } .ds-stat-value { font-family: Inter, ui-sans-serif, system-ui, sans-serif; font-size: 26px; font-weight: 500; color: #241A12; font-variant-numeric: tabular-nums; }"
+    },
+    {
+      "name": "Sidebar Nav Item",
+      "kind": "nav",
+      "refersTo": "sidebar-nav-item",
+      "description": "Active state is a filled ink pill, not a text-color change — reads as 'the important thing here'.",
+      "html": "<div class=\"ds-nav-item ds-nav-item--active\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><rect x=\"3\" y=\"3\" width=\"18\" height=\"18\" rx=\"2\"/></svg><span>Panel</span></div><div class=\"ds-nav-item\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><circle cx=\"12\" cy=\"12\" r=\"9\"/></svg><span>Ventas</span></div>",
+      "css": ".ds-nav-item { display: flex; align-items: center; gap: 12px; border-radius: 8px; padding: 8px 12px; font-family: Inter, ui-sans-serif, system-ui, sans-serif; font-size: 13px; font-weight: 500; color: #241A12; cursor: pointer; transition: background 150ms cubic-bezier(0.4,0,0.2,1); } .ds-nav-item:hover { background: #EFE6D3; } .ds-nav-item--active { background: #241A12; color: #FBF6EC; } .ds-nav-item--active:hover { background: #241A12; }"
+    },
+    {
+      "name": "Session Chip",
+      "kind": "custom",
+      "refersTo": "session-chip",
+      "description": "Topbar pill showing the currently open session (purchase trip, production run, delivery) with a live status dot.",
+      "html": "<button class=\"ds-session-chip\"><span class=\"ds-session-dot\"></span>Producción 2h 15m</button>",
+      "css": ".ds-session-chip { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; border: 1px solid #E9E0D0; padding: 6px 12px; font-family: Inter, ui-sans-serif, system-ui, sans-serif; font-size: 12px; color: #241A12; background: transparent; cursor: pointer; transition: background 150ms cubic-bezier(0.4,0,0.2,1); } .ds-session-chip:hover { background: #EFE6D3; } .ds-session-dot { width: 6px; height: 6px; border-radius: 999px; background: #3F7038; }"
+    },
+    {
+      "name": "Detail Drawer Header",
+      "kind": "custom",
+      "refersTo": "detail-drawer",
+      "description": "Right-side drawer chrome: title/subtitle, ghost close button, hairline bottom border.",
+      "html": "<div class=\"ds-drawer-header\"><div><h2 class=\"ds-drawer-title\">Compra #142</h2><p class=\"ds-drawer-subtitle\">12 ago 2026 · Mercado Central</p></div><button class=\"ds-drawer-close\" aria-label=\"Cerrar\">&times;</button></div>",
+      "css": ".ds-drawer-header { display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #E9E0D0; padding: 16px 20px; font-family: Inter, ui-sans-serif, system-ui, sans-serif; } .ds-drawer-title { margin: 0; font-size: 15px; font-weight: 500; color: #241A12; } .ds-drawer-subtitle { margin: 2px 0 0; font-size: 13px; color: #6B5D4C; } .ds-drawer-close { width: 36px; height: 36px; border-radius: 8px; border: none; background: transparent; color: #241A12; font-size: 18px; cursor: pointer; } .ds-drawer-close:hover { background: #EFE6D3; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Steady Second Pair of Hands",
+    "overview": "She runs the whole business alone — buying, baking, selling, delivering, tracking cash across two accounts — and today that means constant low-grade doubt: is this cash mine or a customer's deposit? Am I still profitable now that flour costs more? Kokoro Management exists to end that doubt. The interface is built to feel like a second pair of hands that already did the accounting for her: it never shows off, never makes her double-check a number, never adds a chore. Every figure on screen is system-derived, never hand-typed, and one tap from its own explanation.\n\nThe palette is warm — near-white cream canvas, espresso ink, a whisper of the Kokoro brand brown — but the warmth is a temperature, not a costume. The customer-facing Kokoro brand (Cinzel display type, the deep brand brown) is deliberately rationed to three moments — the sidebar wordmark, the login screen, the first onboarding step — because every other sighting flips her out of \"working in my tool\" and into \"looking at packaging.\" Everywhere else, hierarchy is carried by a single near-black ink color, tabular numerals, generous whitespace, and restraint, echoing (structurally, never decoratively) the brand's own Japanese-influenced idea of ma — breathing room as a form of respect for the person using the space.\n\nConfirmed rejections: Montserrat as a UI face (geometric brand type reads as \"heavy\" across dense tables), literal packaging ornament in the product (frames, flourishes, Cinzel headings), loud multi-color SaaS dashboards, and cold enterprise gray.",
+    "keyCharacteristics": [
+      "Near-white warm neutrals with tiny luminance steps, not beige mass",
+      "One interactive color (ink) carries emphasis everywhere; brand brown is reserved for three brand moments",
+      "Color is a scarce semantic accent (≤5–8% of any screen) — charts are the one deliberate exception",
+      "Tabular numerals everywhere money or quantity appears",
+      "Tactile, confident chrome: firm hairline borders, ambient shadow at rest, clear hover feedback"
+    ],
+    "rules": [
+      {
+        "name": "The Two Browns Rule",
+        "body": "Brand Brown is a brand moment (wordmark, login, first onboarding, never a control). UI Ink is the interactive color everywhere else. Never substitute one for the other.",
+        "section": "colors"
+      },
+      {
+        "name": "The Ring-Carries-Focus Rule",
+        "body": "Resting borders are intentionally soft and are not the accessibility guarantee for interactive boundaries — the focus ring carries that guarantee.",
+        "section": "colors"
+      },
+      {
+        "name": "The Color Budget Rule",
+        "body": "Semantic color covers roughly 5-8% of any screen. Charts are the one named exception.",
+        "section": "colors"
+      },
+      {
+        "name": "The Three-Sightings Rule",
+        "body": "Cinzel appears in exactly three places: the sidebar wordmark, the login screen, and the first onboarding step. Not in empty states, not in headings, not anywhere in daily-flow UI.",
+        "section": "typography"
+      },
+      {
+        "name": "The Tabular Numerals Rule",
+        "body": "Every numeric context uses tabular-nums so figures never jitter or misalign.",
+        "section": "typography"
+      },
+      {
+        "name": "The Weight Discipline Rule",
+        "body": "400 body / 500 labels / 600 buttons and section headers / 700 reserved for KPI figures and page titles only. Never 800+/Black.",
+        "section": "typography"
+      },
+      {
+        "name": "The Warm Shadow Rule",
+        "body": "Every shadow uses the ink color's RGB triplet at low alpha, never a neutral or cool black.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do treat UI Ink as the one interactive color; reserve Brand Brown for the wordmark, login, and first onboarding.",
+      "Do keep semantic color scarce — it should read as meaningful precisely because it's rare.",
+      "Do use tabular-nums in every numeric column so figures never jitter or misalign.",
+      "Do pair a hairline border with a soft warm shadow on resting cards; step shadow strength up for true overlays (dropdowns, modals, the detail drawer).",
+      "Do keep hierarchy legible through type weight, size, and whitespace before reaching for color."
+    ],
+    "donts": [
+      "Don't apply the brand's display or text typefaces (Cinzel, Montserrat) to any daily-flow surface — tables, forms, empty states, headings. They stay in their three sanctioned places.",
+      "Don't let a resting border alone carry an accessibility guarantee for an interactive boundary — that's the focus ring's job.",
+      "Don't introduce a fifth hue for \"info\" states; ink plus icon already carries neutral information without adding noise to the palette.",
+      "Don't mute Living Red toward a soft terracotta — the below-replacement-cost signal needs to stay genuinely alarming, not merely warm."
+    ]
+  }
+}

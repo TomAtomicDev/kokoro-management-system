@@ -11,10 +11,12 @@ export const customersLabels = {
   create: "Crear",
 
   createTitle: "Nuevo cliente",
+  editTitle: "Editar cliente",
 
   customerPickerPlaceholder: "Buscar cliente…",
   customerPickerEmpty: "Sin resultados.",
   customerPickerCreateNew: "Crear",
+  customerPickerEdit: "Editar cliente",
   customerPickerNone: "Sin cliente",
 
   errors: {

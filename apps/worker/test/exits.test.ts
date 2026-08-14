@@ -19,7 +19,7 @@ import { generateUuidV7, toMilliCentavosPerUnit } from "@kokoro/shared";
 import { eq } from "drizzle-orm";
 import fc from "fast-check";
 import { beforeEach, describe, expect, it } from "vitest";
-
+import { recordAssemblyDefinition } from "../src/core/assemblies/index.js";
 import { createItem } from "../src/core/catalog/index.js";
 import type { ReplayMovement } from "../src/core/costing/wac.js";
 import { recomputeWacFromMovements } from "../src/core/costing/wac.js";
@@ -54,6 +54,25 @@ type TestDb = ReturnType<typeof createDb>;
 
 async function seedItem(db: TestDb, name: string) {
   return createItem(db, { name, kind: "RAW_MATERIAL", category: "INGREDIENT", unit: "KG" }, ACTOR);
+}
+
+async function seedPackagingItem(db: TestDb, name: string, lineTotal: number) {
+  const item = await createItem(
+    db,
+    { name, kind: "PACKAGING", category: "NOT_EATABLE", unit: "UNIT" },
+    ACTOR,
+  );
+  await recordPurchase(
+    db,
+    {
+      accountId: "acc_bank",
+      occurredAt: NOW,
+      businessDate: BUSINESS_DATE,
+      lines: [{ itemId: item.id, qty: 1000, lineTotal }],
+    },
+    ACTOR,
+  );
+  return item;
 }
 
 /** DB rows carry a plain `number` for `unit_cost_mc`; `recomputeWacFromMovements` wants the branded
@@ -177,6 +196,46 @@ describe("recordExit (UC-09)", () => {
         and(eqOp(t.entityId, result.exit.id), eqOp(t.action, "create")),
     });
     expect(auditRow).toMatchObject({ actor: ACTOR, entityType: "stock_exits" });
+  });
+
+  it("rejects an exit for an unmetered item before writing any stock exit or movement", async () => {
+    const db = createDb(env.DB);
+    const item = await createItem(
+      db,
+      {
+        name: "Agua no medible en salidas",
+        kind: "RAW_MATERIAL",
+        category: "NOT_EATABLE",
+        unit: "L",
+        minStockQty: 0,
+        isUnmetered: true,
+      },
+      ACTOR,
+    );
+
+    await expect(
+      recordExit(
+        db,
+        {
+          itemId: item.id,
+          qty: 100,
+          reason: "WASTE",
+          occurredAt: NOW,
+          businessDate: BUSINESS_DATE,
+        },
+        ACTOR,
+      ),
+    ).rejects.toMatchObject({
+      code: "VALIDATION",
+      message_es: "Este ítem no se puede sacar: es un insumo no medido.",
+    });
+
+    expect(await db.query.stockExits.findMany()).toHaveLength(0);
+    expect(
+      await db.query.stockMovements.findMany({
+        where: (t, { eq: eqOp }) => eqOp(t.itemId, item.id),
+      }),
+    ).toHaveLength(0);
   });
 
   it.each([
@@ -1705,6 +1764,231 @@ describe("restoreStockExit (KOK-024 Phase F — server side of the 'Deshacer' un
     // Currently LIVE (never deleted) — nothing to restore.
     await expect(restoreStockExit(db, created.exit.id, {}, ACTOR)).rejects.toMatchObject({
       code: "NOT_FOUND",
+    });
+  });
+});
+
+describe("stock-exit packaging lines (KOK-128)", () => {
+  it("records packaging as a second frozen EXIT_OUT without changing its WAC", async () => {
+    const db = createDb(env.DB);
+    const main = await seedItem(db, "Exit packaging main");
+    const bag = await seedPackagingItem(db, "Exit packaging bag", 2500);
+
+    const result = await recordExit(
+      db,
+      {
+        itemId: main.id,
+        qty: 500,
+        reason: "GIFT_SAMPLE",
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        packagingLines: [{ itemId: bag.id, qty: 1000 }],
+      },
+      ACTOR,
+    );
+
+    expect(result.exit.packagingLines).toHaveLength(1);
+    expect(result.exit.packagingLines[0]).toMatchObject({
+      itemId: bag.id,
+      qty: 1000,
+      unitCostSnapshotMc: 2_500_000,
+    });
+    const movements = await db.query.stockMovements.findMany({
+      where: (t, { eq: eqOp }) => eqOp(t.sourceEventId, result.exit.id),
+    });
+    expect(movements).toHaveLength(2);
+    expect(movements.every((movement) => movement.type === "EXIT_OUT")).toBe(true);
+    expect(movements.every((movement) => movement.sourceEventId === result.exit.id)).toBe(true);
+    expect(movements.find((movement) => movement.itemId === bag.id)).toMatchObject({
+      qty: -1000,
+      unitCostMc: 2_500_000,
+    });
+    expect(
+      (await db.query.items.findFirst({ where: (t, { eq: eqOp }) => eqOp(t.id, bag.id) }))?.wacMc,
+    ).toBe(2_500_000);
+  });
+
+  it("rejects a non-PACKAGING child and any child on an assembled presentation", async () => {
+    const db = createDb(env.DB);
+    const raw = await seedItem(db, "Exit packaging invalid raw");
+    const main = await seedItem(db, "Exit packaging validation main");
+    await expect(
+      recordExit(
+        db,
+        {
+          itemId: main.id,
+          qty: 1000,
+          reason: "GIFT_SAMPLE",
+          occurredAt: NOW,
+          businessDate: BUSINESS_DATE,
+          packagingLines: [{ itemId: raw.id, qty: 1000 }],
+        },
+        ACTOR,
+      ),
+    ).rejects.toMatchObject({ code: "VALIDATION" });
+
+    const bag = await seedPackagingItem(db, "Exit packaging definition bag", 1000);
+    const presentation = await createItem(
+      db,
+      {
+        name: "Exit assembled presentation",
+        kind: "FINISHED",
+        category: "BAKERY",
+        unit: "UNIT",
+      },
+      ACTOR,
+    );
+    await recordAssemblyDefinition(
+      db,
+      {
+        name: "Exit assembled presentation definition",
+        outputItemId: presentation.id,
+        outputQty: 1000,
+        isDefault: true,
+        lines: [{ itemId: bag.id, qty: 1000 }],
+      },
+      ACTOR,
+    );
+
+    await expect(
+      recordExit(
+        db,
+        {
+          itemId: presentation.id,
+          qty: 1000,
+          reason: "GIFT_SAMPLE",
+          occurredAt: NOW,
+          businessDate: BUSINESS_DATE,
+          packagingLines: [{ itemId: bag.id, qty: 1000 }],
+        },
+        ACTOR,
+      ),
+    ).rejects.toMatchObject({
+      code: "VALIDATION",
+      message_es:
+        "Este ítem ya es una presentación armada: su costo ya incluye el empaque. No agregues líneas de empaque a esta salida.",
+    });
+  });
+
+  it("preserves a matched snapshot, snapshots a new line, and fully removes an omitted line", async () => {
+    const db = createDb(env.DB);
+    const main = await seedItem(db, "Exit packaging edit main");
+    const bag = await seedPackagingItem(db, "Exit packaging edit bag", 2000);
+    const label = await seedPackagingItem(db, "Exit packaging edit label", 5000);
+    const created = await recordExit(
+      db,
+      {
+        itemId: main.id,
+        qty: 100,
+        reason: "GIFT_SAMPLE",
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        packagingLines: [{ itemId: bag.id, qty: 100 }],
+      },
+      ACTOR,
+    );
+    await recordPurchase(
+      db,
+      {
+        accountId: "acc_bank",
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        lines: [{ itemId: bag.id, qty: 1000, lineTotal: 6000 }],
+      },
+      ACTOR,
+    );
+
+    const updated = await updateStockExit(
+      db,
+      created.exit.id,
+      {
+        itemId: main.id,
+        qty: 100,
+        reason: "GIFT_SAMPLE",
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        packagingLines: [
+          { itemId: bag.id, qty: 200 },
+          { itemId: label.id, qty: 100 },
+        ],
+        confirm: true,
+      },
+      ACTOR,
+    );
+    expect(
+      updated.exit.packagingLines.find((line) => line.itemId === bag.id)?.unitCostSnapshotMc,
+    ).toBe(2_000_000);
+    expect(
+      updated.exit.packagingLines.find((line) => line.itemId === label.id)?.unitCostSnapshotMc,
+    ).toBe(5_000_000);
+
+    const removed = await updateStockExit(
+      db,
+      created.exit.id,
+      {
+        itemId: main.id,
+        qty: 100,
+        reason: "GIFT_SAMPLE",
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        packagingLines: [{ itemId: label.id, qty: 100 }],
+        confirm: true,
+      },
+      ACTOR,
+    );
+    expect(removed.exit.packagingLines.map((line) => line.itemId)).toEqual([label.id]);
+    expect(
+      await db.query.stockMovements.findMany({
+        where: (t, { and, eq: eqOp }) =>
+          and(eqOp(t.sourceEventId, created.exit.id), eqOp(t.itemId, bag.id)),
+      }),
+    ).toHaveLength(0);
+    expect(
+      (await db.query.itemStock.findFirst({ where: (t, { eq: eqOp }) => eqOp(t.itemId, bag.id) }))
+        ?.qtyOnHand,
+    ).toBe(2000);
+  });
+
+  it("keeps packaging rows and snapshots verbatim across delete and restore", async () => {
+    const db = createDb(env.DB);
+    const main = await seedItem(db, "Exit packaging restore main");
+    const bag = await seedPackagingItem(db, "Exit packaging restore bag", 3000);
+    const created = await recordExit(
+      db,
+      {
+        itemId: main.id,
+        qty: 100,
+        reason: "GIFT_SAMPLE",
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        packagingLines: [{ itemId: bag.id, qty: 250 }],
+      },
+      ACTOR,
+    );
+    const frozen = created.exit.packagingLines[0];
+
+    const deleted = await deleteStockExit(db, created.exit.id, {}, ACTOR);
+    expect(deleted.exit.packagingLines[0]).toEqual(frozen);
+    expect(
+      await db.query.stockExitPackagingLines.findMany({
+        where: (t, { eq: eqOp }) => eqOp(t.stockExitId, created.exit.id),
+      }),
+    ).toHaveLength(1);
+    expect(
+      await db.query.stockMovements.findMany({
+        where: (t, { eq: eqOp }) => eqOp(t.sourceEventId, created.exit.id),
+      }),
+    ).toHaveLength(0);
+
+    const restored = await restoreStockExit(db, created.exit.id, {}, ACTOR);
+    expect(restored.exit.packagingLines[0]).toEqual(frozen);
+    const movements = await db.query.stockMovements.findMany({
+      where: (t, { eq: eqOp }) => eqOp(t.sourceEventId, created.exit.id),
+    });
+    expect(movements).toHaveLength(2);
+    expect(movements.find((movement) => movement.itemId === bag.id)).toMatchObject({
+      qty: -250,
+      unitCostMc: 3_000_000,
     });
   });
 });

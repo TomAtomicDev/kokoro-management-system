@@ -1,0 +1,5 @@
+{
+  "permissions": {
+    "allow": ["Read(C:/Users/tommy/DevProjects/kokoro-management/kokoro-managemnt-system/**)"]
+  }
+}

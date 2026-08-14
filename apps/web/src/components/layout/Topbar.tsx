@@ -38,7 +38,7 @@ export function Topbar({ onOpenQuickAdd }: { onOpenQuickAdd: () => void }) {
         </kbd>
       </button>
 
-      <div className="ml-auto flex items-center gap-2">
+      <div className="ml-auto flex flex-nowrap items-center gap-2 overflow-x-auto">
         <Button size="sm" onClick={onOpenQuickAdd}>
           {topbarLabels.quickAdd}
         </Button>

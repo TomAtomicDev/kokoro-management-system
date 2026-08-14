@@ -6,6 +6,7 @@ import { toMilliCentavosPerUnit } from "@kokoro/shared";
 
 import type { Db } from "../../db/index.js";
 import type { itemAliases, items } from "../../db/schema.js";
+import { computeEffectiveReplacementCost } from "../costing/replacement-cost.js";
 
 type ItemRow = typeof items.$inferSelect;
 type ItemAliasRow = typeof itemAliases.$inferSelect;
@@ -22,10 +23,15 @@ export function toItemDto(row: ItemRow, aliases: ItemAliasRow[]): ItemDto {
     category: row.category,
     unit: row.unit,
     wacMc: row.wacMc,
-    replacementCostMc: row.replacementCostMc,
+    replacementCostMc: computeEffectiveReplacementCost(
+      toMilliCentavosPerUnit(row.replacementCostMc),
+      row.replacementCostUpdatedAt,
+      toMilliCentavosPerUnit(row.wacMc),
+    ),
     replacementCostUpdatedAt: row.replacementCostUpdatedAt,
     salePriceMc: row.salePriceMc === null ? null : toMilliCentavosPerUnit(row.salePriceMc),
     minStockQty: row.minStockQty,
+    isUnmetered: row.isUnmetered === 1,
     isActive: row.isActive === 1,
     notes: row.notes,
     createdAt: row.createdAt,

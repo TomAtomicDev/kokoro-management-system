@@ -14,9 +14,9 @@
 // hand-written DTOs).
 
 import { z } from "zod";
-
 import type { InventoryCountStatus } from "./enums.js";
 import { inventoryCountStatusSchema, itemCategorySchema, itemKindSchema } from "./enums.js";
+import { safeText } from "./text.js";
 
 /** `YYYY-MM-DD`, America/La_Paz local calendar date (Doc 04 §1, INV-3). */
 const businessDateSchema = z
@@ -39,7 +39,7 @@ const countedQtySchema = z
 export const startCountCommandSchema = z.object({
   kind: itemKindSchema.optional(),
   category: itemCategorySchema.optional(),
-  notes: z.string().trim().max(2000).optional(),
+  notes: z.string().trim().pipe(safeText(2000)).optional(),
   occurredAt: occurredAtSchema,
   businessDate: businessDateSchema,
 });
@@ -52,8 +52,24 @@ export const updateCountLineCommandSchema = z.object({
 });
 export type UpdateCountLineCommand = z.infer<typeof updateCountLineCommandSchema>;
 
+/** One caller-supplied opening valuation, sent only for a line whose first-ever positive count
+ * will become an OPENING_IN movement (C-8). The field is optional because ordinary ADJUST lines
+ * must continue using the item's current WAC; the commit service enforces the per-line condition
+ * against live stock-movement history. */
+export const commitCountLineCommandSchema = z.object({
+  itemId: z.string().min(1),
+  unitCostMc: z
+    .number()
+    .int()
+    .positive("El costo unitario de apertura debe ser mayor que cero (mili-centavos).")
+    .refine(Number.isSafeInteger, "El costo unitario de apertura debe ser un entero seguro.")
+    .optional(),
+});
+export type CommitCountLineCommand = z.infer<typeof commitCountLineCommandSchema>;
+
 export const commitCountCommandSchema = z.object({
   countId: z.string().min(1),
+  lines: z.array(commitCountLineCommandSchema).optional(),
 });
 export type CommitCountCommand = z.infer<typeof commitCountCommandSchema>;
 
@@ -78,6 +94,9 @@ export interface InventoryCountLineDto {
   /** Milli-units (Doc 04 §2) — defaults to expectedQty at count-start (a "no variance yet"
    * starting point) and is editable via updateCountLine while the count is DRAFT. */
   countedQty: number;
+  /** True when this item already has at least one stock-movement row at read time. The value is
+   * advisory for the UI; commitCount re-checks the live ledger before choosing OPENING_IN. */
+  hasPriorMovements: boolean;
 }
 
 export interface InventoryCountDto {

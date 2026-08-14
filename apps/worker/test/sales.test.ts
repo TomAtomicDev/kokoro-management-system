@@ -63,7 +63,7 @@ const BUSINESS_DATE = "2026-07-16";
 
 type TestDb = ReturnType<typeof createDb>;
 
-/** A FINISHED item (the only kind a sale line may reference, Doc 04 §5). */
+/** A FINISHED item (one of the two kinds a catalog sale line may reference, Doc 04 §5). */
 async function seedFinishedItem(db: TestDb, name: string) {
   return createItem(db, { name, kind: "FINISHED", category: "BAKERY", unit: "UNIT" }, ACTOR);
 }
@@ -349,7 +349,60 @@ describe("recordSale — validation & INV-8", () => {
         },
         ACTOR,
       ),
-    ).rejects.toMatchObject({ code: "VALIDATION" });
+    ).rejects.toMatchObject({
+      code: "VALIDATION",
+      message_es: "Solo se pueden vender ítems terminados (FINISHED).",
+    });
+  });
+
+  it("rejects a PACKAGING line even alongside a valid FINISHED line", async () => {
+    const db = createDb(env.DB);
+    const finished = await seedStockedFinishedItem(
+      db,
+      "Sale — finished with packaging",
+      1000,
+      6000,
+    );
+    const packaging = await createItem(
+      db,
+      {
+        name: "Sale — packaging line",
+        kind: "PACKAGING",
+        category: "NOT_EATABLE",
+        unit: "UNIT",
+        minStockQty: 0,
+      },
+      ACTOR,
+    );
+    await recordPurchase(
+      db,
+      {
+        accountId: "acc_bank",
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        lines: [{ itemId: packaging.id, qty: 1000, lineTotal: 2000 }],
+      },
+      ACTOR,
+    );
+
+    await expect(
+      recordSale(
+        db,
+        {
+          paymentStatus: "ON_CREDIT",
+          occurredAt: NOW,
+          businessDate: BUSINESS_DATE,
+          lines: [
+            { itemId: finished.id, qty: 200, unitPriceMc: 1_000_000 },
+            { itemId: packaging.id, qty: 200, unitPriceMc: 0 },
+          ],
+        },
+        ACTOR,
+      ),
+    ).rejects.toMatchObject({
+      code: "VALIDATION",
+      message_es: "Solo se pueden vender ítems terminados (FINISHED).",
+    });
   });
 
   it("rejects a nonexistent item with NOT_FOUND", async () => {
@@ -1237,6 +1290,46 @@ describe("restoreSale (Doc 06 principle 6 — 'Deshacer', KOK-064)", () => {
     expect(auditRow).toMatchObject({ actor: ACTOR, entityType: "sales" });
   });
 
+  it("refuses to restore a legacy sale containing a PACKAGING line", async () => {
+    const db = createDb(env.DB);
+    const finished = await seedStockedFinishedItem(db, "Venta legacy terminada", 1000, 4000);
+    const created = await recordSale(
+      db,
+      {
+        paymentStatus: "ON_CREDIT",
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        lines: [{ itemId: finished.id, qty: 100, unitPriceMc: 2_000_000 }],
+      },
+      ACTOR,
+    );
+    await deleteSale(db, created.sale.id, {}, ACTOR);
+
+    const packaging = await createItem(
+      db,
+      {
+        name: "Venta legacy — empaque",
+        kind: "PACKAGING",
+        category: "NOT_EATABLE",
+        unit: "UNIT",
+        minStockQty: 0,
+      },
+      ACTOR,
+    );
+    // Deliberate D-2 test-fixture exception: the current service can no longer create this state.
+    // Repoint the stored, already-deleted line to simulate pre-KOK-126 legacy sale data.
+    await db
+      .update(saleLines)
+      .set({ itemId: packaging.id })
+      .where(eq(saleLines.saleId, created.sale.id));
+
+    await expect(restoreSale(db, created.sale.id, {}, ACTOR)).rejects.toMatchObject({
+      code: "VALIDATION",
+      message_es:
+        "No se puede restaurar esta venta: contiene una línea de empaque, que ya no se vende directamente bajo el modelo de presentaciones y combos.",
+    });
+  });
+
   it("rejects an id that does not exist or is not currently deleted with NOT_FOUND", async () => {
     const db = createDb(env.DB);
     const item = await seedStockedFinishedItem(db, "Venta — restaurar id inválido", 1000, 4000);
@@ -1462,5 +1555,62 @@ describe("property: sale total = Σ round(qty × unit_price_mc) and on-hand nets
       }),
       { numRuns: 15 },
     );
+  });
+});
+
+describe("payment method/account pairing (A-12)", () => {
+  it("rejects CASH routed to a BANK account before recording a sale", async () => {
+    const db = createDb(env.DB);
+    const item = await seedStockedFinishedItem(db, "Pairing — sale", 1000, 4000);
+
+    await expect(
+      recordSale(
+        db,
+        {
+          paymentStatus: "PAID",
+          paymentMethod: "CASH",
+          accountId: "acc_bank",
+          occurredAt: NOW,
+          businessDate: BUSINESS_DATE,
+          lines: [{ itemId: item.id, qty: 100, unitPriceMc: 2_000_000 }],
+        },
+        ACTOR,
+      ),
+    ).rejects.toMatchObject({
+      code: "VALIDATION",
+      message_es: expect.stringContaining("método de pago"),
+    });
+  });
+
+  it("rejects CASH routed to a BANK account when collecting a receivable", async () => {
+    const db = createDb(env.DB);
+    const item = await seedStockedFinishedItem(db, "Pairing — collection", 1000, 4000);
+    const sale = await recordSale(
+      db,
+      {
+        paymentStatus: "ON_CREDIT",
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        lines: [{ itemId: item.id, qty: 100, unitPriceMc: 2_000_000 }],
+      },
+      ACTOR,
+    );
+
+    await expect(
+      collectPayment(
+        db,
+        sale.sale.id,
+        {
+          occurredAt: NOW,
+          businessDate: BUSINESS_DATE,
+          paymentMethod: "CASH",
+          accountId: "acc_bank",
+        },
+        ACTOR,
+      ),
+    ).rejects.toMatchObject({
+      code: "VALIDATION",
+      message_es: expect.stringContaining("método de pago"),
+    });
   });
 });

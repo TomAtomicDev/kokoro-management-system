@@ -14,7 +14,12 @@
 // backdated new exit trips the same INV-11 gate `recordStockExit` already enforces, and needs the
 // identical confirm-and-retry path rather than a dead-end error string.
 
-import type { RecordStockExitCommand, RecordStockExitResult, StockExitDto } from "@kokoro/shared";
+import type {
+  ListAssemblyDefinitionsResult,
+  RecordStockExitCommand,
+  RecordStockExitResult,
+  StockExitDto,
+} from "@kokoro/shared";
 import {
   nowIso,
   recordStockExitCommandSchema,
@@ -23,9 +28,11 @@ import {
   toBusinessDate,
   updateStockExitCommandSchema,
 } from "@kokoro/shared";
+import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
 import { ItemPicker } from "@/components/catalog/ItemPicker";
+import { LineEditor, type LineEditorLine } from "@/components/line-editor/LineEditor";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { ImpactConfirmDialog } from "@/components/ui/ImpactConfirmDialog";
@@ -34,7 +41,7 @@ import { Select } from "@/components/ui/select";
 import { useItemQuery } from "@/features/catalog/api";
 import { useRecordStockExit, useUpdateStockExit } from "@/features/inventory/api";
 import { useReplayConfirmableMutation } from "@/hooks/useReplayConfirmableMutation";
-import { ApiError } from "@/lib/api";
+import { ApiError, api } from "@/lib/api";
 import { formatIntAsDecimalInput, parseDecimalToInt } from "@/lib/decimal";
 import { inventoryLabels } from "@/lib/i18n-inventory";
 
@@ -56,6 +63,16 @@ export interface ExitFormInitialState {
   reason: StockExitReason;
   businessDate: string;
   notes: string;
+  packagingLines: PackagingLineValue[];
+}
+
+interface PackagingLineValue extends LineEditorLine {
+  itemId: string | null;
+  qty: string;
+}
+
+function emptyPackagingLine(): PackagingLineValue {
+  return { itemId: null, qty: "" };
 }
 
 /** Absent `exit` (create) -> today's blank form. Present `exit` (edit) -> every field prefilled
@@ -72,6 +89,7 @@ export function exitFormInitialState(
       reason: STOCK_EXIT_REASONS[0],
       businessDate: toBusinessDate(nowIsoFn()),
       notes: "",
+      packagingLines: [],
     };
   }
   return {
@@ -80,6 +98,10 @@ export function exitFormInitialState(
     reason: exit.reason,
     businessDate: exit.businessDate,
     notes: exit.notes ?? "",
+    packagingLines: exit.packagingLines.map((line) => ({
+      itemId: line.itemId,
+      qty: formatIntAsDecimalInput(line.qty, 3),
+    })),
   };
 }
 
@@ -95,6 +117,7 @@ export function ExitForm({ open, onOpenChange, exit }: ExitFormProps) {
   const [reason, setReason] = useState<StockExitReason>(STOCK_EXIT_REASONS[0]);
   const [businessDate, setBusinessDate] = useState("");
   const [notes, setNotes] = useState("");
+  const [packagingLines, setPackagingLines] = useState<PackagingLineValue[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   const createMutation = useRecordStockExit();
@@ -114,6 +137,17 @@ export function ExitForm({ open, onOpenChange, exit }: ExitFormProps) {
   // form opens already knowing `itemId` but not yet the full `ItemDto` (mirrors `ItemPicker`'s own
   // internal `useItemQuery` for the same reason).
   const itemQuery = useItemQuery(itemId ?? undefined);
+  const assemblyDefinitionsQuery = useQuery({
+    queryKey: ["assembly-definitions", "exit-packaging-gate", itemId ?? ""],
+    queryFn: () =>
+      api.get<ListAssemblyDefinitionsResult>(
+        `/assembly-definitions?outputItemId=${encodeURIComponent(itemId ?? "")}&isActive=true`,
+      ),
+    enabled: Boolean(itemId),
+  });
+  const isAssembledPresentation =
+    assemblyDefinitionsQuery.data?.assemblyDefinitions.some((definition) => definition.isDefault) ??
+    false;
 
   useEffect(() => {
     if (open) {
@@ -123,6 +157,7 @@ export function ExitForm({ open, onOpenChange, exit }: ExitFormProps) {
       setReason(initial.reason);
       setBusinessDate(initial.businessDate);
       setNotes(initial.notes);
+      setPackagingLines(initial.packagingLines);
       setError(null);
     }
   }, [open, exit]);
@@ -142,6 +177,20 @@ export function ExitForm({ open, onOpenChange, exit }: ExitFormProps) {
       setError(inventoryLabels.errors.invalidQty);
       return;
     }
+    const parsedPackagingLines = isAssembledPresentation
+      ? []
+      : packagingLines.map((line) => ({
+          itemId: line.itemId,
+          qty: parseDecimalToInt(line.qty, 3),
+        }));
+    if (parsedPackagingLines.some((line) => !line.itemId || line.qty === null || line.qty <= 0)) {
+      setError(inventoryLabels.errors.invalidPackagingLine);
+      return;
+    }
+    const validPackagingLines = parsedPackagingLines.map((line) => ({
+      itemId: line.itemId as string,
+      qty: line.qty as number,
+    }));
 
     if (isEditMode && exit) {
       const parsed = updateStockExitCommandSchema.safeParse({
@@ -153,6 +202,7 @@ export function ExitForm({ open, onOpenChange, exit }: ExitFormProps) {
         // is user-editable here, exactly like create mode only exposes that field.
         occurredAt: exit.occurredAt,
         businessDate,
+        packagingLines: validPackagingLines,
       });
       if (!parsed.success) {
         setError(parsed.error.issues[0]?.message ?? inventoryLabels.errors.generic);
@@ -169,6 +219,7 @@ export function ExitForm({ open, onOpenChange, exit }: ExitFormProps) {
       notes: notes.trim() === "" ? undefined : notes.trim(),
       occurredAt: nowIso(),
       businessDate,
+      packagingLines: validPackagingLines,
     });
     if (!parsed.success) {
       setError(parsed.error.issues[0]?.message ?? inventoryLabels.errors.generic);
@@ -191,11 +242,6 @@ export function ExitForm({ open, onOpenChange, exit }: ExitFormProps) {
           <div className="flex flex-col gap-1.5">
             <span className="font-medium text-foreground">{inventoryLabels.fieldItem}</span>
             <ItemPicker value={itemId} onChange={(id) => setItemId(id)} disabled={disabled} />
-            {itemQuery.data ? (
-              <span className="text-muted-foreground text-xs">
-                {inventoryLabels.unitAbbrev[itemQuery.data.unit]}
-              </span>
-            ) : null}
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -203,14 +249,22 @@ export function ExitForm({ open, onOpenChange, exit }: ExitFormProps) {
               <label className="font-medium text-foreground" htmlFor="ef-qty">
                 {inventoryLabels.fieldQty}
               </label>
-              <Input
-                id="ef-qty"
-                inputMode="decimal"
-                placeholder="0"
-                value={qty}
-                onChange={(e) => setQty(e.target.value)}
-                disabled={disabled}
-              />
+              <div className="flex items-center gap-2">
+                <Input
+                  id="ef-qty"
+                  className="min-w-0 flex-1"
+                  inputMode="decimal"
+                  placeholder="0"
+                  value={qty}
+                  onChange={(e) => setQty(e.target.value)}
+                  disabled={disabled}
+                />
+                {itemQuery.data ? (
+                  <span className="shrink-0 text-muted-foreground text-xs">
+                    {inventoryLabels.unitAbbrev[itemQuery.data.unit]}
+                  </span>
+                ) : null}
+              </div>
             </div>
             <div className="flex flex-col gap-1.5">
               <label className="font-medium text-foreground" htmlFor="ef-reason">
@@ -256,6 +310,33 @@ export function ExitForm({ open, onOpenChange, exit }: ExitFormProps) {
               disabled={disabled}
             />
           </div>
+
+          {itemId && assemblyDefinitionsQuery.isSuccess && !isAssembledPresentation ? (
+            <section className="flex flex-col gap-2 rounded-lg border border-border p-3">
+              <div>
+                <h3 className="font-medium text-foreground">
+                  {inventoryLabels.packagingLinesTitle}
+                </h3>
+                <p className="text-muted-foreground text-xs">
+                  {inventoryLabels.packagingLinesDescription}
+                </p>
+              </div>
+              <LineEditor
+                lines={packagingLines}
+                onChange={setPackagingLines}
+                createLine={emptyPackagingLine}
+                labels={{
+                  item: inventoryLabels.packagingLineItem,
+                  qty: inventoryLabels.packagingLineQty,
+                  addLine: inventoryLabels.addPackagingLine,
+                  removeLine: inventoryLabels.removePackagingLine,
+                }}
+                itemKindFilter="PACKAGING"
+                showAmount={false}
+                disabled={disabled}
+              />
+            </section>
+          ) : null}
 
           {displayedError ? <p className="text-negative text-sm">{displayedError}</p> : null}
         </div>

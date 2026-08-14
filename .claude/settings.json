@@ -1,6 +1,11 @@
 {
   "permissions": {
-    "deny": ["Bash(sudo *)", "Bash(rm -rf /*)", "Read(.env)", "Read(**/.env*)"],
+    "deny": [
+      "Bash(sudo *)",
+      "Bash(rm -rf /*)",
+      "Read(.env)",
+      "Read(**/.env*)"
+    ],
     "allow": [
       "Skill(playwright-cli)",
       "Skill(run)",
@@ -10,29 +15,7 @@
     ]
   },
   "enabledPlugins": {
-    "context-mode@context-mode": true
-  },
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Bash|Grep",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "C:/Users/tommy/AppData/Local/Programs/Python/Python313/Scripts/graphify.EXE hook-guard search"
-          }
-        ]
-      },
-      {
-        "matcher": "Read|Glob",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "C:/Users/tommy/AppData/Local/Programs/Python/Python313/Scripts/graphify.EXE hook-guard read"
-          }
-        ]
-      }
-    ]
+    "context-mode@context-mode": false
   },
   "statusLine": {
     "type": "command",

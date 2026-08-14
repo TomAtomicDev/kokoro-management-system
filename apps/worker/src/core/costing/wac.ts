@@ -151,7 +151,12 @@ export interface ReplayMovement {
 
 /** Movement types that trigger a C-1 WAC update on replay — see the ADJUST-vs-entry reasoning in
  * this file's header comment. PRODUCTION_OUT/SALE_OUT/EXIT_OUT/ADJUST never appear here. */
-const WAC_ENTRY_TYPES: ReadonlySet<StockMovementType> = new Set(["PURCHASE_IN", "PRODUCTION_IN"]);
+const WAC_ENTRY_TYPES: ReadonlySet<StockMovementType> = new Set([
+  "OPENING_IN",
+  "PURCHASE_IN",
+  "PRODUCTION_IN",
+  "ASSEMBLY_IN",
+]);
 
 /**
  * R-2's full-kardex WAC recompute: replays one item's ENTIRE chronological movement history from
@@ -166,7 +171,7 @@ const WAC_ENTRY_TYPES: ReadonlySet<StockMovementType> = new Set(["PURCHASE_IN", 
  * caller bug instead of producing an obviously-wrong (but at least deterministic and debuggable)
  * WAC.
  *
- * For PURCHASE_IN/PRODUCTION_IN, applies C-1 via `applyWacEntry` using the running `onHand`
+ * For OPENING_IN/PURCHASE_IN/PRODUCTION_IN, applies C-1 via `applyWacEntry` using the running `onHand`
  * balance BEFORE this movement. For every other type (PRODUCTION_OUT/SALE_OUT/EXIT_OUT/ADJUST),
  * `wac` is carried forward unchanged (C-6) and only `onHand` accumulates. `onHand` always
  * accumulates every movement's signed qty, entries and exits alike — C-1's `max(on_hand,0)` needs
@@ -221,7 +226,7 @@ export interface WacTraceStep {
  * Same PRECONDITION as `recomputeWacFromMovements`: `movements` MUST already be sorted
  * chronologically (see that function's note on why this is not checked here), and must all fall
  * AFTER the point `seed` describes. Same C-1/C-6 semantics: only `WAC_ENTRY_TYPES`
- * (PURCHASE_IN/PRODUCTION_IN) run the C-1 formula via `applyWacEntry`; every other type carries
+ * (OPENING_IN/PURCHASE_IN/PRODUCTION_IN) run the C-1 formula via `applyWacEntry`; every other type carries
  * `wac` forward untouched and only moves `onHand`.
  */
 export function replayWacFrom(seed: WacState, movements: readonly ReplayMovement[]): WacState {

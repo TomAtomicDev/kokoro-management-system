@@ -33,7 +33,7 @@ import type { BatchItem } from "drizzle-orm/batch";
 import type { Db } from "../../db/index.js";
 import { recipeLines, recipes } from "../../db/schema.js";
 import { buildAuditLogInsert } from "../audit.js";
-import { notFound, validationError } from "../errors.js";
+import { conflict, notFound, validationError } from "../errors.js";
 import { fetchRecipeLines, getRecipeSettingsDto, toRecipeDto } from "./dto.js";
 
 type Statement = BatchItem<"sqlite">;
@@ -42,9 +42,15 @@ type RecipeLineRow = typeof recipeLines.$inferSelect;
 
 /**
  * Doc 04 §5 integrity rule (not a DB CHECK — enforced here): the output item must exist and be
- * SEMI_FINISHED or FINISHED (never RAW_MATERIAL — a raw material is not something you produce);
- * every line item must exist and be RAW_MATERIAL or SEMI_FINISHED (never FINISHED — a finished
- * product is not consumed as an ingredient).
+ * SEMI_FINISHED or FINISHED (never RAW_MATERIAL — a raw material is not something you produce —
+ * nor PACKAGING, Doc 03 §3's Item aggregate row); every line item must exist and be RAW_MATERIAL
+ * or SEMI_FINISHED (never FINISHED — a finished product is not consumed as an ingredient — nor
+ * PACKAGING, same rule: it is only ever a `sale_lines` row); and no line may reference the recipe's own
+ * `outputItemId` — a direct self-reference always makes the recipe graph cyclical (KOK-029's
+ * `topoOrderAffectedItems` would otherwise only catch it later, at nightly C-3 refresh time, as an
+ * opaque "recetas forman un ciclo" 409 covering every FINISHED/SEMI_FINISHED item, not just the
+ * offending one — see the incident this guarded against: a SEMI_FINISHED item like a sourdough
+ * starter listing itself as an ingredient of its own "feed the starter" recipe).
  */
 async function validateRecipeItemKinds(
   db: Db,
@@ -57,27 +63,51 @@ async function validateRecipeItemKinds(
   if (!outputItem) {
     throw notFound("No se encontró el ítem de salida.", { id: outputItemId });
   }
-  if (outputItem.kind === "RAW_MATERIAL") {
-    throw validationError("El ítem de salida no puede ser una materia prima.", {
+  if (outputItem.kind !== "SEMI_FINISHED" && outputItem.kind !== "FINISHED") {
+    throw validationError("El ítem de salida debe ser un semielaborado o un producto terminado.", {
       outputItemId,
       kind: outputItem.kind,
     });
   }
 
   for (const line of lines) {
+    if (line.itemId === outputItemId) {
+      throw validationError("Un ítem no puede ser ingrediente de su propia receta.", {
+        itemId: line.itemId,
+      });
+    }
     const itemRow = await db.query.items.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.id, line.itemId),
     });
     if (!itemRow) {
       throw notFound("No se encontró el ítem de la línea de receta.", { id: line.itemId });
     }
-    if (itemRow.kind === "FINISHED") {
-      throw validationError("Un ingrediente de receta no puede ser un producto terminado.", {
-        itemId: line.itemId,
-        kind: itemRow.kind,
-      });
+    if (itemRow.kind !== "RAW_MATERIAL" && itemRow.kind !== "SEMI_FINISHED") {
+      throw validationError(
+        "Un ingrediente de receta debe ser una materia prima o un semielaborado.",
+        { itemId: line.itemId, kind: itemRow.kind },
+      );
     }
   }
+}
+
+/**
+ * Doc 03 "Recipe" row / Doc 04 §3.1 (KOK-025 KB amendment): no two ACTIVE recipes may share a
+ * `name`, mirroring `findItemRowByName` (core/catalog/items.ts). Scoped to active rows only —
+ * matching `ux_recipes_name`'s partial index — so a deactivated recipe's name stays free to
+ * reuse. `excludeId` lets `updateRecipe`/`setRecipeActive` check against every OTHER row.
+ */
+async function findActiveRecipeRowByName(
+  db: Db,
+  name: string,
+  excludeId?: string,
+): Promise<RecipeRow | undefined> {
+  return db.query.recipes.findFirst({
+    where: (t, { and, eq: eqOp, ne }) => {
+      const base = and(eqOp(t.name, name), eqOp(t.isActive, 1));
+      return excludeId ? and(base, ne(t.id, excludeId)) : base;
+    },
+  });
 }
 
 /**
@@ -110,6 +140,10 @@ export async function recordRecipe(
   actor: AuditActor,
 ): Promise<RecordRecipeResult> {
   await validateRecipeItemKinds(db, command.outputItemId, command.lines);
+  const duplicate = await findActiveRecipeRowByName(db, command.name);
+  if (duplicate) {
+    throw conflict(`Ya existe una receta activa llamada "${command.name}".`, { field: "name" });
+  }
 
   const now = nowIso();
   const recipeId = generateUuidV7();
@@ -176,6 +210,10 @@ export async function updateRecipe(
   const existingLines = await fetchRecipeLines(db, id);
 
   await validateRecipeItemKinds(db, command.outputItemId, command.lines);
+  const duplicate = await findActiveRecipeRowByName(db, command.name, id);
+  if (duplicate) {
+    throw conflict(`Ya existe una receta activa llamada "${command.name}".`, { field: "name" });
+  }
 
   const now = nowIso();
   // `isActive` is not part of this command (setRecipeActive owns it exclusively) — it survives
@@ -254,6 +292,16 @@ export async function setRecipeActive(
   });
   if (!existingRow) {
     throw notFound("No se encontró la receta.", { id: command.id });
+  }
+  if (command.isActive) {
+    // Reactivating can collide with a same-named recipe created WHILE this one was inactive —
+    // ux_recipes_name only guards active rows, so this gap is invisible until now.
+    const duplicate = await findActiveRecipeRowByName(db, existingRow.name, command.id);
+    if (duplicate) {
+      throw conflict(`Ya existe una receta activa llamada "${existingRow.name}".`, {
+        field: "name",
+      });
+    }
   }
 
   const now = nowIso();

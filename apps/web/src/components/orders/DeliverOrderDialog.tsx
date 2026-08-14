@@ -18,15 +18,17 @@ import {
   formatMoney,
   nowIso,
   PAYMENT_METHODS,
+  paymentMethodForAccountType,
   toBusinessDate,
   toCentavos,
 } from "@kokoro/shared";
 import { useEffect, useState } from "react";
 
+import { PaymentAccountSelect } from "@/components/common/PaymentAccountSelect";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { ImpactConfirmDialog } from "@/components/ui/ImpactConfirmDialog";
-import { Select } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
 import { useAccounts } from "@/features/finance/api";
 import { useDeliverOrder } from "@/features/orders/api";
 import { useReplayConfirmableMutation } from "@/hooks/useReplayConfirmableMutation";
@@ -50,6 +52,7 @@ export function DeliverOrderDialog({ order, open, onOpenChange }: DeliverOrderDi
 
   const balanceDue = order.balanceDue ?? 0;
   const [isPaid, setIsPaid] = useState(true);
+  const [businessDate, setBusinessDate] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(
     PAYMENT_METHODS[0] as PaymentMethod,
   );
@@ -59,8 +62,14 @@ export function DeliverOrderDialog({ order, open, onOpenChange }: DeliverOrderDi
   useEffect(() => {
     if (open) {
       setIsPaid(true);
-      setPaymentMethod(PAYMENT_METHODS[0] as PaymentMethod);
-      setAccountId(accounts[0]?.id ?? "");
+      setBusinessDate(toBusinessDate(nowIso()));
+      const firstAccount = accounts[0];
+      setPaymentMethod(
+        firstAccount
+          ? paymentMethodForAccountType(firstAccount.type)
+          : (PAYMENT_METHODS[0] as PaymentMethod),
+      );
+      setAccountId(firstAccount?.id ?? "");
       setError(null);
     }
   }, [open, accounts]);
@@ -80,12 +89,12 @@ export function DeliverOrderDialog({ order, open, onOpenChange }: DeliverOrderDi
           paymentMethod,
           accountId,
           occurredAt: nowIso(),
-          businessDate: toBusinessDate(nowIso()),
+          businessDate,
         }
       : {
           balancePaymentStatus: "ON_CREDIT" as const,
           occurredAt: nowIso(),
-          businessDate: toBusinessDate(nowIso()),
+          businessDate,
         };
 
     const parsed = deliverOrderCommandSchema.safeParse(commandInput);
@@ -145,43 +154,32 @@ export function DeliverOrderDialog({ order, open, onOpenChange }: DeliverOrderDi
                 </div>
               </div>
 
+              <div className="flex flex-col gap-1.5">
+                <label className="font-medium text-foreground" htmlFor="do-date">
+                  {ordersLabels.deliverFieldDate}
+                </label>
+                <Input
+                  id="do-date"
+                  type="date"
+                  value={businessDate}
+                  onChange={(e) => setBusinessDate(e.target.value)}
+                  disabled={disabled}
+                />
+              </div>
+
               {isPaid ? (
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="flex flex-col gap-1.5">
-                    <label className="font-medium text-foreground" htmlFor="do-method">
-                      {ordersLabels.deliverFieldPaymentMethod}
-                    </label>
-                    <Select
-                      id="do-method"
-                      value={paymentMethod}
-                      onChange={(e) => setPaymentMethod(e.target.value as PaymentMethod)}
-                      disabled={disabled}
-                    >
-                      {PAYMENT_METHODS.map((method) => (
-                        <option key={method} value={method}>
-                          {ordersLabels.paymentMethodLabels[method]}
-                        </option>
-                      ))}
-                    </Select>
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <label className="font-medium text-foreground" htmlFor="do-account">
-                      {ordersLabels.deliverFieldAccount}
-                    </label>
-                    <Select
-                      id="do-account"
-                      value={accountId}
-                      onChange={(e) => setAccountId(e.target.value)}
-                      disabled={disabled}
-                    >
-                      {accounts.map((account) => (
-                        <option key={account.id} value={account.id}>
-                          {account.name}
-                        </option>
-                      ))}
-                    </Select>
-                  </div>
-                </div>
+                <PaymentAccountSelect
+                  id="do-payment-account"
+                  accounts={accounts}
+                  accountId={accountId}
+                  label={ordersLabels.deliverFieldPaymentAccount}
+                  paymentMethodLabels={ordersLabels.paymentMethodLabels}
+                  onChange={({ accountId: nextAccountId, paymentMethod: nextPaymentMethod }) => {
+                    setAccountId(nextAccountId);
+                    setPaymentMethod(nextPaymentMethod);
+                  }}
+                  disabled={disabled}
+                />
               ) : null}
             </>
           )}

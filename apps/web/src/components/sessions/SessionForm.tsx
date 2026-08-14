@@ -3,14 +3,8 @@
 // dance entirely: sessions never trigger a costing replay (packages/shared/src/sessions.ts's
 // header), so create/edit are plain mutations, no `useReplayConfirmableMutation`.
 //
-// Unlike every other event form in this app, a session's "when" is a genuine user choice, not an
-// implicit `nowIso()`: the owner offers BOTH a start/end datetime pair and a direct
-// duration-minutes field (Doc 07 SC-09's form spec), and fills whichever is convenient — there's no
-// cross-field requirement on CREATE (a session may be opened with all three blank and filled in
-// later). Closing (`status: "CLOSED"`) is the one state that requires a resolvable duration, and
-// that's enforced server-side against whatever this form last saved — see
-// SessionDetailDrawer.tsx's dedicated close mini-form for that flow, which this component doesn't
-// own.
+// Create has the two explicit Doc 07 SC-09 paths: start now (type + current instant) and log past
+// (the full date/time/details form). Edit remains the same full replacement form.
 //
 // Validated with the exact same `recordSessionCommandSchema`/`updateSessionCommandSchema` the API
 // route parses with (D-4) — including each cost line's account-required-unless-estimate rule,
@@ -19,6 +13,7 @@
 
 import type {
   FinancialAccountDto,
+  RecordSessionCommand,
   SessionCostLineCommand,
   SessionDto,
   SessionType,
@@ -37,7 +32,7 @@ import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { useToast } from "@/components/ui/toast";
+import { InfoTooltip } from "@/components/ui/tooltip";
 import { useRecordSession, useUpdateSession } from "@/features/sessions/api";
 import { ApiError } from "@/lib/api";
 import { formatIntAsDecimalInput, parseDecimalToInt } from "@/lib/decimal";
@@ -49,7 +44,7 @@ export interface SessionFormProps {
   accounts: FinancialAccountDto[];
   /** Present -> edit mode: prefill from this session and submit via `useUpdateSession` (a full
    * replace, `status` carried through unchanged). Absent -> create mode, submits via
-   * `useRecordSession`, always OPEN. */
+   * `useRecordSession`, with status derived by core from the timing fields. */
   session?: SessionDto;
 }
 
@@ -73,6 +68,14 @@ interface SessionFormState {
   endedAt: string;
   durationMin: string;
   costLines: SessionCostLineValue[];
+}
+
+type CreateMode = "START_NOW" | "LOG_PAST";
+
+/** Shared by this dialog and KOK-132's upcoming session-type cards. */
+export function buildStartNowCommand(type: SessionType): RecordSessionCommand {
+  const startedAt = nowIso();
+  return { type, businessDate: toBusinessDate(startedAt), startedAt };
 }
 
 /** `<input type="datetime-local">` has no timezone of its own — the browser treats the value as
@@ -133,6 +136,7 @@ export function sessionToFormState(session: SessionDto): SessionFormState {
 export function SessionForm({ open, onOpenChange, accounts, session }: SessionFormProps) {
   const isEditMode = Boolean(session);
 
+  const [createMode, setCreateMode] = useState<CreateMode>("START_NOW");
   const [type, setType] = useState<SessionType>("PRODUCTION");
   const [businessDate, setBusinessDate] = useState("");
   const [notes, setNotes] = useState("");
@@ -142,7 +146,6 @@ export function SessionForm({ open, onOpenChange, accounts, session }: SessionFo
   const [costLines, setCostLines] = useState<SessionCostLineValue[]>([emptyCostLine()]);
   const [error, setError] = useState<string | null>(null);
 
-  const { show: showToast } = useToast();
   const createMutation = useRecordSession();
   // Called unconditionally (rules of hooks) even in create mode — `session?.id` is only "" then,
   // and the mutation is never actually invoked unless `isEditMode` is true (see handleSubmit).
@@ -164,6 +167,7 @@ export function SessionForm({ open, onOpenChange, accounts, session }: SessionFo
         setDurationMin(initial.durationMin);
         setCostLines(initial.costLines);
       } else {
+        setCreateMode("START_NOW");
         setType("PRODUCTION");
         setBusinessDate(toBusinessDate(nowIso()));
         setNotes("");
@@ -177,6 +181,12 @@ export function SessionForm({ open, onOpenChange, accounts, session }: SessionFo
   }, [open, session?.id]);
 
   const disabled = isEditMode ? updateMutation.isPending : createMutation.isPending;
+  const costLineLabelPlaceholder =
+    type === "PURCHASE_TRIP"
+      ? sessionsLabels.costLineLabelPlaceholderPurchaseTrip
+      : type === "PRODUCTION"
+        ? sessionsLabels.costLineLabelPlaceholderProduction
+        : sessionsLabels.costLineLabelPlaceholder;
 
   function updateCostLine(index: number, patch: Partial<SessionCostLineValue>) {
     setCostLines((lines) => lines.map((line, i) => (i === index ? { ...line, ...patch } : line)));
@@ -188,14 +198,38 @@ export function SessionForm({ open, onOpenChange, accounts, session }: SessionFo
 
   async function handleSubmit() {
     setError(null);
+
+    if (!isEditMode && createMode === "START_NOW") {
+      const parsed = recordSessionCommandSchema.safeParse(buildStartNowCommand(type));
+      if (!parsed.success) {
+        setError(parsed.error.issues[0]?.message ?? sessionsLabels.errors.generic);
+        return;
+      }
+      try {
+        await createMutation.mutateAsync(parsed.data);
+        onOpenChange(false);
+      } catch (err) {
+        setError(err instanceof ApiError ? err.message : sessionsLabels.errors.generic);
+      }
+      return;
+    }
+
     if (!businessDate) {
       setError(sessionsLabels.errors.dateRequired);
+      return;
+    }
+    if (startedAt.trim() === "") {
+      setError(sessionsLabels.errors.startRequired);
       return;
     }
 
     const durationMinValue = parseDurationMinutes(durationMin);
     if (durationMinValue === null) {
       setError(sessionsLabels.errors.generic);
+      return;
+    }
+    if (!isEditMode && durationMinValue === undefined && endedAt.trim() === "") {
+      setError(sessionsLabels.errors.closeRequiresDuration);
       return;
     }
 
@@ -251,12 +285,7 @@ export function SessionForm({ open, onOpenChange, accounts, session }: SessionFo
       return;
     }
     try {
-      const result = await createMutation.mutateAsync(parsed.data);
-      // Doc 04 §5: "one OPEN session per type" is a soft, overridable rule — the create already
-      // succeeded, so this is a dismissible toast, never a blocking dialog.
-      if (result.openSessionWarning) {
-        showToast({ message: result.openSessionWarning });
-      }
+      await createMutation.mutateAsync(parsed.data);
       onOpenChange(false);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : sessionsLabels.errors.generic);
@@ -271,7 +300,38 @@ export function SessionForm({ open, onOpenChange, accounts, session }: SessionFo
         <h2 className="font-medium text-foreground text-md">{dialogTitle}</h2>
       </div>
       <div className="flex flex-1 flex-col gap-4 overflow-y-auto px-5 py-4 text-sm">
-        <div className="grid grid-cols-2 gap-3">
+        {!isEditMode ? (
+          <div
+            className="grid grid-cols-2 gap-1 rounded-md bg-muted p-1"
+            role="tablist"
+            aria-label={sessionsLabels.modeLabel}
+          >
+            <Button
+              type="button"
+              size="sm"
+              variant={createMode === "START_NOW" ? "default" : "ghost"}
+              role="tab"
+              aria-selected={createMode === "START_NOW"}
+              onClick={() => setCreateMode("START_NOW")}
+              disabled={disabled}
+            >
+              {sessionsLabels.startNowTab}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={createMode === "LOG_PAST" ? "default" : "ghost"}
+              role="tab"
+              aria-selected={createMode === "LOG_PAST"}
+              onClick={() => setCreateMode("LOG_PAST")}
+              disabled={disabled}
+            >
+              {sessionsLabels.logPastTab}
+            </Button>
+          </div>
+        ) : null}
+
+        <div className={isEditMode || createMode === "LOG_PAST" ? "grid grid-cols-2 gap-3" : ""}>
           <div className="flex flex-col gap-1.5">
             <label className="font-medium text-foreground" htmlFor="sf-type">
               {sessionsLabels.fieldType}
@@ -281,6 +341,7 @@ export function SessionForm({ open, onOpenChange, accounts, session }: SessionFo
               value={type}
               onChange={(e) => setType(e.target.value as SessionType)}
               disabled={disabled}
+              autoFocus={!isEditMode && createMode === "START_NOW"}
             >
               {SESSION_TYPES.map((sessionType) => (
                 <option key={sessionType} value={sessionType}>
@@ -289,164 +350,199 @@ export function SessionForm({ open, onOpenChange, accounts, session }: SessionFo
               ))}
             </Select>
           </div>
-          <div className="flex flex-col gap-1.5">
-            <label className="font-medium text-foreground" htmlFor="sf-date">
-              {sessionsLabels.fieldDate}
-            </label>
-            <Input
-              id="sf-date"
-              type="date"
-              value={businessDate}
-              onChange={(e) => setBusinessDate(e.target.value)}
-              disabled={disabled}
-              autoFocus
-            />
-          </div>
+          {isEditMode || createMode === "LOG_PAST" ? (
+            <div className="flex flex-col gap-1.5">
+              <label className="font-medium text-foreground" htmlFor="sf-date">
+                {sessionsLabels.fieldDate}
+              </label>
+              <Input
+                id="sf-date"
+                type="date"
+                value={businessDate}
+                onChange={(e) => setBusinessDate(e.target.value)}
+                disabled={disabled}
+                autoFocus
+              />
+            </div>
+          ) : null}
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <div className="flex flex-col gap-1.5">
-            <label className="font-medium text-foreground" htmlFor="sf-start">
-              {sessionsLabels.fieldStart}
-            </label>
-            <Input
-              id="sf-start"
-              type="datetime-local"
-              value={startedAt}
-              onChange={(e) => setStartedAt(e.target.value)}
-              disabled={disabled}
-            />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <label className="font-medium text-foreground" htmlFor="sf-end">
-              {sessionsLabels.fieldEnd}
-            </label>
-            <Input
-              id="sf-end"
-              type="datetime-local"
-              value={endedAt}
-              onChange={(e) => setEndedAt(e.target.value)}
-              disabled={disabled}
-            />
-          </div>
-        </div>
+        {isEditMode || createMode === "LOG_PAST" ? (
+          <>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="flex flex-col gap-1.5">
+                <label className="font-medium text-foreground" htmlFor="sf-start">
+                  {sessionsLabels.fieldStart} ({sessionsLabels.required})
+                </label>
+                <Input
+                  id="sf-start"
+                  type="datetime-local"
+                  value={startedAt}
+                  onChange={(e) => setStartedAt(e.target.value)}
+                  disabled={disabled}
+                  required
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="font-medium text-foreground" htmlFor="sf-end">
+                  {sessionsLabels.fieldEnd}
+                </label>
+                <Input
+                  id="sf-end"
+                  type="datetime-local"
+                  value={endedAt}
+                  onChange={(e) => {
+                    setEndedAt(e.target.value);
+                    if (e.target.value !== "") setDurationMin("");
+                  }}
+                  disabled={disabled || durationMin.trim() !== ""}
+                />
+              </div>
+            </div>
 
-        <div className="flex flex-col gap-1.5">
-          <label className="font-medium text-foreground" htmlFor="sf-duration">
-            {sessionsLabels.fieldDuration}
-          </label>
-          <Input
-            id="sf-duration"
-            inputMode="numeric"
-            placeholder="0"
-            value={durationMin}
-            onChange={(e) => setDurationMin(e.target.value)}
-            disabled={disabled}
-          />
-          <span className="text-muted-foreground text-xs">{sessionsLabels.durationHint}</span>
-        </div>
+            <div className="flex flex-col gap-1.5">
+              <label className="font-medium text-foreground" htmlFor="sf-duration">
+                {sessionsLabels.fieldDuration}
+              </label>
+              <Input
+                id="sf-duration"
+                inputMode="numeric"
+                placeholder="0"
+                value={durationMin}
+                onChange={(e) => {
+                  setDurationMin(e.target.value);
+                  if (e.target.value !== "") setEndedAt("");
+                }}
+                disabled={disabled || endedAt.trim() !== ""}
+              />
+              <span className="text-muted-foreground text-xs">{sessionsLabels.durationHint}</span>
+            </div>
 
-        <div className="flex flex-col gap-1.5">
-          <label className="font-medium text-foreground" htmlFor="sf-notes">
-            {sessionsLabels.fieldNotes}
-          </label>
-          <Input
-            id="sf-notes"
-            placeholder={sessionsLabels.notesPlaceholder}
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            disabled={disabled}
-          />
-        </div>
+            <div className="flex flex-col gap-1.5">
+              <label className="font-medium text-foreground" htmlFor="sf-notes">
+                {sessionsLabels.fieldNotes}
+              </label>
+              <Input
+                id="sf-notes"
+                placeholder={sessionsLabels.notesPlaceholder}
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                disabled={disabled}
+              />
+            </div>
 
-        <div className="flex flex-col gap-2">
-          <span className="font-medium text-foreground">{sessionsLabels.costLinesTitle}</span>
-          <div className="flex flex-col gap-2">
-            {costLines.map((line, index) => (
-              <div
-                // Rows are ephemeral form state, index-addressed, only ever appended/removed —
-                // same precedent as LineEditor.tsx's identical key choice.
-                // biome-ignore lint/suspicious/noArrayIndexKey: see comment above.
-                key={index}
-                className="flex flex-col gap-2 rounded-md border border-border p-3"
-              >
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-start">
-                  <div className="flex-1">
-                    <Input
-                      aria-label={sessionsLabels.costLineLabel}
-                      placeholder={sessionsLabels.costLineLabelPlaceholder}
-                      value={line.label}
-                      onChange={(e) => updateCostLine(index, { label: e.target.value })}
-                      disabled={disabled}
-                    />
-                  </div>
-                  <div className="w-full sm:w-32">
-                    <Input
-                      inputMode="decimal"
-                      aria-label={sessionsLabels.costLineAmount}
-                      placeholder="0.00"
-                      value={line.amount}
-                      onChange={(e) => updateCostLine(index, { amount: e.target.value })}
-                      disabled={disabled}
-                    />
-                  </div>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => removeCostLine(index)}
-                    disabled={disabled}
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center gap-1">
+                <span className="font-medium text-foreground">{sessionsLabels.costLinesTitle}</span>
+                <InfoTooltip
+                  content={sessionsLabels.tooltipCostLinesTitle}
+                  label={`Más información: ${sessionsLabels.costLinesTitle}`}
+                />
+              </div>
+              <div className="flex flex-col gap-2">
+                {costLines.map((line, index) => (
+                  <div
+                    // Rows are ephemeral form state, index-addressed, only ever appended/removed —
+                    // same precedent as LineEditor.tsx's identical key choice.
+                    // biome-ignore lint/suspicious/noArrayIndexKey: see comment above.
+                    key={index}
+                    className="flex flex-col gap-2 rounded-md border border-border p-3"
                   >
-                    {sessionsLabels.removeLine}
-                  </Button>
-                </div>
-                <div className="flex flex-wrap items-center gap-3">
-                  <div className="flex items-center gap-2 text-muted-foreground text-xs">
-                    <Switch
-                      checked={line.isEstimate}
-                      onCheckedChange={(checked) =>
-                        updateCostLine(index, {
-                          isEstimate: checked,
-                          accountId: checked ? null : line.accountId,
-                        })
-                      }
-                      disabled={disabled}
-                      aria-label={sessionsLabels.costLineEstimate}
-                    />
-                    <span>{sessionsLabels.costLineEstimate}</span>
-                  </div>
-                  {!line.isEstimate ? (
-                    <div className="flex-1">
-                      <Select
-                        aria-label={sessionsLabels.costLineAccount}
-                        value={line.accountId ?? ""}
-                        onChange={(e) => updateCostLine(index, { accountId: e.target.value })}
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start">
+                      <div className="flex flex-1 flex-col gap-1.5">
+                        <label
+                          className="text-muted-foreground text-xs"
+                          htmlFor={`sf-cost-label-${index}`}
+                        >
+                          {sessionsLabels.costLineLabel}
+                        </label>
+                        <Input
+                          id={`sf-cost-label-${index}`}
+                          placeholder={costLineLabelPlaceholder}
+                          value={line.label}
+                          onChange={(e) => updateCostLine(index, { label: e.target.value })}
+                          disabled={disabled}
+                        />
+                      </div>
+                      <div className="flex w-full flex-col gap-1.5 sm:w-32">
+                        <label
+                          className="text-muted-foreground text-xs"
+                          htmlFor={`sf-cost-amount-${index}`}
+                        >
+                          {sessionsLabels.costLineAmount}
+                        </label>
+                        <Input
+                          id={`sf-cost-amount-${index}`}
+                          inputMode="decimal"
+                          placeholder="0.00"
+                          value={line.amount}
+                          onChange={(e) => updateCostLine(index, { amount: e.target.value })}
+                          disabled={disabled}
+                        />
+                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => removeCostLine(index)}
                         disabled={disabled}
                       >
-                        <option value="" disabled>
-                          {sessionsLabels.costLineAccount}
-                        </option>
-                        {accounts.map((account) => (
-                          <option key={account.id} value={account.id}>
-                            {account.name}
-                          </option>
-                        ))}
-                      </Select>
+                        {sessionsLabels.removeLine}
+                      </Button>
                     </div>
-                  ) : null}
-                </div>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <div className="flex items-center gap-2 text-muted-foreground text-xs">
+                        <Switch
+                          checked={line.isEstimate}
+                          onCheckedChange={(checked) =>
+                            updateCostLine(index, {
+                              isEstimate: checked,
+                              accountId: checked ? null : line.accountId,
+                            })
+                          }
+                          disabled={disabled}
+                          aria-label={sessionsLabels.costLineEstimate}
+                        />
+                        <span>{sessionsLabels.costLineEstimate}</span>
+                        <InfoTooltip
+                          content={sessionsLabels.tooltipCostLineEstimate}
+                          label={`Más información: ${sessionsLabels.costLineEstimate}`}
+                        />
+                      </div>
+                      {!line.isEstimate ? (
+                        <div className="flex-1">
+                          <Select
+                            aria-label={sessionsLabels.costLineAccount}
+                            value={line.accountId ?? ""}
+                            onChange={(e) => updateCostLine(index, { accountId: e.target.value })}
+                            disabled={disabled}
+                          >
+                            <option value="" disabled>
+                              {sessionsLabels.costLineAccount}
+                            </option>
+                            {accounts.map((account) => (
+                              <option key={account.id} value={account.id}>
+                                {account.name}
+                              </option>
+                            ))}
+                          </Select>
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => setCostLines((lines) => [...lines, emptyCostLine()])}
-            disabled={disabled}
-          >
-            {sessionsLabels.addLine}
-          </Button>
-        </div>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setCostLines((lines) => [...lines, emptyCostLine()])}
+                disabled={disabled}
+              >
+                {sessionsLabels.addLine}
+              </Button>
+            </div>
+          </>
+        ) : null}
 
         {error ? <p className="text-negative text-sm">{error}</p> : null}
       </div>
@@ -460,7 +556,11 @@ export function SessionForm({ open, onOpenChange, accounts, session }: SessionFo
           {sessionsLabels.cancel}
         </Button>
         <Button type="button" onClick={handleSubmit} disabled={disabled}>
-          {isEditMode ? sessionsLabels.save : sessionsLabels.submit}
+          {isEditMode
+            ? sessionsLabels.save
+            : createMode === "START_NOW"
+              ? sessionsLabels.startNowTab
+              : sessionsLabels.submit}
         </Button>
       </div>
     </Dialog>

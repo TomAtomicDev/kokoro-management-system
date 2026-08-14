@@ -7,7 +7,7 @@
 // (that's a slide-over triggered from the Inventory screen — awkward embedded inside a linear
 // wizard page), but follows the exact same data pattern: local `lineInputs` state seeded from the
 // count's lines, `parseDecimalToInt`/`formatIntAsDecimalInput` scale 3, blur-triggered
-// `useUpdateCountLine` calls, live-computed delta display.
+// `useUpdateCountLine` calls, and item-kind grouping.
 //
 // "Confirmar y finalizar" flushes any unsaved line edits (same reasoning as
 // CountDetailView.handleOpenConfirm: the owner may click confirm without blurring the last field
@@ -16,11 +16,13 @@
 // without also completing onboarding some other way, since that's the only signal gating the "/"
 // redirect) — the DRAFT count is simply left uncommitted, which has no effect on stock.
 
-import type { InventoryCountLineDto, Unit } from "@kokoro/shared";
-import { formatQty, nowIso, toBusinessDate } from "@kokoro/shared";
+import type { InventoryCountLineDto, ItemKind, Unit } from "@kokoro/shared";
+import { ITEM_KINDS, nowIso, toBusinessDate } from "@kokoro/shared";
 import { useNavigate } from "@tanstack/react-router";
+import { ChevronRight } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
+import { StepGuidance } from "@/components/onboarding/StepGuidance";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -30,22 +32,33 @@ import {
   useUpdateCountLine,
 } from "@/features/inventory/api";
 import { useCompleteOnboarding } from "@/features/onboarding/api";
+import { useSessionDraft } from "@/features/onboarding/use-session-draft";
 import { ApiError } from "@/lib/api";
+import { parseCostRateInput } from "@/lib/cost-rate";
 import { formatIntAsDecimalInput, parseDecimalToInt } from "@/lib/decimal";
 import { onboardingLabels } from "@/lib/i18n-onboarding";
-import { cn } from "@/lib/utils";
+
+const COUNT_GRID_COLUMNS = "grid-cols-[minmax(0,1fr)_9rem_12rem]";
 
 export interface StepCountProps {
   /** itemId -> { name, unit }, built by the caller from useItemsQuery — same lookup
    * routes/inventory.tsx builds for CountDetailView. */
-  items: Map<string, { name: string; unit: Unit }>;
+  items: Map<string, { name: string; unit: Unit; kind: ItemKind }>;
+  catalogCommitted: boolean;
 }
 
-export function StepCount({ items }: StepCountProps) {
+export function StepCount({ items, catalogCommitted }: StepCountProps) {
   const navigate = useNavigate();
 
   const [countId, setCountId] = useState<string | null>(null);
-  const [lineInputs, setLineInputs] = useState<Record<string, string>>({});
+  const [lineInputs, setLineInputs] = useSessionDraft<Record<string, string>>(
+    "count-line-inputs",
+    {},
+  );
+  const [unitCostInputs, setUnitCostInputs] = useSessionDraft<Record<string, string>>(
+    "count-unit-cost-inputs",
+    {},
+  );
   const [error, setError] = useState<string | null>(null);
   const [finishing, setFinishing] = useState(false);
 
@@ -56,8 +69,9 @@ export function StepCount({ items }: StepCountProps) {
   const commitMutation = useCommitCount();
   const completeMutation = useCompleteOnboarding();
 
-  // Run exactly once on mount to auto-start the count — intentionally excluded from deps
-  // (mutateAsync is stable, and the ref guard below prevents a double-start regardless).
+  // Run once after the catalog is committed to auto-start the count. The dependency allows a
+  // pre-save visit to wait and legitimately rerun when catalogCommitted flips to true; the ref
+  // guard still latches the start so it only ever happens once.
   //
   // Deliberately `mutateAsync` in an async IIFE, NOT `mutate(vars, { onSuccess, onError })`:
   // verified live (KOK-020 smoke test) that under React 19 StrictMode's synthetic double-effect
@@ -67,9 +81,9 @@ export function StepCount({ items }: StepCountProps) {
   // Promise is tied to the request itself, not the observer's currently-attached callbacks, so it
   // is immune to that race.
   const startedRef = useRef(false);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: run-once-on-mount, see comment above.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: catalogCommitted is intentionally the only dependency; mutateAsync is stable and startedRef prevents duplicate starts.
   useEffect(() => {
-    if (startedRef.current) return;
+    if (startedRef.current || !catalogCommitted) return;
     startedRef.current = true;
     (async () => {
       try {
@@ -82,7 +96,7 @@ export function StepCount({ items }: StepCountProps) {
         setError(err instanceof ApiError ? err.message : onboardingLabels.errors.generic);
       }
     })();
-  }, []);
+  }, [catalogCommitted]);
 
   // Seed local edit state from the server once per count — same guard CountDetailView.tsx uses so
   // a background refetch following our own line edits never stomps an in-progress keystroke.
@@ -96,13 +110,17 @@ export function StepCount({ items }: StepCountProps) {
       );
       seededCountId.current = count.id;
     }
-  }, [count]);
+  }, [count, setLineInputs]);
 
   function effectiveCountedQty(line: InventoryCountLineDto): number {
     const raw = lineInputs[line.itemId];
     if (raw === undefined) return line.countedQty;
     const parsed = parseDecimalToInt(raw, 3);
     return parsed ?? line.countedQty;
+  }
+
+  function needsOpeningCost(line: InventoryCountLineDto): boolean {
+    return !line.hasPriorMovements && effectiveCountedQty(line) > 0;
   }
 
   function handleBlur(line: InventoryCountLineDto) {
@@ -153,7 +171,29 @@ export function StepCount({ items }: StepCountProps) {
           });
         }),
       );
-      await commitMutation.mutateAsync(count.id);
+
+      const openingLines = [];
+      for (const line of count.lines) {
+        if (!needsOpeningCost(line)) continue;
+        const parsedCost = parseCostRateInput(unitCostInputs[line.itemId] ?? "");
+        if (!parsedCost.ok) {
+          const message = {
+            empty: onboardingLabels.countUnitCostRequired,
+            invalid: onboardingLabels.countUnitCostInvalid,
+            notPositive: onboardingLabels.countUnitCostNotPositive,
+            tooManyDecimals: onboardingLabels.countUnitCostTooManyDecimals,
+          }[parsedCost.reason];
+          setError(message);
+          setFinishing(false);
+          return;
+        }
+        openingLines.push({
+          itemId: line.itemId,
+          unitCostMc: parsedCost.value,
+        });
+      }
+
+      await commitMutation.mutateAsync({ countId: count.id, lines: openingLines });
       await completeMutation.mutateAsync();
       navigate({ to: "/" });
     } catch (err) {
@@ -175,52 +215,111 @@ export function StepCount({ items }: StepCountProps) {
   }
 
   const disabled = finishing || commitMutation.isPending || completeMutation.isPending;
+  const linesByKind = new Map<ItemKind, InventoryCountLineDto[]>();
+  for (const kind of ITEM_KINDS) linesByKind.set(kind, []);
+  if (count) {
+    for (const line of count.lines) {
+      const kind = items.get(line.itemId)?.kind;
+      if (kind) linesByKind.get(kind)?.push(line);
+    }
+  }
 
   return (
     <div className="flex flex-col gap-4">
       <div>
         <h2 className="font-medium text-foreground text-lg">{onboardingLabels.countTitle}</h2>
         <p className="text-muted-foreground text-sm">{onboardingLabels.countBody}</p>
+        <p id="count-cost-rate-help" className="text-muted-foreground text-xs">
+          {onboardingLabels.costRateHelp}
+        </p>
       </div>
 
-      {countQuery.isLoading || !count ? (
+      <StepGuidance
+        what={onboardingLabels.countGuidanceWhat}
+        why={onboardingLabels.countGuidanceWhy}
+        where={onboardingLabels.countGuidanceWhere}
+      />
+
+      {!catalogCommitted ? (
+        <p className="text-muted-foreground text-sm">{onboardingLabels.countNeedsCatalog}</p>
+      ) : countQuery.isLoading || !count ? (
         <p className="text-muted-foreground text-sm">{onboardingLabels.loading}</p>
       ) : count.lines.length === 0 ? (
         <p className="text-muted-foreground text-sm">{onboardingLabels.noCountLines}</p>
       ) : (
         <div className="overflow-hidden rounded-lg border border-border">
-          <div className="grid grid-cols-[1fr_auto_auto_auto] gap-3 border-b border-border bg-card px-3 py-2 text-xs font-medium text-muted-foreground">
+          <div
+            className={`sticky top-0 z-10 grid ${COUNT_GRID_COLUMNS} gap-3 border-b border-border bg-card px-3 py-2 text-xs font-medium text-muted-foreground`}
+          >
             <span>{onboardingLabels.countColumnItem}</span>
-            <span className="text-right">{onboardingLabels.countColumnExpected}</span>
             <span className="text-right">{onboardingLabels.countColumnCounted}</span>
-            <span className="text-right">{onboardingLabels.countColumnDelta}</span>
+            <span className="text-right">{onboardingLabels.countColumnUnitCost}</span>
           </div>
-          {count.lines.map((line) => {
-            const info = items.get(line.itemId);
-            const unit = info?.unit ?? "UNIT";
-            const delta = effectiveCountedQty(line) - line.expectedQty;
+          {ITEM_KINDS.map((kind) => {
+            const lines = linesByKind.get(kind) ?? [];
+            if (lines.length === 0) return null;
+
             return (
-              <div
-                key={line.id}
-                className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-3 border-b border-border px-3 py-2 text-sm last:border-0"
-              >
-                <span className="text-foreground">{info?.name ?? "—"}</span>
-                <span className="numeric-cell text-right text-muted-foreground">
-                  {formatQty(line.expectedQty, unit)}
-                </span>
-                <Input
-                  className="w-24"
-                  inputMode="decimal"
-                  value={lineInputs[line.itemId] ?? ""}
-                  onChange={(e) =>
-                    setLineInputs((prev) => ({ ...prev, [line.itemId]: e.target.value }))
-                  }
-                  onBlur={() => handleBlur(line)}
-                  disabled={disabled}
-                />
-                <span className={cn("numeric-cell text-right", delta < 0 && "text-negative")}>
-                  {formatQty(delta, unit)}
-                </span>
+              <div key={kind} className="border-b border-border last:border-0">
+                <h3 className="border-b border-border bg-muted px-3 py-2 font-medium text-foreground text-sm">
+                  {onboardingLabels.kindLabels[kind]}
+                </h3>
+                {lines.map((line) => {
+                  const info = items.get(line.itemId);
+                  const unit = info?.unit ?? "UNIT";
+                  const openingCostNeeded = needsOpeningCost(line);
+                  return (
+                    <div
+                      key={line.id}
+                      className={`grid ${COUNT_GRID_COLUMNS} items-center gap-3 border-b border-border px-3 py-2 text-sm last:border-0`}
+                    >
+                      <span className="min-w-0 text-foreground">{info?.name ?? "—"}</span>
+                      <div className="flex items-center justify-end gap-1">
+                        <Input
+                          className="w-24"
+                          inputMode="decimal"
+                          value={lineInputs[line.itemId] ?? ""}
+                          onChange={(e) =>
+                            setLineInputs((prev) => ({ ...prev, [line.itemId]: e.target.value }))
+                          }
+                          onBlur={() => handleBlur(line)}
+                          disabled={disabled}
+                        />
+                        <span className="text-muted-foreground text-xs">
+                          {onboardingLabels.unitAbbrev[unit]}
+                        </span>
+                      </div>
+                      {openingCostNeeded ? (
+                        <div className="flex flex-col gap-1">
+                          <div className="flex items-center gap-1">
+                            <Input
+                              className="w-24"
+                              inputMode="decimal"
+                              placeholder="0,00000"
+                              value={unitCostInputs[line.itemId] ?? ""}
+                              required={openingCostNeeded}
+                              aria-required={openingCostNeeded}
+                              onChange={(e) =>
+                                setUnitCostInputs((prev) => ({
+                                  ...prev,
+                                  [line.itemId]: e.target.value,
+                                }))
+                              }
+                              disabled={disabled}
+                              aria-label={`${onboardingLabels.countColumnUnitCost} ${info?.name ?? line.itemId}`}
+                              aria-describedby="count-cost-rate-help"
+                            />
+                            <span className="text-muted-foreground text-xs">
+                              Bs/{onboardingLabels.unitAbbrev[unit]}
+                            </span>
+                          </div>
+                        </div>
+                      ) : (
+                        <span className="text-right text-muted-foreground">—</span>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             );
           })}
@@ -230,10 +329,22 @@ export function StepCount({ items }: StepCountProps) {
       {error ? <p className="text-negative text-sm">{error}</p> : null}
 
       <div className="flex justify-end gap-2">
-        <Button type="button" variant="outline" onClick={handleSkip} disabled={disabled}>
-          {onboardingLabels.skipButton}
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          onClick={handleSkip}
+          disabled={disabled}
+          aria-label={onboardingLabels.skipButton}
+          title={onboardingLabels.skipButton}
+        >
+          <ChevronRight />
         </Button>
-        <Button type="button" onClick={handleConfirm} disabled={disabled || !count}>
+        <Button
+          type="button"
+          onClick={handleConfirm}
+          disabled={disabled || !catalogCommitted || !count}
+        >
           {onboardingLabels.submitCount}
         </Button>
       </div>

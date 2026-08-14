@@ -5,27 +5,56 @@
 // service's own message_es (e.g. "Ya se completó la configuración inicial…" if onboarding was
 // completed elsewhere), no need to special-case the CONFLICT code here.
 
+import { ChevronRight } from "lucide-react";
 import { useState } from "react";
 
+import { StepGuidance } from "@/components/onboarding/StepGuidance";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useSetOpeningBalances } from "@/features/onboarding/api";
+import { useSessionDraft } from "@/features/onboarding/use-session-draft";
 import { ApiError } from "@/lib/api";
-import { parseDecimalToInt } from "@/lib/decimal";
+import { exceedsScale, parseDecimalToInt } from "@/lib/decimal";
 import { onboardingLabels } from "@/lib/i18n-onboarding";
 
 export interface StepBalancesProps {
   onDone: () => void;
   onSkip: () => void;
+  readOnly?: boolean;
 }
 
-export function StepBalances({ onDone, onSkip }: StepBalancesProps) {
-  const [bankInput, setBankInput] = useState("");
-  const [cashInput, setCashInput] = useState("");
+export function StepBalances({ onDone, onSkip, readOnly = false }: StepBalancesProps) {
+  const [bankInput, setBankInput] = useSessionDraft("balances-bank", "");
+  const [cashInput, setCashInput] = useSessionDraft("balances-cash", "");
   const [error, setError] = useState<string | null>(null);
 
   const mutation = useSetOpeningBalances();
   const disabled = mutation.isPending;
+
+  if (readOnly) {
+    return (
+      <div className="flex flex-col gap-4">
+        <div>
+          <h2 className="font-medium text-foreground text-lg">{onboardingLabels.balancesTitle}</h2>
+          <p className="text-muted-foreground text-sm">{onboardingLabels.balancesBody}</p>
+        </div>
+        <StepGuidance
+          what={onboardingLabels.balancesGuidanceWhat}
+          why={onboardingLabels.balancesGuidanceWhy}
+          where={onboardingLabels.balancesGuidanceWhere}
+        />
+        <div className="rounded-md border border-border bg-muted px-4 py-3 text-sm">
+          <p className="font-medium text-foreground">{onboardingLabels.alreadySaved}</p>
+          <p className="text-muted-foreground">{onboardingLabels.savedBalancesBody}</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" onClick={onDone}>
+            {onboardingLabels.continueButton}
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   function parseAmount(raw: string): number | null {
     if (raw.trim() === "") return 0;
@@ -37,7 +66,14 @@ export function StepBalances({ onDone, onSkip }: StepBalancesProps) {
     const bankOpening = parseAmount(bankInput);
     const cashOpening = parseAmount(cashInput);
     if (bankOpening === null || cashOpening === null) {
-      setError(onboardingLabels.errors.invalidAmount);
+      const hasTooManyDecimals =
+        (bankOpening === null && exceedsScale(bankInput, 2)) ||
+        (cashOpening === null && exceedsScale(cashInput, 2));
+      setError(
+        hasTooManyDecimals
+          ? onboardingLabels.errors.tooManyDecimals
+          : onboardingLabels.errors.invalidAmount,
+      );
       return;
     }
 
@@ -56,6 +92,12 @@ export function StepBalances({ onDone, onSkip }: StepBalancesProps) {
         <p className="text-muted-foreground text-sm">{onboardingLabels.balancesBody}</p>
       </div>
 
+      <StepGuidance
+        what={onboardingLabels.balancesGuidanceWhat}
+        why={onboardingLabels.balancesGuidanceWhy}
+        where={onboardingLabels.balancesGuidanceWhere}
+      />
+
       <div className="grid grid-cols-2 gap-3">
         <div className="flex flex-col gap-1.5">
           <label className="font-medium text-foreground text-sm" htmlFor="ob-bank">
@@ -69,6 +111,7 @@ export function StepBalances({ onDone, onSkip }: StepBalancesProps) {
             onChange={(e) => setBankInput(e.target.value)}
             disabled={disabled}
           />
+          <p className="text-muted-foreground text-xs">{onboardingLabels.decimalHelp}</p>
         </div>
         <div className="flex flex-col gap-1.5">
           <label className="font-medium text-foreground text-sm" htmlFor="ob-cash">
@@ -88,8 +131,16 @@ export function StepBalances({ onDone, onSkip }: StepBalancesProps) {
       {error ? <p className="text-negative text-sm">{error}</p> : null}
 
       <div className="flex justify-end gap-2">
-        <Button type="button" variant="outline" onClick={onSkip} disabled={disabled}>
-          {onboardingLabels.skipButton}
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          onClick={onSkip}
+          disabled={disabled}
+          aria-label={onboardingLabels.skipButton}
+          title={onboardingLabels.skipButton}
+        >
+          <ChevronRight />
         </Button>
         <Button type="button" onClick={handleSubmit} disabled={disabled}>
           {onboardingLabels.submitBalances}

@@ -54,7 +54,10 @@ export interface StockRowDto {
   /** Weighted average cost, integer milli-centavos per WHOLE unit (Doc 04 Ã‚Â§2/Ã‚Â§3.4, ADR-017/
    * Ã¢â‚¬â€ same scale as `items.wac_mc`/`stock_movements.unit_cost_mc`). */
   wacMc: number;
-  /** Replacement cost, integer milli-centavos per WHOLE unit (ADR-017). */
+  /** Effective replacement cost, integer milli-centavos per WHOLE unit (ADR-017): the raw
+   * `replacement_cost_mc` when it was ever set by a real purchase/estimate, else current
+   * `wacMc` (C-3c, KOK-103) — never the raw stored `0` a never-purchased item would otherwise
+   * show. Never written back to the item row; this is a read-time projection only. */
   replacementCostMc: number;
   /** Centavos (INV-6). Null when the item has no set sale price yet. */
   salePriceMc: MilliCentavosPerUnit | null;

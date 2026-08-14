@@ -18,12 +18,18 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { createItem } from "../src/core/catalog/index.js";
 import { recordPurchase } from "../src/core/purchasing/index.js";
 import {
+  assertNoConflictingOpenSession,
+  closeAndStartSession,
   deleteSession,
+  getDeduplicatedSessionHours,
   getSession,
   listSessions,
-  recordSession,
+  recordSession as recordSessionCore,
+  resolveSessionForEvent,
   restoreSession,
-  updateSession,
+  type SessionInterval,
+  unionIntervalMinutes,
+  updateSession as updateSessionCore,
 } from "../src/core/sessions/index.js";
 import { createDb } from "../src/db/index.js";
 import {
@@ -40,6 +46,23 @@ const STARTED_AT = "2026-07-16T09:00:00.000Z";
 const ENDED_AT = "2026-07-16T11:00:00.000Z";
 
 type TestDb = ReturnType<typeof createDb>;
+
+function recordSession(
+  db: TestDb,
+  command: Omit<Parameters<typeof recordSessionCore>[1], "startedAt"> & { startedAt?: string },
+  actor: Parameters<typeof recordSessionCore>[2],
+) {
+  return recordSessionCore(db, { startedAt: STARTED_AT, ...command }, actor);
+}
+
+function updateSession(
+  db: TestDb,
+  id: string,
+  command: Omit<Parameters<typeof updateSessionCore>[2], "startedAt"> & { startedAt?: string },
+  actor: Parameters<typeof updateSessionCore>[3],
+) {
+  return updateSessionCore(db, id, { startedAt: STARTED_AT, ...command }, actor);
+}
 
 async function seedInactiveAccount(db: TestDb, id: string): Promise<void> {
   await db.insert(financialAccounts).values({
@@ -73,7 +96,221 @@ beforeEach(async () => {
   }
 });
 
+describe("resolveSessionForEvent (Doc 03 S-1)", () => {
+  it("links an existing matching OPEN session without returning an insert", async () => {
+    const db = createDb(env.DB);
+    const { session } = await recordSession(
+      db,
+      { type: "PURCHASE_TRIP", businessDate: BUSINESS_DATE },
+      ACTOR,
+    );
+    const resolved = await resolveSessionForEvent(db, {
+      type: "PURCHASE_TRIP",
+      occurredAt: STARTED_AT,
+      businessDate: BUSINESS_DATE,
+    });
+    expect(resolved).toEqual({ sessionId: session.id, status: "OPEN", statements: [] });
+  });
+
+  it("returns a minimal matching session insert when none is OPEN", async () => {
+    const db = createDb(env.DB);
+    const resolved = await resolveSessionForEvent(db, {
+      type: "PRODUCTION",
+      occurredAt: STARTED_AT,
+      businessDate: BUSINESS_DATE,
+    });
+    expect(resolved.statements).toHaveLength(1);
+    expect(await db.query.sessions.findFirst()).toBeUndefined();
+    const statement = resolved.statements[0];
+    if (!statement) throw new Error("expected session insert statement");
+    await db.batch([statement]);
+    expect(await db.query.sessions.findFirst()).toMatchObject({
+      id: resolved.sessionId,
+      type: "PRODUCTION",
+      businessDate: BUSINESS_DATE,
+      startedAt: STARTED_AT,
+      status: "OPEN",
+    });
+  });
+
+  it("honors an explicit matching session even when CLOSED", async () => {
+    const db = createDb(env.DB);
+    const { session } = await recordSession(
+      db,
+      { type: "PRODUCTION", businessDate: BUSINESS_DATE, durationMin: 30 },
+      ACTOR,
+    );
+    await updateSession(
+      db,
+      session.id,
+      { type: "PRODUCTION", businessDate: BUSINESS_DATE, durationMin: 30, status: "CLOSED" },
+      ACTOR,
+    );
+    await expect(
+      resolveSessionForEvent(db, {
+        type: "PRODUCTION",
+        occurredAt: STARTED_AT,
+        businessDate: BUSINESS_DATE,
+        explicitSessionId: session.id,
+      }),
+    ).resolves.toEqual({ sessionId: session.id, status: "CLOSED", statements: [] });
+  });
+
+  it("rejects an explicit session of the wrong type", async () => {
+    const db = createDb(env.DB);
+    const { session } = await recordSession(
+      db,
+      { type: "ADMIN", businessDate: BUSINESS_DATE },
+      ACTOR,
+    );
+    await expect(
+      resolveSessionForEvent(db, {
+        type: "PRODUCTION",
+        occurredAt: STARTED_AT,
+        businessDate: BUSINESS_DATE,
+        explicitSessionId: session.id,
+      }),
+    ).rejects.toMatchObject({ code: "VALIDATION" });
+  });
+
+  it("rejects an explicit soft-deleted session", async () => {
+    const db = createDb(env.DB);
+    const { session } = await recordSession(
+      db,
+      { type: "OTHER", businessDate: BUSINESS_DATE },
+      ACTOR,
+    );
+    await deleteSession(db, session.id, {}, ACTOR);
+    await expect(
+      resolveSessionForEvent(db, {
+        type: "OTHER",
+        occurredAt: STARTED_AT,
+        businessDate: BUSINESS_DATE,
+        explicitSessionId: session.id,
+      }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+});
+
+describe("assertNoConflictingOpenSession / closeAndStartSession (Doc 03 S-1b)", () => {
+  it("guards conflicts while allowing the current session to be excluded", async () => {
+    const db = createDb(env.DB);
+    const { session } = await recordSession(
+      db,
+      { type: "ADMIN", businessDate: BUSINESS_DATE },
+      ACTOR,
+    );
+    await expect(assertNoConflictingOpenSession(db, "ADMIN")).rejects.toMatchObject({
+      code: "CONFLICT",
+    });
+    await expect(assertNoConflictingOpenSession(db, "ADMIN", session.id)).resolves.toBeUndefined();
+  });
+
+  it("atomically closes the old session and opens a same-type replacement with its costs", async () => {
+    const db = createDb(env.DB);
+    const { session } = await recordSession(
+      db,
+      { type: "PURCHASE_TRIP", businessDate: BUSINESS_DATE, startedAt: STARTED_AT },
+      ACTOR,
+    );
+    const result = await closeAndStartSession(
+      db,
+      {
+        closeSessionId: session.id,
+        newSession: {
+          type: "PURCHASE_TRIP",
+          businessDate: "2026-07-17",
+          startedAt: "2026-07-17T09:00:00.000Z",
+          costLines: [{ label: "Taxi", amount: 1200, isEstimate: false, accountId: "acc_bank" }],
+        },
+      },
+      ACTOR,
+    );
+    expect(result.closedSession).toMatchObject({ id: session.id, status: "CLOSED" });
+    expect(result.closedSession.endedAt).not.toBeNull();
+    expect(result.newSession).toMatchObject({ type: "PURCHASE_TRIP", status: "OPEN" });
+    expect(result.newSession.costLines).toHaveLength(1);
+    const openRows = await db.query.sessions.findMany({
+      where: (table, { and: andOp, eq: eqOp, isNull: isNullOp }) =>
+        andOp(
+          eqOp(table.type, "PURCHASE_TRIP"),
+          eqOp(table.status, "OPEN"),
+          isNullOp(table.deletedAt),
+        ),
+    });
+    expect(openRows.map((row) => row.id)).toEqual([result.newSession.id]);
+    const audits = await db.query.auditLog.findMany({
+      where: (table, { and: andOp, eq: eqOp }) =>
+        andOp(eqOp(table.entityType, "sessions"), eqOp(table.actor, ACTOR)),
+    });
+    expect(audits.filter((row) => row.action === "update")).toHaveLength(1);
+    expect(audits.filter((row) => row.action === "create")).toHaveLength(2);
+  });
+
+  it("refuses a cross-type replacement and an already-CLOSED target", async () => {
+    const db = createDb(env.DB);
+    const { session } = await recordSession(
+      db,
+      { type: "ADMIN", businessDate: BUSINESS_DATE, durationMin: 10 },
+      ACTOR,
+    );
+    await expect(
+      closeAndStartSession(
+        db,
+        {
+          closeSessionId: session.id,
+          newSession: { type: "OTHER", businessDate: BUSINESS_DATE, startedAt: STARTED_AT },
+        },
+        ACTOR,
+      ),
+    ).rejects.toMatchObject({ code: "VALIDATION" });
+    await updateSession(
+      db,
+      session.id,
+      { type: "ADMIN", businessDate: BUSINESS_DATE, durationMin: 10, status: "CLOSED" },
+      ACTOR,
+    );
+    await expect(
+      closeAndStartSession(
+        db,
+        {
+          closeSessionId: session.id,
+          newSession: { type: "ADMIN", businessDate: BUSINESS_DATE, startedAt: STARTED_AT },
+        },
+        ACTOR,
+      ),
+    ).rejects.toMatchObject({ code: "VALIDATION" });
+  });
+});
+
 describe("recordSession (UC-14 create)", () => {
+  it.each([
+    { closingField: "endedAt", command: { endedAt: ENDED_AT } },
+    { closingField: "durationMin", command: { durationMin: 45 } },
+  ])("is born CLOSED when $closingField is supplied", async ({ command }) => {
+    const db = createDb(env.DB);
+
+    const result = await recordSession(
+      db,
+      { type: "PRODUCTION", businessDate: BUSINESS_DATE, ...command },
+      ACTOR,
+    );
+
+    expect(result.session.status).toBe("CLOSED");
+  });
+
+  it("is born OPEN when neither an end nor duration is supplied", async () => {
+    const db = createDb(env.DB);
+
+    const result = await recordSession(
+      db,
+      { type: "DELIVERY_RUN", businessDate: BUSINESS_DATE },
+      ACTOR,
+    );
+
+    expect(result.session.status).toBe("OPEN");
+  });
+
   it("records a session with a non-estimate cost line: financial_transactions row, account balance debit, audit_log", async () => {
     const db = createDb(env.DB);
 
@@ -245,33 +482,30 @@ describe("recordSession (UC-14 create)", () => {
     expect(result.session.status).toBe("OPEN");
   });
 
-  describe("one-OPEN-per-type soft warning (Doc 04 §5)", () => {
-    it("warns but does NOT block when another OPEN session of the same type already exists", async () => {
+  describe("one-OPEN-per-type hard invariant (Doc 03 S-1b)", () => {
+    it("allows a same-type session born CLOSED while another session is OPEN", async () => {
       const db = createDb(env.DB);
+      await recordSession(db, { type: "PRODUCTION", businessDate: BUSINESS_DATE }, ACTOR);
 
-      const first = await recordSession(
+      const past = await recordSession(
         db,
-        { type: "PRODUCTION", businessDate: BUSINESS_DATE },
+        { type: "PRODUCTION", businessDate: BUSINESS_DATE, durationMin: 30 },
         ACTOR,
       );
-      expect(first.openSessionWarning).toBeNull();
 
-      const second = await recordSession(
-        db,
-        { type: "PRODUCTION", businessDate: BUSINESS_DATE },
-        ACTOR,
-      );
-      expect(second.openSessionWarning).toEqual(expect.stringContaining("PRODUCTION"));
-      // Not blocked: both sessions exist, both OPEN.
-      const rows = await db.query.sessions.findMany({
-        where: (t, { eq: eqOp }) => eqOp(t.type, "PRODUCTION"),
-      });
-      expect(rows).toHaveLength(2);
-      expect(rows.every((r) => r.status === "OPEN")).toBe(true);
-      expect(first.session.id).not.toBe(second.session.id);
+      expect(past.session.status).toBe("CLOSED");
     });
 
-    it("does not warn across DIFFERENT types", async () => {
+    it("blocks another OPEN session of the same type", async () => {
+      const db = createDb(env.DB);
+
+      await recordSession(db, { type: "PRODUCTION", businessDate: BUSINESS_DATE }, ACTOR);
+      await expect(
+        recordSession(db, { type: "PRODUCTION", businessDate: BUSINESS_DATE }, ACTOR),
+      ).rejects.toMatchObject({ code: "CONFLICT" });
+    });
+
+    it("allows simultaneous OPEN sessions of different types", async () => {
       const db = createDb(env.DB);
       await recordSession(db, { type: "PRODUCTION", businessDate: BUSINESS_DATE }, ACTOR);
       const other = await recordSession(
@@ -279,10 +513,10 @@ describe("recordSession (UC-14 create)", () => {
         { type: "DELIVERY_RUN", businessDate: BUSINESS_DATE },
         ACTOR,
       );
-      expect(other.openSessionWarning).toBeNull();
+      expect(other.session.status).toBe("OPEN");
     });
 
-    it("does not warn against a CLOSED or soft-deleted session of the same type", async () => {
+    it("allows a replacement after the prior same-type session is CLOSED or soft-deleted", async () => {
       const db = createDb(env.DB);
       const closedSource = await recordSession(
         db,
@@ -300,7 +534,7 @@ describe("recordSession (UC-14 create)", () => {
         { type: "ADMIN", businessDate: BUSINESS_DATE },
         ACTOR,
       );
-      expect(afterClose.openSessionWarning).toBeNull();
+      expect(afterClose.session.status).toBe("OPEN");
 
       const toDelete = await recordSession(
         db,
@@ -313,12 +547,42 @@ describe("recordSession (UC-14 create)", () => {
         { type: "OTHER", businessDate: BUSINESS_DATE },
         ACTOR,
       );
-      expect(afterDelete.openSessionWarning).toBeNull();
+      expect(afterDelete.session.status).toBe("OPEN");
     });
   });
 });
 
 describe("updateSession (UC-14 edit / close)", () => {
+  it("blocks reopening or retagging into a type that already has another OPEN session", async () => {
+    const db = createDb(env.DB);
+    const existingOpen = await recordSession(
+      db,
+      { type: "ADMIN", businessDate: BUSINESS_DATE },
+      ACTOR,
+    );
+    const closed = await recordSession(
+      db,
+      { type: "OTHER", businessDate: BUSINESS_DATE, durationMin: 20 },
+      ACTOR,
+    );
+    await updateSession(
+      db,
+      closed.session.id,
+      { type: "OTHER", businessDate: BUSINESS_DATE, durationMin: 20, status: "CLOSED" },
+      ACTOR,
+    );
+
+    await expect(
+      updateSession(
+        db,
+        closed.session.id,
+        { type: "ADMIN", businessDate: BUSINESS_DATE, durationMin: 20, status: "OPEN" },
+        ACTOR,
+      ),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(existingOpen.session.status).toBe("OPEN");
+  });
+
   it("reverses the OLD cost line's transaction and books the NEW one when the cost-line set changes", async () => {
     const db = createDb(env.DB);
     const created = await recordSession(
@@ -695,15 +959,20 @@ describe("listSessions", () => {
     expect(productionOnly).toHaveLength(1);
     expect(productionOnly[0]).toMatchObject({
       type: "PRODUCTION",
-      status: "OPEN",
+      status: "CLOSED",
       durationMin: 60,
       linkedEventCount: 0,
       costsTotal: 1500, // Σ of BOTH lines, estimate included — display total, not the cash total.
     });
 
     const { sessions: closedOnly } = await listSessions(db, { status: "CLOSED" });
-    expect(closedOnly).toHaveLength(1);
-    expect(closedOnly[0]).toMatchObject({ type: "OTHER", status: "CLOSED", durationMin: 5 });
+    expect(closedOnly).toHaveLength(2);
+    expect(closedOnly).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: "PRODUCTION", status: "CLOSED", durationMin: 60 }),
+        expect.objectContaining({ type: "OTHER", status: "CLOSED", durationMin: 5 }),
+      ]),
+    );
   });
 
   it("computes duration_min from started_at/ended_at via v_session_hours when no direct value is stored", async () => {
@@ -726,7 +995,13 @@ describe("listSessions", () => {
 
   it("filters by business date range", async () => {
     const db = createDb(env.DB);
-    await recordSession(db, { type: "ADMIN", businessDate: "2026-07-01" }, ACTOR);
+    const first = await recordSession(db, { type: "ADMIN", businessDate: "2026-07-01" }, ACTOR);
+    await updateSession(
+      db,
+      first.session.id,
+      { type: "ADMIN", businessDate: "2026-07-01", durationMin: 1, status: "CLOSED" },
+      ACTOR,
+    );
     await recordSession(db, { type: "ADMIN", businessDate: "2026-07-20" }, ACTOR);
 
     const { sessions: rows } = await listSessions(db, {
@@ -736,6 +1011,244 @@ describe("listSessions", () => {
     });
     expect(rows).toHaveLength(1);
     expect(rows[0]?.businessDate).toBe("2026-07-20");
+  });
+});
+
+describe("getDeduplicatedSessionHours (Doc 03 S-5)", () => {
+  it("counts overlapping session time once", async () => {
+    const db = createDb(env.DB);
+    await recordSession(
+      db,
+      {
+        type: "ADMIN",
+        businessDate: BUSINESS_DATE,
+        startedAt: "2026-07-16T09:00:00.000Z",
+        endedAt: "2026-07-16T11:00:00.000Z",
+      },
+      ACTOR,
+    );
+    await recordSession(
+      db,
+      {
+        type: "PURCHASE_TRIP",
+        businessDate: BUSINESS_DATE,
+        startedAt: "2026-07-16T10:00:00.000Z",
+        endedAt: "2026-07-16T12:00:00.000Z",
+      },
+      ACTOR,
+    );
+
+    await expect(
+      getDeduplicatedSessionHours(db, { fromDate: BUSINESS_DATE, toDate: BUSINESS_DATE }),
+    ).resolves.toEqual({
+      naiveSummedMinutes: 240,
+      dedupedMinutes: 180,
+      excludedSessionCount: 0,
+    });
+  });
+
+  it("preserves the naive total for non-overlapping sessions", async () => {
+    const db = createDb(env.DB);
+    await recordSession(
+      db,
+      {
+        type: "ADMIN",
+        businessDate: BUSINESS_DATE,
+        startedAt: "2026-07-16T09:00:00.000Z",
+        endedAt: "2026-07-16T10:00:00.000Z",
+      },
+      ACTOR,
+    );
+    await recordSession(
+      db,
+      {
+        type: "PURCHASE_TRIP",
+        businessDate: BUSINESS_DATE,
+        startedAt: "2026-07-16T11:00:00.000Z",
+        endedAt: "2026-07-16T12:00:00.000Z",
+      },
+      ACTOR,
+    );
+
+    const result = await getDeduplicatedSessionHours(db, {
+      fromDate: BUSINESS_DATE,
+      toDate: BUSINESS_DATE,
+    });
+    expect(result.dedupedMinutes).toBe(result.naiveSummedMinutes);
+    expect(result.naiveSummedMinutes).toBe(120);
+  });
+
+  it("excludes an unresolved OPEN session from both totals", async () => {
+    const db = createDb(env.DB);
+    await recordSession(db, { type: "OTHER", businessDate: BUSINESS_DATE }, ACTOR);
+
+    await expect(
+      getDeduplicatedSessionHours(db, { fromDate: BUSINESS_DATE, toDate: BUSINESS_DATE }),
+    ).resolves.toEqual({
+      naiveSummedMinutes: 0,
+      dedupedMinutes: 0,
+      excludedSessionCount: 1,
+    });
+  });
+
+  it("synthesizes an end instant for a direct-duration close", async () => {
+    const db = createDb(env.DB);
+    await recordSession(
+      db,
+      {
+        type: "ADMIN",
+        businessDate: BUSINESS_DATE,
+        startedAt: "2026-07-16T09:00:00.000Z",
+        durationMin: 120,
+      },
+      ACTOR,
+    );
+    await recordSession(
+      db,
+      {
+        type: "PURCHASE_TRIP",
+        businessDate: BUSINESS_DATE,
+        startedAt: "2026-07-16T10:00:00.000Z",
+        endedAt: "2026-07-16T12:00:00.000Z",
+      },
+      ACTOR,
+    );
+
+    await expect(
+      getDeduplicatedSessionHours(db, { fromDate: BUSINESS_DATE, toDate: BUSINESS_DATE }),
+    ).resolves.toMatchObject({ naiveSummedMinutes: 240, dedupedMinutes: 180 });
+  });
+
+  it("applies inclusive business-date bounds", async () => {
+    const db = createDb(env.DB);
+    await recordSession(db, { type: "ADMIN", businessDate: "2026-07-01", durationMin: 30 }, ACTOR);
+    await recordSession(
+      db,
+      { type: "PURCHASE_TRIP", businessDate: BUSINESS_DATE, durationMin: 60 },
+      ACTOR,
+    );
+
+    await expect(
+      getDeduplicatedSessionHours(db, { fromDate: BUSINESS_DATE, toDate: BUSINESS_DATE }),
+    ).resolves.toEqual({
+      naiveSummedMinutes: 60,
+      dedupedMinutes: 60,
+      excludedSessionCount: 0,
+    });
+  });
+});
+
+const INTERVAL_BASE_MS = Date.UTC(2026, 0, 1);
+
+function intervalFromMinutes(startMinute: number, durationMinute: number): SessionInterval {
+  return {
+    sessionId: `session-${startMinute}-${durationMinute}`,
+    startedAt: new Date(INTERVAL_BASE_MS + startMinute * 60_000).toISOString(),
+    endedAt: new Date(INTERVAL_BASE_MS + (startMinute + durationMinute) * 60_000).toISOString(),
+  };
+}
+
+function intervalDurationMinutes(interval: SessionInterval): number {
+  return (Date.parse(interval.endedAt) - Date.parse(interval.startedAt)) / 60_000;
+}
+
+const sessionIntervalArb = fc
+  .record({
+    startMinute: fc.integer({ min: 0, max: 60 * 24 * 31 }),
+    durationMinute: fc.integer({ min: 1, max: 60 * 24 }),
+  })
+  .map(({ startMinute, durationMinute }) => intervalFromMinutes(startMinute, durationMinute));
+
+const nonOverlappingIntervalsArb = fc
+  .array(
+    fc.record({
+      durationMinute: fc.integer({ min: 1, max: 240 }),
+      gapMinute: fc.integer({ min: 1, max: 120 }),
+    }),
+    { maxLength: 20 },
+  )
+  .map((parts) => {
+    let cursor = 0;
+    return parts.map(({ durationMinute, gapMinute }) => {
+      const interval = intervalFromMinutes(cursor, durationMinute);
+      cursor += durationMinute + gapMinute;
+      return interval;
+    });
+  });
+
+const nestedIntervalsArb = fc
+  .record({
+    outerStartMinute: fc.integer({ min: 0, max: 60 * 24 * 31 }),
+    outerDurationMinute: fc.integer({ min: 1, max: 60 * 24 }),
+    innerSeeds: fc.array(fc.tuple(fc.nat(), fc.nat()), { maxLength: 20 }),
+  })
+  .map(({ outerStartMinute, outerDurationMinute, innerSeeds }) => {
+    const outer = intervalFromMinutes(outerStartMinute, outerDurationMinute);
+    const nested = innerSeeds.map(([rawOffset, rawDuration]) => {
+      const offset = rawOffset % outerDurationMinute;
+      const duration = 1 + (rawDuration % (outerDurationMinute - offset));
+      return intervalFromMinutes(outerStartMinute + offset, duration);
+    });
+    return { outer, intervals: [outer, ...nested] };
+  });
+
+describe("property: unionIntervalMinutes (Doc 03 S-5)", () => {
+  it("never exceeds the naive sum", () => {
+    fc.assert(
+      fc.property(fc.array(sessionIntervalArb, { maxLength: 30 }), (intervals) => {
+        const naiveMinutes = intervals.reduce(
+          (total, interval) => total + intervalDurationMinutes(interval),
+          0,
+        );
+        expect(unionIntervalMinutes(intervals)).toBeLessThanOrEqual(naiveMinutes);
+      }),
+    );
+  });
+
+  it("is independent of input order", () => {
+    const orderedIntervalsArb = fc.array(
+      fc.record({ interval: sessionIntervalArb, order: fc.integer() }),
+      { maxLength: 30 },
+    );
+    fc.assert(
+      fc.property(orderedIntervalsArb, (entries) => {
+        const original = entries.map(({ interval }) => interval);
+        const shuffled = [...entries]
+          .sort((left, right) => left.order - right.order)
+          .map(({ interval }) => interval);
+        expect(unionIntervalMinutes(shuffled)).toBe(unionIntervalMinutes(original));
+      }),
+    );
+  });
+
+  it("equals the naive sum for non-overlapping intervals", () => {
+    fc.assert(
+      fc.property(nonOverlappingIntervalsArb, (intervals) => {
+        const naiveMinutes = intervals.reduce(
+          (total, interval) => total + intervalDurationMinutes(interval),
+          0,
+        );
+        expect(unionIntervalMinutes(intervals)).toBe(naiveMinutes);
+      }),
+    );
+  });
+
+  it("equals the outer length for fully nested or identical intervals", () => {
+    fc.assert(
+      fc.property(nestedIntervalsArb, ({ outer, intervals }) => {
+        expect(unionIntervalMinutes(intervals)).toBe(intervalDurationMinutes(outer));
+      }),
+    );
+  });
+
+  it("is idempotent when every interval is duplicated", () => {
+    fc.assert(
+      fc.property(fc.array(sessionIntervalArb, { maxLength: 30 }), (intervals) => {
+        expect(unionIntervalMinutes([...intervals, ...intervals])).toBe(
+          unionIntervalMinutes(intervals),
+        );
+      }),
+    );
   });
 });
 

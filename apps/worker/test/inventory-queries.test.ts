@@ -17,7 +17,7 @@
 // asserting on the full table.
 
 import { env } from "cloudflare:test";
-import { type MilliCentavosPerUnit, toMilliCentavosPerUnit } from "@kokoro/shared";
+import { type MilliCentavosPerUnit, toMilliCentavosPerUnit, type Unit } from "@kokoro/shared";
 import { eq } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -32,7 +32,7 @@ import {
 } from "../src/core/inventory/queries.js";
 import { recordPurchase } from "../src/core/purchasing/index.js";
 import { createDb } from "../src/db/index.js";
-import { financialAccounts, itemStock } from "../src/db/schema.js";
+import { financialAccounts, itemStock, items } from "../src/db/schema.js";
 
 const ACTOR = "OWNER_WEB" as const;
 
@@ -42,11 +42,12 @@ async function seedItem(
   db: TestDb,
   name: string,
   overrides: Partial<{
-    kind: "RAW_MATERIAL" | "SEMI_FINISHED" | "FINISHED";
-    category: "INGREDIENT" | "PACKAGING" | "LABEL" | "BAKERY" | "DAIRY" | "OTHER";
-    unit: "G" | "KG" | "ML" | "L" | "UNIT";
+    kind: "RAW_MATERIAL" | "SEMI_FINISHED" | "FINISHED" | "PACKAGING";
+    category: "INGREDIENT" | "NOT_EATABLE" | "BAKERY" | "DAIRY" | "PASTRY" | "OTHER";
+    unit: Unit;
     salePriceMc: MilliCentavosPerUnit | null;
     minStockQty: number | null;
+    isUnmetered: boolean;
   }> = {},
 ) {
   return createItem(
@@ -58,6 +59,7 @@ async function seedItem(
       unit: overrides.unit ?? "KG",
       salePriceMc: overrides.salePriceMc,
       minStockQty: overrides.minStockQty,
+      isUnmetered: overrides.isUnmetered,
     },
     ACTOR,
   );
@@ -211,6 +213,21 @@ describe("listStock (Doc 04 §4 v_stock, SC-08)", () => {
     expect(stock.some((r) => r.itemId === item.id)).toBe(false);
   });
 
+  it("excludes unmetered items from both plain and negative-only stock listings (C-9)", async () => {
+    const db = createDb(env.DB);
+    const item = await seedItem(db, "Unmetered stock view item", {
+      unit: "L",
+      minStockQty: 0,
+      isUnmetered: true,
+    });
+
+    const { stock } = await listStock(db);
+    expect(stock.some((r) => r.itemId === item.id)).toBe(false);
+
+    const { stock: negativeOnly } = await listStock(db, { negativeOnly: true });
+    expect(negativeOnly.some((r) => r.itemId === item.id)).toBe(false);
+  });
+
   it("filters by kind", async () => {
     const db = createDb(env.DB);
     const raw = await seedItem(db, "Kind filter raw item", { kind: "RAW_MATERIAL" });
@@ -219,6 +236,55 @@ describe("listStock (Doc 04 §4 v_stock, SC-08)", () => {
     const { stock } = await listStock(db, { kind: "FINISHED" });
     expect(stock.some((r) => r.itemId === finished.id)).toBe(true);
     expect(stock.some((r) => r.itemId === raw.id)).toBe(false);
+  });
+
+  it("falls back replacementCostMc to WAC for an item never purchased (C-3c, KOK-103)", async () => {
+    const db = createDb(env.DB);
+    const item = await seedItem(db, "Opening-balance-only stock item");
+    // Mirrors an OPENING_IN count line (BI-01/KOK-084): sets wac_mc directly, leaves
+    // replacement_cost_mc/replacement_cost_updated_at untouched (still 0/null).
+    await db
+      .update(items)
+      .set({ wacMc: toMilliCentavosPerUnit(3_000_000) })
+      .where(eq(items.id, item.id));
+
+    const { stock } = await listStock(db);
+    const row = stock.find((r) => r.itemId === item.id);
+    expect(row?.wacMc).toBe(3_000_000);
+    expect(row?.replacementCostMc).toBe(3_000_000);
+  });
+
+  it("keeps the real replacementCostMc once a purchase exists, even after WAC diverges from it", async () => {
+    const db = createDb(env.DB);
+    const item = await seedItem(db, "Purchased-twice stock item");
+
+    await recordPurchase(
+      db,
+      {
+        accountId: "acc_bank",
+        occurredAt: "2026-07-10T10:00:00.000Z",
+        businessDate: "2026-07-10",
+        lines: [{ itemId: item.id, qty: 1000, lineTotal: 1000 }], // unit cost = 1
+      },
+      ACTOR,
+    );
+    await recordPurchase(
+      db,
+      {
+        accountId: "acc_bank",
+        occurredAt: "2026-07-16T10:00:00.000Z",
+        businessDate: "2026-07-16",
+        lines: [{ itemId: item.id, qty: 1000, lineTotal: 3000 }], // unit cost = 3
+      },
+      ACTOR,
+    );
+
+    const { stock } = await listStock(db);
+    const row = stock.find((r) => r.itemId === item.id);
+    // WAC averages the two purchases (2/unit); replacementCostMc must stay the last purchase
+    // price (3/unit, C-3's "last real purchase"), not fall back to the now-different WAC.
+    expect(row?.wacMc).toBe(2_000_000);
+    expect(row?.replacementCostMc).toBe(3_000_000);
   });
 });
 
@@ -381,6 +447,18 @@ describe("getStockConsistencyMismatches (INV-5 nightly sentinel, KOK-021)", () =
       },
       ACTOR,
     );
+
+    const mismatches = await getStockConsistencyMismatches(db);
+    expect(mismatches.some((m) => m.itemId === item.id)).toBe(false);
+  });
+
+  it("does not flag an unmetered item with no stock movements (C-9)", async () => {
+    const db = createDb(env.DB);
+    const item = await seedItem(db, "Unmetered consistency item", {
+      unit: "L",
+      minStockQty: 0,
+      isUnmetered: true,
+    });
 
     const mismatches = await getStockConsistencyMismatches(db);
     expect(mismatches.some((m) => m.itemId === item.id)).toBe(false);

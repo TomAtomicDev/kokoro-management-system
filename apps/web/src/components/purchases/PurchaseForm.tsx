@@ -55,6 +55,8 @@ export interface PurchaseFormProps {
    * `useReplayConfirmableMutation` (KOK-065 closed the create-path dead end left by KOK-024) so a
    * genuinely backdated purchase â€” new or edited â€” gets the same R-5 confirmation dance. */
   purchase?: PurchaseDto;
+  /** Create mode only: threaded into the create command's `sessionId`; ignored in edit mode. */
+  preselectedSessionId?: string;
 }
 
 interface PurchaseLineValue extends LineEditorLine {
@@ -107,7 +109,13 @@ export function purchaseToFormState(purchase: PurchaseDto): PurchaseFormState {
  * inflation signal, past ordinary rounding/price noise. Judgment call â€” 2 percentage points. */
 const INFLATION_SIGNAL_THRESHOLD = 0.02;
 
-export function PurchaseForm({ open, onOpenChange, accounts, purchase }: PurchaseFormProps) {
+export function PurchaseForm({
+  open,
+  onOpenChange,
+  accounts,
+  purchase,
+  preselectedSessionId,
+}: PurchaseFormProps) {
   const isEditMode = Boolean(purchase);
 
   const [supplierName, setSupplierName] = useState("");
@@ -210,6 +218,7 @@ export function PurchaseForm({ open, onOpenChange, accounts, purchase }: Purchas
     }
 
     const parsed = recordPurchaseCommandSchema.safeParse({
+      sessionId: purchase ? undefined : preselectedSessionId,
       supplierName: supplierName.trim() === "" ? undefined : supplierName.trim(),
       accountId,
       receiptPhotoKey: photoKey ?? undefined,
@@ -256,7 +265,7 @@ export function PurchaseForm({ open, onOpenChange, accounts, purchase }: Purchas
     const lineTotal = parseDecimalToInt(line.amount, 2);
     if (qty === null || qty <= 0 || lineTotal === null) {
       return (
-        <span className="text-subtle-foreground text-xs">{purchasesLabels.unitCostLabel}: â€”</span>
+        <span className="text-subtle-foreground text-xs">{purchasesLabels.unitCostLabel}: —</span>
       );
     }
 

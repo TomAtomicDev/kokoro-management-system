@@ -7,7 +7,7 @@ import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 
 import { createDb } from "../src/db/index.js";
-import { items } from "../src/db/schema.js";
+import { items, priceHistory } from "../src/db/schema.js";
 
 const DEV_PASSWORD = "test-password-123";
 
@@ -72,7 +72,11 @@ describe("GET /api/price-health", () => {
     // milli-centavos-per-WHOLE-unit scale.
     await db
       .update(items)
-      .set({ wacMc: 5_000_000, replacementCostMc: 7_000_000 })
+      .set({
+        wacMc: 5_000_000,
+        replacementCostMc: 7_000_000,
+        replacementCostUpdatedAt: "2026-08-07T00:00:00.000Z",
+      })
       .where(eq(items.id, cake.id));
 
     const rawMaterial = await SELF.fetch("https://example.com/api/items", {
@@ -83,6 +87,7 @@ describe("GET /api/price-health", () => {
         kind: "RAW_MATERIAL",
         category: "INGREDIENT",
         unit: "KG",
+        minStockQty: 0,
       }),
     }).then((r) => r.json() as Promise<{ id: string }>);
 
@@ -92,7 +97,7 @@ describe("GET /api/price-health", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { rows: PriceHealthRow[]; minMarginPct: number };
 
-    expect(body.minMarginPct).toBe(3000); // seeded default (Doc 04 Â§7)
+    expect(body.minMarginPct).toBe(3000); // seeded default (Doc 04 §7)
     expect(body.rows.map((r) => r.itemId)).not.toContain(rawMaterial.id); // FINISHED-only
 
     const row = body.rows.find((r) => r.itemId === cake.id);
@@ -106,6 +111,43 @@ describe("GET /api/price-health", () => {
     expect(row?.lastPriceChangeAt).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 
+  it("uses opening-balance WAC until the first purchase and suppresses an unknown zero cost", async () => {
+    const auth = await login();
+    const db = createDb(env.DB);
+    const createFinished = (name: string) =>
+      SELF.fetch("https://example.com/api/items", {
+        method: "POST",
+        headers: authHeaders(auth),
+        body: JSON.stringify({
+          name: `${name} ${crypto.randomUUID()}`,
+          kind: "FINISHED",
+          category: "BAKERY",
+          unit: "UNIT",
+          salePriceMc: 10_000_000,
+        }),
+      }).then((response) => response.json() as Promise<{ id: string }>);
+    const openingBalanceItem = await createFinished("Con saldo inicial");
+    const unknownCostItem = await createFinished("Sin costo conocido");
+    await db
+      .update(items)
+      .set({ wacMc: 5_000_000, replacementCostMc: 0, replacementCostUpdatedAt: null })
+      .where(eq(items.id, openingBalanceItem.id));
+
+    const res = await SELF.fetch("https://example.com/api/price-health", {
+      headers: authHeaders(auth),
+    });
+    const body = (await res.json()) as { rows: PriceHealthRow[] };
+    const openingBalanceRow = body.rows.find((row) => row.itemId === openingBalanceItem.id);
+    expect(openingBalanceRow?.replacementCostMc).toBe(5_000_000);
+    expect(openingBalanceRow?.marginReplacement).toEqual({ amount: 5000, pctBasisPoints: 5000 });
+    expect(openingBalanceRow?.priceSuggested).toBe(7143);
+
+    const unknownCostRow = body.rows.find((row) => row.itemId === unknownCostItem.id);
+    expect(unknownCostRow?.replacementCostMc).toBe(0);
+    expect(unknownCostRow?.marginReplacement).toBeNull();
+    expect(unknownCostRow?.priceSuggested).toBeNull();
+  });
+
   it("omits FINISHED items with no sale price from margin comparisons but still lists them", async () => {
     const auth = await login();
 
@@ -117,8 +159,15 @@ describe("GET /api/price-health", () => {
         kind: "FINISHED",
         category: "BAKERY",
         unit: "UNIT",
+        salePriceMc: 0,
       }),
     }).then((r) => r.json() as Promise<{ id: string }>);
+
+    // Simulate a legacy row that predates KOK-096; existing rows are unaffected by the write
+    // validation, while new API creates must still provide a finished-item sale price.
+    const db = createDb(env.DB);
+    await db.update(items).set({ salePriceMc: null }).where(eq(items.id, unpriced.id));
+    await db.delete(priceHistory).where(eq(priceHistory.itemId, unpriced.id));
 
     const res = await SELF.fetch("https://example.com/api/price-health", {
       headers: authHeaders(auth),

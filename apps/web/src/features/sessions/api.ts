@@ -9,6 +9,8 @@
 // manual refresh.
 
 import type {
+  CloseAndStartSessionCommand,
+  CloseAndStartSessionResult,
   DeleteSessionCommand,
   DeleteSessionResult,
   GetSessionResult,
@@ -76,6 +78,22 @@ export function useRecordSession() {
     mutationFn: (command: RecordSessionCommand) =>
       api.post<RecordSessionResult>("/sessions", command),
     onSuccess: invalidate,
+  });
+}
+
+export function useCloseAndStartSession() {
+  const invalidate = useInvalidateSessions();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (command: CloseAndStartSessionCommand) =>
+      api.post<CloseAndStartSessionResult>("/sessions/close-and-start", command),
+    onSuccess: () => {
+      invalidate();
+      // Mirrors useUpdateSession: closing a PRODUCTION session here can trigger the same
+      // KOK-028 server-side production-run cost rewrite as any other close, so invalidate
+      // production-runs too. See useUpdateSession's comment in this same file for why.
+      queryClient.invalidateQueries({ queryKey: ["production-runs"] });
+    },
   });
 }
 

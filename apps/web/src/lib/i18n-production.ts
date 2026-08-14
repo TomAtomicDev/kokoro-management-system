@@ -9,6 +9,7 @@ export const productionLabels = {
   title: "Producción",
   subtitle: "Registra tandas de producción, su consumo de insumos y el costo resultante.",
   actionRecord: "Nueva producción",
+  actionRecordAssembly: "Registrar armado",
   /** Secondary link kept on this screen — Recetas has no other nav entry (Doc 06 §2 lists only one
    * top-level "Producción" item). */
   goToRecipes: "Ver recetas",
@@ -33,7 +34,9 @@ export const productionLabels = {
   fieldBatches: "Tandas",
   fieldDate: "Fecha",
   fieldActualOutputQty: "Salida real",
-  fieldIndirectCost: "Costo indirecto (Bs)",
+  fieldIndirectCost: "Costo indirecto estimado (Bs)",
+  tooltipIndirectCost:
+    "Es un costo estimado: no genera ningún movimiento financiero y se usa únicamente para calcular el costo del producto.",
   fieldNotes: "Notas",
   notesPlaceholder: "Opcional",
 
@@ -43,6 +46,8 @@ export const productionLabels = {
   addLine: "Agregar insumo",
   removeLine: "Quitar insumo",
   lineContribution: "Aporte al costo",
+  lineStockSufficient: "Stock suficiente",
+  lineStockInsufficient: "Stock insuficiente",
   unitCostLabel: "Costo unitario",
 
   save: "Guardar",
@@ -52,7 +57,7 @@ export const productionLabels = {
   costPanelTitle: "Costo de la producción",
   costDirectLabel: "Costo directo",
   costDirectFormula: "Σ(cantidad consumida × costo promedio ponderado del insumo)",
-  costIndirectLabel: "Costo indirecto",
+  costIndirectLabel: "Costo indirecto estimado",
   costTotalLabel: "Costo total",
   costTotalFormula: "costo directo + costo indirecto",
   costUnitLabel: "Costo unitario",
@@ -73,11 +78,10 @@ export const productionLabels = {
 
   /** Abbreviation for the "/ kg" style suffix — mirrors purchasesLabels.unitAbbrev. */
   unitAbbrev: {
-    G: "g",
     KG: "kg",
-    ML: "ml",
-    L: "l",
+    L: "L",
     UNIT: "u",
+    M: "m",
   } satisfies Record<Unit, string>,
 
   errors: {
@@ -99,6 +103,9 @@ export const productionLabels = {
 
   /** ImpactConfirmDialog copy — only shown when the server refuses with
    * REPLAY_CONFIRMATION_REQUIRED (a backdated edit/delete that moves already-booked cost). */
+  impactCreateTitle: "¿Registrar la producción?",
+  impactCreateDescription:
+    "Esta sesión ya está cerrada. Registrar esta producción redistribuye el costo compartido entre las producciones existentes y puede cambiar costos ya calculados. Revisa el impacto y confirma para guardarla.",
   impactEditTitle: "¿Guardar los cambios?",
   impactEditDescription:
     "Esta producción tiene una fecha anterior a movimientos ya registrados de sus insumos o su ítem de salida. Guardar los cambios recalculará el costo de esos movimientos.",

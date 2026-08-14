@@ -71,21 +71,41 @@ light-mode — a near-black fill disappears on a dark canvas. **Resolution: in d
 inverts to a warm parchment/tan fill with espresso text**, preserving the same spirit in the
 opposite direction.
 
+**Revised 2026-08-11** (post-MVP design review — see `docs/system-design-knowledge-base/10-implementation-backlog.md`
+Phase 3.2, KOK-151): the first cut of the dark palette copied light mode's "tiny luminance step"
+philosophy for `--card`/`--border` verbatim, on the assumption that `--shadow-sm` would still
+carry visible separation the way it does in light mode. It doesn't — a shadow tinted with
+`--shadow-color` (the light-mode ink RGB triplet) cast onto an already near-black canvas is
+functionally invisible, so every card, table and StatCard rendered as one undifferentiated dark
+mass. Light mode gets away with a ~1.08:1 background/card luminance ratio precisely *because* the
+ink-tinted shadow reads clearly against a near-white surface; dark mode needed its separation
+budget moved into the surface step and the border instead, since the shadow can no longer do that
+job. Three tokens changed as a result — `--card`/`--popover` lifted from `#261C15` to `#2F251C`
+(background contrast 1.09:1 → 1.21:1), `--border`/`--sidebar-border` raised from `#3A2E24` to
+`#453726` (contrast against `--card` 1.27:1 → 1.45:1), and `--shadow-color` now overrides to true
+black (`0 0 0`) in dark mode instead of inheriting the light-mode ink tint — rather than widen the
+step further and risk the palette reading as a generic gray dark theme instead of Kokoro's own.
+Both changed text/surface pairs were re-verified: `--foreground` on the new `--card` is ~12.1:1
+(was ~13.5:1) and `--muted-foreground` on it is ~5.2:1 (was ~5.8:1) — comfortably inside AA on
+both counts.
+
 | Token | Value | Role |
 |---|---|---|
 | `--background` | `#1C140F` | Canvas |
-| `--card` / `--popover` | `#261C15` | Surfaces |
+| `--card` / `--popover` | `#2F251C` | Surfaces — raised 2026-08-11 for dark-mode elevation (see above) |
 | `--sidebar` | `#201810` | Sidebar |
 | `--primary` | `#E8D9BC` | **Inverted**: warm parchment/tan fill (was near-black in light mode) |
 | `--primary-hover` | `#DFCBA5` | Deeper tan on hover (darkening = "pressed", same convention as light mode) |
 | `--primary-foreground` | `#241A12` | Espresso text on the tan fill |
 | `--foreground` | `#F0E6D2` | Body text |
 | `--muted-foreground` | `#A8967D` | Secondary text |
+| `--border` / `--sidebar-border` | `#453726` | Raised 2026-08-11 — dark mode's primary depth cue since shadow can't carry it (see above) |
 | `--brand` | `#D8B48C` | Lightened for dark-canvas legibility; still reads as "brand", not ink |
 | `--positive` / `-bg` | `#86BD72` / `#23331E` | |
 | `--negative` / `-bg` | `#E38268` / `#3A211B` | |
 | `--warning` / `-bg` | `#D6A852` / `#362A14` | |
 | `--ring` | `#E8D9BC` | Focus ring = tan primary |
+| `--shadow-color` | `0 0 0` | True black override (light mode's ink tint is invisible on a dark canvas) — secondary reinforcement for modals/drawers, not load-bearing the way it is in light mode |
 
 ## Accessibility verification (WCAG 2.1 AA)
 
@@ -96,14 +116,23 @@ carries meaningful content. Full pass, both modes, **except one deliberate excep
   body-text threshold by design** — it is used *exclusively* for placeholder and disabled text,
   which WCAG does not require to meet body-text contrast. It must never be used for meaningful
   content (labels, values, status).
-- Resting borders (`--border`, `--input`) are intentionally soft (~1.2-1.5:1) and are **not** the
-  accessibility guarantee for interactive boundaries — `--ring` (verified ≥15:1 light, ≥14:1 dark)
-  carries that guarantee at focus. This matches how Stripe/Linear-class products treat resting vs.
-  focused input chrome, and preserves the brief's "superficies... que el usuario casi no note el
-  color" requirement without sacrificing keyboard-user accessibility.
+- Resting borders (`--border`, `--input`) are intentionally soft — light mode ~1.2-1.5:1 — and are
+  **not** the accessibility guarantee for interactive boundaries — `--ring` (verified ≥15:1 light,
+  ≥14:1 dark) carries that guarantee at focus. This matches how Stripe/Linear-class products treat
+  resting vs. focused input chrome, and preserves the brief's "superficies... que el usuario casi
+  no note el color" requirement without sacrificing keyboard-user accessibility. Dark mode's
+  `--border` sits a shade higher (~1.45-1.58:1, 2026-08-11) because it is dark mode's *primary*
+  depth cue rather than a secondary one — see the dark-mode elevation note above.
 - Every semantic color (`positive`, `negative`, `warning`) passes 4.5:1 as text **and** in its
   paired `-bg` well, in both modes — required because `MarginBadge`/`StatDelta` render these as
   small (12-13px) text, not large display type.
+- **Focus ring offset (fixed 2026-08-11):** Tailwind registers `--tw-ring-offset-color` via
+  `@property` with `inherits: false`, so its Preflight reset to opaque white on every element could
+  not be overridden by a `:root`-level declaration — every `ring-offset-2` control (buttons,
+  inputs, selects, switches) rendered a stark white 2px halo under the real focus ring once
+  `--background` went dark, directly undermining the ring-carries-focus guarantee this section
+  documents. Fixed with an unlayered `* { --tw-ring-offset-color: var(--background); }` rule in
+  `globals.css`, which outranks Tailwind's `@layer base` reset regardless of specificity.
 
 ## Typography
 
@@ -171,9 +200,19 @@ as a different product bolted onto the dashboard.
 
 - Inter/Cinzel/Montserrat are referenced by name but not yet self-hosted as font assets (existing
   TODO in `globals.css`, carried forward) — browsers currently fall back to the system UI stack.
-- This document and `globals.css` are the code-level source of truth; **Doc 06 §3 (UX/UI
-  Specification) in the KB still shows the old amber-based token table** and needs a follow-up
-  amendment (D-6) to stay consistent with D-1 ("the KB is law"). Recommend doing that reconciliation
-  pass once the first real components (`MoneyText`, `StatCard`, etc.) are built against these
-  tokens, so the KB amendment reflects implementation reality rather than a second round of
-  prediction.
+- ~~Doc 06 §3 still shows the old amber-based token table~~ — **checked 2026-08-11: already
+  reconciled.** Doc 06 §3 summarizes the current two-brown/semantic-triad system correctly and
+  points to this document + `globals.css` as canonical; this line was stale bookkeeping from the
+  2026-07-16 token rewrite and is removed.
+- **No in-app dark-mode toggle exists** (found during the 2026-08-11 review). `globals.css`
+  documents a `.dark` class meant to be "added/removed by a settings switch," and both the
+  `prefers-color-scheme` media query and the `.dark` class are fully wired in code — but no such
+  switch was ever built in Configuración. Dark mode is reachable only via the OS-level preference,
+  which is almost certainly why the elevation and focus-ring bugs fixed in this pass went unnoticed
+  this long: nobody could reach dark mode from inside the app to check it. Tracked as KOK-151 in
+  Phase 3.2.
+- `apps/web/src/lib/chart-theme.ts` (`chartPalette`/`chartChrome`/`chartSemantic`, dark-mode-ready)
+  is fully built but **imported nowhere** — confirmed 2026-08-11 that no chart component exists yet
+  anywhere in `apps/web/src`; Reportes is a literal "próximamente" placeholder. Not a defect, just
+  a flag for whoever builds Reportes/Insights (Phase 5-ish, "Dashboard v2" per `StatCard.tsx`'s own
+  comments): wire into this file rather than re-deriving a chart palette.

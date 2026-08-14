@@ -23,7 +23,9 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { createItem } from "../src/core/catalog/index.js";
 import { createCustomer } from "../src/core/customers/index.js";
+import { recordExit } from "../src/core/inventory/exits.js";
 import {
+  assertOrderLinkable,
   cancelOrder,
   confirmOrder,
   deliverOrder,
@@ -33,6 +35,9 @@ import {
   quoteOrder,
   resolveOrderLine,
   startOrderProduction,
+  undoDeliverOrder,
+  undoMarkOrderReady,
+  undoStartOrderProduction,
 } from "../src/core/orders/index.js";
 import { recordPurchase } from "../src/core/purchasing/index.js";
 import { collectPayment, deleteSale, updateSale } from "../src/core/sales/index.js";
@@ -497,6 +502,18 @@ describe("startOrderProduction / markOrderReady", () => {
     const txs = await txsForOrder(db, orderId);
     expect(txs).toHaveLength(1); // only the deposit
   });
+
+  it("round-trips CONFIRMED <-> IN_PRODUCTION <-> READY", async () => {
+    const db = createDb(env.DB);
+    const { orderId } = await seedOrderInStatus(db, "CONFIRMED");
+
+    await startOrderProduction(db, orderId, ACTOR);
+    expect((await undoStartOrderProduction(db, orderId, ACTOR)).order.status).toBe("CONFIRMED");
+
+    await startOrderProduction(db, orderId, ACTOR);
+    await markOrderReady(db, orderId, ACTOR);
+    expect((await undoMarkOrderReady(db, orderId, ACTOR)).order.status).toBe("IN_PRODUCTION");
+  });
 });
 
 // ============================================================================================
@@ -876,6 +893,155 @@ describe("deliverOrder (UC-07, O-2)", () => {
 });
 
 // ============================================================================================
+// UC-07 undo delivery — O-6
+// ============================================================================================
+
+describe("undoDeliverOrder (UC-07-undo, O-6)", () => {
+  it("returns a same-day delivery to READY and reverses only its sale and balance effects", async () => {
+    const db = createDb(env.DB);
+    const { orderId, itemId, depositAmount } = await seedOrderInStatus(db, "READY");
+    const stockBeforeDelivery = await db.query.itemStock.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.itemId, itemId),
+    });
+    const cashBeforeDelivery = await accountBalance(db, "acc_cash");
+    const [depositTxBefore] = await txsForOrder(db, orderId);
+
+    const delivered = await deliverOrder(
+      db,
+      orderId,
+      {
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        balancePaymentStatus: "PAID",
+        paymentMethod: "CASH",
+        accountId: "acc_cash",
+      },
+      ACTOR,
+    );
+    expect(await accountBalance(db, "acc_cash")).toBe(cashBeforeDelivery + 15_000);
+
+    const result = await undoDeliverOrder(db, orderId, { confirm: false }, ACTOR);
+
+    expect(result.order).toMatchObject({ status: "READY", saleId: null });
+    const saleRow = await db.query.sales.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.id, delivered.sale.id),
+    });
+    expect(saleRow?.deletedAt).toEqual(expect.any(String));
+
+    const movements = await db.query.stockMovements.findMany({
+      where: (t, { and, eq: eqOp }) =>
+        and(eqOp(t.sourceEventType, "sale"), eqOp(t.sourceEventId, delivered.sale.id)),
+    });
+    expect(movements).toHaveLength(0);
+    const stockAfterUndo = await db.query.itemStock.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.itemId, itemId),
+    });
+    expect(stockAfterUndo?.qtyOnHand).toBe(stockBeforeDelivery?.qtyOnHand);
+
+    expect(await accountBalance(db, "acc_cash")).toBe(cashBeforeDelivery);
+    const orderTxsAfter = await txsForOrder(db, orderId);
+    expect(orderTxsAfter).toHaveLength(1);
+    expect(orderTxsAfter[0]).toMatchObject({
+      id: depositTxBefore?.id,
+      category: "ORDER_DEPOSIT",
+      amount: depositAmount,
+      deletedAt: null,
+    });
+    expect(await customerDeposits(db)).toBe(depositAmount);
+  });
+
+  it("refuses after collection with the exact sales guard message and writes nothing", async () => {
+    const db = createDb(env.DB);
+    const { orderId } = await seedOrderInStatus(db, "READY");
+    const { sale } = await deliverOrder(
+      db,
+      orderId,
+      { occurredAt: NOW, businessDate: BUSINESS_DATE, balancePaymentStatus: "ON_CREDIT" },
+      ACTOR,
+    );
+    await collectPayment(
+      db,
+      sale.id,
+      {
+        occurredAt: "2026-07-25T10:00:00.000Z",
+        businessDate: "2026-07-25",
+        paymentMethod: "CASH",
+        accountId: "acc_cash",
+      },
+      ACTOR,
+    );
+    const cashBeforeUndo = await accountBalance(db, "acc_cash");
+    const auditCountBefore = (await db.query.auditLog.findMany()).length;
+
+    await expect(undoDeliverOrder(db, orderId, { confirm: false }, ACTOR)).rejects.toMatchObject({
+      code: "CONFLICT",
+      message_es:
+        "Esta venta ya fue cobrada; no se puede editar ni eliminar. Corrige el cobro por separado.",
+    });
+
+    expect(await getOrder(db, orderId)).toMatchObject({ status: "DELIVERED", saleId: sale.id });
+    const saleAfter = await db.query.sales.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.id, sale.id),
+    });
+    expect(saleAfter).toMatchObject({ paymentStatus: "PAID", deletedAt: null });
+    expect(await accountBalance(db, "acc_cash")).toBe(cashBeforeUndo);
+    expect(await db.query.auditLog.findMany()).toHaveLength(auditCountBefore);
+    const movements = await db.query.stockMovements.findMany({
+      where: (t, { eq: eqOp }) => eqOp(t.sourceEventId, sale.id),
+    });
+    expect(movements).toHaveLength(1);
+  });
+
+  it("requires R-5 confirmation when later movements depend on a backdated delivery", async () => {
+    const db = createDb(env.DB);
+    const { orderId, itemId } = await seedOrderInStatus(db, "READY");
+    await deliverOrder(
+      db,
+      orderId,
+      {
+        occurredAt: "2026-07-20T15:00:00.000Z",
+        businessDate: BUSINESS_DATE,
+        balancePaymentStatus: "ON_CREDIT",
+      },
+      ACTOR,
+    );
+    await recordPurchase(
+      db,
+      {
+        accountId: "acc_bank",
+        occurredAt: "2026-07-21T10:00:00.000Z",
+        businessDate: "2026-07-21",
+        lines: [{ itemId, qty: 1000, lineTotal: 10_000 }],
+      },
+      ACTOR,
+    );
+    const laterExit = await recordExit(
+      db,
+      {
+        itemId,
+        qty: 1000,
+        reason: "WASTE",
+        occurredAt: "2026-07-22T10:00:00.000Z",
+        businessDate: "2026-07-22",
+      },
+      ACTOR,
+    );
+
+    await expect(undoDeliverOrder(db, orderId, { confirm: false }, ACTOR)).rejects.toMatchObject({
+      code: "CONFLICT",
+      details: {
+        reason: "REPLAY_CONFIRMATION_REQUIRED",
+        impact: { affectedStockExitIds: [laterExit.exit.id] },
+      },
+    });
+    expect((await getOrder(db, orderId)).status).toBe("DELIVERED");
+
+    const result = await undoDeliverOrder(db, orderId, { confirm: true }, ACTOR);
+    expect(result.order).toMatchObject({ status: "READY", saleId: null });
+  });
+});
+
+// ============================================================================================
 // UC-08 cancel — O-3
 // ============================================================================================
 
@@ -1156,7 +1322,16 @@ const STATUSES: CustomOrderStatus[] = [
   "DELIVERED",
   "CANCELLED",
 ];
-const TRANSITIONS = ["confirm", "start", "ready", "deliver", "cancel"] as const;
+const TRANSITIONS = [
+  "confirm",
+  "start",
+  "ready",
+  "deliver",
+  "cancel",
+  "undoStart",
+  "undoReady",
+  "undoDeliver",
+] as const;
 type TransitionName = (typeof TRANSITIONS)[number];
 
 /** Doc 03 §5's diagram, transcribed. The service's own ALLOWED_FROM must agree with this table. */
@@ -1166,6 +1341,9 @@ const LEGAL: Record<TransitionName, CustomOrderStatus[]> = {
   ready: ["IN_PRODUCTION"],
   deliver: ["READY"],
   cancel: ["QUOTING", "CONFIRMED", "IN_PRODUCTION", "READY"],
+  undoStart: ["IN_PRODUCTION"],
+  undoReady: ["READY"],
+  undoDeliver: ["DELIVERED"],
 };
 
 async function runTransition(db: TestDb, orderId: string, transition: TransitionName) {
@@ -1214,6 +1392,12 @@ async function runTransition(db: TestDb, orderId: string, transition: Transition
         ACTOR,
       );
     }
+    case "undoStart":
+      return undoStartOrderProduction(db, orderId, ACTOR);
+    case "undoReady":
+      return undoMarkOrderReady(db, orderId, ACTOR);
+    case "undoDeliver":
+      return undoDeliverOrder(db, orderId, { confirm: false }, ACTOR);
   }
 }
 
@@ -1296,5 +1480,124 @@ describe("getOrder / listOrders", () => {
     const { orders } = await listOrders(db, { customerId: b.id });
     expect(orders).toHaveLength(1);
     expect(orders[0]?.description).toBe("De B");
+  });
+
+  it("excludes terminal statuses", async () => {
+    const db = createDb(env.DB);
+    await seedOrderInStatus(db, "QUOTING");
+    await seedOrderInStatus(db, "DELIVERED");
+    await seedOrderInStatus(db, "CANCELLED");
+
+    const { orders } = await listOrders(db, {
+      excludeStatuses: ["DELIVERED", "CANCELLED"],
+    });
+
+    expect(orders).toHaveLength(1);
+    expect(orders[0]?.status).toBe("QUOTING");
+  });
+
+  it("filters by creation date instead of delivery date", async () => {
+    const db = createDb(env.DB);
+    const customer = await seedCustomer(db);
+    const first = await quoteOrder(
+      db,
+      {
+        customerId: customer.id,
+        description: "Creado hoy",
+        deliveryDate: "1900-01-01",
+      },
+      ACTOR,
+    );
+    await quoteOrder(
+      db,
+      {
+        customerId: customer.id,
+        description: "También creado hoy",
+        deliveryDate: "2099-12-31",
+      },
+      ACTOR,
+    );
+
+    const creationDate = first.order.createdAt.slice(0, 10);
+    const { orders } = await listOrders(db, {
+      fromDate: creationDate,
+      toDate: creationDate,
+    });
+
+    expect(orders.map((order) => order.description)).toEqual(["Creado hoy", "También creado hoy"]);
+  });
+});
+
+describe("assertOrderLinkable", () => {
+  it.each(["QUOTING", "CONFIRMED", "IN_PRODUCTION", "READY"] as const)(
+    "accepts a %s order",
+    async (status) => {
+      const db = createDb(env.DB);
+      const { orderId } = await seedOrderInStatus(db, status);
+
+      await expect(assertOrderLinkable(db, orderId)).resolves.toBeUndefined();
+    },
+  );
+
+  it.each(["DELIVERED", "CANCELLED"] as const)("rejects a %s order", async (status) => {
+    const db = createDb(env.DB);
+    const { orderId } = await seedOrderInStatus(db, status);
+
+    await expect(assertOrderLinkable(db, orderId)).rejects.toMatchObject({
+      code: "VALIDATION",
+      details: { id: orderId, status },
+    });
+  });
+});
+
+describe("payment method/account pairing (A-12)", () => {
+  it("rejects CASH routed to a BANK account before confirming an order", async () => {
+    const db = createDb(env.DB);
+    const { orderId } = await seedOrderInStatus(db, "QUOTING");
+
+    await expect(
+      confirmOrder(
+        db,
+        orderId,
+        {
+          occurredAt: NOW,
+          businessDate: BUSINESS_DATE,
+          depositAmount: 15_000,
+          paymentMethod: "CASH",
+          accountId: "acc_bank",
+        },
+        ACTOR,
+      ),
+    ).rejects.toMatchObject({
+      code: "VALIDATION",
+      message_es: expect.stringContaining("método de pago"),
+    });
+
+    expect((await getOrder(db, orderId)).status).toBe("QUOTING");
+  });
+
+  it("rejects CASH routed to a BANK account before delivering an order", async () => {
+    const db = createDb(env.DB);
+    const { orderId } = await seedOrderInStatus(db, "READY");
+
+    await expect(
+      deliverOrder(
+        db,
+        orderId,
+        {
+          occurredAt: NOW,
+          businessDate: BUSINESS_DATE,
+          balancePaymentStatus: "PAID",
+          paymentMethod: "CASH",
+          accountId: "acc_bank",
+        },
+        ACTOR,
+      ),
+    ).rejects.toMatchObject({
+      code: "VALIDATION",
+      message_es: expect.stringContaining("método de pago"),
+    });
+
+    expect((await getOrder(db, orderId)).status).toBe("READY");
   });
 });

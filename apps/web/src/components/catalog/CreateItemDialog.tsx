@@ -50,12 +50,12 @@ export function CreateItemDialog({
 
   async function handleCreate() {
     const parsed = parseItemFormValues(values);
-    if (!parsed) {
-      setError(catalogLabels.errors.nameRequired);
+    if (!parsed.ok) {
+      setError(catalogLabels.errors[parsed.code]);
       return;
     }
     try {
-      const created = await createMutation.mutateAsync(parsed);
+      const created = await createMutation.mutateAsync(parsed.value);
       onCreated?.(created);
       onOpenChange(false);
     } catch (err) {

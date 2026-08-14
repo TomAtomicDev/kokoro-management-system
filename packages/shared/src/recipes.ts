@@ -13,13 +13,14 @@
 // KOK-029, and only for the *default* recipe).
 
 import { z } from "zod";
+import { safeText } from "./text.js";
 
 const recipeNameSchema = z
   .string()
   .trim()
   .min(1, "El nombre de la receta es obligatorio.")
-  .max(200);
-const notesSchema = z.string().trim().max(2000).nullable().optional();
+  .pipe(safeText(200));
+const notesSchema = z.string().trim().pipe(safeText(2000)).nullable().optional();
 /** Milli-units of the output item's own stored unit (Doc 04 §2), matching qty.ts. Always positive
  * — a recipe with zero expected yield can't price anything (division by zero). */
 const expectedYieldQtySchema = z

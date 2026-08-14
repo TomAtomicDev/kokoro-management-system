@@ -1,3 +1,10 @@
+import {
+  type ItemKind,
+  listOrdersFiltersSchema,
+  listSalesFiltersSchema,
+  listStockExitsFiltersSchema,
+  listStockFiltersSchema,
+} from "@kokoro/shared";
 import type { QueryClient } from "@tanstack/react-query";
 import {
   createRootRouteWithContext,
@@ -5,10 +12,11 @@ import {
   createRouter,
   redirect,
 } from "@tanstack/react-router";
-
+import { getDefaultDateRange } from "@/components/common/DateRangeFilter";
 import { AppShell } from "@/components/layout/AppShell";
 import { fetchSession, sessionQueryKey } from "@/features/auth/api";
 import { queryClient } from "@/lib/query-client";
+import { AssemblyRecordRoute } from "@/routes/assemblies";
 import { AssistantRoute } from "@/routes/assistant";
 import { FinanceRoute } from "@/routes/finance";
 import { InventoryRoute } from "@/routes/inventory";
@@ -35,6 +43,39 @@ import { SettingsCatalogRoute } from "@/routes/settings-catalog";
 // sidebar/topbar chrome. See Doc 06 §2 for the nav tree this mirrors 1:1.
 interface RouterContext {
   queryClient: QueryClient;
+}
+
+interface SalesSearch {
+  fromDate?: string;
+  toDate?: string;
+  paymentStatus?: "PAID" | "ON_CREDIT";
+}
+
+interface OrdersSearch {
+  fromDate?: string;
+  toDate?: string;
+}
+
+type InventoryTab = "stock" | "salidas" | "conteos";
+
+interface InventorySearch {
+  fromDate?: string;
+  toDate?: string;
+  tab?: InventoryTab;
+  kind?: ItemKind;
+  lowStockOnly?: boolean;
+  negativeOnly?: boolean;
+}
+
+function dateRangeDefaults<T extends { fromDate?: string; toDate?: string }>(
+  parsed: T,
+): T & { fromDate: string; toDate: string } {
+  const defaults = getDefaultDateRange();
+  return {
+    ...parsed,
+    fromDate: parsed.fromDate ?? defaults.fromDate,
+    toDate: parsed.toDate ?? defaults.toDate,
+  };
 }
 
 const rootRoute = createRootRouteWithContext<RouterContext>()({});
@@ -78,12 +119,26 @@ const panelRoute = createRoute({
 const salesRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: "/sales",
+  validateSearch: (search: Record<string, unknown>): SalesSearch => {
+    const parsed = listSalesFiltersSchema.parse(search);
+    const range = dateRangeDefaults(parsed);
+    return {
+      fromDate: range.fromDate,
+      toDate: range.toDate,
+      paymentStatus: parsed.paymentStatus,
+    };
+  },
   component: SalesRoute,
 });
 
 const ordersRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: "/orders",
+  validateSearch: (search: Record<string, unknown>): OrdersSearch => {
+    const parsed = listOrdersFiltersSchema.parse(search);
+    const range = dateRangeDefaults(parsed);
+    return { fromDate: range.fromDate, toDate: range.toDate };
+  },
   component: OrdersRoute,
 });
 
@@ -109,9 +164,34 @@ const productionRecipesRoute = createRoute({
   component: RecipesRoute,
 });
 
+const assemblyRecordRoute = createRoute({
+  getParentRoute: () => authenticatedRoute,
+  path: "/production/assemblies/new",
+  validateSearch: (search: Record<string, unknown>): { sessionId?: string } => ({
+    sessionId: typeof search.sessionId === "string" ? search.sessionId : undefined,
+  }),
+  component: AssemblyRecordRoute,
+});
+
 const inventoryRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: "/inventory",
+  validateSearch: (search: Record<string, unknown>): InventorySearch => {
+    const parsed = listStockExitsFiltersSchema.parse(search);
+    const stockFilters = listStockFiltersSchema.parse(search);
+    const range = dateRangeDefaults(parsed);
+    const tab = search.tab;
+    const validTab: InventoryTab =
+      tab === "salidas" || tab === "conteos" || tab === "stock" ? tab : "stock";
+    return {
+      fromDate: range.fromDate,
+      toDate: range.toDate,
+      tab: validTab,
+      kind: stockFilters.kind,
+      lowStockOnly: stockFilters.lowStockOnly,
+      negativeOnly: stockFilters.negativeOnly,
+    };
+  },
   component: InventoryRoute,
 });
 
@@ -124,8 +204,11 @@ const sessionsRoute = createRoute({
   // mirroring loginRoute's `redirect` search param as the only other precedent for a validated
   // search param in this router. Loosely typed on purpose, same as loginRoute (no zod dependency
   // here, D-10).
-  validateSearch: (search: Record<string, unknown>): { open?: string } => ({
+  validateSearch: (
+    search: Record<string, unknown>,
+  ): { open?: string; view?: "list" | "calendar" } => ({
     open: typeof search.open === "string" ? search.open : undefined,
+    view: search.view === "list" || search.view === "calendar" ? search.view : undefined,
   }),
   component: SessionsRoute,
 });
@@ -191,6 +274,7 @@ const routeTree = rootRoute.addChildren([
     ordersRoute,
     productionRoute,
     productionRecipesRoute,
+    assemblyRecordRoute,
     purchasesRoute,
     inventoryRoute,
     sessionsRoute,

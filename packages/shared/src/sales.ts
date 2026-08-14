@@ -18,8 +18,8 @@
 // caller (core/sales/index.ts is the only place a sale's total is produced).
 
 import { z } from "zod";
-
 import { confirmFlagSchema } from "./costing.js";
+import { businessDateSchema, occurredAtSchema } from "./dates.js";
 import {
   type PaymentMethod,
   type PaymentStatus,
@@ -28,6 +28,7 @@ import {
 } from "./enums.js";
 import type { FinancialAccountDto } from "./finance.js";
 import { type MilliCentavosPerUnit, toMilliCentavosPerUnit } from "./money.js";
+import { safeText } from "./text.js";
 
 /** Milli-units of the item's own stored unit (Doc 04 §2), matching qty.ts's representation. Always
  * positive — a sale line removes stock, and the OUT sign is applied server-side, never sent. */
@@ -43,15 +44,6 @@ const unitPriceMcSchema = z
   .int()
   .nonnegative("El precio unitario debe ser un entero no negativo (milicentavos por unidad).")
   .transform(toMilliCentavosPerUnit);
-/** `YYYY-MM-DD`, America/La_Paz local calendar date (Doc 04 §1, INV-3). */
-const businessDateSchema = z
-  .string()
-  .regex(/^\d{4}-\d{2}-\d{2}$/, "La fecha debe tener el formato AAAA-MM-DD.");
-/** UTC ISO-8601 instant (Doc 04 §1). */
-const occurredAtSchema = z
-  .string()
-  .datetime({ offset: true, message: "occurredAt debe ser una fecha ISO-8601." });
-
 export const saleLineCommandSchema = z.object({
   itemId: z.string().min(1),
   qty: qtySchema,
@@ -67,7 +59,7 @@ export type SaleLineCommand = z.infer<typeof saleLineCommandSchema>;
 const saleCommandCommonFields = {
   customerId: z.string().min(1).optional(),
   sessionId: z.string().min(1).optional(),
-  notes: z.string().trim().max(2000).optional(),
+  notes: z.string().trim().pipe(safeText(2000)).optional(),
   occurredAt: occurredAtSchema,
   businessDate: businessDateSchema,
   lines: z.array(saleLineCommandSchema).min(1, "Se requiere al menos una línea de venta."),

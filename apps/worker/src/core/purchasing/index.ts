@@ -69,6 +69,7 @@ import {
   buildStockMovementStatements,
 } from "../inventory/movements.js";
 import type { StockMovementInput } from "../inventory/types.js";
+import { resolveSessionForEvent } from "../sessions/index.js";
 
 type Statement = BatchItem<"sqlite">;
 type PurchaseRow = typeof purchases.$inferSelect;
@@ -92,7 +93,7 @@ interface ItemPurchaseState {
   /** Unit cost of the LAST line processed so far for this item. Overwritten on every line that
    * touches this item, so after the full pass it holds the last line's value regardless of how
    * many lines (or their position among other items' lines) touched this item ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â C-3: "for
-   * RAW_MATERIAL, replacement_cost_mc = last purchase unit cost. */
+   * RAW_MATERIAL/PACKAGING, replacement_cost_mc = last purchase unit cost. */
   lastUnitCost: MilliCentavosPerUnit;
 }
 
@@ -169,10 +170,16 @@ async function buildPurchaseCreateMovements(db: Db, command: RecordPurchaseComma
   // Defensive re-check (core/ services never trust a caller already ran Zod, D-2) ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â mirrors
   // recordPurchaseCommandSchema's `.min(1)` on `lines`.
   if (command.lines.length === 0) {
-    throw validationError("Se requiere al menos una lÃƒÆ’Ã‚Â­nea de compra.", {});
+    throw validationError("Se requiere al menos una línea de compra.", {});
   }
 
   const account = await findActiveAccountRowOrThrow(db, command.accountId);
+  const resolvedSession = await resolveSessionForEvent(db, {
+    type: "PURCHASE_TRIP",
+    occurredAt: command.occurredAt,
+    businessDate: command.businessDate,
+    explicitSessionId: command.sessionId ?? null,
+  });
 
   // Seed one ItemPurchaseState per DISTINCT item up front (one items query + one item_stock query
   // per distinct itemId, never per line), then thread it through the lines below in order ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â see
@@ -183,7 +190,10 @@ async function buildPurchaseCreateMovements(db: Db, command: RecordPurchaseComma
       where: (t, { eq: eqOp }) => eqOp(t.id, itemId),
     });
     if (!itemRow) {
-      throw notFound("No se encontrÃƒÆ’Ã‚Â³ el ÃƒÆ’Ã‚Â­tem.", { id: itemId });
+      throw notFound("No se encontró el ítem.", { id: itemId });
+    }
+    if (itemRow.isUnmetered === 1) {
+      throw validationError("Este ítem no se compra: es un insumo no medido.", { itemId });
     }
     const stockRow = await db.query.itemStock.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.itemId, itemId),
@@ -234,7 +244,7 @@ async function buildPurchaseCreateMovements(db: Db, command: RecordPurchaseComma
     occurredAt: command.occurredAt,
     businessDate: command.businessDate,
     supplierName: command.supplierName ?? null,
-    sessionId: command.sessionId ?? null,
+    sessionId: resolvedSession.sessionId,
     accountId: command.accountId,
     total,
     receiptPhotoKey: command.receiptPhotoKey ?? null,
@@ -252,7 +262,17 @@ async function buildPurchaseCreateMovements(db: Db, command: RecordPurchaseComma
     lineTotal: line.lineTotal,
   }));
 
-  return { account, itemStates, purchaseId, now, movements, total, purchaseRow, purchaseLineRows };
+  return {
+    account,
+    itemStates,
+    purchaseId,
+    now,
+    movements,
+    total,
+    purchaseRow,
+    purchaseLineRows,
+    sessionStatements: resolvedSession.statements,
+  };
 }
 
 /** UC-01: record a multi-line purchase in one atomic batch (D-3). See this module's header for the
@@ -262,8 +282,9 @@ export async function recordPurchase(
   command: RecordPurchaseCommand,
   actor: AuditActor,
 ): Promise<RecordPurchaseResult> {
+  const built = await buildPurchaseCreateMovements(db, command);
   const { account, itemStates, purchaseId, now, movements, total, purchaseRow, purchaseLineRows } =
-    await buildPurchaseCreateMovements(db, command);
+    built;
 
   // ---- INV-11 / R-2 ordering guard (ADR-016 Ãƒâ€šÃ‚Â§1) --------------------------------------------
   // A purchase is not exempt from the replay just because it is a CREATE: recording today's
@@ -304,11 +325,11 @@ export async function recordPurchase(
   const replayOwnedItemIds = new Set(plan.replayedItemIds);
 
   // C-3, "last by business_date" (Doc 03 Ãƒâ€šÃ‚Â§4): a backdated purchase must not roll a replacement cost
-  // back to an older price. Only RAW_MATERIAL is asked (C-3 restricts the rule to it), and only
+  // back to an older price. Only purchased items (RAW_MATERIAL/PACKAGING) are asked (C-3), and only
   // when the purchase could actually be backdated ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â the same-day path never queries.
   const replacementCostMcSupersededItemIds = new Set<string>();
   for (const [itemId, state] of itemStates) {
-    if (state.kind !== "RAW_MATERIAL") continue;
+    if (state.kind !== "RAW_MATERIAL" && state.kind !== "PACKAGING") continue;
     if (await hasLaterDatedPurchaseForItem(db, itemId, command.businessDate)) {
       replacementCostMcSupersededItemIds.add(itemId);
     }
@@ -317,7 +338,7 @@ export async function recordPurchase(
   // At most ONE `items` UPDATE per distinct item touched (D-3, and the invariant the "threads WAC
   // across two lines" test pins), carrying whichever of the two columns this service still owns:
   //   - `wac`: its FINAL threaded C-1 value, UNLESS the replay owns this item (above).
-  //   - `replacement_cost`: RAW_MATERIAL only, unless a later-dated purchase already supersedes it.
+  //   - `replacement_cost`: RAW_MATERIAL/PACKAGING, unless a later-dated purchase already supersedes it.
   // An item where the replay owns the WAC and C-3 is superseded needs no statement at all.
   const itemUpdateStatements: Statement[] = [];
   for (const [itemId, state] of itemStates) {
@@ -325,7 +346,10 @@ export async function recordPurchase(
     if (!replayOwnedItemIds.has(itemId)) {
       values.wacMc = state.wacMc;
     }
-    if (state.kind === "RAW_MATERIAL" && !replacementCostMcSupersededItemIds.has(itemId)) {
+    if (
+      (state.kind === "RAW_MATERIAL" || state.kind === "PACKAGING") &&
+      !replacementCostMcSupersededItemIds.has(itemId)
+    ) {
       values.replacementCostMc = state.lastUnitCost;
       values.replacementCostUpdatedAt = now;
     }
@@ -366,6 +390,7 @@ export async function recordPurchase(
       : [];
 
   const statements: Statement[] = [
+    ...built.sessionStatements,
     db.insert(purchases).values(purchaseRow),
     ...purchaseLineRows.map((row) => db.insert(purchaseLines).values(row)),
     ...movementStatements,
@@ -623,6 +648,7 @@ const NO_KARDEX_CHANGE_PLAN: CostingReplayPlan = {
     affectedSaleLineIds: [],
     affectedStockExitIds: [],
     affectedProductionRunIds: [],
+    affectedAssemblyIds: [],
     affectedItemIds: [],
     costDelta: 0,
     requiresConfirmation: false,
@@ -646,6 +672,7 @@ interface PurchaseMutationPlan {
   newTransactions: FinancialTransactionInput[];
   confirm: boolean;
   actor: AuditActor;
+  sessionStatements?: readonly Statement[];
 }
 
 /**
@@ -738,7 +765,7 @@ async function commitPurchaseMutation(db: Db, plan: PurchaseMutationPlan): Promi
         ? "Eliminar esta compra cambia costos ya calculados de ventas o salidas registradas. Revisa el impacto y confirma para eliminarla."
         : plan.action === "restore"
           ? "Restaurar esta compra cambia costos ya calculados de ventas o salidas registradas. Revisa el impacto y confirma para restaurarla."
-          : "Esta ediciÃƒÆ’Ã‚Â³n cambia costos ya calculados de ventas o salidas registradas. Revisa el impacto y confirma para guardarla.",
+          : "Esta edición cambia costos ya calculados de ventas o salidas registradas. Revisa el impacto y confirma para guardarla.",
       { reason: REPLAY_CONFIRMATION_REQUIRED, impact: costingPlan.impact },
     );
   }
@@ -782,7 +809,7 @@ async function commitPurchaseMutation(db: Db, plan: PurchaseMutationPlan): Promi
       where: (t, { eq: eqOp }) => eqOp(t.id, itemId),
     });
     if (!itemRow) {
-      throw notFound("No se encontrÃƒÆ’Ã‚Â³ el ÃƒÆ’Ã‚Â­tem.", { id: itemId });
+      throw notFound("No se encontró el ítem.", { id: itemId });
     }
 
     const values: Partial<typeof items.$inferInsert> = {};
@@ -832,6 +859,7 @@ async function commitPurchaseMutation(db: Db, plan: PurchaseMutationPlan): Promi
   }
 
   const statements: Statement[] = [
+    ...(plan.sessionStatements ?? []),
     // The EVENT itself. On delete this carries `deleted_at` (R-3/D-8: the event is soft-deleted;
     // only its DERIVED rows above are hard-replaced, which is the carve-out D-8 names explicitly).
     db
@@ -896,7 +924,7 @@ async function loadPurchaseForMutation(
       andOp(eqOp(t.id, id), isNullOp(t.deletedAt)),
   });
   if (!row) {
-    throw notFound("No se encontrÃƒÆ’Ã‚Â³ la compra.", { id });
+    throw notFound("No se encontró la compra.", { id });
   }
   const lines = await db.query.purchaseLines.findMany({
     where: (t, { eq: eqOp }) => eqOp(t.purchaseId, id),
@@ -933,7 +961,7 @@ async function readAccountDtoOrThrow(db: Db, accountId: string) {
     where: (t, { eq: eqOp }) => eqOp(t.id, accountId),
   });
   if (!row) {
-    throw notFound("No se encontrÃƒÆ’Ã‚Â³ la cuenta.", { accountId });
+    throw notFound("No se encontró la cuenta.", { accountId });
   }
   return toAccountDto(row);
 }
@@ -978,10 +1006,11 @@ async function buildPurchaseUpdateMutationInputs(
   newLines: PurchaseLineRow[];
   newMovements: StockMovementInput[];
   newTransactions: FinancialTransactionInput[];
+  sessionStatements: Statement[];
 }> {
   // Defensive re-check (core/ services never trust a caller already ran Zod, D-2).
   if (command.lines.length === 0) {
-    throw validationError("Se requiere al menos una lÃƒÆ’Ã‚Â­nea de compra.", {});
+    throw validationError("Se requiere al menos una línea de compra.", {});
   }
 
   const { row: existing, lines: existingLines } = await loadPurchaseForMutation(db, id);
@@ -989,6 +1018,12 @@ async function buildPurchaseUpdateMutationInputs(
   // NOT checked: money already left it, and refusing to correct an invoice because the account it
   // was booked against has since been archived would strand the error permanently.
   await findActiveAccountRowOrThrow(db, command.accountId);
+  const resolvedSession = await resolveSessionForEvent(db, {
+    type: "PURCHASE_TRIP",
+    occurredAt: command.occurredAt,
+    businessDate: command.businessDate,
+    explicitSessionId: command.sessionId ?? null,
+  });
 
   const now = nowIso();
   const total = addMoney(...command.lines.map((l) => toCentavos(l.lineTotal)));
@@ -998,7 +1033,7 @@ async function buildPurchaseUpdateMutationInputs(
     occurredAt: command.occurredAt,
     businessDate: command.businessDate,
     supplierName: command.supplierName ?? null,
-    sessionId: command.sessionId ?? null,
+    sessionId: resolvedSession.sessionId,
     accountId: command.accountId,
     total,
     receiptPhotoKey: command.receiptPhotoKey ?? null,
@@ -1029,6 +1064,7 @@ async function buildPurchaseUpdateMutationInputs(
     newLines,
     newMovements,
     newTransactions: buildPurchaseTransactionInputs(newRow),
+    sessionStatements: resolvedSession.statements,
   };
 }
 
@@ -1060,8 +1096,15 @@ export async function updatePurchase(
   command: UpdatePurchaseCommand,
   actor: AuditActor,
 ): Promise<UpdatePurchaseResult> {
-  const { existing, existingLines, newRow, newLines, newMovements, newTransactions } =
-    await buildPurchaseUpdateMutationInputs(db, id, command);
+  const {
+    existing,
+    existingLines,
+    newRow,
+    newLines,
+    newMovements,
+    newTransactions,
+    sessionStatements,
+  } = await buildPurchaseUpdateMutationInputs(db, id, command);
 
   await commitPurchaseMutation(db, {
     action: "update",
@@ -1071,6 +1114,7 @@ export async function updatePurchase(
     newLines,
     newMovements,
     newTransactions,
+    sessionStatements,
     confirm: command.confirm === true,
     actor,
   });
@@ -1134,7 +1178,7 @@ async function loadPurchaseForRestore(
       andOp(eqOp(t.id, id), isNotNull(t.deletedAt)),
   });
   if (!row) {
-    throw notFound("No se encontrÃƒÆ’Ã‚Â³ la compra eliminada.", { id });
+    throw notFound("No se encontró la compra eliminada.", { id });
   }
   const lines = await db.query.purchaseLines.findMany({
     where: (t, { eq: eqOp }) => eqOp(t.purchaseId, id),
@@ -1204,7 +1248,7 @@ export async function getPurchase(db: Db, id: string): Promise<PurchaseDto> {
     where: (t, { and, eq: eqOp, isNull }) => and(eqOp(t.id, id), isNull(t.deletedAt)),
   });
   if (!row) {
-    throw notFound("No se encontrÃƒÆ’Ã‚Â³ la compra.", { id });
+    throw notFound("No se encontró la compra.", { id });
   }
   const lineRows = await db.query.purchaseLines.findMany({
     where: (t, { eq: eqOp }) => eqOp(t.purchaseId, id),

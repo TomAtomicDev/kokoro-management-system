@@ -25,8 +25,8 @@
 // lines, and `deliverOrder` still satisfies that rule — see `allocateAgreedTotalToOrderLines`).
 
 import { z } from "zod";
-
 import { confirmFlagSchema } from "./costing.js";
+import { businessDateSchema, occurredAtSchema } from "./dates.js";
 import {
   type CancelResolution,
   type CustomOrderStatus,
@@ -45,15 +45,8 @@ import {
 } from "./money.js";
 import { toMilliUnits } from "./qty.js";
 import type { SaleDto } from "./sales.js";
+import { safeText } from "./text.js";
 
-/** `YYYY-MM-DD`, America/La_Paz local calendar date (Doc 04 §1, INV-3). */
-const businessDateSchema = z
-  .string()
-  .regex(/^\d{4}-\d{2}-\d{2}$/, "La fecha debe tener el formato AAAA-MM-DD.");
-/** UTC ISO-8601 instant (Doc 04 §1). */
-const occurredAtSchema = z
-  .string()
-  .datetime({ offset: true, message: "occurredAt debe ser una fecha ISO-8601." });
 /** Centavos (INV-6). The price agreed with the customer; required before an order can be CONFIRMED
  * (Doc 04 §3.3's "required to confirm"), hence optional at quote time. Strictly positive: an order
  * worth nothing has no deposit to take and no sale to create. */
@@ -92,7 +85,7 @@ const orderLineQtySchema = z
 export const orderLineCommandSchema = z
   .object({
     itemId: z.string().min(1).nullish(),
-    description: z.string().trim().max(500).nullish(),
+    description: z.string().trim().pipe(safeText(500)).nullish(),
     qty: orderLineQtySchema.default(1000),
     lineTotal: z.number().int().nonnegative().nullish(),
   })
@@ -112,14 +105,14 @@ export type OrderLineCommand = z.input<typeof orderLineCommandSchema>;
  */
 export const quoteOrderCommandSchema = z.object({
   customerId: z.string().min(1),
-  description: z.string().trim().min(1, "La descripción es obligatoria.").max(2000),
+  description: z.string().trim().min(1, "La descripción es obligatoria.").pipe(safeText(2000)),
   agreedTotal: agreedTotalSchema.optional(),
   /** Centavos the owner expects as a deposit. Omitted → derived at confirm time from the
    * `default_deposit_pct` app setting (basis points, Doc 04 §3.5), falling back to 50% (O-1). */
   depositRequired: z.number().int().nonnegative().optional(),
   deliveryDate: businessDateSchema.optional(),
-  deliveryPlace: z.string().trim().max(200).optional(),
-  notes: z.string().trim().max(2000).optional(),
+  deliveryPlace: z.string().trim().pipe(safeText(200)).optional(),
+  notes: z.string().trim().pipe(safeText(2000)).optional(),
   lines: z.array(orderLineCommandSchema).default([]),
 });
 /** `z.input` — `lines` and each line's `qty` carry defaults. */
@@ -153,7 +146,7 @@ const deliverOrderCommonFields = {
   occurredAt: occurredAtSchema,
   businessDate: businessDateSchema,
   /** Free-text note copied onto the created sale. */
-  notes: z.string().trim().max(2000).optional(),
+  notes: z.string().trim().pipe(safeText(2000)).optional(),
   // R-5 / ADR-016: delivering writes SALE_OUT movements, so a BACKDATED delivery re-weights C-1 for
   // every later kardex entry exactly as a backdated sale does (KOK-064). When it would move cost
   // already booked, the service refuses with a ReplayImpactDto until the caller re-sends with
@@ -192,6 +185,13 @@ export const deliverOrderCommandSchema = z.discriminatedUnion("balancePaymentSta
 /** `z.input` — `confirm` carries a `.default()`, same reasoning as `RecordSaleCommand`. */
 export type DeliverOrderCommand = z.input<typeof deliverOrderCommandSchema>;
 
+/** UC-07-undo ("Deshacer entrega", Doc 03 §5 amendment). No fields but `confirm` — R-2/R-5 inherits
+ * in full (a backdated delivery may have re-weighted WAC for later events; undoing it replays the
+ * same way deleting a sale does). */
+export const undoDeliverOrderCommandSchema = z.object({ confirm: confirmFlagSchema });
+/** `z.input` — `confirm` carries a `.default()`, same reasoning as `DeliverOrderCommand`. */
+export type UndoDeliverOrderCommand = z.input<typeof undoDeliverOrderCommandSchema>;
+
 /**
  * UC-08 cancel (O-3). Legal from every non-terminal status. `resolution` is required EXACTLY when
  * the order already holds a deposit (`deposit_paid > 0`) and must be absent otherwise — a quote
@@ -212,7 +212,7 @@ export const cancelOrderCommandSchema = z.object({
   resolution: cancelResolutionSchema.optional(),
   /** Where a REFUND's money comes FROM. Omitted → the account the deposit was received into. */
   accountId: z.string().min(1).optional(),
-  notes: z.string().trim().max(2000).optional(),
+  notes: z.string().trim().pipe(safeText(2000)).optional(),
 });
 export type CancelOrderCommand = z.infer<typeof cancelOrderCommandSchema>;
 
@@ -231,26 +231,32 @@ export const resolveOrderLineCommandSchema = z.object({
 });
 export type ResolveOrderLineCommand = z.infer<typeof resolveOrderLineCommandSchema>;
 
-/**
- * Body of the DRY-RUN impact endpoint (R-5 / ADR-016). Only ONE transition writes kardex movements —
- * `deliver` — so unlike `saleImpactRequestSchema`'s create/update/delete union this carries a single
- * `op`. Kept as an object with a literal `op` (rather than dropping the field) so a future
- * movement-writing transition can widen it into a discriminated union without breaking callers.
- */
-export const orderImpactRequestSchema = z.object({
-  op: z.literal("deliver"),
-  id: z.string().min(1),
-  command: deliverOrderCommandSchema,
-});
+/** Widened for KOK-136 exactly as this schema's own pre-existing comment anticipated ("a future
+ * movement-writing transition can widen it into a discriminated union without breaking callers") —
+ * `undo_deliver` is the only OTHER transition that writes/removes kardex rows. */
+export const orderImpactRequestSchema = z.discriminatedUnion("op", [
+  z.object({ op: z.literal("deliver"), id: z.string().min(1), command: deliverOrderCommandSchema }),
+  z.object({
+    op: z.literal("undo_deliver"),
+    id: z.string().min(1),
+    command: undoDeliverOrderCommandSchema,
+  }),
+]);
 /** `z.input` — the nested command schema carries `confirm`'s default. */
 export type OrderImpactRequest = z.input<typeof orderImpactRequestSchema>;
 
-/** GET /orders query filters. `status` powers SC-04's board columns; results are ordered by
- * `delivery_date` (O-5: "the Orders board sorts by delivery_date"). */
+/** GET /orders query filters. `status` powers SC-04's board columns; date filters use the order's
+ * `created_at` timestamp while results remain ordered by `delivery_date` (O-5). */
 export const listOrdersFiltersSchema = z.object({
   status: customOrderStatusSchema.optional(),
+  /** KOK-137: comma-separated on the wire ("DELIVERED,CANCELLED"), typed as an array for callers.
+   * Lets the order picker exclude terminal statuses without a second endpoint. */
+  excludeStatuses: z
+    .union([z.array(customOrderStatusSchema), z.string()])
+    .transform((v) => (Array.isArray(v) ? v : v.split(",")))
+    .pipe(z.array(customOrderStatusSchema))
+    .optional(),
   customerId: z.string().min(1).optional(),
-  /** Filters on `delivery_date`, not on when the order was created. */
   fromDate: businessDateSchema.optional(),
   toDate: businessDateSchema.optional(),
   limit: z.coerce.number().int().positive().max(500).optional(),

@@ -12,7 +12,7 @@
 //
 // DEPENDENCY ORDER (a KB gap this task closes ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â flagged per CLAUDE.md "put doubt in the PR
 // description" since Doc 03 Ãƒâ€šÃ‚Â§4 states the per-item formula but not the iteration order for nested
-// BOMs). C-3 recomputes an item from its DEFAULT recipe's ingredients' CURRENT replacement_cost,
+// BOMs). C-3/C-3d recomputes an item from its authoritative source's CURRENT component costs,
 // and an ingredient can itself be a SEMI_FINISHED item being refreshed in this very run (a
 // multi-level BOM: raw material -> semi-finished -> finished). Visiting items in dependency order ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â
 // every ingredient refreshed before anything made FROM it ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â lets a nested chain settle fully
@@ -30,7 +30,11 @@ import { items } from "../../db/schema.js";
 import type { RecipeEdge } from "./dependency-graph.js";
 import { topoOrderAffectedItems } from "./dependency-graph.js";
 
-import { computeItemReplacementCost, type ReplacementCostLine } from "./replacement-cost.js";
+import {
+  computeEffectiveReplacementCost,
+  computeItemReplacementCost,
+  type ReplacementCostLine,
+} from "./replacement-cost.js";
 
 type Statement = BatchItem<"sqlite">;
 
@@ -54,9 +58,21 @@ interface DefaultRecipeInfo {
   lines: readonly { itemId: string; qty: number }[];
 }
 
+interface DefaultAssemblyDefinitionInfo {
+  outputQty: number;
+  lines: readonly { itemId: string; qty: number }[];
+}
+
+interface CostSource {
+  kind: "recipe" | "assemblyDefinition";
+  denominatorQty: number;
+  lines: readonly { itemId: string; qty: number }[];
+}
+
 /**
  * Plans (does not execute) the C-3 replacement-cost refresh for every active SEMI_FINISHED/
- * FINISHED item that has an active default recipe. See this module's header for the dependency-
+ * FINISHED item that has an active default recipe or assembly definition. See this module's
+ * dependency-
  * order reasoning and the two call sites that share this planner.
  */
 export async function planReplacementCostRefresh(db: Db): Promise<ReplacementCostRefreshPlan> {
@@ -93,13 +109,55 @@ export async function planReplacementCostRefresh(db: Db): Promise<ReplacementCos
     });
   }
 
-  // Edges point ingredient -> output (the direction cost flows), built ONLY from default-recipe
+  const defaultAssemblyDefinitionRows = await db.query.assemblyDefinitions.findMany({
+    where: (t, { and: andOp, eq: eqOp }) => andOp(eqOp(t.isDefault, 1), eqOp(t.isActive, 1)),
+  });
+  const definitionIds = defaultAssemblyDefinitionRows.map((definition) => definition.id);
+  const definitionLineRows =
+    definitionIds.length > 0
+      ? await db.query.assemblyDefinitionLines.findMany({
+          where: (t, { inArray: inArrayOp }) => inArrayOp(t.definitionId, definitionIds),
+        })
+      : [];
+  const linesByDefinitionId = new Map<string, { itemId: string; qty: number }[]>();
+  for (const line of definitionLineRows) {
+    const lines = linesByDefinitionId.get(line.definitionId) ?? [];
+    lines.push({ itemId: line.itemId, qty: line.qty });
+    linesByDefinitionId.set(line.definitionId, lines);
+  }
+
+  const assemblyDefinitionByOutputItemId = new Map<string, DefaultAssemblyDefinitionInfo>();
+  for (const definition of defaultAssemblyDefinitionRows) {
+    assemblyDefinitionByOutputItemId.set(definition.outputItemId, {
+      outputQty: definition.outputQty,
+      lines: linesByDefinitionId.get(definition.id) ?? [],
+    });
+  }
+
+  const costSourceByOutputItemId = new Map<string, CostSource>();
+  for (const [outputItemId, recipe] of recipeByOutputItemId) {
+    costSourceByOutputItemId.set(outputItemId, {
+      kind: "recipe",
+      denominatorQty: recipe.expectedYieldQty,
+      lines: recipe.lines,
+    });
+  }
+  for (const [outputItemId, definition] of assemblyDefinitionByOutputItemId) {
+    // C-3d: the assembly definition explicitly wins over a recipe for the same output item.
+    costSourceByOutputItemId.set(outputItemId, {
+      kind: "assemblyDefinition",
+      denominatorQty: definition.outputQty,
+      lines: definition.lines,
+    });
+  }
+
+  // Edges point component -> output (the direction cost flows), built ONLY from the winning source
   // lines ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â so every edge target necessarily has an entry in recipeByOutputItemId (it is that very
   // recipe's own output), which is what makes the `recipe` lookup below unreachable-but-defensive
   // rather than a real gap.
   const edges: RecipeEdge[] = [];
-  for (const [outputItemId, recipe] of recipeByOutputItemId) {
-    for (const line of recipe.lines) {
+  for (const [outputItemId, source] of costSourceByOutputItemId) {
+    for (const line of source.lines) {
       edges.push({ ingredientItemId: line.itemId, outputItemId });
     }
   }
@@ -109,7 +167,7 @@ export async function planReplacementCostRefresh(db: Db): Promise<ReplacementCos
   for (const item of allItemRows) {
     if (item.isActive !== 1) continue;
     if (item.kind !== "SEMI_FINISHED" && item.kind !== "FINISHED") continue;
-    if (recipeByOutputItemId.has(item.id)) {
+    if (costSourceByOutputItemId.has(item.id)) {
       seedItemIds.push(item.id);
     } else {
       skippedItemIds.push(item.id);
@@ -119,25 +177,32 @@ export async function planReplacementCostRefresh(db: Db): Promise<ReplacementCos
   const order = topoOrderAffectedItems(edges, seedItemIds);
 
   const liveCost = new Map<string, MilliCentavosPerUnit>(
-    allItemRows.map((row) => [row.id, toMilliCentavosPerUnit(row.replacementCostMc)]),
+    allItemRows.map((row) => [
+      row.id,
+      computeEffectiveReplacementCost(
+        toMilliCentavosPerUnit(row.replacementCostMc),
+        row.replacementCostUpdatedAt,
+        toMilliCentavosPerUnit(row.wacMc),
+      ),
+    ]),
   );
   const statements: Statement[] = [];
   const refreshedItemIds: string[] = [];
   const now = nowIso();
 
   for (const itemId of order) {
-    const recipe = recipeByOutputItemId.get(itemId);
-    if (!recipe) {
+    const source = costSourceByOutputItemId.get(itemId);
+    if (!source) {
       // Unreachable: `order` is seeds plus everything reachable via edges, and every edge target
-      // is by construction a key of recipeByOutputItemId (see the loop that builds `edges` above).
+      // is a key of costSourceByOutputItemId, whether recipe-backed or assembly-backed.
       continue;
     }
 
-    const lines: ReplacementCostLine[] = recipe.lines.map((line) => ({
+    const lines: ReplacementCostLine[] = source.lines.map((line) => ({
       qty: line.qty,
       unitCost: liveCost.get(line.itemId) ?? toMilliCentavosPerUnit(0),
     }));
-    const newReplacementCost = computeItemReplacementCost(lines, recipe.expectedYieldQty);
+    const newReplacementCost = computeItemReplacementCost(lines, source.denominatorQty);
     liveCost.set(itemId, newReplacementCost);
     refreshedItemIds.push(itemId);
 

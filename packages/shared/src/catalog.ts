@@ -2,18 +2,21 @@
 // API route, the web forms, and any future AI draft tool for items/aliases all import these same
 // schemas ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â never redeclare field validation elsewhere.
 //
-// wac / replacementCostMc / replacementCostUpdatedAt are deliberately absent from every command
-// schema below: they are system-derived (Doc 03 C-1/C-3) and are never user-settable.
+// wac / replacementCostUpdatedAt are absent from every command schema below: they are
+// system-derived (Doc 03 C-1/C-3) and never user-settable. replacementCostMc is the one
+// exception (Doc 03 C-9): owner-editable, but only for an isUnmetered RAW_MATERIAL item, since
+// that's the only case where C-3's purchase-driven cost never runs.
 
 import { z } from "zod";
 
 import type { ItemCategory, ItemKind, Unit } from "./enums.js";
 import { itemCategorySchema, itemKindSchema, unitSchema } from "./enums.js";
 import { type MilliCentavosPerUnit, toMilliCentavosPerUnit } from "./money.js";
+import { safeText } from "./text.js";
 
-const itemNameSchema = z.string().trim().min(1, "El nombre es obligatorio.").max(200);
-const aliasSchema = z.string().trim().min(1, "El alias no puede estar vacÃƒÆ’Ã‚Â­o.").max(200);
-const notesSchema = z.string().trim().max(2000).nullable().optional();
+const itemNameSchema = z.string().trim().min(1, "El nombre es obligatorio.").pipe(safeText(200));
+const aliasSchema = z.string().trim().min(1, "El alias no puede estar vacío.").pipe(safeText(200));
+const notesSchema = z.string().trim().pipe(safeText(2000)).nullable().optional();
 /** Centavos, matching money.ts's Centavos representation (INV-6). */
 const salePriceMcSchema = z
   .number()
@@ -24,28 +27,121 @@ const salePriceMcSchema = z
   .optional();
 /** Milli-units, matching qty.ts's representation (INV-6). */
 const minStockQtySchema = z.number().int().nonnegative().nullable().optional();
+/** RAW_MATERIAL-only (Doc 03 C-9, KOK-1xx): exempts the item from purchases/exits/kardex. */
+const isUnmeteredSchema = z.boolean().optional();
+/** Centavos, matching money.ts's Centavos representation (INV-6). Owner-editable only when
+ * isUnmetered=true (Doc 03 C-9) — every other kind/flag combination keeps this system-derived. */
+const replacementCostMcSchema = z
+  .number()
+  .int()
+  .nonnegative()
+  .transform(toMilliCentavosPerUnit)
+  .nullable()
+  .optional();
 
-export const createItemCommandSchema = z.object({
-  name: itemNameSchema,
-  kind: itemKindSchema,
-  category: itemCategorySchema,
-  unit: unitSchema,
-  salePriceMc: salePriceMcSchema,
-  minStockQty: minStockQtySchema,
-  notes: notesSchema,
-});
+const salePriceRequiredMessage = "El precio de venta es obligatorio para productos finales.";
+const salePriceForbiddenMessage =
+  "El precio de venta no aplica a materias primas, semielaborados ni empaques.";
+const minStockQtyRequiredMessage =
+  "El stock mínimo es obligatorio para materias primas y empaques.";
+const minStockQtyForbiddenMessage =
+  "El stock mínimo no aplica a semielaborados ni productos finales.";
+const isUnmeteredForbiddenMessage = '"No medido" solo aplica a materias primas.';
+const replacementCostMcForbiddenMessage =
+  "El costo de reposición solo es editable para materias primas no medidas.";
+
+function addKindExclusiveIssues(
+  value: {
+    kind?: ItemKind;
+    salePriceMc?: MilliCentavosPerUnit | null;
+    minStockQty?: number | null;
+    isUnmetered?: boolean;
+    replacementCostMc?: MilliCentavosPerUnit | null;
+  },
+  ctx: z.RefinementCtx,
+): void {
+  if (value.kind === undefined) return;
+
+  const hasSalePrice = value.salePriceMc !== undefined && value.salePriceMc !== null;
+  const hasMinStockQty = value.minStockQty !== undefined && value.minStockQty !== null;
+  const stocksLikeRawMaterial = value.kind === "RAW_MATERIAL" || value.kind === "PACKAGING";
+
+  if (value.kind === "FINISHED" && !hasSalePrice) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: salePriceRequiredMessage,
+      path: ["salePriceMc"],
+    });
+  } else if (value.kind !== "FINISHED" && hasSalePrice) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: salePriceForbiddenMessage,
+      path: ["salePriceMc"],
+    });
+  }
+
+  if (stocksLikeRawMaterial && !hasMinStockQty) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: minStockQtyRequiredMessage,
+      path: ["minStockQty"],
+    });
+  } else if (!stocksLikeRawMaterial && hasMinStockQty) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: minStockQtyForbiddenMessage,
+      path: ["minStockQty"],
+    });
+  }
+
+  if (value.kind !== "RAW_MATERIAL" && value.isUnmetered) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: isUnmeteredForbiddenMessage,
+      path: ["isUnmetered"],
+    });
+  }
+
+  const hasReplacementCostMc =
+    value.replacementCostMc !== undefined && value.replacementCostMc !== null;
+  if (hasReplacementCostMc && !(value.kind === "RAW_MATERIAL" && value.isUnmetered)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: replacementCostMcForbiddenMessage,
+      path: ["replacementCostMc"],
+    });
+  }
+}
+
+export const createItemCommandSchema = z
+  .object({
+    name: itemNameSchema,
+    kind: itemKindSchema,
+    category: itemCategorySchema,
+    unit: unitSchema,
+    salePriceMc: salePriceMcSchema,
+    minStockQty: minStockQtySchema,
+    isUnmetered: isUnmeteredSchema,
+    replacementCostMc: replacementCostMcSchema,
+    notes: notesSchema,
+  })
+  .superRefine((value, ctx) => addKindExclusiveIssues(value, ctx));
 export type CreateItemCommand = z.infer<typeof createItemCommandSchema>;
 
-export const updateItemCommandSchema = z.object({
-  id: z.string().min(1),
-  name: itemNameSchema.optional(),
-  kind: itemKindSchema.optional(),
-  category: itemCategorySchema.optional(),
-  unit: unitSchema.optional(),
-  salePriceMc: salePriceMcSchema,
-  minStockQty: minStockQtySchema,
-  notes: notesSchema,
-});
+export const updateItemCommandSchema = z
+  .object({
+    id: z.string().min(1),
+    name: itemNameSchema.optional(),
+    kind: itemKindSchema.optional(),
+    category: itemCategorySchema.optional(),
+    unit: unitSchema.optional(),
+    salePriceMc: salePriceMcSchema,
+    minStockQty: minStockQtySchema,
+    isUnmetered: isUnmeteredSchema,
+    replacementCostMc: replacementCostMcSchema,
+    notes: notesSchema,
+  })
+  .superRefine((value, ctx) => addKindExclusiveIssues(value, ctx));
 export type UpdateItemCommand = z.infer<typeof updateItemCommandSchema>;
 
 export const setItemActiveCommandSchema = z.object({
@@ -72,7 +168,7 @@ export const mergeItemsCommandSchema = z
     targetItemId: z.string().min(1),
   })
   .refine((v) => v.sourceItemId !== v.targetItemId, {
-    message: "No puedes fusionar un ÃƒÆ’Ã‚Â­tem consigo mismo.",
+    message: "No puedes fusionar un ítem consigo mismo.",
     path: ["targetItemId"],
   });
 export type MergeItemsCommand = z.infer<typeof mergeItemsCommandSchema>;
@@ -89,7 +185,7 @@ export const listItemsFiltersSchema = z.object({
     .enum(["true", "false"])
     .optional()
     .transform((v) => (v === undefined ? undefined : v === "true")),
-  search: z.string().trim().min(1).optional(),
+  search: z.string().trim().min(1).pipe(safeText(200)).optional(),
 });
 export type ListItemsFilters = z.infer<typeof listItemsFiltersSchema>;
 
@@ -112,6 +208,7 @@ export interface ItemDto {
   replacementCostUpdatedAt: string | null;
   salePriceMc: MilliCentavosPerUnit | null;
   minStockQty: number | null;
+  isUnmetered: boolean;
   isActive: boolean;
   notes: string | null;
   createdAt: string;

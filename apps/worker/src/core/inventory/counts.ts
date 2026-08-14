@@ -35,16 +35,16 @@ import type {
   UpdateCountLineCommand,
   UpdateCountLineResult,
 } from "@kokoro/shared";
-import { generateUuidV7, nowIso, toBusinessDate } from "@kokoro/shared";
-import { eq } from "drizzle-orm";
+import { generateUuidV7, nowIso, toBusinessDate, toMilliCentavosPerUnit } from "@kokoro/shared";
+import { eq, inArray } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 
 import type { Db } from "../../db/index.js";
-import { inventoryCountLines, inventoryCounts } from "../../db/schema.js";
+import { inventoryCountLines, inventoryCounts, items, stockMovements } from "../../db/schema.js";
 import { buildAuditLogInsert } from "../audit.js";
 import { listItems } from "../catalog/items.js";
 import { getCurrentWac } from "../costing/repair.js";
-import { snapshotUnitCost } from "../costing/wac.js";
+import { applyWacEntry, snapshotUnitCost } from "../costing/wac.js";
 import { conflict, notFound, validationError } from "../errors.js";
 import { buildStockMovementStatements } from "./movements.js";
 import type { StockMovementInput } from "./types.js";
@@ -53,18 +53,35 @@ type Statement = BatchItem<"sqlite">;
 type InventoryCountRow = typeof inventoryCounts.$inferSelect;
 type InventoryCountLineRow = typeof inventoryCountLines.$inferSelect;
 
-function toLineDto(row: InventoryCountLineRow): InventoryCountLineDto {
+function toLineDto(
+  row: InventoryCountLineRow,
+  priorMovementItemIds: ReadonlySet<string>,
+): InventoryCountLineDto {
   return {
     id: row.id,
     itemId: row.itemId,
     expectedQty: row.expectedQty,
     countedQty: row.countedQty,
+    hasPriorMovements: priorMovementItemIds.has(row.itemId),
   };
+}
+
+async function findItemsWithPriorMovements(
+  db: Db,
+  itemIds: readonly string[],
+): Promise<Set<string>> {
+  if (itemIds.length === 0) return new Set();
+  const rows = await db
+    .select({ itemId: stockMovements.itemId })
+    .from(stockMovements)
+    .where(inArray(stockMovements.itemId, itemIds));
+  return new Set(rows.map((row) => row.itemId));
 }
 
 function toCountDto(
   row: InventoryCountRow,
   lineRows: readonly InventoryCountLineRow[],
+  priorMovementItemIds: ReadonlySet<string>,
 ): InventoryCountDto {
   return {
     id: row.id,
@@ -72,7 +89,7 @@ function toCountDto(
     businessDate: row.businessDate,
     status: row.status,
     notes: row.notes,
-    lines: lineRows.map(toLineDto),
+    lines: lineRows.map((line) => toLineDto(line, priorMovementItemIds)),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -113,11 +130,12 @@ export async function startCount(
   command: StartCountCommand,
   actor: AuditActor,
 ): Promise<StartCountResult> {
-  const { items: resolvedItems } = await listItems(db, {
+  const { items: listedItems } = await listItems(db, {
     kind: command.kind,
     category: command.category,
     isActive: true,
   });
+  const resolvedItems = listedItems.filter((item) => !item.isUnmetered);
   if (resolvedItems.length === 0) {
     throw validationError("No hay ítems activos que coincidan con el alcance del conteo.", {
       kind: command.kind,
@@ -130,6 +148,7 @@ export async function startCount(
     where: (t, { inArray: inArrayOp }) => inArrayOp(t.itemId, itemIds),
   });
   const onHandByItem = new Map(stockRows.map((row) => [row.itemId, row.qtyOnHand]));
+  const priorMovementItemIds = await findItemsWithPriorMovements(db, itemIds);
 
   const countId = generateUuidV7();
   const now = nowIso();
@@ -173,7 +192,7 @@ export async function startCount(
   // empty — same cast technique as core/purchasing/index.ts's recordPurchase, for the same reason.
   await db.batch(statements as [Statement, ...Statement[]]);
 
-  return { count: toCountDto(countRow, lineRows) };
+  return { count: toCountDto(countRow, lineRows, priorMovementItemIds) };
 }
 
 /**
@@ -218,7 +237,8 @@ export async function updateCountLine(
   ];
   await db.batch(statements as [Statement, ...Statement[]]);
 
-  return { line: toLineDto({ ...lineRow, countedQty: command.countedQty }) };
+  const priorMovementItemIds = await findItemsWithPriorMovements(db, [lineRow.itemId]);
+  return { line: toLineDto({ ...lineRow, countedQty: command.countedQty }, priorMovementItemIds) };
 }
 
 /**
@@ -227,9 +247,9 @@ export async function updateCountLine(
  * line.countedQty - line.expectedQty` using the STORED (frozen) `expectedQty` column — never a
  * fresh `item_stock` read. Lines with `delta === 0` produce NO movement (Doc 10: "zero-variance
  * lines produce no movement" — filtered out BEFORE `buildStockMovementStatements`, which rejects a
- * qty=0 movement by design). For each remaining line's item, `getCurrentWac` is read LIVE at commit
- * time (C-6 — this genuinely is live state, unlike `expectedQty`) and snapshotted via
- * `snapshotUnitCost`.
+ * qty=0 movement by design). A positive count on an item with no prior stock movement is an
+ * `OPENING_IN` entry using the caller-supplied cost (C-8); all other variant lines remain ADJUSTs
+ * valued at the live WAC (C-6).
  *
  * The ADJUST movements' `occurredAt`/`businessDate` are the COMMIT's own "when"
  * (`nowIso()`/`toBusinessDate(nowIso())`), NOT the count's original start-time
@@ -254,26 +274,83 @@ export async function commitCount(
   }
 
   const lineRows = await fetchLines(db, command.countId);
+  const countLineIds = new Set(lineRows.map((line) => line.itemId));
+  const suppliedCosts = new Map<string, number | undefined>();
+  for (const suppliedLine of command.lines ?? []) {
+    if (!countLineIds.has(suppliedLine.itemId)) {
+      throw validationError("La línea de costo no pertenece a este conteo.", {
+        countId: command.countId,
+        itemId: suppliedLine.itemId,
+      });
+    }
+    if (suppliedCosts.has(suppliedLine.itemId)) {
+      throw validationError("No se puede repetir un ítem en los costos de apertura.", {
+        itemId: suppliedLine.itemId,
+      });
+    }
+    if (
+      suppliedLine.unitCostMc !== undefined &&
+      (!Number.isSafeInteger(suppliedLine.unitCostMc) || suppliedLine.unitCostMc <= 0)
+    ) {
+      throw validationError(
+        "El costo unitario de apertura debe ser un entero seguro mayor que cero.",
+        { itemId: suppliedLine.itemId, unitCostMc: suppliedLine.unitCostMc },
+      );
+    }
+    suppliedCosts.set(suppliedLine.itemId, suppliedLine.unitCostMc);
+  }
   const variantLines = lineRows
     .map((line) => ({ line, delta: line.countedQty - line.expectedQty }))
     .filter(({ delta }) => delta !== 0);
 
   const now = nowIso();
   const businessDate = toBusinessDate(now);
+  const priorMovementItemIds = await findItemsWithPriorMovements(
+    db,
+    lineRows.map((line) => line.itemId),
+  );
 
   const movements: StockMovementInput[] = [];
   const adjustments: CountAdjustmentDto[] = [];
+  const openingItemIds = new Set<string>();
+  const openingWacByItem = new Map<string, number>();
   for (const { line, delta } of variantLines) {
-    // Live at commit time (C-6) — NOT the frozen side of this command, unlike `line.expectedQty`.
-    const currentWac = await getCurrentWac(db, line.itemId);
-    const unitCostSnapshotMc = snapshotUnitCost(currentWac);
+    const suppliedCost = suppliedCosts.get(line.itemId);
+    const isOpening = !priorMovementItemIds.has(line.itemId) && line.countedQty > 0;
+    if (isOpening && suppliedCost === undefined) {
+      throw validationError(
+        "El costo unitario es obligatorio para el stock inicial y debe ser mayor que cero.",
+        { countId: command.countId, itemId: line.itemId },
+      );
+    }
+    if (!isOpening && suppliedCost !== undefined) {
+      throw validationError(
+        "El costo unitario de apertura solo se permite para el primer stock positivo del ítem.",
+        { countId: command.countId, itemId: line.itemId },
+      );
+    }
+
+    const type = isOpening ? "OPENING_IN" : "ADJUST";
+    const unitCostMc = isOpening
+      ? toMilliCentavosPerUnit(suppliedCost as number)
+      : snapshotUnitCost(await getCurrentWac(db, line.itemId));
+    if (isOpening) {
+      openingItemIds.add(line.itemId);
+      // C-8's first-ever movement starts from the zero WAC/zero on-hand state. Keep the
+      // incremental item cache in sync with the new kardex entry in this same command batch; R-2
+      // later derives the same value from the persisted OPENING_IN row without a special case.
+      openingWacByItem.set(
+        line.itemId,
+        applyWacEntry(toMilliCentavosPerUnit(0), 0, delta, unitCostMc),
+      );
+    }
     movements.push({
       itemId: line.itemId,
       occurredAt: now,
       businessDate,
-      type: "ADJUST",
+      type,
       qty: delta,
-      unitCostMc: unitCostSnapshotMc,
+      unitCostMc,
       sourceEventType: "inventory_count",
       sourceEventId: countRow.id,
     });
@@ -286,6 +363,9 @@ export async function commitCount(
       .set({ status: "COMMITTED", updatedAt: now })
       .where(eq(inventoryCounts.id, command.countId)),
   ];
+  for (const [itemId, wacMc] of openingWacByItem) {
+    statements.push(db.update(items).set({ wacMc, updatedAt: now }).where(eq(items.id, itemId)));
+  }
   if (movements.length > 0) {
     const { statements: movementStatements } = buildStockMovementStatements(db, movements);
     statements.push(...movementStatements);
@@ -306,13 +386,22 @@ export async function commitCount(
   await db.batch(statements as [Statement, ...Statement[]]);
 
   const updatedCountRow: InventoryCountRow = { ...countRow, status: "COMMITTED", updatedAt: now };
-  return { count: toCountDto(updatedCountRow, lineRows), adjustments };
+  const updatedPriorMovementItemIds = new Set(priorMovementItemIds);
+  for (const itemId of openingItemIds) updatedPriorMovementItemIds.add(itemId);
+  return {
+    count: toCountDto(updatedCountRow, lineRows, updatedPriorMovementItemIds),
+    adjustments,
+  };
 }
 
 export async function getCount(db: Db, id: string): Promise<InventoryCountDto> {
   const row = await findCountRowOrThrow(db, id);
   const lineRows = await fetchLines(db, id);
-  return toCountDto(row, lineRows);
+  const priorMovementItemIds = await findItemsWithPriorMovements(
+    db,
+    lineRows.map((line) => line.itemId),
+  );
+  return toCountDto(row, lineRows, priorMovementItemIds);
 }
 
 /** Read query for the (later) Counts screen's list — mirrors core/purchasing's listPurchases. */
@@ -346,7 +435,14 @@ export async function listCounts(
     linesByCount.set(line.countId, arr);
   }
 
+  const priorMovementItemIds = await findItemsWithPriorMovements(
+    db,
+    lineRows.map((line) => line.itemId),
+  );
+
   return {
-    counts: rows.map((row) => toCountDto(row, linesByCount.get(row.id) ?? [])),
+    counts: rows.map((row) =>
+      toCountDto(row, linesByCount.get(row.id) ?? [], priorMovementItemIds),
+    ),
   };
 }
