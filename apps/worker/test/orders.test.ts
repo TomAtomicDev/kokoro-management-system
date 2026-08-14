@@ -18,7 +18,6 @@
 import { env } from "cloudflare:test";
 import type { CustomOrderStatus } from "@kokoro/shared";
 import {
-  toBusinessDate,
   toMilliCentavosPerUnit,
   toMilliUnits,
   totalCentavos,
@@ -1508,7 +1507,7 @@ describe("getOrder / listOrders", () => {
       ACTOR,
     );
 
-    const creationDate = toBusinessDate(first.order.createdAt);
+    const creationDate = first.order.createdAt.slice(0, 10);
     const { orders } = await listOrders(db, {
       fromDate: creationDate,
       toDate: creationDate,
