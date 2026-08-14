@@ -35,6 +35,9 @@ export function ProductionRoute() {
           <p className="text-muted-foreground text-sm">{productionLabels.subtitle}</p>
         </div>
         <div className="flex items-center gap-2">
+          <Link to="/production/assemblies/new" className={buttonVariants({ variant: "outline" })}>
+            {productionLabels.actionRecordAssembly}
+          </Link>
           <Link to="/production/recipes" className={buttonVariants({ variant: "outline" })}>
             {productionLabels.goToRecipes}
           </Link>

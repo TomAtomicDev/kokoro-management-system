@@ -33,8 +33,8 @@ export function AppShell() {
             className="hidden md:flex"
           />
 
-          <main className="flex-1 overflow-y-auto">
-            <div className="mx-auto max-w-[var(--layout-content-max-width)] px-[var(--layout-content-gutter)] py-6">
+          <main className="min-h-0 flex-1 overflow-y-auto">
+            <div className="mx-auto h-full max-w-[var(--layout-content-max-width)] px-[var(--layout-content-gutter)] py-6">
               <Outlet />
             </div>
           </main>

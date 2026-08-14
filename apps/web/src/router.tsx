@@ -16,6 +16,7 @@ import { getDefaultDateRange } from "@/components/common/DateRangeFilter";
 import { AppShell } from "@/components/layout/AppShell";
 import { fetchSession, sessionQueryKey } from "@/features/auth/api";
 import { queryClient } from "@/lib/query-client";
+import { AssemblyRecordRoute } from "@/routes/assemblies";
 import { AssistantRoute } from "@/routes/assistant";
 import { FinanceRoute } from "@/routes/finance";
 import { InventoryRoute } from "@/routes/inventory";
@@ -163,6 +164,15 @@ const productionRecipesRoute = createRoute({
   component: RecipesRoute,
 });
 
+const assemblyRecordRoute = createRoute({
+  getParentRoute: () => authenticatedRoute,
+  path: "/production/assemblies/new",
+  validateSearch: (search: Record<string, unknown>): { sessionId?: string } => ({
+    sessionId: typeof search.sessionId === "string" ? search.sessionId : undefined,
+  }),
+  component: AssemblyRecordRoute,
+});
+
 const inventoryRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: "/inventory",
@@ -264,6 +274,7 @@ const routeTree = rootRoute.addChildren([
     ordersRoute,
     productionRoute,
     productionRecipesRoute,
+    assemblyRecordRoute,
     purchasesRoute,
     inventoryRoute,
     sessionsRoute,
