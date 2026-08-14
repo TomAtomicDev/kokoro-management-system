@@ -75,7 +75,9 @@ if (objects.length === 0) {
   const tmpDir = mkdtempSync(join(tmpdir(), "kokoro-d1-reset-"));
   const tmpFile = join(tmpDir, "drop-all.sql");
   writeFileSync(tmpFile, dropSql);
-  console.log(`Dropping ${objects.length} object(s): ${objects.map(({ name }) => name).join(", ")}`);
+  console.log(
+    `Dropping ${objects.length} object(s): ${objects.map(({ name }) => name).join(", ")}`,
+  );
   wrangler(["d1", "execute", dbName, "--remote", "--env", env, `--file=${tmpFile}`]);
   rmSync(tmpDir, { recursive: true, force: true });
 }
