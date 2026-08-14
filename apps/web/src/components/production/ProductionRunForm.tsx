@@ -5,7 +5,7 @@
 // whole point of this preview is to update as the owner types â€” no round-trip needed for a sum of
 // numbers already on the client). Validated with the exact same `recordProductionRunCommandSchema`
 // the API route parses with (D-4). Create mode threads `sessionId` from `preselectedSessionId`;
-// `customOrderId` still has no picker in this form.
+// optional order linkage is captured with the shared OrderPicker.
 
 import type {
   ItemDto,
@@ -34,6 +34,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { CalcTrace, type CalcTraceInput } from "@/components/common/CalcTrace";
 import { LineEditor, type LineEditorLine } from "@/components/line-editor/LineEditor";
+import { OrderPicker } from "@/components/orders/OrderPicker";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { ImpactConfirmDialog } from "@/components/ui/ImpactConfirmDialog";
@@ -48,6 +49,7 @@ import { useReplayConfirmableMutation } from "@/hooks/useReplayConfirmableMutati
 import { ApiError } from "@/lib/api";
 import { formatIntAsDecimalInput, parseDecimalToInt } from "@/lib/decimal";
 import { catalogLabels } from "@/lib/i18n-catalog";
+import { ordersLabels } from "@/lib/i18n-orders";
 import { productionLabels } from "@/lib/i18n-production";
 
 export interface ProductionRunFormProps {
@@ -82,6 +84,7 @@ function emptyLine(): ProductionLineValue {
 
 interface ProductionRunFormState {
   recipeId: string;
+  customOrderId: string | null;
   /** REAL decimal string (e.g. "2.5") â€” `batches` is not milli-scaled (production-runs.ts's
    * `batchesSchema`: `z.number().positive()`, no `.int()`), so `parseBatches` below is used
    * instead of `parseDecimalToInt`. */
@@ -99,6 +102,7 @@ interface ProductionRunFormState {
 export function productionRunToFormState(productionRun: ProductionRunDto): ProductionRunFormState {
   return {
     recipeId: productionRun.recipeId,
+    customOrderId: productionRun.customOrderId,
     batches: String(productionRun.batches),
     actualOutputQty: formatIntAsDecimalInput(productionRun.actualOutputQty, 3),
     indirectCost:
@@ -140,6 +144,7 @@ export function ProductionRunForm({
   const isEditMode = Boolean(productionRun);
 
   const [recipeId, setRecipeId] = useState("");
+  const [customOrderId, setCustomOrderId] = useState<string | null>(null);
   const [batches, setBatches] = useState("1");
   const [actualOutputQty, setActualOutputQty] = useState("");
   const [indirectCost, setIndirectCost] = useState("");
@@ -203,6 +208,7 @@ export function ProductionRunForm({
       if (productionRun) {
         const initial = productionRunToFormState(productionRun);
         setRecipeId(initial.recipeId);
+        setCustomOrderId(initial.customOrderId);
         setBatches(initial.batches);
         setActualOutputQty(initial.actualOutputQty);
         setIndirectCost(initial.indirectCost);
@@ -215,6 +221,7 @@ export function ProductionRunForm({
         dirtyLineKeysRef.current.clear();
       } else {
         setRecipeId("");
+        setCustomOrderId(null);
         setBatches("1");
         setActualOutputQty("");
         setIndirectCost("");
@@ -352,6 +359,7 @@ export function ProductionRunForm({
 
     const parsed = recordProductionRunCommandSchema.safeParse({
       recipeId,
+      customOrderId: customOrderId ?? undefined,
       sessionId: productionRun ? undefined : preselectedSessionId,
       batches: batchesValue,
       actualOutputQty: actualOutputQtyValue,
@@ -536,6 +544,17 @@ export function ProductionRunForm({
                 </option>
               ))}
             </Select>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <label className="font-medium text-foreground" htmlFor="linked-order-picker">
+              {ordersLabels.orderPickerFieldLabel}
+            </label>
+            <OrderPicker
+              value={customOrderId}
+              onChange={(id) => setCustomOrderId(id)}
+              disabled={disabled}
+            />
           </div>
 
           <div className="grid grid-cols-2 gap-3">

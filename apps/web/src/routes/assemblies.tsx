@@ -25,6 +25,7 @@ import { ItemPicker } from "@/components/catalog/ItemPicker";
 import { CalcTrace, type CalcTraceInput } from "@/components/common/CalcTrace";
 import { PinnedSummaryFooter } from "@/components/common/PinnedSummaryFooter";
 import { LineEditor, type LineEditorLine } from "@/components/line-editor/LineEditor";
+import { OrderPicker } from "@/components/orders/OrderPicker";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { ImpactConfirmDialog } from "@/components/ui/ImpactConfirmDialog";
 import { Input } from "@/components/ui/input";
@@ -38,6 +39,7 @@ import { ApiError } from "@/lib/api";
 import { formatIntAsDecimalInput, parseDecimalToInt } from "@/lib/decimal";
 import { assembliesLabels } from "@/lib/i18n-assemblies";
 import { catalogLabels } from "@/lib/i18n-catalog";
+import { ordersLabels } from "@/lib/i18n-orders";
 
 const routeApi = getRouteApi("/_authenticated/production/assemblies/new");
 
@@ -63,6 +65,7 @@ export function AssemblyRecordRoute() {
   const navigate = useNavigate();
 
   const [definitionId, setDefinitionId] = useState("");
+  const [customOrderId, setCustomOrderId] = useState<string | null>(null);
   const [outputItemId, setOutputItemId] = useState<string | null>(null);
   const [plannedOutputQty, setPlannedOutputQty] = useState("");
   const [actualOutputQty, setActualOutputQty] = useState("");
@@ -288,6 +291,7 @@ export function AssemblyRecordRoute() {
 
     const parsed = recordAssemblyCommandSchema.safeParse({
       definitionId: definitionId || undefined,
+      customOrderId: customOrderId ?? undefined,
       sessionId,
       outputItemId,
       plannedOutputQty: plannedOutputQtyValue,
@@ -414,7 +418,16 @@ export function AssemblyRecordRoute() {
               </div>
             </div>
 
-            {/* customOrderId picker: KOK-137 */}
+            <div className="flex flex-col gap-1.5">
+              <label className="font-medium text-foreground" htmlFor="linked-order-picker">
+                {ordersLabels.orderPickerFieldLabel}
+              </label>
+              <OrderPicker
+                value={customOrderId}
+                onChange={(id) => setCustomOrderId(id)}
+                disabled={disabled}
+              />
+            </div>
 
             <div className="flex flex-col gap-1.5">
               <span className="font-medium text-foreground">{assembliesLabels.linesTitle}</span>

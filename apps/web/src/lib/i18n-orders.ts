@@ -63,6 +63,12 @@ export const ordersLabels = {
   lineLineTotal: "Importe de la línea (Bs, opcional)",
   addLine: "Agregar línea",
   removeLine: "Quitar línea",
+  orderPickerPlaceholder: "Buscar pedido…",
+  orderPickerEmpty: "No hay pedidos disponibles.",
+  orderPickerNone: "Quitar pedido vinculado",
+  orderPickerDeletedCustomer: "(cliente eliminado)",
+  orderPickerFieldLabel: "Pedido vinculado (opcional)",
+  confirmReadyNoProduction: "Este pedido no tiene producción vinculada — ¿continuar?",
 
   cancel: "Cancelar",
   submit: "Registrar pedido",
