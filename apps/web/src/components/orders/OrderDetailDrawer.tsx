@@ -25,6 +25,7 @@ import { DetailDrawer } from "@/components/data-table/DetailDrawer";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ImpactConfirmDialog } from "@/components/ui/ImpactConfirmDialog";
+import { useAssemblies } from "@/features/assemblies/api";
 import { useItemsQuery } from "@/features/catalog/api";
 import {
   useMarkOrderReady,
@@ -109,6 +110,7 @@ export function OrderDetailDrawer({ orderId, open, onOpenChange }: OrderDetailDr
   const orderQuery = useOrder(orderId ?? undefined);
   const itemsQuery = useItemsQuery({ isActive: true });
   const runsQuery = useProductionRuns(orderId ? { customOrderId: orderId } : {});
+  const assembliesQuery = useAssemblies(orderId ? { customOrderId: orderId } : {});
 
   const startMutation = useStartOrderProduction(orderId ?? "");
   const readyMutation = useMarkOrderReady(orderId ?? "");
@@ -135,6 +137,7 @@ export function OrderDetailDrawer({ orderId, open, onOpenChange }: OrderDetailDr
   const order: OrderDto | undefined = orderQuery.data;
 
   const runs = runsQuery.data?.productionRuns ?? [];
+  const assemblies = assembliesQuery.data?.assemblies ?? [];
   const linkedCost = runs.reduce((sum, run) => sum + run.totalCost, 0);
   const margin =
     order?.agreedTotal !== null && order?.agreedTotal !== undefined
@@ -208,7 +211,16 @@ export function OrderDetailDrawer({ orderId, open, onOpenChange }: OrderDetailDr
                 <Button
                   type="button"
                   size="sm"
-                  onClick={() => runTransition(readyMutation)}
+                  onClick={() => {
+                    if (
+                      runs.length === 0 &&
+                      assemblies.length === 0 &&
+                      !window.confirm(ordersLabels.confirmReadyNoProduction)
+                    ) {
+                      return;
+                    }
+                    runTransition(readyMutation);
+                  }}
                   disabled={readyMutation.isPending}
                 >
                   {ordersLabels.actionMarkReady}
