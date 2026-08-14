@@ -2,9 +2,10 @@
 // Wipes a REMOTE D1 database (staging only — prod is deliberately not wired up) and re-applies
 // migrations, so the environment starts from an empty schema. Unlike db:reset:dev (which just
 // deletes the local .wrangler/state directory), there is no local file to delete here — D1 has
-// no "drop schema" primitive, so this discovers every user table via sqlite_master, DROPs them
-// (including d1_migrations, so wrangler replays every migration from 0001), then re-runs
-// `wrangler d1 migrations apply`.
+// no "drop schema" primitive, so this discovers every user table and view via sqlite_master,
+// DROPs them (including d1_migrations, so wrangler replays every migration from 0001), then
+// re-runs `wrangler d1 migrations apply`. Views must go too — migration 0001 recreates
+// v_stock/v_kardex/v_price_health etc., and CREATE VIEW fails if a stale one is still there.
 //
 // This is a shared, remote environment — other people's smoke tests or in-progress manual
 // testing can be sitting on it. Requires typing the database name to confirm; there is no --yes
@@ -44,7 +45,7 @@ if (answer.trim() !== dbName) {
   process.exit(1);
 }
 
-console.log("Discovering tables...");
+console.log("Discovering tables and views...");
 const listOutput = wrangler([
   "d1",
   "execute",
@@ -54,18 +55,27 @@ const listOutput = wrangler([
   env,
   "--json",
   "--command",
-  "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'",
+  "SELECT name, type FROM sqlite_master WHERE type IN ('table','view') AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%'",
 ]);
-const [{ results: tables }] = JSON.parse(listOutput);
+const [{ results: objects }] = JSON.parse(listOutput);
 
-if (tables.length === 0) {
-  console.log("No tables found — database is already empty.");
+if (objects.length === 0) {
+  console.log("No tables or views found — database is already empty.");
 } else {
-  const dropSql = tables.map(({ name }) => `DROP TABLE IF EXISTS "${name}";`).join("\n");
+  // Discovery order doesn't respect FK dependency order, so a plain DROP TABLE sequence hits
+  // RESTRICT/cascade children immediately (SQLite enforces those regardless of drop order).
+  // defer_foreign_keys=ON defers checks to commit, by which point every table is gone and no
+  // rows remain to violate anything. Views are dropped with DROP VIEW, not DROP TABLE.
+  const dropSql = [
+    "PRAGMA defer_foreign_keys=ON;",
+    ...objects.map(({ name, type }) =>
+      type === "view" ? `DROP VIEW IF EXISTS "${name}";` : `DROP TABLE IF EXISTS "${name}";`,
+    ),
+  ].join("\n");
   const tmpDir = mkdtempSync(join(tmpdir(), "kokoro-d1-reset-"));
   const tmpFile = join(tmpDir, "drop-all.sql");
   writeFileSync(tmpFile, dropSql);
-  console.log(`Dropping ${tables.length} table(s): ${tables.map(({ name }) => name).join(", ")}`);
+  console.log(`Dropping ${objects.length} object(s): ${objects.map(({ name }) => name).join(", ")}`);
   wrangler(["d1", "execute", dbName, "--remote", "--env", env, `--file=${tmpFile}`]);
   rmSync(tmpDir, { recursive: true, force: true });
 }
