@@ -4,14 +4,15 @@
 // (here rendered live from client-side arithmetic, not gated on a saved server response, since the
 // whole point of this preview is to update as the owner types â€” no round-trip needed for a sum of
 // numbers already on the client). Validated with the exact same `recordProductionRunCommandSchema`
-// the API route parses with (D-4). No session/custom-order picker â€” Sessions (KOK-027) and custom
-// orders (KOK-033) don't exist yet; the schema's optional `sessionId`/`customOrderId` are simply
-// never set from this form, same precedent as PurchaseForm's `sessionId` omission.
+// the API route parses with (D-4). Create mode threads `sessionId` from `preselectedSessionId`;
+// optional order linkage is captured with the shared OrderPicker.
 
 import type {
   ItemDto,
   ProductionRunDto,
   RecipeDto,
+  RecordProductionRunCommand,
+  RecordProductionRunResult,
   UpdateProductionRunCommand,
   UpdateProductionRunResult,
 } from "@kokoro/shared";
@@ -33,6 +34,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { CalcTrace, type CalcTraceInput } from "@/components/common/CalcTrace";
 import { LineEditor, type LineEditorLine } from "@/components/line-editor/LineEditor";
+import { OrderPicker } from "@/components/orders/OrderPicker";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { ImpactConfirmDialog } from "@/components/ui/ImpactConfirmDialog";
@@ -47,6 +49,7 @@ import { useReplayConfirmableMutation } from "@/hooks/useReplayConfirmableMutati
 import { ApiError } from "@/lib/api";
 import { formatIntAsDecimalInput, parseDecimalToInt } from "@/lib/decimal";
 import { catalogLabels } from "@/lib/i18n-catalog";
+import { ordersLabels } from "@/lib/i18n-orders";
 import { productionLabels } from "@/lib/i18n-production";
 
 export interface ProductionRunFormProps {
@@ -56,6 +59,8 @@ export interface ProductionRunFormProps {
    * in `useReplayConfirmableMutation` for the R-5 confirmation dance). Absent -> create mode,
    * submits via `useRecordProductionRun`. */
   productionRun?: ProductionRunDto;
+  /** Create mode only: threaded into the create command's `sessionId`; ignored in edit mode. */
+  preselectedSessionId?: string;
 }
 
 interface ProductionLineValue extends LineEditorLine {
@@ -79,6 +84,7 @@ function emptyLine(): ProductionLineValue {
 
 interface ProductionRunFormState {
   recipeId: string;
+  customOrderId: string | null;
   /** REAL decimal string (e.g. "2.5") â€” `batches` is not milli-scaled (production-runs.ts's
    * `batchesSchema`: `z.number().positive()`, no `.int()`), so `parseBatches` below is used
    * instead of `parseDecimalToInt`. */
@@ -96,6 +102,7 @@ interface ProductionRunFormState {
 export function productionRunToFormState(productionRun: ProductionRunDto): ProductionRunFormState {
   return {
     recipeId: productionRun.recipeId,
+    customOrderId: productionRun.customOrderId,
     batches: String(productionRun.batches),
     actualOutputQty: formatIntAsDecimalInput(productionRun.actualOutputQty, 3),
     indirectCost:
@@ -128,10 +135,16 @@ function quantityForBatches(quantity: number, batches: number): string {
   return formatIntAsDecimalInput(toMilliUnits(Math.round(quantity * batches)), 3);
 }
 
-export function ProductionRunForm({ open, onOpenChange, productionRun }: ProductionRunFormProps) {
+export function ProductionRunForm({
+  open,
+  onOpenChange,
+  productionRun,
+  preselectedSessionId,
+}: ProductionRunFormProps) {
   const isEditMode = Boolean(productionRun);
 
   const [recipeId, setRecipeId] = useState("");
+  const [customOrderId, setCustomOrderId] = useState<string | null>(null);
   const [batches, setBatches] = useState("1");
   const [actualOutputQty, setActualOutputQty] = useState("");
   const [indirectCost, setIndirectCost] = useState("");
@@ -145,6 +158,10 @@ export function ProductionRunForm({ open, onOpenChange, productionRun }: Product
   const dirtyLineKeysRef = useRef(new Set<string>());
 
   const createMutation = useRecordProductionRun();
+  const createReplay = useReplayConfirmableMutation<
+    RecordProductionRunCommand,
+    RecordProductionRunResult
+  >((command) => createMutation.mutateAsync(command), { onSuccess: () => onOpenChange(false) });
   // Called unconditionally (rules of hooks) even in create mode â€” `productionRun?.id` is only ""
   // then, and the mutation is never actually invoked unless `isEditMode` is true (see handleSubmit).
   const updateMutation = useUpdateProductionRun(productionRun?.id ?? "");
@@ -191,6 +208,7 @@ export function ProductionRunForm({ open, onOpenChange, productionRun }: Product
       if (productionRun) {
         const initial = productionRunToFormState(productionRun);
         setRecipeId(initial.recipeId);
+        setCustomOrderId(initial.customOrderId);
         setBatches(initial.batches);
         setActualOutputQty(initial.actualOutputQty);
         setIndirectCost(initial.indirectCost);
@@ -203,6 +221,7 @@ export function ProductionRunForm({ open, onOpenChange, productionRun }: Product
         dirtyLineKeysRef.current.clear();
       } else {
         setRecipeId("");
+        setCustomOrderId(null);
         setBatches("1");
         setActualOutputQty("");
         setIndirectCost("");
@@ -218,7 +237,7 @@ export function ProductionRunForm({ open, onOpenChange, productionRun }: Product
     }
   }, [open, productionRun?.id]);
 
-  const disabled = isEditMode ? editReplay.isPending : createMutation.isPending;
+  const disabled = isEditMode ? editReplay.isPending : createReplay.isPending;
 
   /** Recipe â†’ line prefill (UI convenience default, not a validated number â€” the user edits freely
    * afterward). Automatic values are remembered so a later `batches` edit updates untouched fields
@@ -340,6 +359,8 @@ export function ProductionRunForm({ open, onOpenChange, productionRun }: Product
 
     const parsed = recordProductionRunCommandSchema.safeParse({
       recipeId,
+      customOrderId: customOrderId ?? undefined,
+      sessionId: productionRun ? undefined : preselectedSessionId,
       batches: batchesValue,
       actualOutputQty: actualOutputQtyValue,
       indirectCost: indirectCostValue,
@@ -360,23 +381,24 @@ export function ProductionRunForm({ open, onOpenChange, productionRun }: Product
       return;
     }
 
-    try {
-      await createMutation.mutateAsync(parsed.data);
-      onOpenChange(false);
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : productionLabels.errors.generic);
-    }
+    createReplay.execute(parsed.data);
   }
 
   /** Combines client-side validation errors (`error` state) with a genuine (non-confirmation)
-   * failure surfaced by `editReplay` â€” mirrors PurchaseForm's identical `displayError`. */
+   * failure surfaced by the active replay wrapper â€” mirrors PurchaseForm's `displayError`. */
   const displayError =
     error ??
-    (isEditMode && editReplay.error
+    (isEditMode
       ? editReplay.error instanceof ApiError
         ? editReplay.error.message
-        : productionLabels.errors.generic
-      : null);
+        : editReplay.error
+          ? productionLabels.errors.generic
+          : null
+      : createReplay.error instanceof ApiError
+        ? createReplay.error.message
+        : createReplay.error
+          ? productionLabels.errors.generic
+          : null);
 
   function renderLineExtra(line: ProductionLineValue) {
     const item = line.itemId ? itemsById.get(line.itemId) : undefined;
@@ -522,6 +544,17 @@ export function ProductionRunForm({ open, onOpenChange, productionRun }: Product
                 </option>
               ))}
             </Select>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <label className="font-medium text-foreground" htmlFor="linked-order-picker">
+              {ordersLabels.orderPickerFieldLabel}
+            </label>
+            <OrderPicker
+              value={customOrderId}
+              onChange={(id) => setCustomOrderId(id)}
+              disabled={disabled}
+            />
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -701,6 +734,18 @@ export function ProductionRunForm({ open, onOpenChange, productionRun }: Product
           title={productionLabels.impactEditTitle}
           description={productionLabels.impactEditDescription}
           confirmLabel={productionLabels.save}
+        />
+      ) : null}
+      {!isEditMode && createReplay.pendingConfirmation ? (
+        <ImpactConfirmDialog
+          open
+          impact={createReplay.pendingConfirmation.impact}
+          onConfirm={createReplay.confirm}
+          onCancel={createReplay.cancel}
+          confirmLoading={createReplay.isPending}
+          title={productionLabels.impactCreateTitle}
+          description={productionLabels.impactCreateDescription}
+          confirmLabel={productionLabels.submit}
         />
       ) : null}
     </>

@@ -54,6 +54,8 @@ export const ordersLabels = {
   fieldNotes: "Notas",
   notesPlaceholder: "Opcional",
   linesTitle: "Artículos del pedido",
+  linesHint:
+    "Opcional: puedes dejarlo en blanco o describirlo con texto libre; vincula el ítem del catálogo más tarde, antes de entregar.",
   lineItem: "Ítem (opcional)",
   lineDescription: "Descripción libre",
   lineDescriptionPlaceholder: "Si aún no hay un ítem del catálogo",
@@ -61,6 +63,12 @@ export const ordersLabels = {
   lineLineTotal: "Importe de la línea (Bs, opcional)",
   addLine: "Agregar línea",
   removeLine: "Quitar línea",
+  orderPickerPlaceholder: "Buscar pedido…",
+  orderPickerEmpty: "No hay pedidos disponibles.",
+  orderPickerNone: "Quitar pedido vinculado",
+  orderPickerDeletedCustomer: "(cliente eliminado)",
+  orderPickerFieldLabel: "Pedido vinculado (opcional)",
+  confirmReadyNoProduction: "Este pedido no tiene producción vinculada — ¿continuar?",
 
   cancel: "Cancelar",
   submit: "Registrar pedido",
@@ -95,11 +103,22 @@ export const ordersLabels = {
   actionMarkReady: "Marcar listo",
   actionDeliver: "Entregar",
   actionCancel: "Cancelar pedido",
+  actionUndoStart: "Volver a confirmado",
+  actionUndoReady: "Volver a en producción",
+  actionUndoDeliver: "Deshacer entrega",
+  confirmUndoStart: "¿Volver este pedido a confirmado?",
+  confirmUndoReady: "¿Volver este pedido a en producción?",
+  confirmUndoDeliver:
+    "¿Deshacer la entrega de este pedido? Se eliminará la venta generada y se revertirá el saldo cobrado; el anticipo volverá a contar como pendiente.",
+  impactUndoDeliverTitle: "¿Deshacer esta entrega?",
+  impactUndoDeliverDescription:
+    "Esta entrega tiene movimientos posteriores que dependen de su costo. Deshacerla recalculará esos costos.",
 
   confirmDialogTitle: "Confirmar pedido",
   confirmFieldAgreedTotal: "Total acordado (Bs)",
   confirmFieldDepositAmount: "Anticipo (Bs)",
   confirmFieldPaymentAccount: "Cuenta y método de pago",
+  confirmFieldDate: "Fecha del anticipo",
   confirmSubmit: "Confirmar y cobrar anticipo",
 
   deliverDialogTitle: "Entregar pedido",
@@ -109,6 +128,7 @@ export const ordersLabels = {
   deliverBalancePaid: "Pagado",
   deliverBalanceOnCredit: "Por cobrar",
   deliverFieldPaymentAccount: "Cuenta y método de pago",
+  deliverFieldDate: "Fecha de entrega",
   deliverSubmit: "Confirmar entrega",
   deliverBalanceZero: "El anticipo cubre el total; no queda saldo por cobrar.",
 

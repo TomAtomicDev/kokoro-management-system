@@ -13,6 +13,7 @@
 
 import { z } from "zod";
 import { confirmFlagSchema } from "./costing.js";
+import { businessDateSchema, occurredAtSchema } from "./dates.js";
 import type { FinancialAccountDto } from "./finance.js";
 import { safeText } from "./text.js";
 
@@ -28,15 +29,6 @@ const lineTotalSchema = z
   .number()
   .int()
   .nonnegative("El total de línea debe ser un entero no negativo (centavos).");
-/** `YYYY-MM-DD`, America/La_Paz local calendar date (Doc 04 §1, INV-3). */
-const businessDateSchema = z
-  .string()
-  .regex(/^\d{4}-\d{2}-\d{2}$/, "La fecha debe tener el formato AAAA-MM-DD.");
-/** UTC ISO-8601 instant (Doc 04 §1). */
-const occurredAtSchema = z
-  .string()
-  .datetime({ offset: true, message: "occurredAt debe ser una fecha ISO-8601." });
-
 export const purchaseLineCommandSchema = z.object({
   itemId: z.string().min(1),
   qty: qtySchema,

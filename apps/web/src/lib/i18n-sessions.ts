@@ -31,6 +31,18 @@ export const sessionsLabels = {
     OTHER: "Otro",
   } satisfies Record<SessionType, string>,
 
+  calendar: {
+    activeLabel: "Activa",
+    moreSessions: (count: number) => `+${count} más`,
+    noSessionsWeek: "No hay sesiones esta semana.",
+    viewList: "Lista",
+    viewCalendar: "Semana",
+    today: "Hoy",
+    prevWeek: "Semana anterior",
+    nextWeek: "Semana siguiente",
+    weekRangeLabel: (start: string, end: string) => `${start}–${end}`,
+  },
+
   statusLabels: {
     OPEN: "Abierta",
     CLOSED: "Cerrada",
@@ -84,6 +96,10 @@ export const sessionsLabels = {
   linkedSales: "Ventas",
   linkedStockExits: "Salidas de stock",
   noLinkedEvents: "Sin eventos vinculados.",
+  linkedEvents: {
+    registerProductionRun: "Registrar producción",
+    registerPurchase: "Registrar compra",
+  },
 
   closeAction: "Cerrar sesión",
   closeTitle: "Cerrar sesión",
@@ -111,5 +127,16 @@ export const sessionsLabels = {
     noOpenSession: "Sin sesión abierta",
     multipleOpen: (count: number) => `${count} sesiones abiertas`,
     elapsedUnknown: "en curso",
+    viewDetail: "Ver detalle",
+    stopNow: "Detener sesión ahora",
+  },
+
+  quickStart: {
+    title: "Iniciar sesión",
+    chooseType: "Elige el tipo de sesión a iniciar.",
+    conflictMessage: (typeLabel: string) =>
+      `Ya hay una sesión de ${typeLabel} abierta. ¿Cerrarla ahora e iniciar una nueva?`,
+    confirmCloseAndStart: "Cerrar la anterior e iniciar",
+    cancel: "Cancelar",
   },
 } as const;

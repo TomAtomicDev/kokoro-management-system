@@ -40,6 +40,7 @@ export function ConfirmOrderDialog({ order, open, onOpenChange }: ConfirmOrderDi
 
   const [agreedTotal, setAgreedTotal] = useState("");
   const [depositAmount, setDepositAmount] = useState("");
+  const [businessDate, setBusinessDate] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(
     PAYMENT_METHODS[0] as PaymentMethod,
   );
@@ -54,6 +55,7 @@ export function ConfirmOrderDialog({ order, open, onOpenChange }: ConfirmOrderDi
       setDepositAmount(
         order.depositRequired !== null ? formatIntAsDecimalInput(order.depositRequired, 2) : "",
       );
+      setBusinessDate(toBusinessDate(nowIso()));
       const firstAccount = accounts[0];
       setPaymentMethod(
         firstAccount
@@ -87,7 +89,7 @@ export function ConfirmOrderDialog({ order, open, onOpenChange }: ConfirmOrderDi
 
     const parsed = confirmOrderCommandSchema.safeParse({
       occurredAt: nowIso(),
-      businessDate: toBusinessDate(nowIso()),
+      businessDate,
       agreedTotal: parsedAgreedTotal ?? undefined,
       depositAmount: parsedDeposit,
       paymentMethod,
@@ -147,6 +149,19 @@ export function ConfirmOrderDialog({ order, open, onOpenChange }: ConfirmOrderDi
             placeholder="0.00"
             value={depositAmount}
             onChange={(e) => setDepositAmount(e.target.value)}
+            disabled={disabled}
+          />
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <label className="font-medium text-foreground" htmlFor="co-date">
+            {ordersLabels.confirmFieldDate}
+          </label>
+          <Input
+            id="co-date"
+            type="date"
+            value={businessDate}
+            onChange={(e) => setBusinessDate(e.target.value)}
             disabled={disabled}
           />
         </div>

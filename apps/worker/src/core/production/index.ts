@@ -72,6 +72,7 @@ import type {
   RecordProductionRunCommand,
   RecordProductionRunResult,
   ReplayImpactDto,
+  SessionStatus,
   UpdateProductionRunCommand,
   UpdateProductionRunResult,
 } from "@kokoro/shared";
@@ -104,6 +105,7 @@ import {
   buildStockMovementStatements,
 } from "../inventory/movements.js";
 import type { StockMovementInput } from "../inventory/types.js";
+import { assertOrderLinkable } from "../orders/index.js";
 import { resolveSessionForEvent } from "../sessions/index.js";
 
 type Statement = BatchItem<"sqlite">;
@@ -303,7 +305,9 @@ async function buildProductionRunCreateInputs(
   newOutputWacMc: MilliCentavosPerUnit;
   runRow: ProductionRunRow;
   sessionStatements: Statement[];
+  resolvedSessionStatus: SessionStatus;
 }> {
+  if (command.customOrderId) await assertOrderLinkable(db, command.customOrderId);
   // Defensive re-check (D-2) — mirrors recordProductionRunCommandSchema's `.min(1)` on `lines`.
   if (command.lines.length === 0) {
     throw validationError("Se requiere al menos un insumo consumido.", {});
@@ -413,6 +417,89 @@ async function buildProductionRunCreateInputs(
     newOutputWacMc,
     runRow,
     sessionStatements: resolvedSession.statements,
+    resolvedSessionStatus: resolvedSession.status,
+  };
+}
+
+interface ProductionRunCreateCostingResult {
+  confirmationRequired: boolean;
+  impact: ReplayImpactDto;
+  statements: Statement[];
+  allocation: SessionCostAllocationResult | null;
+  runRow: ProductionRunRow;
+  movements: StockMovementInput[];
+  newOutputWacMc: MilliCentavosPerUnit;
+  /** Needed only by the OPEN branch's existing caller-owned WAC guard. */
+  replayedItemIds: readonly string[];
+}
+
+async function planProductionRunCreateCostingImpact(
+  db: Db,
+  built: Awaited<ReturnType<typeof buildProductionRunCreateInputs>>,
+  actor: AuditActor,
+): Promise<ProductionRunCreateCostingResult> {
+  if (built.resolvedSessionStatus !== "CLOSED") {
+    const plan = await planCostingReplay(db, {
+      trigger: {
+        eventType: "production_run",
+        eventId: built.runId,
+        businessDate: built.runRow.businessDate,
+        occurredAt: built.runRow.occurredAt,
+      },
+      changes: [
+        {
+          sourceEventType: "production_run",
+          sourceEventId: built.runId,
+          newMovements: built.movements,
+        },
+      ],
+      actor,
+    });
+    return {
+      confirmationRequired: plan.confirmationRequired,
+      impact: plan.impact,
+      statements: plan.statements,
+      allocation: null,
+      runRow: built.runRow,
+      movements: built.movements,
+      newOutputWacMc: built.newOutputWacMc,
+      replayedItemIds: plan.replayedItemIds,
+    };
+  }
+
+  const sessionId = built.runRow.sessionId;
+  const costLineRows = await db.query.sessionCosts.findMany({
+    where: (t, { eq: eqOp }) => eqOp(t.sessionId, sessionId),
+  });
+  let totalSharedCost = 0;
+  for (const row of costLineRows) totalSharedCost += row.amount;
+
+  const allocation = await planSessionCostAllocation(
+    db,
+    sessionId,
+    totalSharedCost,
+    built.runRow.businessDate,
+    built.runRow.occurredAt,
+    actor,
+    { run: built.runRow, consumptions: built.consumptionRows },
+  );
+
+  if (!allocation.pendingRunAllocation) {
+    throw new Error(
+      "planSessionCostAllocation did not return pendingRunAllocation for a supplied pendingRun",
+    );
+  }
+  const { allocatedSessionCost, totalCost, movements } = allocation.pendingRunAllocation;
+
+  return {
+    confirmationRequired: allocation.confirmationRequired,
+    impact: allocation.impact,
+    statements: allocation.statements,
+    allocation,
+    runRow: { ...built.runRow, allocatedSessionCost, totalCost },
+    movements,
+    newOutputWacMc: built.newOutputWacMc,
+    replayedItemIds: [],
   };
 }
 
@@ -424,50 +511,36 @@ export async function recordProductionRun(
   actor: AuditActor,
 ): Promise<RecordProductionRunResult> {
   const built = await buildProductionRunCreateInputs(db, command);
-
-  // ---- INV-11 / R-2 ordering guard (ADR-016 §1), identical contract to purchasing's ------------
-  const plan = await planCostingReplay(db, {
-    trigger: {
-      eventType: "production_run",
-      eventId: built.runId,
-      businessDate: command.businessDate,
-      occurredAt: command.occurredAt,
-    },
-    changes: [
-      {
-        sourceEventType: "production_run",
-        sourceEventId: built.runId,
-        newMovements: built.movements,
-      },
-    ],
-    actor,
-  });
+  const created = await planProductionRunCreateCostingImpact(db, built, actor);
 
   // R-5: refuse BEFORE db.batch, carrying the impact for the confirmation dialog.
-  if (plan.confirmationRequired && command.confirm !== true) {
+  if (created.confirmationRequired && command.confirm !== true) {
     throw conflict(
-      "Esta producción tiene fecha anterior a movimientos ya registrados y cambia costos ya calculados. Revisa el impacto y confirma para guardarla.",
-      { reason: REPLAY_CONFIRMATION_REQUIRED, impact: plan.impact },
+      created.allocation
+        ? "Agregar esta producción a la sesión cerrada redistribuye el costo compartido entre las producciones existentes y puede cambiar costos ya calculados. Revisa el impacto y confirma para guardarla."
+        : "Esta producción tiene fecha anterior a movimientos ya registrados y cambia costos ya calculados. Revisa el impacto y confirma para guardarla.",
+      { reason: REPLAY_CONFIRMATION_REQUIRED, impact: created.impact },
     );
   }
 
-  const { statements: movementStatements } = buildStockMovementStatements(db, built.movements);
+  const { statements: movementStatements } = buildStockMovementStatements(db, created.movements);
 
   // Exactly ONE of the plan and this service writes the output item's WAC, never both (same
   // reasoning as purchasing's `replayOwnedItemIds` guard).
-  const replayOwnedItemIds = new Set(plan.replayedItemIds);
-  const itemUpdateStatements: Statement[] = replayOwnedItemIds.has(built.runRow.outputItemId)
-    ? []
-    : [
-        db
-          .update(items)
-          .set({ wacMc: built.newOutputWacMc, updatedAt: built.now })
-          .where(eq(items.id, built.runRow.outputItemId)),
-      ];
+  const replayOwnedItemIds = new Set(created.replayedItemIds);
+  const itemUpdateStatements: Statement[] =
+    created.allocation !== null || replayOwnedItemIds.has(created.runRow.outputItemId)
+      ? []
+      : [
+          db
+            .update(items)
+            .set({ wacMc: created.newOutputWacMc, updatedAt: built.now })
+            .where(eq(items.id, created.runRow.outputItemId)),
+        ];
 
   const statements: Statement[] = [
     ...built.sessionStatements,
-    db.insert(productionRuns).values(built.runRow),
+    db.insert(productionRuns).values(created.runRow),
     ...built.consumptionRows.map((row) => db.insert(productionConsumptions).values(row)),
     ...movementStatements,
     ...itemUpdateStatements,
@@ -477,15 +550,15 @@ export async function recordProductionRun(
       entityType: "production_runs",
       entityId: built.runId,
       before: null,
-      after: { ...built.runRow, lines: built.consumptionRows },
+      after: { ...created.runRow, lines: built.consumptionRows },
     }),
     // R-2: LAST, after movementStatements — see this module's header. Empty on the fast path.
-    ...plan.statements,
+    ...created.statements,
   ];
 
   await db.batch(statements as [Statement, ...Statement[]]);
 
-  return { productionRun: toProductionRunDto(built.runRow, built.consumptionRows) };
+  return { productionRun: toProductionRunDto(created.runRow, built.consumptionRows) };
 }
 
 // ============================================================================================
@@ -820,6 +893,14 @@ async function buildProductionRunUpdateInputs(
     db,
     id,
   );
+  // KOK-137: only validate when the link is actually CHANGING. An edit that leaves
+  // customOrderId untouched must stay editable even after that order later became
+  // DELIVERED/CANCELLED — the link is historical fact at that point (O-4), not something this
+  // edit is newly asserting, so re-validating it here would make an already-linked run
+  // permanently unsavable for reasons unrelated to what the user is actually changing.
+  if (command.customOrderId && command.customOrderId !== existing.customOrderId) {
+    await assertOrderLinkable(db, command.customOrderId);
+  }
   const recipe = await findActiveRecipeRowOrThrow(db, command.recipeId);
   const resolvedSession = await resolveSessionForEvent(db, {
     type: "PRODUCTION",
@@ -1123,11 +1204,25 @@ export async function restoreProductionRun(
 // cover MULTIPLE simultaneously-changed runs sharing one output item (two batches of the same
 // recipe in one session is not exotic).
 
+export interface PendingProductionRunAllocationInput {
+  /** Synthetic pending run inserted by the caller in the same batch. */
+  run: ProductionRunRow;
+  consumptions: readonly ProductionConsumptionRow[];
+}
+
 export interface SessionCostAllocationResult {
   /** One entry per production run whose allocation actually changed; empty when nothing did. */
   updatedRuns: ProductionRunDto[];
   /** For the caller's own single `db.batch()` (D-3) — this function never executes on its own. */
   statements: Statement[];
+  confirmationRequired: boolean;
+  impact: ReplayImpactDto;
+  pendingRunAllocation?: {
+    allocatedSessionCost: number;
+    totalCost: number;
+    outputUnitCostMc: MilliCentavosPerUnit;
+    movements: StockMovementInput[];
+  };
 }
 
 /**
@@ -1199,46 +1294,87 @@ export async function planSessionCostAllocation(
   businessDate: string,
   occurredAt: string,
   actor: AuditActor,
+  pendingRun?: PendingProductionRunAllocationInput,
 ): Promise<SessionCostAllocationResult> {
-  const runs = await db.query.productionRuns.findMany({
+  const dbRuns = await db.query.productionRuns.findMany({
     where: (t, { and: andOp, eq: eqOp, isNull: isNullOp }) =>
       andOp(eqOp(t.sessionId, sessionId), isNullOp(t.deletedAt)),
     orderBy: (t, { asc }) => [asc(t.createdAt), asc(t.id)],
   });
+  const allRuns = pendingRun ? [...dbRuns, pendingRun.run] : dbRuns;
 
-  if (runs.length === 0) {
-    return { updatedRuns: [], statements: [] };
+  if (allRuns.length === 0) {
+    return {
+      updatedRuns: [],
+      statements: [],
+      confirmationRequired: false,
+      impact: {
+        affectedSaleLineIds: [],
+        affectedStockExitIds: [],
+        affectedProductionRunIds: [],
+        affectedAssemblyIds: [],
+        affectedItemIds: [],
+        costDelta: 0,
+        requiresConfirmation: false,
+      },
+    };
   }
 
-  const weights = runs.map((r) => r.directCost);
+  const weights = allRuns.map((r) => r.directCost);
   const allocations = allocateLargestRemainder(toCentavos(totalSharedCost), weights);
 
-  const changed: { run: ProductionRunRow; newAllocation: number; newTotalCost: number }[] = [];
-  for (let i = 0; i < runs.length; i++) {
-    const run = runs[i];
+  const changed: {
+    run: ProductionRunRow;
+    newAllocation: number;
+    newTotalCost: number;
+    isPending: boolean;
+  }[] = [];
+  for (let i = 0; i < allRuns.length; i++) {
+    const run = allRuns[i];
     if (!run) continue;
     const newAllocation = allocations[i] ?? 0;
-    if (newAllocation === run.allocatedSessionCost) continue;
+    const isPending = pendingRun !== undefined && run.id === pendingRun.run.id;
+    if (!isPending && newAllocation === run.allocatedSessionCost) continue;
     changed.push({
       run,
       newAllocation,
       newTotalCost: run.directCost + run.indirectCost + newAllocation,
+      isPending,
     });
   }
 
   if (changed.length === 0) {
-    return { updatedRuns: [], statements: [] };
+    return {
+      updatedRuns: [],
+      statements: [],
+      confirmationRequired: false,
+      impact: {
+        affectedSaleLineIds: [],
+        affectedStockExitIds: [],
+        affectedProductionRunIds: [],
+        affectedAssemblyIds: [],
+        affectedItemIds: [],
+        costDelta: 0,
+        requiresConfirmation: false,
+      },
+    };
   }
 
-  const changedRunIds = changed.map((c) => c.run.id);
-  const consumptionRows = await db.query.productionConsumptions.findMany({
-    where: (t, { inArray }) => inArray(t.productionRunId, changedRunIds),
-  });
+  const changedRunIds = changed.filter((c) => !c.isPending).map((c) => c.run.id);
+  const consumptionRows =
+    changedRunIds.length > 0
+      ? await db.query.productionConsumptions.findMany({
+          where: (t, { inArray }) => inArray(t.productionRunId, changedRunIds),
+        })
+      : [];
   const consumptionsByRun = new Map<string, ProductionConsumptionRow[]>();
   for (const row of consumptionRows) {
     const arr = consumptionsByRun.get(row.productionRunId) ?? [];
     arr.push(row);
     consumptionsByRun.set(row.productionRunId, arr);
+  }
+  if (pendingRun) {
+    consumptionsByRun.set(pendingRun.run.id, [...pendingRun.consumptions]);
   }
 
   const now = nowIso();
@@ -1281,14 +1417,9 @@ export async function planSessionCostAllocation(
 
   const statements: Statement[] = [];
   const updatedRunRows: ProductionRunRow[] = [];
+  let pendingRunAllocationResult: SessionCostAllocationResult["pendingRunAllocation"];
 
-  for (const { run, newAllocation, newTotalCost } of changed) {
-    statements.push(
-      db
-        .update(productionRuns)
-        .set({ allocatedSessionCost: newAllocation, totalCost: newTotalCost, updatedAt: now })
-        .where(eq(productionRuns.id, run.id)),
-    );
+  for (const { run, newAllocation, newTotalCost, isPending } of changed) {
     updatedRunRows.push({
       ...run,
       allocatedSessionCost: newAllocation,
@@ -1297,6 +1428,25 @@ export async function planSessionCostAllocation(
     });
 
     const newMovements = newMovementsByRun.get(run.id) ?? [];
+    if (isPending) {
+      pendingRunAllocationResult = {
+        allocatedSessionCost: newAllocation,
+        totalCost: newTotalCost,
+        outputUnitCostMc: rateFromTotal(
+          toCentavos(newTotalCost),
+          toMilliUnits(run.actualOutputQty),
+        ),
+        movements: newMovements,
+      };
+      continue;
+    }
+
+    statements.push(
+      db
+        .update(productionRuns)
+        .set({ allocatedSessionCost: newAllocation, totalCost: newTotalCost, updatedAt: now })
+        .where(eq(productionRuns.id, run.id)),
+    );
     const { statements: moveStatements } = await buildReplaceMovementsForSourceStatements(
       db,
       "production_run",
@@ -1326,6 +1476,9 @@ export async function planSessionCostAllocation(
       toProductionRunDto(row, consumptionsByRun.get(row.id) ?? []),
     ),
     statements,
+    confirmationRequired: plan.confirmationRequired,
+    impact: plan.impact,
+    pendingRunAllocation: pendingRun ? pendingRunAllocationResult : undefined,
   };
 }
 
@@ -1398,23 +1551,8 @@ export async function previewProductionRunImpact(
 ): Promise<ReplayImpactDto> {
   if (request.op === "create") {
     const built = await buildProductionRunCreateInputs(db, request.command);
-    const plan = await planCostingReplay(db, {
-      trigger: {
-        eventType: "production_run",
-        eventId: built.runId,
-        businessDate: request.command.businessDate,
-        occurredAt: request.command.occurredAt,
-      },
-      changes: [
-        {
-          sourceEventType: "production_run",
-          sourceEventId: built.runId,
-          newMovements: built.movements,
-        },
-      ],
-      actor: PREVIEW_ACTOR,
-    });
-    return plan.impact;
+    const created = await planProductionRunCreateCostingImpact(db, built, PREVIEW_ACTOR);
+    return created.impact;
   }
 
   if (request.op === "update") {

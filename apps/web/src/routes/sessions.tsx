@@ -9,6 +9,7 @@ import { useEffect, useState } from "react";
 import { SessionDetailDrawer } from "@/components/sessions/SessionDetailDrawer";
 import { SessionForm } from "@/components/sessions/SessionForm";
 import { SessionsTable } from "@/components/sessions/SessionsTable";
+import { getWeekRange, WeeklyCalendar } from "@/components/sessions/WeeklyCalendar";
 import { Button } from "@/components/ui/button";
 import { useAccounts } from "@/features/finance/api";
 import { useSessions } from "@/features/sessions/api";
@@ -19,13 +20,42 @@ import { sessionsLabels } from "@/lib/i18n-sessions";
 // identical `getRouteApi("/login")` gets away with: it's a top-level sibling, not nested).
 const routeApi = getRouteApi("/_authenticated/sessions");
 
+const weekBoundFormatter = new Intl.DateTimeFormat("es-BO", {
+  day: "numeric",
+  month: "short",
+  year: "numeric",
+  timeZone: "UTC",
+});
+
+function todayBusinessDate(): string {
+  const today = new Date();
+  return [today.getFullYear(), today.getMonth() + 1, today.getDate()]
+    .map((part, index) => String(part).padStart(index === 0 ? 4 : 2, "0"))
+    .join("-");
+}
+
+function shiftBusinessDate(date: string, days: number): string {
+  const shifted = new Date(`${date}T00:00:00.000Z`);
+  shifted.setUTCDate(shifted.getUTCDate() + days);
+  return shifted.toISOString().slice(0, 10);
+}
+
+function formatWeekBound(date: string): string {
+  return weekBoundFormatter.format(new Date(`${date}T00:00:00.000Z`));
+}
+
 export function SessionsRoute() {
-  const { open } = routeApi.useSearch();
+  const { open, view: searchView } = routeApi.useSearch();
+  const navigate = routeApi.useNavigate();
+  const view = searchView ?? "list";
   const accountsQuery = useAccounts();
   const sessionsQuery = useSessions();
 
   const [formOpen, setFormOpen] = useState(false);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
+  const [weekAnchor, setWeekAnchor] = useState(todayBusinessDate);
+  const { weekStart, weekEnd } = getWeekRange(weekAnchor);
+  const calendarSessionsQuery = useSessions({ fromDate: weekStart, toDate: weekEnd });
 
   // One-time pickup of the `?open=<id>` deep link (SessionChip's own navigation target) — only on
   // the value actually changing, so closing the drawer afterward doesn't immediately reopen it on
@@ -36,6 +66,10 @@ export function SessionsRoute() {
 
   const accounts = accountsQuery.data?.accounts ?? [];
 
+  function updateView(nextView: "list" | "calendar"): void {
+    void navigate({ search: (previous) => ({ ...previous, view: nextView }) });
+  }
+
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -43,16 +77,81 @@ export function SessionsRoute() {
           <h1 className="font-semibold text-2xl text-foreground">{sessionsLabels.title}</h1>
           <p className="text-muted-foreground text-sm">{sessionsLabels.subtitle}</p>
         </div>
-        <Button type="button" onClick={() => setFormOpen(true)}>
-          {sessionsLabels.actionRecord}
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-1">
+            <Button
+              type="button"
+              size="sm"
+              variant={view === "list" ? "default" : "outline"}
+              onClick={() => updateView("list")}
+            >
+              {sessionsLabels.calendar.viewList}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={view === "calendar" ? "default" : "outline"}
+              onClick={() => updateView("calendar")}
+            >
+              {sessionsLabels.calendar.viewCalendar}
+            </Button>
+          </div>
+          <Button type="button" onClick={() => setFormOpen(true)}>
+            {sessionsLabels.actionRecord}
+          </Button>
+        </div>
       </div>
 
-      <SessionsTable
-        sessions={sessionsQuery.data?.sessions ?? []}
-        loading={sessionsQuery.isLoading}
-        onRowClick={(session) => setSelectedSessionId(session.id)}
-      />
+      {view === "calendar" ? (
+        <>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="font-medium text-sm tabular-nums">
+              {sessionsLabels.calendar.weekRangeLabel(
+                formatWeekBound(weekStart),
+                formatWeekBound(weekEnd),
+              )}
+            </p>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                size="icon"
+                variant="outline"
+                aria-label={sessionsLabels.calendar.prevWeek}
+                onClick={() => setWeekAnchor((current) => shiftBusinessDate(current, -7))}
+              >
+                ‹
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setWeekAnchor(todayBusinessDate())}
+              >
+                {sessionsLabels.calendar.today}
+              </Button>
+              <Button
+                type="button"
+                size="icon"
+                variant="outline"
+                aria-label={sessionsLabels.calendar.nextWeek}
+                onClick={() => setWeekAnchor((current) => shiftBusinessDate(current, 7))}
+              >
+                ›
+              </Button>
+            </div>
+          </div>
+          <WeeklyCalendar
+            sessions={calendarSessionsQuery.data?.sessions ?? []}
+            weekStart={weekStart}
+            onSessionClick={(session) => setSelectedSessionId(session.id)}
+          />
+        </>
+      ) : (
+        <SessionsTable
+          sessions={sessionsQuery.data?.sessions ?? []}
+          loading={sessionsQuery.isLoading}
+          onRowClick={(session) => setSelectedSessionId(session.id)}
+        />
+      )}
 
       <SessionForm open={formOpen} onOpenChange={setFormOpen} accounts={accounts} />
       <SessionDetailDrawer

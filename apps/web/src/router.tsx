@@ -16,6 +16,7 @@ import { getDefaultDateRange } from "@/components/common/DateRangeFilter";
 import { AppShell } from "@/components/layout/AppShell";
 import { fetchSession, sessionQueryKey } from "@/features/auth/api";
 import { queryClient } from "@/lib/query-client";
+import { AssemblyRecordRoute } from "@/routes/assemblies";
 import { AssistantRoute } from "@/routes/assistant";
 import { FinanceRoute } from "@/routes/finance";
 import { InventoryRoute } from "@/routes/inventory";
@@ -163,6 +164,15 @@ const productionRecipesRoute = createRoute({
   component: RecipesRoute,
 });
 
+const assemblyRecordRoute = createRoute({
+  getParentRoute: () => authenticatedRoute,
+  path: "/production/assemblies/new",
+  validateSearch: (search: Record<string, unknown>): { sessionId?: string } => ({
+    sessionId: typeof search.sessionId === "string" ? search.sessionId : undefined,
+  }),
+  component: AssemblyRecordRoute,
+});
+
 const inventoryRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: "/inventory",
@@ -194,8 +204,11 @@ const sessionsRoute = createRoute({
   // mirroring loginRoute's `redirect` search param as the only other precedent for a validated
   // search param in this router. Loosely typed on purpose, same as loginRoute (no zod dependency
   // here, D-10).
-  validateSearch: (search: Record<string, unknown>): { open?: string } => ({
+  validateSearch: (
+    search: Record<string, unknown>,
+  ): { open?: string; view?: "list" | "calendar" } => ({
     open: typeof search.open === "string" ? search.open : undefined,
+    view: search.view === "list" || search.view === "calendar" ? search.view : undefined,
   }),
   component: SessionsRoute,
 });
@@ -261,6 +274,7 @@ const routeTree = rootRoute.addChildren([
     ordersRoute,
     productionRoute,
     productionRecipesRoute,
+    assemblyRecordRoute,
     purchasesRoute,
     inventoryRoute,
     sessionsRoute,

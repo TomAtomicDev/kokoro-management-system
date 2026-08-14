@@ -25,6 +25,7 @@
 
 import { z } from "zod";
 import { confirmFlagSchema } from "./costing.js";
+import { businessDateSchema, occurredAtSchema } from "./dates.js";
 import { safeText } from "./text.js";
 
 /** Milli-units of the item's own stored unit (Doc 04 §2), matching qty.ts's representation.
@@ -52,15 +53,6 @@ const indirectCostSchema = z
   .nonnegative("El costo indirecto debe ser un entero no negativo (centavos).")
   .optional()
   .default(0);
-/** `YYYY-MM-DD`, America/La_Paz local calendar date (Doc 04 §1, INV-3). */
-export const businessDateSchema = z
-  .string()
-  .regex(/^\d{4}-\d{2}-\d{2}$/, "La fecha debe tener el formato AAAA-MM-DD.");
-/** UTC ISO-8601 instant (Doc 04 §1). */
-export const occurredAtSchema = z
-  .string()
-  .datetime({ offset: true, message: "occurredAt debe ser una fecha ISO-8601." });
-
 export const productionLineCommandSchema = z.object({
   itemId: z.string().min(1),
   qty: lineQtySchema,

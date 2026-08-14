@@ -10,7 +10,13 @@
 // The order-profitability panel (agreed total − order-linked run costs) sums `totalCost` across
 // every ProductionRun linked via `custom_order_id` (O-4) — one extra list fetch, no N+1.
 
-import type { CustomOrderStatus, ItemDto, OrderDto } from "@kokoro/shared";
+import type {
+  CustomOrderStatus,
+  ItemDto,
+  OrderDto,
+  OrderTransitionResult,
+  UndoDeliverOrderCommand,
+} from "@kokoro/shared";
 import { formatMoney, toCentavos } from "@kokoro/shared";
 import { useMemo, useState } from "react";
 
@@ -18,14 +24,20 @@ import { ItemPicker } from "@/components/catalog/ItemPicker";
 import { DetailDrawer } from "@/components/data-table/DetailDrawer";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ImpactConfirmDialog } from "@/components/ui/ImpactConfirmDialog";
+import { useAssemblies } from "@/features/assemblies/api";
 import { useItemsQuery } from "@/features/catalog/api";
 import {
   useMarkOrderReady,
   useOrder,
   useResolveOrderLine,
   useStartOrderProduction,
+  useUndoDeliverOrder,
+  useUndoMarkOrderReady,
+  useUndoStartOrderProduction,
 } from "@/features/orders/api";
 import { useProductionRuns } from "@/features/production-runs/api";
+import { useReplayConfirmableMutation } from "@/hooks/useReplayConfirmableMutation";
 import { ApiError } from "@/lib/api";
 import { ordersLabels } from "@/lib/i18n-orders";
 
@@ -98,9 +110,17 @@ export function OrderDetailDrawer({ orderId, open, onOpenChange }: OrderDetailDr
   const orderQuery = useOrder(orderId ?? undefined);
   const itemsQuery = useItemsQuery({ isActive: true });
   const runsQuery = useProductionRuns(orderId ? { customOrderId: orderId } : {});
+  const assembliesQuery = useAssemblies(orderId ? { customOrderId: orderId } : {});
 
   const startMutation = useStartOrderProduction(orderId ?? "");
   const readyMutation = useMarkOrderReady(orderId ?? "");
+  const undoStartMutation = useUndoStartOrderProduction(orderId ?? "");
+  const undoReadyMutation = useUndoMarkOrderReady(orderId ?? "");
+  const undoDeliverMutation = useUndoDeliverOrder(orderId ?? "");
+  const undoDeliverReplay = useReplayConfirmableMutation<
+    UndoDeliverOrderCommand,
+    OrderTransitionResult
+  >((command) => undoDeliverMutation.mutateAsync(command));
 
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [deliverOpen, setDeliverOpen] = useState(false);
@@ -117,6 +137,7 @@ export function OrderDetailDrawer({ orderId, open, onOpenChange }: OrderDetailDr
   const order: OrderDto | undefined = orderQuery.data;
 
   const runs = runsQuery.data?.productionRuns ?? [];
+  const assemblies = assembliesQuery.data?.assemblies ?? [];
   const linkedCost = runs.reduce((sum, run) => sum + run.totalCost, 0);
   const margin =
     order?.agreedTotal !== null && order?.agreedTotal !== undefined
@@ -175,11 +196,48 @@ export function OrderDetailDrawer({ orderId, open, onOpenChange }: OrderDetailDr
               {order.status === "IN_PRODUCTION" ? (
                 <Button
                   type="button"
+                  variant="outline"
                   size="sm"
-                  onClick={() => runTransition(readyMutation)}
+                  onClick={() => {
+                    if (window.confirm(ordersLabels.confirmUndoStart))
+                      runTransition(undoStartMutation);
+                  }}
+                  disabled={undoStartMutation.isPending}
+                >
+                  {ordersLabels.actionUndoStart}
+                </Button>
+              ) : null}
+              {order.status === "IN_PRODUCTION" ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => {
+                    if (
+                      runs.length === 0 &&
+                      assemblies.length === 0 &&
+                      !window.confirm(ordersLabels.confirmReadyNoProduction)
+                    ) {
+                      return;
+                    }
+                    runTransition(readyMutation);
+                  }}
                   disabled={readyMutation.isPending}
                 >
                   {ordersLabels.actionMarkReady}
+                </Button>
+              ) : null}
+              {order.status === "READY" ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    if (window.confirm(ordersLabels.confirmUndoReady))
+                      runTransition(undoReadyMutation);
+                  }}
+                  disabled={undoReadyMutation.isPending}
+                >
+                  {ordersLabels.actionUndoReady}
                 </Button>
               ) : null}
               {order.status === "READY" ? (
@@ -191,6 +249,20 @@ export function OrderDetailDrawer({ orderId, open, onOpenChange }: OrderDetailDr
                   title={!allLinesResolved ? ordersLabels.deliverUnresolvedWarning : undefined}
                 >
                   {ordersLabels.actionDeliver}
+                </Button>
+              ) : null}
+              {order.status === "DELIVERED" ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    if (window.confirm(ordersLabels.confirmUndoDeliver))
+                      undoDeliverReplay.execute({});
+                  }}
+                  disabled={undoDeliverReplay.isPending}
+                >
+                  {ordersLabels.actionUndoDeliver}
                 </Button>
               ) : null}
               {CANCELLABLE_STATUSES.includes(order.status) ? (
@@ -206,6 +278,13 @@ export function OrderDetailDrawer({ orderId, open, onOpenChange }: OrderDetailDr
             </div>
 
             {transitionError ? <p className="text-negative text-sm">{transitionError}</p> : null}
+            {undoDeliverReplay.error ? (
+              <p className="text-negative text-sm">
+                {undoDeliverReplay.error instanceof ApiError
+                  ? undoDeliverReplay.error.message
+                  : ordersLabels.errors.generic}
+              </p>
+            ) : null}
             {order.status === "READY" && !allLinesResolved ? (
               <p className="text-warning text-xs">{ordersLabels.deliverUnresolvedWarning}</p>
             ) : null}
@@ -345,6 +424,18 @@ export function OrderDetailDrawer({ orderId, open, onOpenChange }: OrderDetailDr
           <DeliverOrderDialog order={order} open={deliverOpen} onOpenChange={setDeliverOpen} />
           <CancelOrderDialog order={order} open={cancelOpen} onOpenChange={setCancelOpen} />
         </>
+      ) : null}
+
+      {undoDeliverReplay.pendingConfirmation ? (
+        <ImpactConfirmDialog
+          open
+          impact={undoDeliverReplay.pendingConfirmation.impact}
+          onConfirm={undoDeliverReplay.confirm}
+          onCancel={undoDeliverReplay.cancel}
+          confirmLoading={undoDeliverReplay.isPending}
+          title={ordersLabels.impactUndoDeliverTitle}
+          description={ordersLabels.impactUndoDeliverDescription}
+        />
       ) : null}
     </>
   );

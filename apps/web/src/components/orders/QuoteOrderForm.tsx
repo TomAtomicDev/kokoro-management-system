@@ -221,6 +221,7 @@ export function QuoteOrderForm({ open, onOpenChange }: QuoteOrderFormProps) {
 
         <div className="flex flex-col gap-1.5">
           <span className="font-medium text-foreground">{ordersLabels.linesTitle}</span>
+          <p className="text-muted-foreground text-xs">{ordersLabels.linesHint}</p>
           <OrderLineEditor lines={lines} onChange={setLines} disabled={disabled} />
         </div>
 

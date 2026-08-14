@@ -9,6 +9,7 @@ export const productionLabels = {
   title: "Producción",
   subtitle: "Registra tandas de producción, su consumo de insumos y el costo resultante.",
   actionRecord: "Nueva producción",
+  actionRecordAssembly: "Registrar armado",
   /** Secondary link kept on this screen — Recetas has no other nav entry (Doc 06 §2 lists only one
    * top-level "Producción" item). */
   goToRecipes: "Ver recetas",
@@ -102,6 +103,9 @@ export const productionLabels = {
 
   /** ImpactConfirmDialog copy — only shown when the server refuses with
    * REPLAY_CONFIRMATION_REQUIRED (a backdated edit/delete that moves already-booked cost). */
+  impactCreateTitle: "¿Registrar la producción?",
+  impactCreateDescription:
+    "Esta sesión ya está cerrada. Registrar esta producción redistribuye el costo compartido entre las producciones existentes y puede cambiar costos ya calculados. Revisa el impacto y confirma para guardarla.",
   impactEditTitle: "¿Guardar los cambios?",
   impactEditDescription:
     "Esta producción tiene una fecha anterior a movimientos ya registrados de sus insumos o su ítem de salida. Guardar los cambios recalculará el costo de esos movimientos.",
