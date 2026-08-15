@@ -5,6 +5,32 @@ import { describe, expect, it } from "vitest";
 import { formatCostRateInput } from "@/lib/cost-rate";
 import { type ItemFormValues, itemFormValuesFromDto, parseItemFormValues } from "./ItemForm";
 
+describe("parseItemFormValues semi-finished stock threshold", () => {
+  const baseValues: ItemFormValues = {
+    name: "Masa madre activada",
+    kind: "SEMI_FINISHED",
+    category: "BAKERY",
+    unit: "KG",
+    salePrice: "",
+    minStockQty: "",
+    replacementCostMc: "",
+    isUnmetered: false,
+    notes: "",
+  };
+
+  it("accepts an optional low-stock threshold", () => {
+    const result = parseItemFormValues({ ...baseValues, minStockQty: "1.5" });
+
+    expect(result).toMatchObject({ ok: true, value: { minStockQty: 1500 } });
+  });
+
+  it("accepts no low-stock threshold", () => {
+    const result = parseItemFormValues(baseValues);
+
+    expect(result).toMatchObject({ ok: true, value: { minStockQty: null } });
+  });
+});
+
 describe("parseItemFormValues replacement cost", () => {
   it("property: an unmetered replacement cost preserves every raw rate exactly", () => {
     fc.assert(

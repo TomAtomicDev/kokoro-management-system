@@ -170,9 +170,6 @@ export function parseItemFormValues(values: ItemFormValues): ItemFormParseResult
     if ((values.kind === "RAW_MATERIAL" || values.kind === "PACKAGING") && minStockQty === null) {
       return { ok: false, field: "minStockQty", code: "minStockQtyRequired" };
     }
-    if (values.kind !== "RAW_MATERIAL" && values.kind !== "PACKAGING" && minStockQty !== null) {
-      return { ok: false, field: "minStockQty", code: "minStockQtyForbidden" };
-    }
   }
 
   return {
@@ -267,7 +264,7 @@ export function ItemForm({
       category,
       unit,
       salePrice: kind === "FINISHED" ? values.salePrice : "",
-      minStockQty: kind === "RAW_MATERIAL" || kind === "PACKAGING" ? values.minStockQty : "",
+      minStockQty: kind === "FINISHED" ? "" : values.minStockQty,
       isUnmetered: kind === "RAW_MATERIAL" ? values.isUnmetered : false,
       replacementCostMc: kind === "RAW_MATERIAL" ? values.replacementCostMc : "",
     });
@@ -401,7 +398,7 @@ export function ItemForm({
           </Field>
         ) : null}
 
-        {values.kind === "RAW_MATERIAL" || values.kind === "PACKAGING" ? (
+        {values.kind !== "FINISHED" ? (
           <Field
             label={catalogLabels.fieldMinStock}
             htmlFor={`${formId}-min-stock`}
@@ -414,6 +411,7 @@ export function ItemForm({
               value={values.minStockQty}
               onChange={(e) => set("minStockQty", e.target.value)}
               disabled={disabled || values.isUnmetered}
+              required={values.kind === "RAW_MATERIAL" || values.kind === "PACKAGING"}
             />
           </Field>
         ) : null}

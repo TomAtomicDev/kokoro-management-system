@@ -47,7 +47,7 @@ export function StepBalances({ onDone, onSkip, readOnly = false }: StepBalancesP
           <p className="font-medium text-foreground">{onboardingLabels.alreadySaved}</p>
           <p className="text-muted-foreground">{onboardingLabels.savedBalancesBody}</p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           <Button type="button" onClick={onDone}>
             {onboardingLabels.continueButton}
           </Button>
