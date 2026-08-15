@@ -375,7 +375,7 @@ export function StepCatalog({ onDone, onSkip, readOnly = false }: StepCatalogPro
               ...row,
               kind,
               salePrice: kind === "FINISHED" ? row.salePrice : "",
-              minStockQty: kind === "RAW_MATERIAL" || kind === "PACKAGING" ? row.minStockQty : "",
+              minStockQty: kind === "FINISHED" ? "" : row.minStockQty,
               isUnmetered: kind === "RAW_MATERIAL" ? row.isUnmetered : false,
               replacementCostMc: kind === "RAW_MATERIAL" ? row.replacementCostMc : "",
             }
@@ -574,7 +574,7 @@ export function StepCatalog({ onDone, onSkip, readOnly = false }: StepCatalogPro
               ) : (
                 <span aria-hidden="true" className="hidden md:block" />
               )}
-              {row.kind === "RAW_MATERIAL" || row.kind === "PACKAGING" ? (
+              {row.kind !== "FINISHED" ? (
                 <label
                   className="contents max-md:flex max-md:flex-col max-md:gap-1"
                   htmlFor={`catalog-${row.id}-min-stock`}
@@ -589,6 +589,7 @@ export function StepCatalog({ onDone, onSkip, readOnly = false }: StepCatalogPro
                     value={row.minStockQty}
                     onChange={(e) => updateRow(row.id, "minStockQty", e.target.value)}
                     disabled={disabled || row.isUnmetered}
+                    required={row.kind === "RAW_MATERIAL" || row.kind === "PACKAGING"}
                   />
                 </label>
               ) : (

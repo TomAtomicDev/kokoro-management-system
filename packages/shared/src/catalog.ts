@@ -42,10 +42,8 @@ const replacementCostMcSchema = z
 const salePriceRequiredMessage = "El precio de venta es obligatorio para productos finales.";
 const salePriceForbiddenMessage =
   "El precio de venta no aplica a materias primas, semielaborados ni empaques.";
-const minStockQtyRequiredMessage =
-  "El stock mínimo es obligatorio para materias primas y empaques.";
-const minStockQtyForbiddenMessage =
-  "El stock mínimo no aplica a semielaborados ni productos finales.";
+const minStockQtyRequiredMessage = "Define un stock mínimo para materias primas y empaques.";
+const minStockQtyForbiddenMessage = "El stock mínimo no aplica a productos finales.";
 const isUnmeteredForbiddenMessage = '"No medido" solo aplica a materias primas.';
 const replacementCostMcForbiddenMessage =
   "El costo de reposición solo es editable para materias primas no medidas.";
@@ -64,7 +62,8 @@ function addKindExclusiveIssues(
 
   const hasSalePrice = value.salePriceMc !== undefined && value.salePriceMc !== null;
   const hasMinStockQty = value.minStockQty !== undefined && value.minStockQty !== null;
-  const stocksLikeRawMaterial = value.kind === "RAW_MATERIAL" || value.kind === "PACKAGING";
+  const requiresMinStockQty = value.kind === "RAW_MATERIAL" || value.kind === "PACKAGING";
+  const allowsMinStockQty = requiresMinStockQty || value.kind === "SEMI_FINISHED";
 
   if (value.kind === "FINISHED" && !hasSalePrice) {
     ctx.addIssue({
@@ -80,13 +79,13 @@ function addKindExclusiveIssues(
     });
   }
 
-  if (stocksLikeRawMaterial && !hasMinStockQty) {
+  if (requiresMinStockQty && !hasMinStockQty) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       message: minStockQtyRequiredMessage,
       path: ["minStockQty"],
     });
-  } else if (!stocksLikeRawMaterial && hasMinStockQty) {
+  } else if (!allowsMinStockQty && hasMinStockQty) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       message: minStockQtyForbiddenMessage,
