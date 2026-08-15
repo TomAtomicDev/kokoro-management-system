@@ -21,9 +21,10 @@ export const onboardingLabels = {
 
   errors: {
     salePriceRequired: "El precio de venta es obligatorio para productos finales.",
-    salePriceForbidden: "El precio de venta no aplica a materias primas ni semielaborados.",
-    minStockQtyRequired: "El stock mínimo es obligatorio para materias primas.",
-    minStockQtyForbidden: "El stock mínimo no aplica a semielaborados ni productos finales.",
+    salePriceForbidden:
+      "El precio de venta no aplica a materias primas, semielaborados ni empaques.",
+    minStockQtyRequired: "Define un stock mínimo para materias primas y empaques.",
+    minStockQtyForbidden: "El stock mínimo no aplica a productos finales.",
     tooManyDecimals: "Usa como máximo 2 decimales (centavos).",
     generic: "Ocurrió un error inesperado. Intenta de nuevo.",
     invalidAmount: "Ingresa un monto válido (0 o mayor).",

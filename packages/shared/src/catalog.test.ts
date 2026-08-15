@@ -77,6 +77,29 @@ describe("createItemCommandSchema", () => {
     expect(result.success).toBe(true);
   });
 
+  it("accepts a SEMI_FINISHED item with a low-stock threshold", () => {
+    const result = createItemCommandSchema.safeParse({
+      name: "Masa madre activada",
+      kind: "SEMI_FINISHED",
+      category: "BAKERY",
+      unit: "KG",
+      minStockQty: 1500,
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts a SEMI_FINISHED item without a low-stock threshold", () => {
+    const result = createItemCommandSchema.safeParse({
+      name: "Masa madre refrigerada",
+      kind: "SEMI_FINISHED",
+      category: "BAKERY",
+      unit: "KG",
+    });
+
+    expect(result.success).toBe(true);
+  });
+
   it.each([
     {
       kind: "RAW_MATERIAL" as const,
@@ -94,12 +117,6 @@ describe("createItemCommandSchema", () => {
       salePriceMc: 1,
       minStockQty: null,
       field: "salePriceMc",
-    },
-    {
-      kind: "SEMI_FINISHED" as const,
-      salePriceMc: null,
-      minStockQty: 1,
-      field: "minStockQty",
     },
     {
       kind: "FINISHED" as const,

@@ -2,7 +2,8 @@
 // composition, same shape as routes/inventory.tsx: local `currentStep` state (1-5, always starting
 // at 1 on a fresh mount — no cross-reload persistence, per this task's brief) drives which step
 // component renders below the Stepper. Steps 1/4 are static acknowledgment cards; 2/3/5 own their
-// own form state and mutations (see components/onboarding/Step*.tsx).
+// own form state and mutations (see components/onboarding/Step*.tsx). Catalog completion is also
+// reconstructed from persisted items so a reload cannot expose the one-time bulk import again.
 
 import type { ItemDto } from "@kokoro/shared";
 import { Link } from "@tanstack/react-router";
@@ -21,6 +22,10 @@ import { useOnboardingStatus } from "@/features/onboarding/api";
 import { onboardingLabels } from "@/lib/i18n-onboarding";
 
 const STEP_COUNT = 5;
+
+export function isCatalogCommitted(locallyCommitted: boolean, persistedItemCount: number): boolean {
+  return locallyCommitted || persistedItemCount > 0;
+}
 
 export function OnboardingRoute() {
   const statusQuery = useOnboardingStatus();
@@ -99,7 +104,10 @@ export function OnboardingRoute() {
     goToStep(step);
   }
 
-  const catalogCommitted = committedSteps.has(3);
+  const catalogCommitted = isCatalogCommitted(
+    committedSteps.has(3),
+    itemsQuery.data?.items.length ?? 0,
+  );
   const isReviewingCommittedStep = committedSteps.has(currentStep);
   const shellWidth = currentStep === 3 ? "max-w-6xl" : "max-w-2xl";
 
@@ -144,7 +152,7 @@ export function OnboardingRoute() {
           <StepCatalog
             onDone={() => commitStepAndGoTo(4, 3)}
             onSkip={() => goToStep(4)}
-            readOnly={isReviewingCommittedStep}
+            readOnly={catalogCommitted}
           />
         ) : currentStep === 4 ? (
           <StepRecipes
