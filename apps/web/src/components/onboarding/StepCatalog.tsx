@@ -109,126 +109,6 @@ const FIXTURE_ITEMS: FixtureItem[] = [
     salePrice: null,
     minStockQty: null,
   },
-  {
-    name: "Leche",
-    kind: "RAW_MATERIAL",
-    category: "DAIRY",
-    unit: "L",
-    salePrice: null,
-    minStockQty: 5000,
-  },
-  {
-    name: "Kéfir",
-    kind: "RAW_MATERIAL",
-    category: "DAIRY",
-    unit: "L",
-    salePrice: null,
-    minStockQty: 2000,
-  },
-  {
-    name: "Pan de masa madre",
-    kind: "FINISHED",
-    category: "BAKERY",
-    unit: "UNIT",
-    salePrice: null,
-    minStockQty: null,
-  },
-  {
-    name: "Rollos de canela",
-    kind: "FINISHED",
-    category: "BAKERY",
-    unit: "UNIT",
-    salePrice: null,
-    minStockQty: null,
-  },
-  {
-    name: "Cuñapés",
-    kind: "FINISHED",
-    category: "BAKERY",
-    unit: "UNIT",
-    salePrice: null,
-    minStockQty: null,
-  },
-  {
-    name: "Queso crema de kéfir",
-    kind: "FINISHED",
-    category: "DAIRY",
-    unit: "UNIT",
-    salePrice: null,
-    minStockQty: null,
-  },
-  {
-    name: "Ghee",
-    kind: "FINISHED",
-    category: "DAIRY",
-    unit: "L",
-    salePrice: null,
-    minStockQty: null,
-  },
-  {
-    name: "Kéfir natural a granel",
-    kind: "FINISHED",
-    category: "DAIRY",
-    unit: "L",
-    salePrice: null,
-    minStockQty: null,
-  },
-  {
-    name: "Kéfir natural 500 ml",
-    kind: "FINISHED",
-    category: "DAIRY",
-    unit: "UNIT",
-    salePrice: null,
-    minStockQty: null,
-  },
-  {
-    name: "Kéfir natural 1 L",
-    kind: "FINISHED",
-    category: "DAIRY",
-    unit: "UNIT",
-    salePrice: null,
-    minStockQty: null,
-  },
-  {
-    name: "Desayuno Kokoro",
-    kind: "FINISHED",
-    category: "OTHER",
-    unit: "UNIT",
-    salePrice: null,
-    minStockQty: null,
-  },
-  {
-    name: "Cajas",
-    kind: "PACKAGING",
-    category: "NOT_EATABLE",
-    unit: "UNIT",
-    salePrice: null,
-    minStockQty: 20000,
-  },
-  {
-    name: "Etiquetas",
-    kind: "PACKAGING",
-    category: "NOT_EATABLE",
-    unit: "UNIT",
-    salePrice: null,
-    minStockQty: 50000,
-  },
-  {
-    name: "Botella de kéfir 500 ml",
-    kind: "PACKAGING",
-    category: "NOT_EATABLE",
-    unit: "UNIT",
-    salePrice: null,
-    minStockQty: 500,
-  },
-  {
-    name: "Botella de kéfir 1 L",
-    kind: "PACKAGING",
-    category: "NOT_EATABLE",
-    unit: "UNIT",
-    salePrice: null,
-    minStockQty: 300,
-  },
 ];
 
 interface CatalogRow extends ItemFormValues {
@@ -345,7 +225,7 @@ export function StepCatalog({ onDone, onSkip, readOnly = false }: StepCatalogPro
             </div>
           )}
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           <Button type="button" onClick={onDone}>
             {onboardingLabels.continueButton}
           </Button>
