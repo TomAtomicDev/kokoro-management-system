@@ -170,6 +170,26 @@ export const priceHistory = sqliteTable("price_history", {
   note: text("note"),
 });
 
+export const replacementCostHistory = sqliteTable(
+  "replacement_cost_history",
+  {
+    id: text("id").primaryKey(),
+    itemId: text("item_id")
+      .notNull()
+      .references(() => items.id, { onDelete: "restrict" }),
+    replacementCostMc: integer("replacement_cost_mc").notNull(),
+    observedAt: text("observed_at").notNull(),
+    businessDate: text("business_date").notNull(),
+    source: text("source", { enum: ["PURCHASE", "NIGHTLY", "MANUAL"] }).notNull(),
+  },
+  (t) => ({
+    sourceCheck: check(
+      "replacement_cost_history_source_check",
+      sql`${t.source} IN ('PURCHASE','NIGHTLY','MANUAL')`,
+    ),
+  }),
+);
+
 // ============================================================================
 // 2. Sessions (Doc 04 Ãƒâ€šÃ‚Â§3.2)
 // ============================================================================

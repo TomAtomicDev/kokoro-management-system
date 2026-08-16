@@ -6,12 +6,13 @@
 // nothing is written.
 
 import type { AuditActor, BulkCreateItemsCommand, BulkCreateItemsResult } from "@kokoro/shared";
-import { generateUuidV7, nowIso, toMilliCentavosPerUnit } from "@kokoro/shared";
+import { generateUuidV7, nowIso, toBusinessDate, toMilliCentavosPerUnit } from "@kokoro/shared";
 import type { BatchItem } from "drizzle-orm/batch";
 
 import type { Db } from "../../db/index.js";
 import { items } from "../../db/schema.js";
 import { buildAuditLogInsert } from "../audit.js";
+import { buildReplacementCostHistoryInsert } from "../costing/replacement-cost-history.js";
 import { conflict } from "../errors.js";
 import { toItemDto } from "./dto.js";
 import { findItemRowByName } from "./items.js";
@@ -80,6 +81,20 @@ export async function bulkCreateItems(
         after: row,
       }),
     ),
+    ...rows.flatMap((row, index) => {
+      const replacementCostMc = command.items[index]?.replacementCostMc;
+      return replacementCostMc == null
+        ? []
+        : [
+            buildReplacementCostHistoryInsert(db, {
+              itemId: row.id,
+              replacementCostMc,
+              observedAt: now,
+              businessDate: toBusinessDate(now),
+              source: "MANUAL",
+            }),
+          ];
+    }),
   ];
 
   // `statements` always has at least 2 entries (bulkCreateItemsCommandSchema's `.min(1)` on

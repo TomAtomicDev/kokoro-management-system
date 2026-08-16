@@ -59,6 +59,11 @@ const UNIT_LABELS: Readonly<Record<QtyDisplayUnit, string>> = {
   UNIT: "u",
 };
 
+/** Short label for a quantity display unit, suitable for an input suffix or selector option. */
+export function displayUnitLabel(unit: QtyDisplayUnit): string {
+  return UNIT_LABELS[unit];
+}
+
 export function compatibleUnitsFor(canonical: Unit): readonly QtyDisplayUnit[] {
   const small = SMALL_DISPLAY_UNIT_BY_CANONICAL[canonical];
   return small === undefined ? [canonical] : [small, canonical];

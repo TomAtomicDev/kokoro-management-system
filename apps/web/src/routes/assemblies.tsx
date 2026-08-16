@@ -1,10 +1,12 @@
 import type {
   AssemblyDefinitionDto,
   ItemDto,
+  QtyDisplayUnit,
   RecordAssemblyCommand,
   RecordAssemblyResult,
 } from "@kokoro/shared";
 import {
+  defaultDisplayUnitFor,
   formatMoney,
   formatQty,
   nowIso,
@@ -25,6 +27,7 @@ import { ItemPicker } from "@/components/catalog/ItemPicker";
 import { CalcTrace, type CalcTraceInput } from "@/components/common/CalcTrace";
 import { PinnedSummaryFooter } from "@/components/common/PinnedSummaryFooter";
 import { LineEditor, type LineEditorLine } from "@/components/line-editor/LineEditor";
+import { parseLineQuantityToMilliUnits } from "@/components/line-editor/line-editor-quantity";
 import { OrderPicker } from "@/components/orders/OrderPicker";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { ImpactConfirmDialog } from "@/components/ui/ImpactConfirmDialog";
@@ -47,6 +50,7 @@ interface AssemblyLineValue extends LineEditorLine {
   lineKey: string;
   itemId: string | null;
   qty: string;
+  unit: QtyDisplayUnit | null;
 }
 
 let nextLineKey = 0;
@@ -57,7 +61,7 @@ function newLineKey(): string {
 }
 
 function emptyLine(): AssemblyLineValue {
-  return { lineKey: newLineKey(), itemId: null, qty: "" };
+  return { lineKey: newLineKey(), itemId: null, qty: "", unit: null };
 }
 
 export function AssemblyRecordRoute() {
@@ -134,6 +138,7 @@ export function AssemblyRecordRoute() {
               lineKey: line.id,
               itemId: line.itemId,
               qty: formatIntAsDecimalInput(line.qty, 3),
+              unit: null,
             }),
           )
         : [emptyLine()];
@@ -163,7 +168,7 @@ export function AssemblyRecordRoute() {
   function renderLineExtra(line: AssemblyLineValue) {
     const item = line.itemId ? itemsById.get(line.itemId) : undefined;
     if (!item) return null;
-    const qty = parseDecimalToInt(line.qty, 3);
+    const qty = parseLineQuantityToMilliUnits(line.qty, line.unit, item.unit);
     if (qty === null || qty <= 0) {
       return (
         <span className="text-subtle-foreground text-xs">
@@ -220,7 +225,7 @@ export function AssemblyRecordRoute() {
     let sum = toCentavos(0);
     for (const line of lines) {
       const item = line.itemId ? itemsById.get(line.itemId) : undefined;
-      const qty = parseDecimalToInt(line.qty, 3);
+      const qty = item ? parseLineQuantityToMilliUnits(line.qty, line.unit, item.unit) : null;
       if (!item || qty === null || qty <= 0) continue;
       sum = toCentavos(sum + totalCentavos(toMilliCentavosPerUnit(item.wacMc), toMilliUnits(qty)));
     }
@@ -239,7 +244,7 @@ export function AssemblyRecordRoute() {
 
   const directCostTraceInputs: CalcTraceInput[] = lines.flatMap((line) => {
     const item = line.itemId ? itemsById.get(line.itemId) : undefined;
-    const qty = parseDecimalToInt(line.qty, 3);
+    const qty = item ? parseLineQuantityToMilliUnits(line.qty, line.unit, item.unit) : null;
     if (!item || qty === null || qty <= 0) return [];
     return [
       {
@@ -281,7 +286,8 @@ export function AssemblyRecordRoute() {
 
     const parsedLines: { itemId: string; qty: number }[] = [];
     for (const line of lines) {
-      const qty = parseDecimalToInt(line.qty, 3);
+      const item = line.itemId ? itemsById.get(line.itemId) : undefined;
+      const qty = item ? parseLineQuantityToMilliUnits(line.qty, line.unit, item.unit) : null;
       if (!line.itemId || qty === null || qty <= 0) {
         setError(assembliesLabels.errors.invalidLine);
         return;
@@ -438,6 +444,21 @@ export function AssemblyRecordRoute() {
                 disabled={disabled}
                 showAmount={false}
                 itemKindFilter={["SEMI_FINISHED", "FINISHED", "PACKAGING"]}
+                getItemUnit={(itemId) => itemsById.get(itemId)?.unit}
+                unitSelector={{
+                  getValue: (line) => line.unit,
+                  onChange: (index, unit) =>
+                    setLines((currentLines) =>
+                      currentLines.map((line, lineIndex) =>
+                        lineIndex === index ? { ...line, unit } : line,
+                      ),
+                    ),
+                  label: assembliesLabels.unit,
+                }}
+                onItemChange={(_index, itemId) => {
+                  const item = itemId ? itemsById.get(itemId) : undefined;
+                  return { qty: "", unit: item ? defaultDisplayUnitFor(item.unit) : null };
+                }}
                 labels={{
                   item: assembliesLabels.lineItem,
                   qty: assembliesLabels.lineQty,

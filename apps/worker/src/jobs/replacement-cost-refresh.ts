@@ -34,7 +34,7 @@ const JOB_NAME = "replacement-cost-refresh";
 export async function runReplacementCostRefresh(db: Db): Promise<void> {
   const startedAt = nowIso();
   try {
-    const plan = await planReplacementCostRefresh(db);
+    const plan = await planReplacementCostRefresh(db, "NIGHTLY");
     const finishedAt = nowIso();
     const detail = JSON.stringify({
       refreshedCount: plan.refreshedItemIds.length,

@@ -114,7 +114,7 @@ describe("planReplacementCostRefresh (C-3, SEMI_FINISHED/FINISHED)", () => {
     const masa = await seedItem(db, "SEMI_FINISHED");
     await seedDefaultRecipe(db, masa.id, 1000, [{ itemId: flour.id, qty: 500 }]);
 
-    const plan = await planReplacementCostRefresh(db);
+    const plan = await planReplacementCostRefresh(db, "MANUAL");
     expect(plan.refreshedItemIds).toContain(masa.id);
     expect(plan.skippedItemIds).not.toContain(masa.id);
 
@@ -124,6 +124,15 @@ describe("planReplacementCostRefresh (C-3, SEMI_FINISHED/FINISHED)", () => {
     // 500 * 12 / 1000 = 6 centavos/milli-unit.
     expect(updated.replacementCostMc).toBe(6);
     expect(updated.replacementCostUpdatedAt).not.toBeNull();
+    const observations = await db.query.replacementCostHistory.findMany({
+      where: (t, { eq: eqOp }) => eqOp(t.itemId, masa.id),
+    });
+    expect(observations).toHaveLength(1);
+    expect(observations[0]).toMatchObject({
+      replacementCostMc: 6,
+      observedAt: updated.replacementCostUpdatedAt,
+      source: "MANUAL",
+    });
   });
 
   it("rolls up opening-balance WAC from a never-purchased leaf ingredient", async () => {
@@ -132,7 +141,7 @@ describe("planReplacementCostRefresh (C-3, SEMI_FINISHED/FINISHED)", () => {
     const masa = await seedItem(db, "SEMI_FINISHED");
     await seedDefaultRecipe(db, masa.id, 1000, [{ itemId: flour.id, qty: 500 }]);
 
-    const plan = await planReplacementCostRefresh(db);
+    const plan = await planReplacementCostRefresh(db, "MANUAL");
     await db.batch(plan.statements as [Statement, ...Statement[]]);
 
     const storedFlour = await readItem(db, flour.id);
@@ -150,7 +159,7 @@ describe("planReplacementCostRefresh (C-3, SEMI_FINISHED/FINISHED)", () => {
     await seedDefaultRecipe(db, masa.id, 1000, [{ itemId: flour.id, qty: 500 }]);
     await seedDefaultRecipe(db, pan.id, 500, [{ itemId: masa.id, qty: 500 }]);
 
-    const plan = await planReplacementCostRefresh(db);
+    const plan = await planReplacementCostRefresh(db, "MANUAL");
     expect(plan.refreshedItemIds.indexOf(masa.id)).toBeLessThan(
       plan.refreshedItemIds.indexOf(pan.id),
     );
@@ -169,7 +178,7 @@ describe("planReplacementCostRefresh (C-3, SEMI_FINISHED/FINISHED)", () => {
     const db = createDb(env.DB);
     const orphan = await seedItem(db, "FINISHED", 999);
 
-    const plan = await planReplacementCostRefresh(db);
+    const plan = await planReplacementCostRefresh(db, "MANUAL");
     expect(plan.skippedItemIds).toContain(orphan.id);
     expect(plan.refreshedItemIds).not.toContain(orphan.id);
 
@@ -181,7 +190,7 @@ describe("planReplacementCostRefresh (C-3, SEMI_FINISHED/FINISHED)", () => {
     const db = createDb(env.DB);
     const flour = await seedItem(db, "RAW_MATERIAL", 12);
 
-    const plan = await planReplacementCostRefresh(db);
+    const plan = await planReplacementCostRefresh(db, "MANUAL");
     expect(plan.refreshedItemIds).not.toContain(flour.id);
     expect(plan.skippedItemIds).not.toContain(flour.id);
   });
@@ -237,7 +246,7 @@ describe("planReplacementCostRefresh (C-3d, presentations and combos)", () => {
       components.map((component) => ({ itemId: component.id, qty: 1000 })),
     );
 
-    const plan = await planReplacementCostRefresh(db);
+    const plan = await planReplacementCostRefresh(db, "MANUAL");
     await db.batch(plan.statements as [Statement, ...Statement[]]);
 
     const updated = await readItem(db, output.id);
@@ -268,7 +277,7 @@ describe("planReplacementCostRefresh (C-3d, presentations and combos)", () => {
       { itemId: assemblyComponent.id, qty: 1000 },
     ]);
 
-    const plan = await planReplacementCostRefresh(db);
+    const plan = await planReplacementCostRefresh(db, "MANUAL");
     await db.batch(plan.statements as [Statement, ...Statement[]]);
 
     expect((await readItem(db, output.id)).replacementCostMc).toBe(9_000_000);
@@ -282,7 +291,7 @@ describe("planReplacementCostRefresh (C-3d, presentations and combos)", () => {
     await seedAssemblyDefinition(db, presentation.id, 1000, [{ itemId: component.id, qty: 1000 }]);
     await seedAssemblyDefinition(db, combo.id, 1000, [{ itemId: presentation.id, qty: 2000 }]);
 
-    const plan = await planReplacementCostRefresh(db);
+    const plan = await planReplacementCostRefresh(db, "MANUAL");
     expect(plan.refreshedItemIds.indexOf(presentation.id)).toBeLessThan(
       plan.refreshedItemIds.indexOf(combo.id),
     );
@@ -315,6 +324,22 @@ describe("runReplacementCostRefresh (the nightly Cron Trigger job)", () => {
 
     const updated = await readItem(db, masa.id);
     expect(updated.replacementCostMc).toBe(10);
+    const observations = await db.query.replacementCostHistory.findMany({
+      where: (t, { eq: eqOp }) => eqOp(t.itemId, masa.id),
+    });
+    expect(observations).toHaveLength(1);
+    expect(observations[0]).toMatchObject({
+      replacementCostMc: 10,
+      observedAt: updated.replacementCostUpdatedAt,
+      source: "NIGHTLY",
+    });
+
+    await runReplacementCostRefresh(db);
+    expect(
+      await db.query.replacementCostHistory.findMany({
+        where: (t, { eq: eqOp }) => eqOp(t.itemId, masa.id),
+      }),
+    ).toHaveLength(1);
   });
 
   it("writes an ok=0 job_runs row instead of throwing when the recipe book has a cycle", async () => {
