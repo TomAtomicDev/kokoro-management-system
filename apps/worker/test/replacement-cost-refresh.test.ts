@@ -203,7 +203,7 @@ describe("planReplacementCostRefresh (C-3d, presentations and combos)", () => {
     const output = await seedItem(db, "FINISHED");
     await seedAssemblyDefinition(db, output.id, 1000, [{ itemId: packaging.id, qty: 1000 }], false);
 
-    const plan = await planReplacementCostRefresh(db);
+    const plan = await planReplacementCostRefresh(db, "MANUAL");
 
     expect(plan.refreshedItemIds).toContain(output.id);
     expect(plan.skippedItemIds).not.toContain(output.id);
@@ -223,7 +223,7 @@ describe("planReplacementCostRefresh (C-3d, presentations and combos)", () => {
       false,
     );
 
-    const plan = await planReplacementCostRefresh(db);
+    const plan = await planReplacementCostRefresh(db, "MANUAL");
     await db.batch(plan.statements as [Statement, ...Statement[]]);
 
     expect((await readItem(db, output.id)).replacementCostMc).toBe(4_000_000);
