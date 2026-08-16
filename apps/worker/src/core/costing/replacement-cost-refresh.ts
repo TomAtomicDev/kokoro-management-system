@@ -67,9 +67,10 @@ interface DefaultRecipeInfo {
   lines: readonly { itemId: string; qty: number }[];
 }
 
-interface DefaultAssemblyDefinitionInfo {
+interface AssemblyDefinitionInfo {
   outputQty: number;
   lines: readonly { itemId: string; qty: number }[];
+  isDefault: boolean;
 }
 
 interface CostSource {
@@ -80,7 +81,8 @@ interface CostSource {
 
 /**
  * Plans (does not execute) the C-3 replacement-cost refresh for every active SEMI_FINISHED/
- * FINISHED item that has an active default recipe or assembly definition. See this module's
+ * FINISHED item that has an active default recipe or any active assembly definition. See this
+ * module's
  * dependency-
  * order reasoning and the two call sites that share this planner.
  */
@@ -121,10 +123,11 @@ export async function planReplacementCostRefresh(
     });
   }
 
-  const defaultAssemblyDefinitionRows = await db.query.assemblyDefinitions.findMany({
-    where: (t, { and: andOp, eq: eqOp }) => andOp(eqOp(t.isDefault, 1), eqOp(t.isActive, 1)),
+  const activeAssemblyDefinitionRows = await db.query.assemblyDefinitions.findMany({
+    where: (t, { eq: eqOp }) => eqOp(t.isActive, 1),
+    orderBy: (t, { asc }) => [asc(t.createdAt), asc(t.id)],
   });
-  const definitionIds = defaultAssemblyDefinitionRows.map((definition) => definition.id);
+  const definitionIds = activeAssemblyDefinitionRows.map((definition) => definition.id);
   const definitionLineRows =
     definitionIds.length > 0
       ? await db.query.assemblyDefinitionLines.findMany({
@@ -138,11 +141,14 @@ export async function planReplacementCostRefresh(
     linesByDefinitionId.set(line.definitionId, lines);
   }
 
-  const assemblyDefinitionByOutputItemId = new Map<string, DefaultAssemblyDefinitionInfo>();
-  for (const definition of defaultAssemblyDefinitionRows) {
+  const assemblyDefinitionByOutputItemId = new Map<string, AssemblyDefinitionInfo>();
+  for (const definition of activeAssemblyDefinitionRows) {
+    const existing = assemblyDefinitionByOutputItemId.get(definition.outputItemId);
+    if (existing?.isDefault || (existing && definition.isDefault !== 1)) continue;
     assemblyDefinitionByOutputItemId.set(definition.outputItemId, {
       outputQty: definition.outputQty,
       lines: linesByDefinitionId.get(definition.id) ?? [],
+      isDefault: definition.isDefault === 1,
     });
   }
 

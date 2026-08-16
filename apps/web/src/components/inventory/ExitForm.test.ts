@@ -1,7 +1,7 @@
 import type { StockExitDto } from "@kokoro/shared";
 import { describe, expect, it } from "vitest";
 
-import { exitFormInitialState } from "./ExitForm";
+import { exitFormInitialState, hasActiveAssemblyDefinition } from "./ExitForm";
 
 // `exitFormInitialState` is the (absent -> blank create state) / (StockExitDto -> edit-mode
 // prefill) mapper ExitForm's local state is seeded from. Exercised as a plain function, same
@@ -85,5 +85,16 @@ describe("exitFormInitialState", () => {
       throw new Error("nowIsoFn must not be called in edit mode");
     });
     expect(state.businessDate).toBe("2020-01-01");
+  });
+});
+
+describe("hasActiveAssemblyDefinition", () => {
+  it("treats an active non-default definition as an assembled presentation", () => {
+    expect(hasActiveAssemblyDefinition([{ isActive: true, isDefault: false }])).toBe(true);
+  });
+
+  it("does not treat missing or inactive definitions as an assembled presentation", () => {
+    expect(hasActiveAssemblyDefinition(undefined)).toBe(false);
+    expect(hasActiveAssemblyDefinition([{ isActive: false, isDefault: true }])).toBe(false);
   });
 });

@@ -204,6 +204,54 @@ describe("assembly definition CRUD", () => {
     ).toBe(false);
     expect(second.assemblyDefinition.isDefault).toBe(true);
   });
+
+  it("clears the previous active default when another definition is updated to default", async () => {
+    const db = createDb(env.DB);
+    const output = await createFinished(db);
+    const component = await createComponent(db);
+    const first = await recordAssemblyDefinition(
+      db,
+      {
+        name: `Predeterminada ${crypto.randomUUID()}`,
+        outputItemId: output.id,
+        outputQty: 1000,
+        isDefault: true,
+        lines: [{ itemId: component.id, qty: 1000 }],
+      },
+      ACTOR,
+    );
+    const second = await recordAssemblyDefinition(
+      db,
+      {
+        name: `Alternativa ${crypto.randomUUID()}`,
+        outputItemId: output.id,
+        outputQty: 1000,
+        isDefault: false,
+        lines: [{ itemId: component.id, qty: 1000 }],
+      },
+      ACTOR,
+    );
+
+    await updateAssemblyDefinition(
+      db,
+      second.assemblyDefinition.id,
+      {
+        name: second.assemblyDefinition.name,
+        outputItemId: output.id,
+        outputQty: 1000,
+        isDefault: true,
+        lines: [{ itemId: component.id, qty: 1000 }],
+      },
+      ACTOR,
+    );
+
+    expect(
+      (await getAssemblyDefinition(db, first.assemblyDefinition.id)).assemblyDefinition.isDefault,
+    ).toBe(false);
+    expect(
+      (await getAssemblyDefinition(db, second.assemblyDefinition.id)).assemblyDefinition.isDefault,
+    ).toBe(true);
+  });
 });
 
 describe("assembly definition guards", () => {

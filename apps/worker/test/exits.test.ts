@@ -1808,7 +1808,7 @@ describe("stock-exit packaging lines (KOK-128)", () => {
     ).toBe(2_500_000);
   });
 
-  it("rejects a non-PACKAGING child and any child on an assembled presentation", async () => {
+  it("rejects a non-PACKAGING child and any child on a presentation with a non-default definition", async () => {
     const db = createDb(env.DB);
     const raw = await seedItem(db, "Exit packaging invalid raw");
     const main = await seedItem(db, "Exit packaging validation main");
@@ -1844,7 +1844,7 @@ describe("stock-exit packaging lines (KOK-128)", () => {
         name: "Exit assembled presentation definition",
         outputItemId: presentation.id,
         outputQty: 1000,
-        isDefault: true,
+        isDefault: false,
         lines: [{ itemId: bag.id, qty: 1000 }],
       },
       ACTOR,
