@@ -8,12 +8,20 @@ export const assembliesLabels = {
   backToPacking: "Envasar",
 
   fieldDefinition: "Definición",
-  definitionPlaceholder: "Sin definición (entrada manual)",
+  definitionPlaceholder: "Sin plantilla — cargar componentes a mano",
+  definitionTooltip:
+    "Una definición es una plantilla reutilizable que completa el producto de salida y sus componentes.",
+  definitionTooltipLabel: "Más información sobre la definición",
+  definitionEmpty:
+    "Una definición es una plantilla reutilizable, como Pan integral + bolsa + etiqueta + cordel, que completa este formulario.",
+  definitionCreate: "Crear una definición",
   fieldOutputItem: "Producto de salida",
   outputItemPlaceholder: "Selecciona un producto terminado",
+  outputItemUnit: (unit: string) => `Unidad: ${unit}`,
   fieldDate: "Fecha",
   fieldPlannedOutputQty: "Salida planificada",
   fieldActualOutputQty: "Salida real",
+  actualOutputUnit: (unit: string, itemName: string) => `${unit} de ${itemName}`,
   fieldNotes: "Notas",
   notesPlaceholder: "Opcional",
 
