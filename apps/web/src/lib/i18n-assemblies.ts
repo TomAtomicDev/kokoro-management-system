@@ -15,6 +15,7 @@ export const assembliesLabels = {
   linesTitle: "Componentes consumidos",
   lineItem: "Componente",
   lineQty: "Cantidad",
+  unit: "Unidad",
   addLine: "Agregar componente",
   removeLine: "Quitar componente",
   lineContribution: "Aporte al costo",

@@ -9,12 +9,14 @@ import type {
   FinancialAccountDto,
   ItemDto,
   PurchaseDto,
+  QtyDisplayUnit,
   RecordPurchaseCommand,
   RecordPurchaseResult,
   UpdatePurchaseCommand,
   UpdatePurchaseResult,
 } from "@kokoro/shared";
 import {
+  defaultDisplayUnitFor,
   formatMoney,
   nowIso,
   rateFromTotal,
@@ -29,6 +31,7 @@ import {
 import { type ChangeEvent, useEffect, useMemo, useState } from "react";
 
 import { LineEditor, type LineEditorLine } from "@/components/line-editor/LineEditor";
+import { parseLineQuantityToMilliUnits } from "@/components/line-editor/line-editor-quantity";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { ImpactConfirmDialog } from "@/components/ui/ImpactConfirmDialog";
@@ -65,10 +68,11 @@ interface PurchaseLineValue extends LineEditorLine {
   qty: string;
   /** Line-total centavos decimal string (scale 2). */
   amount: string;
+  unit: QtyDisplayUnit | null;
 }
 
 function emptyLine(): PurchaseLineValue {
-  return { itemId: null, qty: "", amount: "" };
+  return { itemId: null, qty: "", amount: "", unit: null };
 }
 
 interface PurchaseFormState {
@@ -99,6 +103,7 @@ export function purchaseToFormState(purchase: PurchaseDto): PurchaseFormState {
             itemId: line.itemId,
             qty: formatIntAsDecimalInput(line.qty, 3),
             amount: formatIntAsDecimalInput(line.lineTotal, 2),
+            unit: null,
           }))
         : [emptyLine()],
     photoKey: purchase.receiptPhotoKey,
@@ -208,7 +213,8 @@ export function PurchaseForm({
 
     const parsedLines: { itemId: string; qty: number; lineTotal: number }[] = [];
     for (const line of lines) {
-      const qty = parseDecimalToInt(line.qty, 3);
+      const item = line.itemId ? itemsById.get(line.itemId) : undefined;
+      const qty = item ? parseLineQuantityToMilliUnits(line.qty, line.unit, item.unit) : null;
       const lineTotal = parseDecimalToInt(line.amount, 2);
       if (!line.itemId || qty === null || qty <= 0 || lineTotal === null) {
         setError(purchasesLabels.errors.invalidLine);
@@ -261,7 +267,7 @@ export function PurchaseForm({
     const item = line.itemId ? itemsById.get(line.itemId) : undefined;
     if (!item) return null;
 
-    const qty = parseDecimalToInt(line.qty, 3);
+    const qty = item ? parseLineQuantityToMilliUnits(line.qty, line.unit, item.unit) : null;
     const lineTotal = parseDecimalToInt(line.amount, 2);
     if (qty === null || qty <= 0 || lineTotal === null) {
       return (
@@ -303,7 +309,12 @@ export function PurchaseForm({
 
   return (
     <>
-      <Dialog open={open} onOpenChange={onOpenChange} aria-label={dialogTitle}>
+      <Dialog
+        open={open}
+        onOpenChange={onOpenChange}
+        aria-label={dialogTitle}
+        className="max-w-4xl"
+      >
         <div className="border-border border-b px-5 py-4">
           <h2 className="font-medium text-foreground text-md">{dialogTitle}</h2>
         </div>
@@ -396,6 +407,21 @@ export function PurchaseForm({
               onChange={setLines}
               createLine={emptyLine}
               disabled={disabled}
+              getItemUnit={(itemId) => itemsById.get(itemId)?.unit}
+              unitSelector={{
+                getValue: (line) => line.unit,
+                onChange: (index, unit) =>
+                  setLines((currentLines) =>
+                    currentLines.map((line, lineIndex) =>
+                      lineIndex === index ? { ...line, unit } : line,
+                    ),
+                  ),
+                label: purchasesLabels.unit,
+              }}
+              onItemChange={(_index, itemId) => {
+                const item = itemId ? itemsById.get(itemId) : undefined;
+                return { qty: "", unit: item ? defaultDisplayUnitFor(item.unit) : null };
+              }}
               labels={{
                 item: purchasesLabels.lineItem,
                 qty: purchasesLabels.lineQty,

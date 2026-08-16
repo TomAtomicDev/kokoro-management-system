@@ -47,8 +47,8 @@ describe("purchaseToFormState", () => {
     // qty is milli-units (scale 3): 2000 -> "2", 500 -> "0.5".
     // lineTotal is centavos (scale 2): 1000 -> "10", 500 -> "5".
     expect(state.lines).toEqual([
-      { itemId: "item-1", qty: "2", amount: "10" },
-      { itemId: "item-2", qty: "0.5", amount: "5" },
+      { itemId: "item-1", qty: "2", amount: "10", unit: null },
+      { itemId: "item-2", qty: "0.5", amount: "5", unit: null },
     ]);
   });
 
@@ -62,7 +62,7 @@ describe("purchaseToFormState", () => {
   it("falls back to a single empty line when the purchase somehow has none", () => {
     const state = purchaseToFormState(purchase({ lines: [] }));
 
-    expect(state.lines).toEqual([{ itemId: null, qty: "", amount: "" }]);
+    expect(state.lines).toEqual([{ itemId: null, qty: "", amount: "", unit: null }]);
   });
 
   it("passes a null receiptPhotoKey through unchanged", () => {
