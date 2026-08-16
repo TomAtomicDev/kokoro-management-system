@@ -37,6 +37,7 @@ export const purchasesLabels = {
   linesTitle: "Artículos comprados",
   lineItem: "Ítem",
   lineQty: "Cantidad",
+  unit: "Unidad",
   lineTotal: "Total de línea (Bs)",
   addLine: "Agregar línea",
   removeLine: "Quitar línea",

@@ -421,7 +421,12 @@ export function SaleForm({ open, onOpenChange, accounts, sale }: SaleFormProps) 
 
   return (
     <>
-      <Dialog open={open} onOpenChange={onOpenChange} aria-label={dialogTitle}>
+      <Dialog
+        open={open}
+        onOpenChange={onOpenChange}
+        aria-label={dialogTitle}
+        className="max-w-4xl"
+      >
         <div className="border-border border-b px-5 py-4">
           <h2 className="font-medium text-foreground text-md">{dialogTitle}</h2>
         </div>
@@ -484,6 +489,7 @@ export function SaleForm({ open, onOpenChange, accounts, sale }: SaleFormProps) 
               createLine={emptyLine}
               disabled={disabled}
               itemKindFilter="FINISHED"
+              getItemUnit={(itemId) => itemsById.get(itemId)?.unit}
               labels={{
                 item: salesLabels.lineItem,
                 qty: salesLabels.lineQty,

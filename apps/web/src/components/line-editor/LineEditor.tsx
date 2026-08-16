@@ -10,13 +10,20 @@
 // `showAmount={false}` to hide the amount column entirely; omit it (or pass `true`) and behavior
 // is unchanged from before recipes existed — purchases doesn't pass either prop.
 
-import type { ItemKind } from "@kokoro/shared";
+import {
+  compatibleUnitsFor,
+  displayUnitLabel,
+  type ItemKind,
+  type QtyDisplayUnit,
+  type Unit,
+} from "@kokoro/shared";
 import { X } from "lucide-react";
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 
 import { ItemPicker } from "@/components/catalog/ItemPicker";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 
 /** Minimum shape a line editor row needs. Callers extend this with their own domain fields, if
  * any (purchases don't need to — itemId/qty/amount is the whole line). */
@@ -32,12 +39,20 @@ export interface LineEditorLine {
 export interface LineEditorLabels {
   item: string;
   qty: string;
+  unit?: string;
   /** Unused (and safe to omit) when the caller passes `showAmount={false}`. */
   amount?: string;
   addLine: string;
   removeLine: string;
   qtyPlaceholder?: string;
   amountPlaceholder?: string;
+}
+
+export interface LineEditorUnitSelector<T extends LineEditorLine> {
+  /** The selected display unit stored by the caller, or null for a newly selected item. */
+  getValue: (line: T) => QtyDisplayUnit | null;
+  onChange: (index: number, unit: QtyDisplayUnit) => void;
+  label: string;
 }
 
 export interface LineEditorProps<T extends LineEditorLine> {
@@ -57,6 +72,10 @@ export interface LineEditorProps<T extends LineEditorLine> {
   /** Passed straight through to each row's ItemPicker. An array means "any of these kinds"
    * (ItemPicker filters client-side since `GET /items` only accepts one `kind`). */
   itemKindFilter?: ItemKind | ItemKind[];
+  /** Resolves an item's canonical unit for the unit suffix or opt-in display-unit selector. */
+  getItemUnit?: (itemId: string) => Unit | undefined;
+  /** Opt in to a per-line display-unit selector. Omit to show the canonical unit suffix. */
+  unitSelector?: LineEditorUnitSelector<T>;
   /** Show the amount input column. Defaults to `true` (purchases' original, unchanged behavior);
    * recipes pass `false` since a recipe line has no per-line money. */
   showAmount?: boolean;
@@ -71,9 +90,20 @@ export function LineEditor<T extends LineEditorLine>({
   onItemChange,
   disabled,
   itemKindFilter,
+  getItemUnit,
+  unitSelector,
   showAmount = true,
 }: LineEditorProps<T>) {
   const amountLabel = labels.amount ?? "Aporte al costo";
+  const [selectedItemUnits, setSelectedItemUnits] = useState<Map<string, Unit>>(() => new Map());
+
+  const gridColumns = showAmount
+    ? renderExtraColumns
+      ? "grid-cols-[minmax(0,1fr)_9rem_10rem_12rem_2.75rem]"
+      : "grid-cols-[minmax(0,1fr)_9rem_10rem_2.75rem]"
+    : renderExtraColumns
+      ? "grid-cols-[minmax(0,1fr)_9rem_12rem_2.75rem]"
+      : "grid-cols-[minmax(0,1fr)_9rem_2.75rem]";
 
   function updateLine(index: number, patch: Partial<T>) {
     onChange(lines.map((line, i) => (i === index ? { ...line, ...patch } : line)));
@@ -87,14 +117,21 @@ export function LineEditor<T extends LineEditorLine>({
     onChange([...lines, createLine()]);
   }
 
+  function itemUnitFor(line: T): Unit | undefined {
+    if (!line.itemId) return undefined;
+    return getItemUnit?.(line.itemId) ?? selectedItemUnits.get(line.itemId);
+  }
+
   return (
     <div className="flex flex-col gap-3">
-      <div className="hidden items-center gap-2 px-3 font-medium text-muted-foreground text-xs sm:flex">
-        <span className="flex-1 sm:min-w-40">{labels.item}</span>
-        <span className="w-full sm:w-36">{labels.qty}</span>
-        {showAmount ? <span className="w-full sm:w-40">{amountLabel}</span> : null}
+      <div
+        className={`hidden ${gridColumns} items-center gap-2 px-3 font-medium text-muted-foreground text-xs sm:grid`}
+      >
+        <span className="min-w-0">{labels.item}</span>
+        <span className="min-w-0">{labels.qty}</span>
+        {showAmount ? <span className="min-w-0">{amountLabel}</span> : null}
         {renderExtraColumns ? (
-          <span className="flex-1 sm:min-w-40">{showAmount ? null : amountLabel}</span>
+          <span className="min-w-0">{showAmount ? null : amountLabel}</span>
         ) : null}
         <span className="size-9" aria-hidden="true" />
       </div>
@@ -106,12 +143,20 @@ export function LineEditor<T extends LineEditorLine>({
             // appended/removed here, never reordered, so index-as-key is safe.
             // biome-ignore lint/suspicious/noArrayIndexKey: see comment above.
             key={index}
-            className="flex flex-col gap-2 rounded-md border border-border p-3 sm:flex-row sm:items-start"
+            className={`flex flex-col gap-2 rounded-md border border-border p-3 sm:grid sm:items-start ${gridColumns}`}
           >
-            <div className="flex-1 sm:min-w-40">
+            <div className="min-w-0">
               <ItemPicker
                 value={line.itemId}
-                onChange={(itemId) => {
+                onChange={(itemId, item) => {
+                  if (item) {
+                    setSelectedItemUnits((current) => {
+                      if (current.get(item.id) === item.unit) return current;
+                      const next = new Map(current);
+                      next.set(item.id, item.unit);
+                      return next;
+                    });
+                  }
                   const extraPatch = onItemChange?.(index, itemId);
                   updateLine(index, { itemId, ...extraPatch } as Partial<T>);
                 }}
@@ -120,27 +165,58 @@ export function LineEditor<T extends LineEditorLine>({
                 placeholder={labels.item}
               />
             </div>
-            <div className="w-full sm:w-36">
+            <div className="min-w-0">
               <span className="mb-1 block font-medium text-muted-foreground text-xs sm:hidden">
                 {labels.qty}
               </span>
-              <Input
-                className="w-full min-w-32"
-                inputMode="decimal"
-                aria-label={labels.qty}
-                placeholder={labels.qtyPlaceholder ?? "0"}
-                value={line.qty}
-                onChange={(event) => updateLine(index, { qty: event.target.value } as Partial<T>)}
-                disabled={disabled}
-              />
+              <div className="flex min-w-0 items-center gap-1.5">
+                <Input
+                  className="min-w-0 flex-1"
+                  inputMode="decimal"
+                  aria-label={labels.qty}
+                  placeholder={labels.qtyPlaceholder ?? "0"}
+                  value={line.qty}
+                  onChange={(event) => updateLine(index, { qty: event.target.value } as Partial<T>)}
+                  disabled={disabled}
+                />
+                {(() => {
+                  const canonicalUnit = itemUnitFor(line);
+                  if (!canonicalUnit) return null;
+                  if (!unitSelector) {
+                    return (
+                      <span className="shrink-0 text-muted-foreground text-xs">
+                        {displayUnitLabel(canonicalUnit)}
+                      </span>
+                    );
+                  }
+                  const selectedUnit = unitSelector.getValue(line) ?? canonicalUnit;
+                  return (
+                    <Select
+                      aria-label={`${labels.qty} — ${unitSelector.label}`}
+                      className="h-9 w-24 shrink-0 px-2 text-xs sm:w-28"
+                      value={selectedUnit}
+                      onChange={(event) =>
+                        unitSelector.onChange(index, event.target.value as QtyDisplayUnit)
+                      }
+                      disabled={disabled}
+                    >
+                      {compatibleUnitsFor(canonicalUnit).map((unit) => (
+                        <option key={unit} value={unit}>
+                          {displayUnitLabel(unit)}
+                        </option>
+                      ))}
+                    </Select>
+                  );
+                })()}
+              </div>
             </div>
             {showAmount ? (
-              <div className="w-full sm:w-40">
+              <div className="min-w-0">
                 <span className="mb-1 block font-medium text-muted-foreground text-xs sm:hidden">
                   {amountLabel}
                 </span>
                 <Input
-                  className="w-full min-w-36"
+                  className="min-w-0"
                   inputMode="decimal"
                   aria-label={amountLabel}
                   placeholder={labels.amountPlaceholder ?? "0.00"}
@@ -153,12 +229,13 @@ export function LineEditor<T extends LineEditorLine>({
               </div>
             ) : null}
             {renderExtraColumns ? (
-              <div className="flex-1 sm:min-w-40">{renderExtraColumns(line, index)}</div>
+              <div className="min-w-0">{renderExtraColumns(line, index)}</div>
             ) : null}
             <Button
               type="button"
               variant="ghost"
               size="icon"
+              className="size-11 justify-self-start sm:justify-self-center"
               onClick={() => removeLine(index)}
               disabled={disabled}
               aria-label={labels.removeLine}
