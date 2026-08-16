@@ -136,7 +136,7 @@ export function PurchaseDetailDrawer({
           <p className="text-muted-foreground text-sm">{purchasesLabels.loading}</p>
         ) : (
           <div className="flex flex-col gap-5 text-sm">
-            <div className="flex items-center justify-end gap-2">
+            <div className="flex flex-wrap items-center justify-end gap-2">
               <Button
                 type="button"
                 variant="outline"

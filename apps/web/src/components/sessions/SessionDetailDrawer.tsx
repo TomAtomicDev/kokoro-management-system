@@ -189,11 +189,11 @@ export function SessionDetailDrawer({
           <p className="text-muted-foreground text-sm">{sessionsLabels.loading}</p>
         ) : (
           <div className="flex flex-col gap-5 text-sm">
-            <div className="flex items-center justify-between gap-2">
-              <Badge variant={session.status === "OPEN" ? "default" : "muted"}>
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <Badge className="shrink-0" variant={session.status === "OPEN" ? "default" : "muted"}>
                 {sessionsLabels.statusLabels[session.status]}
               </Badge>
-              <div className="flex items-center gap-2">
+              <div className="flex min-w-0 basis-full flex-wrap items-center justify-end gap-2 sm:flex-1 sm:basis-auto">
                 {session.type === "PRODUCTION" ? (
                   <Button
                     type="button"
