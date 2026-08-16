@@ -53,6 +53,9 @@ export interface LineEditorUnitSelector<T extends LineEditorLine> {
   getValue: (line: T) => QtyDisplayUnit | null;
   onChange: (index: number, unit: QtyDisplayUnit) => void;
   label: string;
+  /** Overrides each option's text (default: the shared package's short abbreviation, e.g. "g").
+   * Recipes pass the full Spanish label ("Gramos (g)") to match the rest of the form. */
+  optionLabel?: (unit: QtyDisplayUnit) => string;
 }
 
 export interface LineEditorProps<T extends LineEditorLine> {
@@ -202,7 +205,7 @@ export function LineEditor<T extends LineEditorLine>({
                     >
                       {compatibleUnitsFor(canonicalUnit).map((unit) => (
                         <option key={unit} value={unit}>
-                          {displayUnitLabel(unit)}
+                          {(unitSelector.optionLabel ?? displayUnitLabel)(unit)}
                         </option>
                       ))}
                     </Select>
