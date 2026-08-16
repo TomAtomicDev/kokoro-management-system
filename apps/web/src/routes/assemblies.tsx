@@ -4,6 +4,8 @@ import type {
   QtyDisplayUnit,
   RecordAssemblyCommand,
   RecordAssemblyResult,
+  UpdateAssemblyCommand,
+  UpdateAssemblyResult,
 } from "@kokoro/shared";
 import {
   defaultDisplayUnitFor,
@@ -17,11 +19,12 @@ import {
   toMilliCentavosPerUnit,
   toMilliUnits,
   totalCentavos,
+  updateAssemblyCommandSchema,
   WHOLE_UNIT_MILLI_UNITS,
 } from "@kokoro/shared";
 import { getRouteApi, Link, useNavigate } from "@tanstack/react-router";
 import { AlertTriangle, Check, ChevronLeft, Minus } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { ItemPicker } from "@/components/catalog/ItemPicker";
 import { CalcTrace, type CalcTraceInput } from "@/components/common/CalcTrace";
@@ -33,8 +36,8 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { ImpactConfirmDialog } from "@/components/ui/ImpactConfirmDialog";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { useRecordAssembly } from "@/features/assemblies/api";
-import { useAssemblyDefinitions } from "@/features/assembly-definitions/api";
+import { useAssembly, useRecordAssembly, useUpdateAssembly } from "@/features/assemblies/api";
+import { useAssemblyDefinition, useAssemblyDefinitions } from "@/features/assembly-definitions/api";
 import { useItemsQuery } from "@/features/catalog/api";
 import { useStock } from "@/features/inventory/api";
 import { useReplayConfirmableMutation } from "@/hooks/useReplayConfirmableMutation";
@@ -44,7 +47,8 @@ import { assembliesLabels } from "@/lib/i18n-assemblies";
 import { catalogLabels } from "@/lib/i18n-catalog";
 import { ordersLabels } from "@/lib/i18n-orders";
 
-const routeApi = getRouteApi("/_authenticated/production/assemblies/new");
+const recordRouteApi = getRouteApi("/_authenticated/packing/new");
+const editRouteApi = getRouteApi("/_authenticated/packing/$assemblyId/edit");
 
 interface AssemblyLineValue extends LineEditorLine {
   lineKey: string;
@@ -65,7 +69,16 @@ function emptyLine(): AssemblyLineValue {
 }
 
 export function AssemblyRecordRoute() {
-  const { sessionId } = routeApi.useSearch();
+  const { sessionId } = recordRouteApi.useSearch();
+  return <AssemblyForm sessionId={sessionId} />;
+}
+
+export function AssemblyEditRoute() {
+  const { assemblyId } = editRouteApi.useParams();
+  return <AssemblyForm assemblyId={assemblyId} />;
+}
+
+function AssemblyForm({ sessionId, assemblyId }: { sessionId?: string; assemblyId?: string }) {
   const navigate = useNavigate();
 
   const [definitionId, setDefinitionId] = useState("");
@@ -81,15 +94,31 @@ export function AssemblyRecordRoute() {
   const dirtyLineKeysRef = useRef(new Set<string>());
 
   const createMutation = useRecordAssembly();
+  const updateMutation = useUpdateAssembly(assemblyId ?? "");
+  const assemblyQuery = useAssembly(assemblyId);
+  const assembly = assemblyQuery.data?.assembly;
+  const isEditMode = Boolean(assemblyId);
   const createReplay = useReplayConfirmableMutation<RecordAssemblyCommand, RecordAssemblyResult>(
     (command) => createMutation.mutateAsync(command),
     {
-      onSuccess: () => navigate({ to: "/production" }),
+      onSuccess: () => navigate({ to: "/packing" }),
     },
+  );
+  const editReplay = useReplayConfirmableMutation<UpdateAssemblyCommand, UpdateAssemblyResult>(
+    (command) => updateMutation.mutateAsync(command),
+    { onSuccess: () => navigate({ to: "/packing" }) },
   );
 
   const definitionsQuery = useAssemblyDefinitions({ isActive: true });
-  const definitions = definitionsQuery.data?.assemblyDefinitions ?? [];
+  const editingDefinitionQuery = useAssemblyDefinition(
+    isEditMode ? (assembly?.definitionId ?? undefined) : undefined,
+  );
+  const definitions = useMemo(() => {
+    const activeDefinitions = definitionsQuery.data?.assemblyDefinitions ?? [];
+    const editingDefinition = editingDefinitionQuery.data?.assemblyDefinition;
+    if (!editingDefinition || editingDefinition.isActive) return activeDefinitions;
+    return [...activeDefinitions, editingDefinition];
+  }, [definitionsQuery.data, editingDefinitionQuery.data]);
   const definitionsById = useMemo(() => {
     const map = new Map<string, AssemblyDefinitionDto>();
     for (const definition of definitions) map.set(definition.id, definition);
@@ -114,7 +143,30 @@ export function AssemblyRecordRoute() {
 
   const selectedDefinition = definitionId ? (definitionsById.get(definitionId) ?? null) : null;
   const outputItem = outputItemId ? (itemsById.get(outputItemId) ?? null) : null;
-  const disabled = createReplay.isPending;
+  const disabled = createReplay.isPending || editReplay.isPending;
+
+  useEffect(() => {
+    if (!assembly) return;
+    setDefinitionId(assembly.definitionId ?? "");
+    setCustomOrderId(assembly.customOrderId);
+    setOutputItemId(assembly.outputItemId);
+    setPlannedOutputQty(
+      assembly.plannedOutputQty === null
+        ? ""
+        : formatIntAsDecimalInput(assembly.plannedOutputQty, 3),
+    );
+    setActualOutputQty(formatIntAsDecimalInput(assembly.actualOutputQty, 3));
+    setBusinessDate(assembly.businessDate);
+    setNotes(assembly.notes ?? "");
+    setLines(
+      assembly.lines.map((line) => ({
+        lineKey: line.id,
+        itemId: line.itemId,
+        qty: formatIntAsDecimalInput(line.qty, 3),
+        unit: null,
+      })),
+    );
+  }, [assembly]);
 
   function handleDefinitionChange(nextDefinitionId: string) {
     setDefinitionId(nextDefinitionId);
@@ -295,31 +347,36 @@ export function AssemblyRecordRoute() {
       parsedLines.push({ itemId: line.itemId, qty });
     }
 
-    const parsed = recordAssemblyCommandSchema.safeParse({
+    const command = {
       definitionId: definitionId || undefined,
       customOrderId: customOrderId ?? undefined,
-      sessionId,
+      sessionId: assembly?.sessionId ?? sessionId,
       outputItemId,
       plannedOutputQty: plannedOutputQtyValue,
       actualOutputQty: actualOutputQtyValue,
       notes: notes.trim() === "" ? undefined : notes.trim(),
-      occurredAt: nowIso(),
+      occurredAt: assembly?.occurredAt ?? nowIso(),
       businessDate,
       lines: parsedLines,
-    });
+    };
+    const parsed = (
+      isEditMode ? updateAssemblyCommandSchema : recordAssemblyCommandSchema
+    ).safeParse(command);
     if (!parsed.success) {
       setError(parsed.error.issues[0]?.message ?? assembliesLabels.errors.generic);
       return;
     }
 
-    createReplay.execute(parsed.data);
+    if (isEditMode) editReplay.execute(parsed.data);
+    else createReplay.execute(parsed.data);
   }
 
+  const mutationError = isEditMode ? editReplay.error : createReplay.error;
   const displayError =
     error ??
-    (createReplay.error instanceof ApiError
-      ? createReplay.error.message
-      : createReplay.error
+    (mutationError instanceof ApiError
+      ? mutationError.message
+      : mutationError
         ? assembliesLabels.errors.generic
         : null);
 
@@ -328,13 +385,15 @@ export function AssemblyRecordRoute() {
       <div className="flex h-full min-h-0 flex-col">
         <header className="mx-auto flex w-full max-w-3xl flex-col gap-2 border-border border-b pb-4">
           <Link
-            to="/production"
+            to="/packing"
             className="inline-flex w-fit items-center gap-1 text-muted-foreground text-sm hover:text-foreground"
           >
             <ChevronLeft className="size-4" aria-hidden="true" />
-            {assembliesLabels.backToProduction}
+            {assembliesLabels.backToPacking}
           </Link>
-          <h1 className="font-semibold text-2xl text-foreground">{assembliesLabels.recordTitle}</h1>
+          <h1 className="font-semibold text-2xl text-foreground">
+            {isEditMode ? assembliesLabels.editTitle : assembliesLabels.recordTitle}
+          </h1>
         </header>
 
         <div className="min-h-0 flex-1 overflow-y-auto">
@@ -519,11 +578,11 @@ export function AssemblyRecordRoute() {
           }
           actions={
             <>
-              <Link to="/production" className={buttonVariants({ variant: "outline" })}>
+              <Link to="/packing" className={buttonVariants({ variant: "outline" })}>
                 {assembliesLabels.cancel}
               </Link>
               <Button type="button" onClick={handleSubmit} disabled={disabled}>
-                {assembliesLabels.submit}
+                {isEditMode ? assembliesLabels.save : assembliesLabels.submit}
               </Button>
             </>
           }
@@ -540,6 +599,18 @@ export function AssemblyRecordRoute() {
           title={assembliesLabels.impactCreateTitle}
           description={assembliesLabels.impactCreateDescription}
           confirmLabel={assembliesLabels.submit}
+        />
+      ) : null}
+      {editReplay.pendingConfirmation ? (
+        <ImpactConfirmDialog
+          open
+          impact={editReplay.pendingConfirmation.impact}
+          onConfirm={editReplay.confirm}
+          onCancel={editReplay.cancel}
+          confirmLoading={editReplay.isPending}
+          title={assembliesLabels.impactEditTitle}
+          description={assembliesLabels.impactEditDescription}
+          confirmLabel={assembliesLabels.save}
         />
       ) : null}
     </>

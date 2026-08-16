@@ -1,5 +1,6 @@
 import {
   type ItemKind,
+  listAssembliesFiltersSchema,
   listOrdersFiltersSchema,
   listSalesFiltersSchema,
   listStockExitsFiltersSchema,
@@ -16,13 +17,15 @@ import { getDefaultDateRange } from "@/components/common/DateRangeFilter";
 import { AppShell } from "@/components/layout/AppShell";
 import { fetchSession, sessionQueryKey } from "@/features/auth/api";
 import { queryClient } from "@/lib/query-client";
-import { AssemblyRecordRoute } from "@/routes/assemblies";
+import { AssemblyEditRoute, AssemblyRecordRoute } from "@/routes/assemblies";
 import { AssistantRoute } from "@/routes/assistant";
 import { FinanceRoute } from "@/routes/finance";
 import { InventoryRoute } from "@/routes/inventory";
 import { LoginRoute } from "@/routes/login";
 import { OnboardingRoute } from "@/routes/onboarding";
 import { OrdersRoute } from "@/routes/orders";
+import { PackingRoute } from "@/routes/packing";
+import { PackingDefinitionsRoute } from "@/routes/packing-definitions";
 import { PanelRoute } from "@/routes/panel";
 import { PriceHealthRoute } from "@/routes/price-health";
 import { ProductionRoute } from "@/routes/production";
@@ -52,6 +55,11 @@ interface SalesSearch {
 }
 
 interface OrdersSearch {
+  fromDate?: string;
+  toDate?: string;
+}
+
+interface PackingSearch {
   fromDate?: string;
   toDate?: string;
 }
@@ -164,13 +172,36 @@ const productionRecipesRoute = createRoute({
   component: RecipesRoute,
 });
 
-const assemblyRecordRoute = createRoute({
+const packingRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
-  path: "/production/assemblies/new",
+  path: "/packing",
+  validateSearch: (search: Record<string, unknown>): PackingSearch => {
+    const parsed = listAssembliesFiltersSchema.parse(search);
+    const range = dateRangeDefaults(parsed);
+    return { fromDate: range.fromDate, toDate: range.toDate };
+  },
+  component: PackingRoute,
+});
+
+const packingRecordRoute = createRoute({
+  getParentRoute: () => authenticatedRoute,
+  path: "/packing/new",
   validateSearch: (search: Record<string, unknown>): { sessionId?: string } => ({
     sessionId: typeof search.sessionId === "string" ? search.sessionId : undefined,
   }),
   component: AssemblyRecordRoute,
+});
+
+const packingEditRoute = createRoute({
+  getParentRoute: () => authenticatedRoute,
+  path: "/packing/$assemblyId/edit",
+  component: AssemblyEditRoute,
+});
+
+const packingDefinitionsRoute = createRoute({
+  getParentRoute: () => authenticatedRoute,
+  path: "/packing/definitions",
+  component: PackingDefinitionsRoute,
 });
 
 const inventoryRoute = createRoute({
@@ -274,7 +305,10 @@ const routeTree = rootRoute.addChildren([
     ordersRoute,
     productionRoute,
     productionRecipesRoute,
-    assemblyRecordRoute,
+    packingRoute,
+    packingRecordRoute,
+    packingEditRoute,
+    packingDefinitionsRoute,
     purchasesRoute,
     inventoryRoute,
     sessionsRoute,

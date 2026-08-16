@@ -9,7 +9,6 @@ export const productionLabels = {
   title: "Producción",
   subtitle: "Registra tandas de producción, su consumo de insumos y el costo resultante.",
   actionRecord: "Nueva producción",
-  actionRecordAssembly: "Registrar armado",
   /** Secondary link kept on this screen — Recetas has no other nav entry (Doc 06 §2 lists only one
    * top-level "Producción" item). */
   goToRecipes: "Ver recetas",
