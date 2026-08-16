@@ -51,6 +51,7 @@ import {
   writePersistentDraft,
 } from "@/hooks/usePersistentDraft";
 import { useReplayConfirmableMutation } from "@/hooks/useReplayConfirmableMutation";
+import { hasUnsavedChanges, useUnsavedChangesGuard } from "@/hooks/useUnsavedChangesGuard";
 import { ApiError } from "@/lib/api";
 import { formatIntAsDecimalInput, parseDecimalToInt } from "@/lib/decimal";
 import { purchasesLabels } from "@/lib/i18n-purchases";
@@ -136,12 +137,29 @@ export function PurchaseForm({ accounts, purchase, preselectedSessionId }: Purch
   const [photoError, setPhotoError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const initialFormStateRef = useRef<PurchaseFormState | null>(null);
+  const currentFormState: PurchaseFormState = {
+    supplierName,
+    accountId,
+    businessDate,
+    notes,
+    lines,
+    photoKey,
+  };
+  const unsavedChangesGuard = useUnsavedChangesGuard({
+    isDirty:
+      initialFormStateRef.current !== null &&
+      hasUnsavedChanges(initialFormStateRef.current, currentFormState),
+    blockNavigation: true,
+  });
+
   const createMutation = useRecordPurchase();
   const createReplay = useReplayConfirmableMutation<RecordPurchaseCommand, RecordPurchaseResult>(
     (command) => createMutation.mutateAsync(command),
     {
       onSuccess: () => {
         clearPersistentDraft(draftKey);
+        unsavedChangesGuard.markClean();
         void navigate({ to: "/purchases" });
       },
     },
@@ -154,6 +172,7 @@ export function PurchaseForm({ accounts, purchase, preselectedSessionId }: Purch
     {
       onSuccess: () => {
         clearPersistentDraft(draftKey);
+        unsavedChangesGuard.markClean();
         void navigate({ to: "/purchases" });
       },
     },
@@ -177,33 +196,40 @@ export function PurchaseForm({ accounts, purchase, preselectedSessionId }: Purch
   useEffect(() => {
     const initializationKey = draftKey;
     if (initializedRef.current === initializationKey) {
-      if (!purchase && !accountId && accounts[0]) setAccountId(accounts[0].id);
+      if (!purchase && !accountId && accounts[0]) {
+        setAccountId(accounts[0].id);
+        if (initialFormStateRef.current) {
+          initialFormStateRef.current = {
+            ...initialFormStateRef.current,
+            accountId: accounts[0].id,
+          };
+        }
+      }
       return;
     }
     const savedDraft = readPersistentDraft<PurchaseFormState>(draftKey);
+    let initialFormState: PurchaseFormState;
     if (savedDraft) {
-      setSupplierName(savedDraft.supplierName);
-      setAccountId(savedDraft.accountId);
-      setBusinessDate(savedDraft.businessDate);
-      setNotes(savedDraft.notes);
-      setLines(savedDraft.lines);
-      setPhotoKey(savedDraft.photoKey);
+      initialFormState = savedDraft;
     } else if (purchase) {
-      const initial = purchaseToFormState(purchase);
-      setSupplierName(initial.supplierName);
-      setAccountId(initial.accountId);
-      setBusinessDate(initial.businessDate);
-      setNotes(initial.notes);
-      setLines(initial.lines);
-      setPhotoKey(initial.photoKey);
+      initialFormState = purchaseToFormState(purchase);
     } else {
-      setSupplierName("");
-      setAccountId(accounts[0]?.id ?? "");
-      setBusinessDate(toBusinessDate(nowIso()));
-      setNotes("");
-      setLines([emptyLine()]);
-      setPhotoKey(null);
+      initialFormState = {
+        supplierName: "",
+        accountId: accounts[0]?.id ?? "",
+        businessDate: toBusinessDate(nowIso()),
+        notes: "",
+        lines: [emptyLine()],
+        photoKey: null,
+      };
     }
+    setSupplierName(initialFormState.supplierName);
+    setAccountId(initialFormState.accountId);
+    setBusinessDate(initialFormState.businessDate);
+    setNotes(initialFormState.notes);
+    setLines(initialFormState.lines);
+    setPhotoKey(initialFormState.photoKey);
+    initialFormStateRef.current = initialFormState;
     setPhotoUploading(false);
     setPhotoError(null);
     setError(null);
@@ -388,6 +414,7 @@ export function PurchaseForm({ accounts, purchase, preselectedSessionId }: Purch
                   variant="outline"
                   onClick={() => {
                     clearPersistentDraft(draftKey);
+                    unsavedChangesGuard.markClean();
                     void navigate({ to: "/purchases" });
                   }}
                   disabled={disabled}

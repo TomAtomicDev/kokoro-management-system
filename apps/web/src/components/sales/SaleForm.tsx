@@ -61,6 +61,7 @@ import {
   writePersistentDraft,
 } from "@/hooks/usePersistentDraft";
 import { useReplayConfirmableMutation } from "@/hooks/useReplayConfirmableMutation";
+import { hasUnsavedChanges, useUnsavedChangesGuard } from "@/hooks/useUnsavedChangesGuard";
 import { ApiError } from "@/lib/api";
 import { formatIntAsDecimalInput, parseDecimalToInt } from "@/lib/decimal";
 import { pricingLabels } from "@/lib/i18n-pricing";
@@ -144,7 +145,24 @@ export function SaleForm({ accounts, sale }: SaleFormProps) {
   const [notes, setNotes] = useState("");
   const [lines, setLines] = useState<SaleLineValue[]>([emptyLine()]);
   const [error, setError] = useState<string | null>(null);
+  const initialFormStateRef = useRef<SaleFormState | null>(null);
   const initializedRef = useRef<string | null>(null);
+
+  const currentFormState: SaleFormState = {
+    paymentStatus,
+    paymentMethod,
+    accountId,
+    customerId,
+    businessDate,
+    notes,
+    lines,
+  };
+  const unsavedChangesGuard = useUnsavedChangesGuard({
+    isDirty:
+      initialFormStateRef.current !== null &&
+      hasUnsavedChanges(initialFormStateRef.current, currentFormState),
+    blockNavigation: true,
+  });
 
   const createMutation = useRecordSale();
   const createReplay = useReplayConfirmableMutation<RecordSaleCommand, RecordSaleResult>(
@@ -152,6 +170,7 @@ export function SaleForm({ accounts, sale }: SaleFormProps) {
     {
       onSuccess: () => {
         clearPersistentDraft(draftKey);
+        unsavedChangesGuard.markClean();
         void navigate({ to: "/sales" });
       },
     },
@@ -164,6 +183,7 @@ export function SaleForm({ accounts, sale }: SaleFormProps) {
     {
       onSuccess: () => {
         clearPersistentDraft(draftKey);
+        unsavedChangesGuard.markClean();
         void navigate({ to: "/sales" });
       },
     },
@@ -212,6 +232,13 @@ export function SaleForm({ accounts, sale }: SaleFormProps) {
       if (!sale && !accountId && accounts[0]) {
         setAccountId(accounts[0].id);
         setPaymentMethod(paymentMethodForAccountType(accounts[0].type));
+        if (initialFormStateRef.current) {
+          initialFormStateRef.current = {
+            ...initialFormStateRef.current,
+            accountId: accounts[0].id,
+            paymentMethod: paymentMethodForAccountType(accounts[0].type),
+          };
+        }
       }
       return;
     }
@@ -221,37 +248,33 @@ export function SaleForm({ accounts, sale }: SaleFormProps) {
     }
 
     const savedDraft = readPersistentDraft<SaleFormState>(draftKey);
+    let initialFormState: SaleFormState;
     if (savedDraft) {
-      setPaymentStatus(savedDraft.paymentStatus);
-      setPaymentMethod(savedDraft.paymentMethod);
-      setAccountId(savedDraft.accountId);
-      setCustomerId(savedDraft.customerId);
-      setBusinessDate(savedDraft.businessDate);
-      setNotes(savedDraft.notes);
-      setLines(savedDraft.lines);
+      initialFormState = savedDraft;
     } else if (sale) {
-      const initial = saleToFormState(sale, accounts);
-      setPaymentStatus(initial.paymentStatus);
-      setPaymentMethod(initial.paymentMethod);
-      setAccountId(initial.accountId);
-      setCustomerId(initial.customerId);
-      setBusinessDate(initial.businessDate);
-      setNotes(initial.notes);
-      setLines(initial.lines);
+      initialFormState = saleToFormState(sale, accounts);
     } else {
-      setPaymentStatus("PAID");
       const firstAccount = accounts[0];
-      setPaymentMethod(
-        firstAccount
+      initialFormState = {
+        paymentStatus: "PAID",
+        paymentMethod: firstAccount
           ? paymentMethodForAccountType(firstAccount.type)
           : (PAYMENT_METHODS[0] as PaymentMethod),
-      );
-      setAccountId(firstAccount?.id ?? "");
-      setCustomerId(null);
-      setBusinessDate(toBusinessDate(nowIso()));
-      setNotes("");
-      setLines([emptyLine()]);
+        accountId: firstAccount?.id ?? "",
+        customerId: null,
+        businessDate: toBusinessDate(nowIso()),
+        notes: "",
+        lines: [emptyLine()],
+      };
     }
+    setPaymentStatus(initialFormState.paymentStatus);
+    setPaymentMethod(initialFormState.paymentMethod);
+    setAccountId(initialFormState.accountId);
+    setCustomerId(initialFormState.customerId);
+    setBusinessDate(initialFormState.businessDate);
+    setNotes(initialFormState.notes);
+    setLines(initialFormState.lines);
+    initialFormStateRef.current = initialFormState;
     setError(null);
     initializedRef.current = initializationKey;
   }, [accountId, accounts, draftKey, finishedItemsQuery.isLoading, sale]);
@@ -524,6 +547,7 @@ export function SaleForm({ accounts, sale }: SaleFormProps) {
                   variant="outline"
                   onClick={() => {
                     clearPersistentDraft(draftKey);
+                    unsavedChangesGuard.markClean();
                     void navigate({ to: "/sales" });
                   }}
                   disabled={disabled}

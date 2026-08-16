@@ -151,6 +151,7 @@ export function SessionDetailDrawer({
         subtitle={session?.businessDate}
         entityType="sessions"
         entityId={session?.id}
+        disableUnsavedChangesGuard
         footer={
           session ? (
             <span>
