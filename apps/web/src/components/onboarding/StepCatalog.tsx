@@ -342,7 +342,7 @@ export function StepCatalog({ onDone, onSkip, readOnly = false }: StepCatalogPro
         where={onboardingLabels.catalogGuidanceWhere}
       />
 
-      <div className="rounded-lg border border-border md:overflow-x-auto">
+      <div className="rounded-lg border border-border md:max-h-[32rem] md:overflow-auto">
         <div className="md:min-w-[860px]">
           <div className="sticky top-0 z-10 grid grid-cols-[2fr_1.2fr_1.2fr_0.8fr_1fr_1fr_1fr_1fr_4rem] gap-2 border-b border-border bg-card px-3 py-2 text-xs font-medium text-muted-foreground max-md:hidden">
             <span>{onboardingLabels.columnName}</span>

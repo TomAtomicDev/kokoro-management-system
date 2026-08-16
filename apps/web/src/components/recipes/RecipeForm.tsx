@@ -279,7 +279,7 @@ export function RecipeForm({ open, onOpenChange, recipe, settings }: RecipeFormP
     );
   }
 
-  function renderLineExtra(line: RecipeLineValue, index: number) {
+  function renderLineExtra(line: RecipeLineValue) {
     const item = line.itemId ? itemsById.get(line.itemId) : undefined;
     if (!item) return null;
     const displayValue = parseDecimalToNumber(line.qty);
@@ -296,26 +296,12 @@ export function RecipeForm({ open, onOpenChange, recipe, settings }: RecipeFormP
         ? totalCentavos(toMilliCentavosPerUnit(item.replacementCostMc), toMilliUnits(qty))
         : null;
     return (
-      <div className="flex flex-col gap-1.5">
-        <Select
-          aria-label={`${recipesLabels.lineQty} — ${recipesLabels.unit}`}
-          value={line.unit ?? ""}
-          onChange={(event) => updateLineUnit(index, event.target.value as QtyDisplayUnit)}
-          disabled={disabled}
-        >
-          {compatibleUnitsFor(item.unit).map((unit) => (
-            <option key={unit} value={unit}>
-              {qtyDisplayUnitLabels[unit]}
-            </option>
-          ))}
-        </Select>
-        <span className="text-muted-foreground text-xs">
-          {recipesLabels.lineContribution}:{" "}
-          <span className="numeric-cell font-medium text-foreground">
-            {contribution === null ? "—" : formatMoney(contribution)}
-          </span>
+      <span className="text-muted-foreground text-xs">
+        {recipesLabels.lineContribution}:{" "}
+        <span className="numeric-cell font-medium text-foreground">
+          {contribution === null ? "—" : formatMoney(contribution)}
         </span>
-      </div>
+      </span>
     );
   }
 
@@ -347,7 +333,7 @@ export function RecipeForm({ open, onOpenChange, recipe, settings }: RecipeFormP
   const dialogTitle = isEditMode ? recipesLabels.editTitle : recipesLabels.recordTitle;
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange} aria-label={dialogTitle}>
+    <Dialog open={open} onOpenChange={onOpenChange} aria-label={dialogTitle} className="max-w-4xl">
       <div className="border-border border-b px-5 py-4">
         <h2 className="font-medium text-foreground text-md">{dialogTitle}</h2>
       </div>
@@ -462,6 +448,12 @@ export function RecipeForm({ open, onOpenChange, recipe, settings }: RecipeFormP
             disabled={disabled}
             showAmount={false}
             itemKindFilter={["RAW_MATERIAL", "SEMI_FINISHED"]}
+            getItemUnit={(itemId) => itemsById.get(itemId)?.unit}
+            unitSelector={{
+              getValue: (line) => line.unit,
+              onChange: updateLineUnit,
+              label: recipesLabels.unit,
+            }}
             onItemChange={(_index, itemId) => {
               const item = itemId ? itemsById.get(itemId) : undefined;
               return { qty: "", unit: item ? defaultDisplayUnitFor(item.unit) : null };

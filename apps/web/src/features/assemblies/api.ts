@@ -3,10 +3,10 @@
 // R-5 retry-with-confirm orchestration belongs to the caller via useReplayConfirmableMutation.
 
 import type {
-  AssemblyDto,
   AssemblyImpactRequest,
   DeleteAssemblyCommand,
   DeleteAssemblyResult,
+  GetAssemblyResult,
   ListAssembliesFilters,
   ListAssembliesResult,
   RecordAssemblyCommand,
@@ -47,17 +47,22 @@ export function useAssemblies(filters: ListAssembliesFilters = {}) {
   });
 }
 
-export function useAssembly(id: string | undefined) {
+export function useAssembly(id: string | undefined, enabled = true) {
   return useQuery({
     queryKey: assemblyDetailKey(id ?? ""),
-    queryFn: () => api.get<AssemblyDto>(`/assemblies/${id}`),
-    enabled: Boolean(id),
+    queryFn: () => api.get<GetAssemblyResult>(`/assemblies/${id}`),
+    enabled: Boolean(id) && enabled,
   });
 }
 
 function useInvalidateAssemblies() {
   const queryClient = useQueryClient();
   return () => queryClient.invalidateQueries({ queryKey: ASSEMBLIES_ROOT_KEY });
+}
+
+function useInvalidateAssemblyLists() {
+  const queryClient = useQueryClient();
+  return () => queryClient.invalidateQueries({ queryKey: [...ASSEMBLIES_ROOT_KEY, "list"] });
 }
 
 export function useRecordAssembly() {
@@ -79,7 +84,9 @@ export function useUpdateAssembly(id: string) {
 }
 
 export function useDeleteAssembly(id: string) {
-  const invalidate = useInvalidateAssemblies();
+  // The deleted detail stops existing immediately. Invalidating the root here would refetch the
+  // still-mounted drawer once before its success callback closes it, producing a spurious 404.
+  const invalidate = useInvalidateAssemblyLists();
   return useMutation({
     mutationFn: (command: DeleteAssemblyCommand) =>
       api.delete<DeleteAssemblyResult>(`/assemblies/${id}`, command),

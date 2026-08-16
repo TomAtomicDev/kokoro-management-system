@@ -17,7 +17,7 @@ import {
   updateItem,
 } from "../src/core/catalog/index.js";
 import { createDb } from "../src/db/index.js";
-import { items } from "../src/db/schema.js";
+import { items, replacementCostHistory } from "../src/db/schema.js";
 
 const ACTOR = "OWNER_WEB" as const;
 const mc = toMilliCentavosPerUnit;
@@ -36,6 +36,11 @@ describe("createItem", () => {
     expect(item.replacementCostMc).toBe(0);
     expect(item.isActive).toBe(true);
     expect(item.aliases).toEqual([]);
+    expect(
+      await db.query.replacementCostHistory.findMany({
+        where: (t, { eq }) => eq(t.itemId, item.id),
+      }),
+    ).toHaveLength(0);
 
     const row = await db.query.items.findFirst({ where: (t, { eq }) => eq(t.id, item.id) });
     expect(row).toMatchObject({ name: "Harina 000", kind: "RAW_MATERIAL", isActive: 1 });
@@ -65,6 +70,15 @@ describe("createItem", () => {
     expect(item.isUnmetered).toBe(true);
     expect(item.replacementCostMc).toBe(mc(5));
     expect(item.replacementCostUpdatedAt).not.toBeNull();
+    const observations = await db.query.replacementCostHistory.findMany({
+      where: (t, { eq }) => eq(t.itemId, item.id),
+    });
+    expect(observations).toHaveLength(1);
+    expect(observations[0]).toMatchObject({
+      replacementCostMc: mc(5),
+      observedAt: item.replacementCostUpdatedAt,
+      source: "MANUAL",
+    });
   });
 
   it("projects opening-balance WAC as replacement cost until the first real purchase", async () => {
@@ -167,6 +181,16 @@ describe("updateItem", () => {
 
     expect(updated.replacementCostMc).toBe(mc(20));
     expect(updated.replacementCostUpdatedAt).not.toBeNull();
+    const observations = await db
+      .select()
+      .from(replacementCostHistory)
+      .where(eq(replacementCostHistory.itemId, created.id));
+    expect(observations).toHaveLength(2);
+    expect(observations.map((row) => row.replacementCostMc).sort((a, b) => a - b)).toEqual([
+      mc(10),
+      mc(20),
+    ]);
+    expect(observations.every((row) => row.source === "MANUAL")).toBe(true);
   });
 
   it("clearing replacementCostMc to null resets it to 0 and clears the timestamp", async () => {
@@ -189,6 +213,12 @@ describe("updateItem", () => {
 
     expect(updated.replacementCostMc).toBe(0);
     expect(updated.replacementCostUpdatedAt).toBeNull();
+    const observations = await db
+      .select()
+      .from(replacementCostHistory)
+      .where(eq(replacementCostHistory.itemId, created.id));
+    expect(observations).toHaveLength(1);
+    expect(observations[0]?.replacementCostMc).toBe(mc(10));
   });
 });
 

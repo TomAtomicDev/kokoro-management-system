@@ -1,10 +1,15 @@
 import type {
   AssemblyDefinitionDto,
   ItemDto,
+  QtyDisplayUnit,
   RecordAssemblyCommand,
   RecordAssemblyResult,
+  UpdateAssemblyCommand,
+  UpdateAssemblyResult,
 } from "@kokoro/shared";
 import {
+  defaultDisplayUnitFor,
+  displayUnitLabel,
   formatMoney,
   formatQty,
   nowIso,
@@ -15,23 +20,26 @@ import {
   toMilliCentavosPerUnit,
   toMilliUnits,
   totalCentavos,
+  updateAssemblyCommandSchema,
   WHOLE_UNIT_MILLI_UNITS,
 } from "@kokoro/shared";
 import { getRouteApi, Link, useNavigate } from "@tanstack/react-router";
 import { AlertTriangle, Check, ChevronLeft, Minus } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { ItemPicker } from "@/components/catalog/ItemPicker";
 import { CalcTrace, type CalcTraceInput } from "@/components/common/CalcTrace";
 import { PinnedSummaryFooter } from "@/components/common/PinnedSummaryFooter";
 import { LineEditor, type LineEditorLine } from "@/components/line-editor/LineEditor";
+import { parseLineQuantityToMilliUnits } from "@/components/line-editor/line-editor-quantity";
 import { OrderPicker } from "@/components/orders/OrderPicker";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { ImpactConfirmDialog } from "@/components/ui/ImpactConfirmDialog";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { useRecordAssembly } from "@/features/assemblies/api";
-import { useAssemblyDefinitions } from "@/features/assembly-definitions/api";
+import { InfoTooltip } from "@/components/ui/tooltip";
+import { useAssembly, useRecordAssembly, useUpdateAssembly } from "@/features/assemblies/api";
+import { useAssemblyDefinition, useAssemblyDefinitions } from "@/features/assembly-definitions/api";
 import { useItemsQuery } from "@/features/catalog/api";
 import { useStock } from "@/features/inventory/api";
 import { useReplayConfirmableMutation } from "@/hooks/useReplayConfirmableMutation";
@@ -41,12 +49,14 @@ import { assembliesLabels } from "@/lib/i18n-assemblies";
 import { catalogLabels } from "@/lib/i18n-catalog";
 import { ordersLabels } from "@/lib/i18n-orders";
 
-const routeApi = getRouteApi("/_authenticated/production/assemblies/new");
+const recordRouteApi = getRouteApi("/_authenticated/packing/new");
+const editRouteApi = getRouteApi("/_authenticated/packing/$assemblyId/edit");
 
 interface AssemblyLineValue extends LineEditorLine {
   lineKey: string;
   itemId: string | null;
   qty: string;
+  unit: QtyDisplayUnit | null;
 }
 
 let nextLineKey = 0;
@@ -57,11 +67,20 @@ function newLineKey(): string {
 }
 
 function emptyLine(): AssemblyLineValue {
-  return { lineKey: newLineKey(), itemId: null, qty: "" };
+  return { lineKey: newLineKey(), itemId: null, qty: "", unit: null };
 }
 
 export function AssemblyRecordRoute() {
-  const { sessionId } = routeApi.useSearch();
+  const { sessionId } = recordRouteApi.useSearch();
+  return <AssemblyForm sessionId={sessionId} />;
+}
+
+export function AssemblyEditRoute() {
+  const { assemblyId } = editRouteApi.useParams();
+  return <AssemblyForm assemblyId={assemblyId} />;
+}
+
+function AssemblyForm({ sessionId, assemblyId }: { sessionId?: string; assemblyId?: string }) {
   const navigate = useNavigate();
 
   const [definitionId, setDefinitionId] = useState("");
@@ -77,15 +96,31 @@ export function AssemblyRecordRoute() {
   const dirtyLineKeysRef = useRef(new Set<string>());
 
   const createMutation = useRecordAssembly();
+  const updateMutation = useUpdateAssembly(assemblyId ?? "");
+  const assemblyQuery = useAssembly(assemblyId);
+  const assembly = assemblyQuery.data?.assembly;
+  const isEditMode = Boolean(assemblyId);
   const createReplay = useReplayConfirmableMutation<RecordAssemblyCommand, RecordAssemblyResult>(
     (command) => createMutation.mutateAsync(command),
     {
-      onSuccess: () => navigate({ to: "/production" }),
+      onSuccess: () => navigate({ to: "/packing" }),
     },
+  );
+  const editReplay = useReplayConfirmableMutation<UpdateAssemblyCommand, UpdateAssemblyResult>(
+    (command) => updateMutation.mutateAsync(command),
+    { onSuccess: () => navigate({ to: "/packing" }) },
   );
 
   const definitionsQuery = useAssemblyDefinitions({ isActive: true });
-  const definitions = definitionsQuery.data?.assemblyDefinitions ?? [];
+  const editingDefinitionQuery = useAssemblyDefinition(
+    isEditMode ? (assembly?.definitionId ?? undefined) : undefined,
+  );
+  const definitions = useMemo(() => {
+    const activeDefinitions = definitionsQuery.data?.assemblyDefinitions ?? [];
+    const editingDefinition = editingDefinitionQuery.data?.assemblyDefinition;
+    if (!editingDefinition || editingDefinition.isActive) return activeDefinitions;
+    return [...activeDefinitions, editingDefinition];
+  }, [definitionsQuery.data, editingDefinitionQuery.data]);
   const definitionsById = useMemo(() => {
     const map = new Map<string, AssemblyDefinitionDto>();
     for (const definition of definitions) map.set(definition.id, definition);
@@ -110,7 +145,30 @@ export function AssemblyRecordRoute() {
 
   const selectedDefinition = definitionId ? (definitionsById.get(definitionId) ?? null) : null;
   const outputItem = outputItemId ? (itemsById.get(outputItemId) ?? null) : null;
-  const disabled = createReplay.isPending;
+  const disabled = createReplay.isPending || editReplay.isPending;
+
+  useEffect(() => {
+    if (!assembly) return;
+    setDefinitionId(assembly.definitionId ?? "");
+    setCustomOrderId(assembly.customOrderId);
+    setOutputItemId(assembly.outputItemId);
+    setPlannedOutputQty(
+      assembly.plannedOutputQty === null
+        ? ""
+        : formatIntAsDecimalInput(assembly.plannedOutputQty, 3),
+    );
+    setActualOutputQty(formatIntAsDecimalInput(assembly.actualOutputQty, 3));
+    setBusinessDate(assembly.businessDate);
+    setNotes(assembly.notes ?? "");
+    setLines(
+      assembly.lines.map((line) => ({
+        lineKey: line.id,
+        itemId: line.itemId,
+        qty: formatIntAsDecimalInput(line.qty, 3),
+        unit: null,
+      })),
+    );
+  }, [assembly]);
 
   function handleDefinitionChange(nextDefinitionId: string) {
     setDefinitionId(nextDefinitionId);
@@ -134,6 +192,7 @@ export function AssemblyRecordRoute() {
               lineKey: line.id,
               itemId: line.itemId,
               qty: formatIntAsDecimalInput(line.qty, 3),
+              unit: null,
             }),
           )
         : [emptyLine()];
@@ -163,13 +222,9 @@ export function AssemblyRecordRoute() {
   function renderLineExtra(line: AssemblyLineValue) {
     const item = line.itemId ? itemsById.get(line.itemId) : undefined;
     if (!item) return null;
-    const qty = parseDecimalToInt(line.qty, 3);
+    const qty = parseLineQuantityToMilliUnits(line.qty, line.unit, item.unit);
     if (qty === null || qty <= 0) {
-      return (
-        <span className="text-subtle-foreground text-xs">
-          {assembliesLabels.lineContribution}: —
-        </span>
-      );
+      return <span className="text-subtle-foreground text-xs">—</span>;
     }
 
     const contribution = totalCentavos(toMilliCentavosPerUnit(item.wacMc), toMilliUnits(qty));
@@ -193,23 +248,16 @@ export function AssemblyRecordRoute() {
         <Check className="size-4" aria-hidden="true" />
       </span>
     ) : (
-      <span
-        role="img"
-        aria-label={assembliesLabels.lineStockInsufficient}
-        title={assembliesLabels.lineStockInsufficient}
-        className="inline-flex text-warning"
-      >
+      <span className="inline-flex items-center gap-1 font-medium text-warning">
         <AlertTriangle className="size-4" aria-hidden="true" />
+        {assembliesLabels.lineStockInsufficient}
       </span>
     );
 
     return (
       <div className="flex items-center gap-2 text-xs">
-        <span className="text-muted-foreground">
-          {assembliesLabels.lineContribution}:{" "}
-          <span className="numeric-cell font-medium text-foreground">
-            {formatMoney(contribution)}
-          </span>
+        <span className="numeric-cell font-medium text-foreground">
+          {formatMoney(contribution)}
         </span>
         {stockIndicator}
       </div>
@@ -220,7 +268,7 @@ export function AssemblyRecordRoute() {
     let sum = toCentavos(0);
     for (const line of lines) {
       const item = line.itemId ? itemsById.get(line.itemId) : undefined;
-      const qty = parseDecimalToInt(line.qty, 3);
+      const qty = item ? parseLineQuantityToMilliUnits(line.qty, line.unit, item.unit) : null;
       if (!item || qty === null || qty <= 0) continue;
       sum = toCentavos(sum + totalCentavos(toMilliCentavosPerUnit(item.wacMc), toMilliUnits(qty)));
     }
@@ -239,7 +287,7 @@ export function AssemblyRecordRoute() {
 
   const directCostTraceInputs: CalcTraceInput[] = lines.flatMap((line) => {
     const item = line.itemId ? itemsById.get(line.itemId) : undefined;
-    const qty = parseDecimalToInt(line.qty, 3);
+    const qty = item ? parseLineQuantityToMilliUnits(line.qty, line.unit, item.unit) : null;
     if (!item || qty === null || qty <= 0) return [];
     return [
       {
@@ -281,7 +329,8 @@ export function AssemblyRecordRoute() {
 
     const parsedLines: { itemId: string; qty: number }[] = [];
     for (const line of lines) {
-      const qty = parseDecimalToInt(line.qty, 3);
+      const item = line.itemId ? itemsById.get(line.itemId) : undefined;
+      const qty = item ? parseLineQuantityToMilliUnits(line.qty, line.unit, item.unit) : null;
       if (!line.itemId || qty === null || qty <= 0) {
         setError(assembliesLabels.errors.invalidLine);
         return;
@@ -289,31 +338,36 @@ export function AssemblyRecordRoute() {
       parsedLines.push({ itemId: line.itemId, qty });
     }
 
-    const parsed = recordAssemblyCommandSchema.safeParse({
+    const command = {
       definitionId: definitionId || undefined,
       customOrderId: customOrderId ?? undefined,
-      sessionId,
+      sessionId: assembly?.sessionId ?? sessionId,
       outputItemId,
       plannedOutputQty: plannedOutputQtyValue,
       actualOutputQty: actualOutputQtyValue,
       notes: notes.trim() === "" ? undefined : notes.trim(),
-      occurredAt: nowIso(),
+      occurredAt: assembly?.occurredAt ?? nowIso(),
       businessDate,
       lines: parsedLines,
-    });
+    };
+    const parsed = (
+      isEditMode ? updateAssemblyCommandSchema : recordAssemblyCommandSchema
+    ).safeParse(command);
     if (!parsed.success) {
       setError(parsed.error.issues[0]?.message ?? assembliesLabels.errors.generic);
       return;
     }
 
-    createReplay.execute(parsed.data);
+    if (isEditMode) editReplay.execute(parsed.data);
+    else createReplay.execute(parsed.data);
   }
 
+  const mutationError = isEditMode ? editReplay.error : createReplay.error;
   const displayError =
     error ??
-    (createReplay.error instanceof ApiError
-      ? createReplay.error.message
-      : createReplay.error
+    (mutationError instanceof ApiError
+      ? mutationError.message
+      : mutationError
         ? assembliesLabels.errors.generic
         : null);
 
@@ -322,52 +376,88 @@ export function AssemblyRecordRoute() {
       <div className="flex h-full min-h-0 flex-col">
         <header className="mx-auto flex w-full max-w-3xl flex-col gap-2 border-border border-b pb-4">
           <Link
-            to="/production"
+            to="/packing"
             className="inline-flex w-fit items-center gap-1 text-muted-foreground text-sm hover:text-foreground"
           >
             <ChevronLeft className="size-4" aria-hidden="true" />
-            {assembliesLabels.backToProduction}
+            {assembliesLabels.backToPacking}
           </Link>
-          <h1 className="font-semibold text-2xl text-foreground">{assembliesLabels.recordTitle}</h1>
+          <h1 className="font-semibold text-2xl text-foreground">
+            {isEditMode ? assembliesLabels.editTitle : assembliesLabels.recordTitle}
+          </h1>
         </header>
 
         <div className="min-h-0 flex-1 overflow-y-auto">
           <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 py-5 text-sm">
-            <div className="flex flex-col gap-1.5">
-              <label className="font-medium text-foreground" htmlFor="assembly-definition">
-                {assembliesLabels.fieldDefinition}
-              </label>
-              <Select
-                id="assembly-definition"
-                value={definitionId}
-                onChange={(event) => handleDefinitionChange(event.target.value)}
-                disabled={disabled}
-              >
-                <option value="">{assembliesLabels.definitionPlaceholder}</option>
-                {definitions.map((definition) => (
-                  <option key={definition.id} value={definition.id}>
-                    {definition.name}
-                  </option>
-                ))}
-              </Select>
-            </div>
+            {definitionsQuery.isLoading ? (
+              <p className="text-muted-foreground text-sm">{assembliesLabels.loading}</p>
+            ) : definitions.length > 0 ? (
+              <div className="flex flex-col gap-1.5">
+                <div className="flex items-center gap-1.5">
+                  <label className="font-medium text-foreground" htmlFor="assembly-definition">
+                    {assembliesLabels.fieldDefinition}
+                  </label>
+                  <InfoTooltip
+                    content={assembliesLabels.definitionTooltip}
+                    label={assembliesLabels.definitionTooltipLabel}
+                  />
+                </div>
+                <Select
+                  id="assembly-definition"
+                  value={definitionId}
+                  onChange={(event) => handleDefinitionChange(event.target.value)}
+                  disabled={disabled}
+                >
+                  <option value="">{assembliesLabels.definitionPlaceholder}</option>
+                  {definitions.map((definition) => (
+                    <option key={definition.id} value={definition.id}>
+                      {definition.name}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+            ) : (
+              <p className="text-muted-foreground text-sm">
+                {assembliesLabels.definitionEmpty}{" "}
+                <Link
+                  to="/packing/definitions"
+                  className="font-medium text-foreground underline underline-offset-4"
+                >
+                  {assembliesLabels.definitionCreate}
+                </Link>
+              </p>
+            )}
 
             <div className="flex flex-col gap-1.5">
               <span className="font-medium text-foreground">
                 {assembliesLabels.fieldOutputItem}
               </span>
               {selectedDefinition ? (
-                <div className="rounded-md border border-border bg-muted px-3 py-2 text-foreground">
-                  {outputItem?.name ?? selectedDefinition.outputItemId}
+                <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted px-3 py-2 text-foreground">
+                  <span className="min-w-0 truncate">
+                    {outputItem?.name ?? selectedDefinition.outputItemId}
+                  </span>
+                  {outputItem ? (
+                    <span className="shrink-0 text-muted-foreground text-xs">
+                      {assembliesLabels.outputItemUnit(displayUnitLabel(outputItem.unit))}
+                    </span>
+                  ) : null}
                 </div>
               ) : (
-                <ItemPicker
-                  value={outputItemId}
-                  onChange={setOutputItemId}
-                  kindFilter="FINISHED"
-                  placeholder={assembliesLabels.outputItemPlaceholder}
-                  disabled={disabled}
-                />
+                <div className="flex flex-col gap-1.5">
+                  <ItemPicker
+                    value={outputItemId}
+                    onChange={setOutputItemId}
+                    kindFilter="FINISHED"
+                    placeholder={assembliesLabels.outputItemPlaceholder}
+                    disabled={disabled}
+                  />
+                  {outputItem ? (
+                    <span className="text-muted-foreground text-xs">
+                      {assembliesLabels.outputItemUnit(displayUnitLabel(outputItem.unit))}
+                    </span>
+                  ) : null}
+                </div>
               )}
             </div>
 
@@ -413,7 +503,12 @@ export function AssemblyRecordRoute() {
                   disabled={disabled}
                 />
                 {outputItem ? (
-                  <span className="text-muted-foreground text-xs">u. de {outputItem.name}</span>
+                  <span className="text-muted-foreground text-xs">
+                    {assembliesLabels.actualOutputUnit(
+                      displayUnitLabel(outputItem.unit),
+                      outputItem.name,
+                    )}
+                  </span>
                 ) : null}
               </div>
             </div>
@@ -438,6 +533,21 @@ export function AssemblyRecordRoute() {
                 disabled={disabled}
                 showAmount={false}
                 itemKindFilter={["SEMI_FINISHED", "FINISHED", "PACKAGING"]}
+                getItemUnit={(itemId) => itemsById.get(itemId)?.unit}
+                unitSelector={{
+                  getValue: (line) => line.unit,
+                  onChange: (index, unit) =>
+                    setLines((currentLines) =>
+                      currentLines.map((line, lineIndex) =>
+                        lineIndex === index ? { ...line, unit } : line,
+                      ),
+                    ),
+                  label: assembliesLabels.unit,
+                }}
+                onItemChange={(_index, itemId) => {
+                  const item = itemId ? itemsById.get(itemId) : undefined;
+                  return { qty: "", unit: item ? defaultDisplayUnitFor(item.unit) : null };
+                }}
                 labels={{
                   item: assembliesLabels.lineItem,
                   qty: assembliesLabels.lineQty,
@@ -465,6 +575,7 @@ export function AssemblyRecordRoute() {
         </div>
 
         <PinnedSummaryFooter
+          contentClassName="max-w-3xl px-0"
           total={
             <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted px-4 py-2">
               <div className="flex flex-col gap-0.5">
@@ -498,11 +609,11 @@ export function AssemblyRecordRoute() {
           }
           actions={
             <>
-              <Link to="/production" className={buttonVariants({ variant: "outline" })}>
+              <Link to="/packing" className={buttonVariants({ variant: "outline" })}>
                 {assembliesLabels.cancel}
               </Link>
               <Button type="button" onClick={handleSubmit} disabled={disabled}>
-                {assembliesLabels.submit}
+                {isEditMode ? assembliesLabels.save : assembliesLabels.submit}
               </Button>
             </>
           }
@@ -519,6 +630,18 @@ export function AssemblyRecordRoute() {
           title={assembliesLabels.impactCreateTitle}
           description={assembliesLabels.impactCreateDescription}
           confirmLabel={assembliesLabels.submit}
+        />
+      ) : null}
+      {editReplay.pendingConfirmation ? (
+        <ImpactConfirmDialog
+          open
+          impact={editReplay.pendingConfirmation.impact}
+          onConfirm={editReplay.confirm}
+          onCancel={editReplay.cancel}
+          confirmLoading={editReplay.isPending}
+          title={assembliesLabels.impactEditTitle}
+          description={assembliesLabels.impactEditDescription}
+          confirmLabel={assembliesLabels.save}
         />
       ) : null}
     </>

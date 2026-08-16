@@ -316,7 +316,7 @@ cost charts; most-corrected-fields ranking; prompt version in use. Read-only.
 
 Password → session. Rate-limited (5 tries / 15 min). Nothing else.
 
-## SC-19 · Presentations & combos — `/production/presentations` (UC-22, Phase 3.2)
+## SC-19 · Presentations & combos — `/packing/definitions` (UC-22, Phase 3.2)
 
 The definition editor for the Presentation/Combo model (Doc 03 §3, KOK-123). Deliberately a
 sibling of SC-06 Recipes, not a tab inside it: a recipe answers "how is this food made", a
@@ -335,7 +335,12 @@ Saving refuses a definition that reaches its own output item through any chain o
 (cycle prohibition, Doc 04 §5) — including indirectly, since C-3d's rollup and R-2's replay both
 walk this graph.
 
-## SC-20 · Envasado/Armado — `/production/assemblies` (UC-21, Phase 3.2)
+## SC-20 · Envasar — `/packing` (UC-21, Phase 3.2)
+
+**Placement amendment (owner Phase 3.2 test, Issue #30, 2026-08-16).** Envasar is a distinct
+top-level operation, not a Producción sub-route: it has its own history at `/packing`, recording
+at `/packing/new`, editing at `/packing/:assemblyId/edit`, and definition management at
+`/packing/definitions`. `Assembly` and `AssemblyDefinition` remain the domain identifiers.
 
 List: fecha, presentación/combo, unidades armadas vs planeadas, costo total, costo unitario,
 sesión, pedido. New assembly flow (full page): pick definition → planned qty → **component lines

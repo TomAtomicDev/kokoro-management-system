@@ -19,6 +19,7 @@ import type {
   RecordStockExitCommand,
   RecordStockExitResult,
   StockExitDto,
+  Unit,
 } from "@kokoro/shared";
 import {
   nowIso,
@@ -29,7 +30,7 @@ import {
   updateStockExitCommandSchema,
 } from "@kokoro/shared";
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { ItemPicker } from "@/components/catalog/ItemPicker";
 import { LineEditor, type LineEditorLine } from "@/components/line-editor/LineEditor";
@@ -38,7 +39,7 @@ import { Dialog } from "@/components/ui/dialog";
 import { ImpactConfirmDialog } from "@/components/ui/ImpactConfirmDialog";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { useItemQuery } from "@/features/catalog/api";
+import { useItemQuery, useItemsQuery } from "@/features/catalog/api";
 import { useRecordStockExit, useUpdateStockExit } from "@/features/inventory/api";
 import { useReplayConfirmableMutation } from "@/hooks/useReplayConfirmableMutation";
 import { ApiError, api } from "@/lib/api";
@@ -109,6 +110,12 @@ function errorMessage(err: unknown): string {
   return err instanceof ApiError ? err.message : inventoryLabels.errors.generic;
 }
 
+export function hasActiveAssemblyDefinition(
+  definitions: readonly { isActive: boolean; isDefault: boolean }[] | undefined,
+): boolean {
+  return definitions?.some((definition) => definition.isActive) ?? false;
+}
+
 export function ExitForm({ open, onOpenChange, exit }: ExitFormProps) {
   const isEditMode = Boolean(exit);
 
@@ -137,6 +144,12 @@ export function ExitForm({ open, onOpenChange, exit }: ExitFormProps) {
   // form opens already knowing `itemId` but not yet the full `ItemDto` (mirrors `ItemPicker`'s own
   // internal `useItemQuery` for the same reason).
   const itemQuery = useItemQuery(itemId ?? undefined);
+  const packagingItemsQuery = useItemsQuery({ isActive: true, kind: "PACKAGING" });
+  const packagingItemsById = useMemo(() => {
+    const map = new Map<string, Unit>();
+    for (const item of packagingItemsQuery.data?.items ?? []) map.set(item.id, item.unit);
+    return map;
+  }, [packagingItemsQuery.data]);
   const assemblyDefinitionsQuery = useQuery({
     queryKey: ["assembly-definitions", "exit-packaging-gate", itemId ?? ""],
     queryFn: () =>
@@ -145,9 +158,9 @@ export function ExitForm({ open, onOpenChange, exit }: ExitFormProps) {
       ),
     enabled: Boolean(itemId),
   });
-  const isAssembledPresentation =
-    assemblyDefinitionsQuery.data?.assemblyDefinitions.some((definition) => definition.isDefault) ??
-    false;
+  const isAssembledPresentation = hasActiveAssemblyDefinition(
+    assemblyDefinitionsQuery.data?.assemblyDefinitions,
+  );
 
   useEffect(() => {
     if (open) {
@@ -234,7 +247,7 @@ export function ExitForm({ open, onOpenChange, exit }: ExitFormProps) {
 
   return (
     <>
-      <Dialog open={open} onOpenChange={onOpenChange} aria-label={title}>
+      <Dialog open={open} onOpenChange={onOpenChange} aria-label={title} className="max-w-4xl">
         <div className="border-border border-b px-5 py-4">
           <h2 className="font-medium text-foreground text-md">{title}</h2>
         </div>
@@ -334,6 +347,7 @@ export function ExitForm({ open, onOpenChange, exit }: ExitFormProps) {
                 itemKindFilter="PACKAGING"
                 showAmount={false}
                 disabled={disabled}
+                getItemUnit={(itemId) => packagingItemsById.get(itemId)}
               />
             </section>
           ) : null}

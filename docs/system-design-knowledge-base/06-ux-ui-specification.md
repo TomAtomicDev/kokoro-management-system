@@ -66,6 +66,7 @@ Sidebar:
   ◉ Ventas           /sales
   ◉ Pedidos          /orders              (custom orders board)
   ◉ Producción       /production
+  ◉ Envasar          /packing              (Envasados + definiciones de envasado)
   ◉ Compras          /purchases
   ◉ Inventario       /inventory           (stock, kardex, counts, exits)
   ◉ Sesiones         /sessions
@@ -77,6 +78,12 @@ Sidebar:
   ◉ Asistente        /assistant           (chat)
   ── ⚙ Configuración /settings  · 🤖 IA Ops /settings/ai
 ```
+
+**Phase 3.2 owner-test amendment (Issue #30, 2026-08-16).** `Envasar` is a top-level daily
+operation rather than a child of Producción. Packing has a different working rhythm and cost
+treatment (C-10 assigns no allocated session cost), and the owner could not discover the former
+entry point buried inside Producción. Definitions live at `/packing/definitions`; recording and
+history live under `/packing`.
 
 Layout grid: topbar 56px; sidebar 232px (64px collapsed); content max-width 1280px, 24px gutters.
 List pages share one pattern: filter bar (date range, entity filters, search) → data table →

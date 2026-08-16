@@ -15,6 +15,8 @@ export {
   computeEffectiveReplacementCost,
   computeItemReplacementCost,
 } from "./replacement-cost.js";
+export type { ReplacementCostHistorySource } from "./replacement-cost-history.js";
+export { buildReplacementCostHistoryInsert } from "./replacement-cost-history.js";
 export type { ReplacementCostRefreshPlan } from "./replacement-cost-refresh.js";
 export {
   applyReplacementCostRefresh,
