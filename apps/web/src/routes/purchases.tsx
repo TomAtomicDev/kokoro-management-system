@@ -1,6 +1,7 @@
 // SC-07 · Purchases — /purchases (UC-01). Header: "Registrar compra" action; table of all
 // purchases; detail drawer on row click. Mirrors routes/finance.tsx's composition.
 
+import { getRouteApi, Link } from "@tanstack/react-router";
 import { useState } from "react";
 
 import { PurchaseDetailDrawer } from "@/components/purchases/PurchaseDetailDrawer";
@@ -8,14 +9,37 @@ import { PurchaseForm } from "@/components/purchases/PurchaseForm";
 import { PurchasesTable } from "@/components/purchases/PurchasesTable";
 import { Button } from "@/components/ui/button";
 import { useAccounts } from "@/features/finance/api";
-import { usePurchases } from "@/features/purchases/api";
+import { usePurchase, usePurchases } from "@/features/purchases/api";
 import { purchasesLabels } from "@/lib/i18n-purchases";
+
+const newRouteApi = getRouteApi("/_authenticated/purchases/new");
+const editRouteApi = getRouteApi("/_authenticated/purchases/$purchaseId/edit");
+
+export function PurchaseRecordRoute() {
+  const { sessionId } = newRouteApi.useSearch();
+  const accountsQuery = useAccounts();
+  return (
+    <PurchaseForm accounts={accountsQuery.data?.accounts ?? []} preselectedSessionId={sessionId} />
+  );
+}
+
+export function PurchaseEditRoute() {
+  const { purchaseId } = editRouteApi.useParams();
+  const accountsQuery = useAccounts();
+  const purchaseQuery = usePurchase(purchaseId);
+  const purchase = purchaseQuery.data;
+
+  if (!purchase) {
+    return <p className="text-muted-foreground text-sm">{purchasesLabels.loading}</p>;
+  }
+
+  return <PurchaseForm accounts={accountsQuery.data?.accounts ?? []} purchase={purchase} />;
+}
 
 export function PurchasesRoute() {
   const accountsQuery = useAccounts();
   const purchasesQuery = usePurchases();
 
-  const [formOpen, setFormOpen] = useState(false);
   const [selectedPurchaseId, setSelectedPurchaseId] = useState<string | null>(null);
 
   const accounts = accountsQuery.data?.accounts ?? [];
@@ -27,8 +51,8 @@ export function PurchasesRoute() {
           <h1 className="font-semibold text-2xl text-foreground">{purchasesLabels.title}</h1>
           <p className="text-muted-foreground text-sm">{purchasesLabels.subtitle}</p>
         </div>
-        <Button type="button" onClick={() => setFormOpen(true)}>
-          {purchasesLabels.actionRecord}
+        <Button asChild>
+          <Link to="/purchases/new">{purchasesLabels.actionRecord}</Link>
         </Button>
       </div>
 
@@ -39,7 +63,6 @@ export function PurchasesRoute() {
         onRowClick={(purchase) => setSelectedPurchaseId(purchase.id)}
       />
 
-      <PurchaseForm open={formOpen} onOpenChange={setFormOpen} accounts={accounts} />
       <PurchaseDetailDrawer
         purchaseId={selectedPurchaseId}
         open={selectedPurchaseId !== null}

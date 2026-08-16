@@ -14,12 +14,11 @@
 
 import type { FinancialAccountDto } from "@kokoro/shared";
 import { addMoney, formatMoney, toCentavos, updateSessionCommandSchema } from "@kokoro/shared";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 
 import { DetailDrawer } from "@/components/data-table/DetailDrawer";
 import { ProductionRunForm } from "@/components/production/ProductionRunForm";
-import { PurchaseForm } from "@/components/purchases/PurchaseForm";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -48,13 +47,13 @@ export function SessionDetailDrawer({
   onOpenChange,
   accounts,
 }: SessionDetailDrawerProps) {
+  const navigate = useNavigate();
   const sessionQuery = useSession(sessionId ?? undefined);
   const { show, showUndo } = useToast();
 
   const [editOpen, setEditOpen] = useState(false);
   const [closeFormOpen, setCloseFormOpen] = useState(false);
   const [productionFormOpen, setProductionFormOpen] = useState(false);
-  const [purchaseFormOpen, setPurchaseFormOpen] = useState(false);
   const [closeEndedAt, setCloseEndedAt] = useState("");
   const [closeDurationMin, setCloseDurationMin] = useState("");
   const [closeError, setCloseError] = useState<string | null>(null);
@@ -185,7 +184,10 @@ export function SessionDetailDrawer({
                     type="button"
                     variant="outline"
                     size="sm"
-                    onClick={() => setPurchaseFormOpen(true)}
+                    onClick={() => {
+                      void navigate({ to: "/purchases/new", search: { sessionId: session.id } });
+                      onOpenChange(false);
+                    }}
                   >
                     {sessionsLabels.linkedEvents.registerPurchase}
                   </Button>
@@ -368,12 +370,6 @@ export function SessionDetailDrawer({
           <ProductionRunForm
             open={productionFormOpen}
             onOpenChange={setProductionFormOpen}
-            preselectedSessionId={session.id}
-          />
-          <PurchaseForm
-            open={purchaseFormOpen}
-            onOpenChange={setPurchaseFormOpen}
-            accounts={accounts}
             preselectedSessionId={session.id}
           />
         </>

@@ -26,6 +26,8 @@ import { navLabels } from "@/lib/i18n-nav";
 export type AppPath =
   | "/"
   | "/sales"
+  | "/sales/new"
+  | "/sales/$saleId/edit"
   | "/orders"
   | "/production"
   // Reached only from within /production's link card (Doc 06 §2 lists a single "Producción" nav
@@ -36,6 +38,8 @@ export type AppPath =
   | "/packing/$assemblyId/edit"
   | "/packing/definitions"
   | "/purchases"
+  | "/purchases/new"
+  | "/purchases/$purchaseId/edit"
   | "/inventory"
   | "/sessions"
   | "/finance"

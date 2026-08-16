@@ -8,7 +8,7 @@
 // (`enabled: receivableOnly`), since it exists solely to feed that column. Edit/delete for a sale
 // itself remains KOK-064's scope.
 
-import { getRouteApi } from "@tanstack/react-router";
+import { getRouteApi, Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 
 import {
@@ -21,11 +21,30 @@ import { SaleForm } from "@/components/sales/SaleForm";
 import { SalesTable } from "@/components/sales/SalesTable";
 import { Button } from "@/components/ui/button";
 import { useAccounts } from "@/features/finance/api";
-import { useReceivables, useSales } from "@/features/sales/api";
+import { useReceivables, useSale, useSales } from "@/features/sales/api";
 import { salesLabels } from "@/lib/i18n-sales";
 import { cn } from "@/lib/utils";
 
 const routeApi = getRouteApi("/_authenticated/sales");
+const editRouteApi = getRouteApi("/_authenticated/sales/$saleId/edit");
+
+export function SaleRecordRoute() {
+  const accountsQuery = useAccounts();
+  return <SaleForm accounts={accountsQuery.data?.accounts ?? []} />;
+}
+
+export function SaleEditRoute() {
+  const { saleId } = editRouteApi.useParams();
+  const accountsQuery = useAccounts();
+  const saleQuery = useSale(saleId);
+  const sale = saleQuery.data;
+
+  if (!sale) {
+    return <p className="text-muted-foreground text-sm">{salesLabels.loading}</p>;
+  }
+
+  return <SaleForm accounts={accountsQuery.data?.accounts ?? []} sale={sale} />;
+}
 
 export function SalesRoute() {
   const search = routeApi.useSearch();
@@ -42,7 +61,6 @@ export function SalesRoute() {
   });
   const receivablesQuery = useReceivables(receivableOnly);
 
-  const [formOpen, setFormOpen] = useState(false);
   const [selectedSaleId, setSelectedSaleId] = useState<string | null>(null);
 
   const accounts = accountsQuery.data?.accounts ?? [];
@@ -77,8 +95,8 @@ export function SalesRoute() {
           <p className="text-muted-foreground text-sm">{salesLabels.subtitle}</p>
           <p className="text-muted-foreground text-xs">{salesLabels.orderClarification}</p>
         </div>
-        <Button type="button" onClick={() => setFormOpen(true)}>
-          {salesLabels.actionRecord}
+        <Button asChild>
+          <Link to="/sales/new">{salesLabels.actionRecord}</Link>
         </Button>
       </div>
 
@@ -114,7 +132,6 @@ export function SalesRoute() {
         daysOutstandingBySaleId={daysOutstandingBySaleId}
       />
 
-      <SaleForm open={formOpen} onOpenChange={setFormOpen} accounts={accounts} />
       <SaleDetailDrawer
         saleId={selectedSaleId}
         open={selectedSaleId !== null}
