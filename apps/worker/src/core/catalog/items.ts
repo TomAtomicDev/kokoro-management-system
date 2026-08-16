@@ -18,6 +18,7 @@ import type { BatchItem } from "drizzle-orm/batch";
 import type { Db } from "../../db/index.js";
 import { items, priceHistory } from "../../db/schema.js";
 import { buildAuditLogInsert } from "../audit.js";
+import { buildReplacementCostHistoryInsert } from "../costing/replacement-cost-history.js";
 import { conflict, notFound } from "../errors.js";
 import { fetchAliasesForItem, fetchAliasesForItems, toItemDto } from "./dto.js";
 
@@ -92,6 +93,17 @@ export async function createItem(
   if (row.salePriceMc !== null) {
     statements.push(buildPriceHistoryInsert(db, row.id, row.salePriceMc, now));
   }
+  if (command.replacementCostMc != null) {
+    statements.push(
+      buildReplacementCostHistoryInsert(db, {
+        itemId: row.id,
+        replacementCostMc: command.replacementCostMc,
+        observedAt: now,
+        businessDate: toBusinessDate(now),
+        source: "MANUAL",
+      }),
+    );
+  }
   await db.batch(statements as [Statement, ...Statement[]]);
 
   return toItemDto(row, []);
@@ -156,6 +168,17 @@ export async function updateItem(
     command.salePriceMc !== existingRow.salePriceMc
   ) {
     statements.push(buildPriceHistoryInsert(db, command.id, command.salePriceMc, now));
+  }
+  if (command.replacementCostMc != null) {
+    statements.push(
+      buildReplacementCostHistoryInsert(db, {
+        itemId: command.id,
+        replacementCostMc: command.replacementCostMc,
+        observedAt: now,
+        businessDate: toBusinessDate(now),
+        source: "MANUAL",
+      }),
+    );
   }
   await db.batch(statements as [Statement, ...Statement[]]);
 

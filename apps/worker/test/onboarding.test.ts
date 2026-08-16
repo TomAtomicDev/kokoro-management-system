@@ -17,7 +17,12 @@ import { bulkCreateItems } from "../src/core/catalog/bulk-import.js";
 import { setOpeningBalances } from "../src/core/finance/accounts.js";
 import { getSetting, setSetting } from "../src/core/settings/index.js";
 import { createDb } from "../src/db/index.js";
-import { appSettings, auditLog, financialAccounts } from "../src/db/schema.js";
+import {
+  appSettings,
+  auditLog,
+  financialAccounts,
+  replacementCostHistory,
+} from "../src/db/schema.js";
 
 const ACTOR = "OWNER_WEB" as const;
 const ONBOARDING_KEY = "onboarding_completed_at";
@@ -131,6 +136,17 @@ describe("bulkCreateItems", () => {
       expect(dto.replacementCostUpdatedAt).toBeNull();
       expect(dto.isActive).toBe(true);
     }
+    expect(
+      await db
+        .select()
+        .from(replacementCostHistory)
+        .where(
+          inArray(
+            replacementCostHistory.itemId,
+            result.items.map((item) => item.id),
+          ),
+        ),
+    ).toHaveLength(0);
 
     const rowA = await findByName(db, "Bulk item A");
     expect(rowA).toMatchObject({ wacMc: 0, replacementCostMc: 0, isActive: 1 });
@@ -174,6 +190,11 @@ describe("bulkCreateItems", () => {
     expect(result.items[0]?.isUnmetered).toBe(true);
     expect(result.items[0]?.replacementCostMc).toBe(5);
     expect(result.items[0]?.replacementCostUpdatedAt).not.toBeNull();
+    const observations = await db.query.replacementCostHistory.findMany({
+      where: (t, { eq: eqOp }) => eqOp(t.itemId, result.items[0]?.id ?? ""),
+    });
+    expect(observations).toHaveLength(1);
+    expect(observations[0]).toMatchObject({ replacementCostMc: 5, source: "MANUAL" });
   });
 
   it("rejects wholesale when item 2 of 3 self-duplicates item 1's name; none of the three are persisted", async () => {

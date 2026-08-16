@@ -52,6 +52,7 @@ import type { BatchItem } from "drizzle-orm/batch";
 import type { Db } from "../../db/index.js";
 import { financialTransactions, items, purchaseLines, purchases } from "../../db/schema.js";
 import { buildAuditLogInsert } from "../audit.js";
+import { buildReplacementCostHistoryInsert } from "../costing/replacement-cost-history.js";
 import type { CostingReplayPlan } from "../costing/replay.js";
 import { planCostingReplay } from "../costing/replay.js";
 import type { ReplayMovement } from "../costing/wac.js";
@@ -360,6 +361,17 @@ export async function recordPurchase(
         .set({ ...values, updatedAt: now })
         .where(eq(items.id, itemId)),
     );
+    if (values.replacementCostMc !== undefined) {
+      itemUpdateStatements.push(
+        buildReplacementCostHistoryInsert(db, {
+          itemId,
+          replacementCostMc: state.lastUnitCost,
+          observedAt: now,
+          businessDate: command.businessDate,
+          source: "PURCHASE",
+        }),
+      );
+    }
   }
 
   // financial_transactions.amount is always > 0 (no zero-value cash movements, Doc 04 Ãƒâ€šÃ‚Â§3.3) ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â a
@@ -813,6 +825,7 @@ async function commitPurchaseMutation(db: Db, plan: PurchaseMutationPlan): Promi
     }
 
     const values: Partial<typeof items.$inferInsert> = {};
+    let observedReplacementCostMc: MilliCentavosPerUnit | null = null;
     if (!replayOwnedItemIds.has(itemId)) {
       values.wacMc = await computeProjectedWac(
         db,
@@ -846,6 +859,7 @@ async function commitPurchaseMutation(db: Db, plan: PurchaseMutationPlan): Promi
       if (replacementCostMc !== itemRow.replacementCostMc) {
         values.replacementCostMc = replacementCostMc;
         values.replacementCostUpdatedAt = now;
+        observedReplacementCostMc = replacementCostMc;
       }
     }
 
@@ -856,6 +870,17 @@ async function commitPurchaseMutation(db: Db, plan: PurchaseMutationPlan): Promi
         .set({ ...values, updatedAt: now })
         .where(eq(items.id, itemId)),
     );
+    if (observedReplacementCostMc !== null) {
+      itemUpdateStatements.push(
+        buildReplacementCostHistoryInsert(db, {
+          itemId,
+          replacementCostMc: observedReplacementCostMc,
+          observedAt: now,
+          businessDate: newRow.businessDate,
+          source: "PURCHASE",
+        }),
+      );
+    }
   }
 
   const statements: Statement[] = [

@@ -147,7 +147,7 @@ CREATE TABLE price_history (                     -- price stability analysis (G2
   note TEXT
 );
 
--- PENDING (KOK-073, not yet applied): erosion series for G2.
+-- KOK-073 (migration 0023): erosion series for G2.
 CREATE TABLE replacement_cost_history (
   id TEXT PRIMARY KEY,
   item_id TEXT NOT NULL REFERENCES items(id),
@@ -156,10 +156,13 @@ CREATE TABLE replacement_cost_history (
   business_date TEXT NOT NULL,
   source TEXT NOT NULL CHECK (source IN ('PURCHASE','NIGHTLY','MANUAL'))
 );
--- Append-only, written by the KOK-029 refresh ONLY when the recomputed value differs from the
--- live one (no row per no-op run). Never edited, never soft-deleted: it is an observation log,
--- not a business event, so INV-10 does not apply. This table exists because the series cannot be
--- backfilled — see KOK-073.
+-- Append-only. KOK-029's refresh writes ONLY when the recomputed value differs from the live one
+-- (no row per no-op run); purchase-driven writes and genuine owner-entered MANUAL costs write at
+-- the same time as items.replacement_cost_updated_at. The deliberate C-3c unset sentinel
+-- (replacement_cost_mc=0 with replacement_cost_updated_at IS NULL), including catalog creation
+-- without an explicit cost and clearing a manual cost, is not an observation and is not logged.
+-- Never edited, never soft-deleted: it is an observation log, not a business event, so INV-10 does
+-- not apply. This table exists because the series cannot be backfilled — see KOK-073.
 ```
 
 Item units are canonical per measurement family: mass persists as `KG` (small input/display `g`,
