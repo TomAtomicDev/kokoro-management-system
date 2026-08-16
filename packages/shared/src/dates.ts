@@ -53,6 +53,64 @@ export function toBusinessDate(
   return `${year}-${month}-${day}`;
 }
 
+/** Format an instant for a `datetime-local` input in the shop's timezone. */
+export function toDatetimeLocal(
+  instant: Date | string,
+  timezone: string = DEFAULT_TIMEZONE,
+): string {
+  const date = typeof instant === "string" ? new Date(instant) : instant;
+  if (Number.isNaN(date.getTime())) {
+    throw new RangeError(`toDatetimeLocal: invalid instant: ${String(instant)}`);
+  }
+
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date);
+
+  let year = "";
+  let month = "";
+  let day = "";
+  let hour = "";
+  let minute = "";
+  for (const part of parts) {
+    if (part.type === "year") year = part.value;
+    else if (part.type === "month") month = part.value;
+    else if (part.type === "day") day = part.value;
+    else if (part.type === "hour") hour = part.value;
+    else if (part.type === "minute") minute = part.value;
+  }
+  return `${year}-${month}-${day}T${hour}:${minute}`;
+}
+
+/**
+ * Convert a `datetime-local` wall-clock value in the shop's timezone to a UTC instant.
+ * The offset is resolved through Intl rather than being hard-coded, so this remains correct if
+ * the configured timezone ever changes.
+ */
+export function fromDatetimeLocal(
+  value: string,
+  timezone: string = DEFAULT_TIMEZONE,
+): string | undefined {
+  const trimmed = value.trim();
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(trimmed)) return undefined;
+
+  const wallClockAsUtc = Date.parse(`${trimmed}:00.000Z`);
+  if (Number.isNaN(wallClockAsUtc)) return undefined;
+
+  const wallClockParts = toDatetimeLocal(new Date(wallClockAsUtc), timezone);
+  const formattedAsUtc = Date.parse(`${wallClockParts}:00.000Z`);
+  if (Number.isNaN(formattedAsUtc)) return undefined;
+
+  const instant = new Date(wallClockAsUtc + wallClockAsUtc - formattedAsUtc);
+  return toDatetimeLocal(instant, timezone) === trimmed ? instant.toISOString() : undefined;
+}
+
 /** Current instant as a UTC ISO-8601 string (Doc 04 §1, `*_at` columns). */
 export function nowIso(): string {
   return new Date().toISOString();

@@ -19,10 +19,12 @@ import type {
   SessionType,
 } from "@kokoro/shared";
 import {
+  fromDatetimeLocal,
   nowIso,
   recordSessionCommandSchema,
   SESSION_TYPES,
   toBusinessDate,
+  toDatetimeLocal,
   updateSessionCommandSchema,
 } from "@kokoro/shared";
 import { useEffect, useState } from "react";
@@ -78,25 +80,20 @@ export function buildStartNowCommand(type: SessionType): RecordSessionCommand {
   return { type, businessDate: toBusinessDate(startedAt), startedAt };
 }
 
-/** `<input type="datetime-local">` has no timezone of its own — the browser treats the value as
- * wall-clock local time. Converting through `Date` (which DOES know the local timezone) and back
- * out via `toISOString()` is the whole trick: no manual offset arithmetic, and the result always
- * ends in "Z", which `instantSchema`'s `.datetime({ offset: true })` accepts. */
+/** `<input type="datetime-local">` has no timezone of its own. Session wall-clock values are
+ * always rendered and parsed in the shop's America/La_Paz timezone through the shared Intl-based
+ * helpers, so the browser's own timezone cannot shift a saved session. */
 export function isoToDatetimeLocal(iso: string | null): string {
   if (!iso) return "";
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "";
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(
-    date.getHours(),
-  )}:${pad(date.getMinutes())}`;
+  try {
+    return toDatetimeLocal(iso);
+  } catch {
+    return "";
+  }
 }
 
 export function datetimeLocalToIso(value: string): string | undefined {
-  if (value.trim() === "") return undefined;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return undefined;
-  return date.toISOString();
+  return fromDatetimeLocal(value);
 }
 
 /** `undefined` = field left blank (not provided); `null` = non-blank but not a valid positive
@@ -109,18 +106,65 @@ export function parseDurationMinutes(input: string): number | null | undefined {
   return Number.isSafeInteger(value) && value > 0 ? value : null;
 }
 
+function datetimeLocalMilliseconds(value: string): number | undefined {
+  const iso = datetimeLocalToIso(value);
+  if (!iso) return undefined;
+  const milliseconds = new Date(iso).getTime();
+  return Number.isNaN(milliseconds) ? undefined : milliseconds;
+}
+
+/** Derives the editable end field from the entered positive duration. */
+export function deriveEndFromDuration(startedAt: string, durationMin: string): string | undefined {
+  const duration = parseDurationMinutes(durationMin);
+  const startMilliseconds = datetimeLocalMilliseconds(startedAt);
+  if (duration === undefined || duration === null || startMilliseconds === undefined) {
+    return undefined;
+  }
+  return isoToDatetimeLocal(new Date(startMilliseconds + duration * 60_000).toISOString());
+}
+
+/** Derives the editable duration field when the end wall-clock value changes. */
+export function deriveDurationFromEnd(startedAt: string, endedAt: string): string | undefined {
+  const startMilliseconds = datetimeLocalMilliseconds(startedAt);
+  const endMilliseconds = datetimeLocalMilliseconds(endedAt);
+  if (startMilliseconds === undefined || endMilliseconds === undefined) return undefined;
+  const duration = (endMilliseconds - startMilliseconds) / 60_000;
+  return Number.isSafeInteger(duration) && duration > 0 ? String(duration) : undefined;
+}
+
+/** Live validation for the shared command rule that an ended session must finish after it starts. */
+export function endIsNotAfterStart(startedAt: string, endedAt: string): boolean {
+  if (startedAt.trim() === "" || endedAt.trim() === "") return false;
+  const startMilliseconds = datetimeLocalMilliseconds(startedAt);
+  const endMilliseconds = datetimeLocalMilliseconds(endedAt);
+  return (
+    startMilliseconds !== undefined &&
+    endMilliseconds !== undefined &&
+    endMilliseconds <= startMilliseconds
+  );
+}
+
+/** Current shop-local wall-clock value for a `datetime-local` input. */
+export function nowDatetimeLocal(): string {
+  return toDatetimeLocal(nowIso());
+}
+
 /** Maps a fetched `SessionDto` (edit mode) to the form's editable local state. Pure and
  * framework-free on purpose — same rationale as `purchaseToFormState`: this workspace has neither
  * jsdom nor @testing-library/react, so a plain exported function is what stays unit-testable
  * without rendering the component. */
 export function sessionToFormState(session: SessionDto): SessionFormState {
+  const startedAt = isoToDatetimeLocal(session.startedAt);
+  const durationMin = session.durationMin !== null ? String(session.durationMin) : "";
+  const endedAt =
+    isoToDatetimeLocal(session.endedAt) || deriveEndFromDuration(startedAt, durationMin) || "";
   return {
     type: session.type,
     businessDate: session.businessDate,
     notes: session.notes ?? "",
-    startedAt: isoToDatetimeLocal(session.startedAt),
-    endedAt: isoToDatetimeLocal(session.endedAt),
-    durationMin: session.durationMin !== null ? String(session.durationMin) : "",
+    startedAt,
+    endedAt,
+    durationMin,
     costLines:
       session.costLines.length > 0
         ? session.costLines.map((line) => ({
@@ -181,6 +225,7 @@ export function SessionForm({ open, onOpenChange, accounts, session }: SessionFo
   }, [open, session?.id]);
 
   const disabled = isEditMode ? updateMutation.isPending : createMutation.isPending;
+  const endBeforeStart = endIsNotAfterStart(startedAt, endedAt);
   const costLineLabelPlaceholder =
     type === "PURCHASE_TRIP"
       ? sessionsLabels.costLineLabelPlaceholderPurchaseTrip
@@ -232,6 +277,14 @@ export function SessionForm({ open, onOpenChange, accounts, session }: SessionFo
       setError(sessionsLabels.errors.closeRequiresDuration);
       return;
     }
+    if (endBeforeStart) {
+      setError(sessionsLabels.errors.endBeforeStart);
+      return;
+    }
+    if (durationMinValue !== undefined && endedAt.trim() === "") {
+      setError(sessionsLabels.errors.closeEndRequired);
+      return;
+    }
 
     const parsedCostLines: SessionCostLineCommand[] = [];
     for (const line of costLines) {
@@ -256,7 +309,9 @@ export function SessionForm({ open, onOpenChange, accounts, session }: SessionFo
       businessDate,
       startedAt: datetimeLocalToIso(startedAt),
       endedAt: datetimeLocalToIso(endedAt),
-      durationMin: durationMinValue,
+      // The UI keeps both fields synchronized for the owner's benefit, but the command contract
+      // intentionally receives one closing field only (S-2 / sessions.ts exclusivity refinement).
+      durationMin: undefined,
       notes: notes.trim() === "" ? undefined : notes.trim(),
       costLines: parsedCostLines,
     };
@@ -378,7 +433,17 @@ export function SessionForm({ open, onOpenChange, accounts, session }: SessionFo
                   id="sf-start"
                   type="datetime-local"
                   value={startedAt}
-                  onChange={(e) => setStartedAt(e.target.value)}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setStartedAt(value);
+                    const duration = parseDurationMinutes(durationMin);
+                    if (duration !== undefined && duration !== null) {
+                      const derivedEnd = deriveEndFromDuration(value, durationMin);
+                      if (derivedEnd) setEndedAt(derivedEnd);
+                    } else if (endedAt.trim() !== "") {
+                      setDurationMin(deriveDurationFromEnd(value, endedAt) ?? "");
+                    }
+                  }}
                   disabled={disabled}
                   required
                 />
@@ -392,10 +457,11 @@ export function SessionForm({ open, onOpenChange, accounts, session }: SessionFo
                   type="datetime-local"
                   value={endedAt}
                   onChange={(e) => {
-                    setEndedAt(e.target.value);
-                    if (e.target.value !== "") setDurationMin("");
+                    const value = e.target.value;
+                    setEndedAt(value);
+                    setDurationMin(deriveDurationFromEnd(startedAt, value) ?? "");
                   }}
-                  disabled={disabled || durationMin.trim() !== ""}
+                  disabled={disabled}
                 />
               </div>
             </div>
@@ -410,13 +476,24 @@ export function SessionForm({ open, onOpenChange, accounts, session }: SessionFo
                 placeholder="0"
                 value={durationMin}
                 onChange={(e) => {
-                  setDurationMin(e.target.value);
-                  if (e.target.value !== "") setEndedAt("");
+                  const value = e.target.value;
+                  setDurationMin(value);
+                  const parsed = parseDurationMinutes(value);
+                  if (parsed !== undefined && parsed !== null) {
+                    const derivedEnd = deriveEndFromDuration(startedAt, value);
+                    if (derivedEnd) setEndedAt(derivedEnd);
+                  }
                 }}
-                disabled={disabled || endedAt.trim() !== ""}
+                disabled={disabled}
               />
               <span className="text-muted-foreground text-xs">{sessionsLabels.durationHint}</span>
             </div>
+
+            {endBeforeStart ? (
+              <p className="text-negative text-xs" aria-live="polite">
+                {sessionsLabels.errors.endBeforeStart}
+              </p>
+            ) : null}
 
             <div className="flex flex-col gap-1.5">
               <label className="font-medium text-foreground" htmlFor="sf-notes">
