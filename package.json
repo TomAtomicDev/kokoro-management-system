@@ -25,7 +25,8 @@
     "build": "pnpm -r --if-present run build",
     "dev:worker": "pnpm --filter @kokoro/worker run dev",
     "dev:web": "pnpm --filter @kokoro/web run dev",
-    "dev:dbreset": "pnpm --filter @kokoro/worker run db:reset:dev"
+    "dev:dbreset": "pnpm --filter @kokoro/worker run db:reset:dev",
+    "stg:dbreset": "pnpm --filter @kokoro/worker run db:reset:staging"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.4",
