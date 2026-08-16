@@ -7,6 +7,7 @@ import {
   LayoutDashboard,
   MessageSquare,
   Package,
+  PackageOpen,
   PlusCircle,
   Settings,
   ShoppingCart,
@@ -30,6 +31,10 @@ export type AppPath =
   // Reached only from within /production's link card (Doc 06 §2 lists a single "Producción" nav
   // entry) — deliberately NOT added to primaryNav/mobileTabs below, same precedent as /onboarding.
   | "/production/recipes"
+  | "/packing"
+  | "/packing/new"
+  | "/packing/$assemblyId/edit"
+  | "/packing/definitions"
   | "/purchases"
   | "/inventory"
   | "/sessions"
@@ -73,6 +78,7 @@ export const primaryNav: NavEntry[] = [
   { kind: "link", label: navLabels.ventas, to: "/sales", icon: ShoppingCart },
   { kind: "link", label: navLabels.pedidos, to: "/orders", icon: ClipboardList },
   { kind: "link", label: navLabels.produccion, to: "/production", icon: Factory },
+  { kind: "link", label: navLabels.envasar, to: "/packing", icon: PackageOpen },
   { kind: "link", label: navLabels.compras, to: "/purchases", icon: Truck },
   { kind: "link", label: navLabels.inventario, to: "/inventory", icon: Package },
   { kind: "link", label: navLabels.sesiones, to: "/sessions", icon: Clock },

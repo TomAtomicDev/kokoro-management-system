@@ -8,6 +8,7 @@ export const navLabels = {
   ventas: "Ventas",
   pedidos: "Pedidos",
   produccion: "Producción",
+  envasar: "Envasar",
   compras: "Compras",
   inventario: "Inventario",
   sesiones: "Sesiones",

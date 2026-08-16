@@ -1,11 +1,10 @@
 // SC-05 · Producción — /production (UC-02). Header: "Nueva producción" action + a secondary link
-// to Recetas (KOK-025's sub-feature, which has no other nav entry — Doc 06 §2 lists only one
-// top-level "Producción" item, see nav-items.ts's AppPath union / primaryNav); table of all
+// to Recetas (KOK-025's sub-feature, which has no other nav entry); table of all
 // production runs; detail drawer on row click. Mirrors routes/purchases.tsx's composition.
 //
 // Replaces the former placeholder body (a single full-width link card to /production/recipes) now
 // that the real screen exists — the link to Recipes is kept, just demoted to a header button
-// alongside the primary action, per this task's brief.
+// alongside the primary action. Envasar is a separate top-level section (KOK-156).
 
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
@@ -35,9 +34,6 @@ export function ProductionRoute() {
           <p className="text-muted-foreground text-sm">{productionLabels.subtitle}</p>
         </div>
         <div className="flex items-center gap-2">
-          <Link to="/production/assemblies/new" className={buttonVariants({ variant: "outline" })}>
-            {productionLabels.actionRecordAssembly}
-          </Link>
           <Link to="/production/recipes" className={buttonVariants({ variant: "outline" })}>
             {productionLabels.goToRecipes}
           </Link>
