@@ -247,7 +247,7 @@ export function StepCount({ items, catalogCommitted }: StepCountProps) {
       ) : count.lines.length === 0 ? (
         <p className="text-muted-foreground text-sm">{onboardingLabels.noCountLines}</p>
       ) : (
-        <div className="overflow-hidden rounded-lg border border-border">
+        <div className="max-h-[32rem] overflow-auto rounded-lg border border-border">
           <div
             className={`sticky top-0 z-10 grid ${COUNT_GRID_COLUMNS} gap-3 border-b border-border bg-card px-3 py-2 text-xs font-medium text-muted-foreground`}
           >

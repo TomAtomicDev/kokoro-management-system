@@ -108,10 +108,10 @@ export function EventTable<T>({
   }
 
   return (
-    <div className="overflow-x-auto rounded-lg border border-border bg-card">
+    <div className="max-h-[32rem] overflow-auto rounded-lg border border-border bg-card">
       <table className="w-full min-w-max border-collapse text-sm">
         <thead>
-          <tr className="sticky top-0 z-10 border-b border-border bg-card text-left text-xs font-medium text-muted-foreground">
+          <tr className="text-left text-xs font-medium text-muted-foreground">
             {columns.map((col) => {
               const sortable = col.sortable === true && col.sortValue !== undefined;
               const direction =
@@ -122,7 +122,11 @@ export function EventTable<T>({
                   key={col.id}
                   scope="col"
                   aria-sort={sortable ? (direction ?? "none") : undefined}
-                  className={cn("px-4 py-2.5", col.numeric && "text-right", col.className)}
+                  className={cn(
+                    "sticky top-0 z-10 border-b border-border bg-card px-4 py-2.5",
+                    col.numeric && "text-right",
+                    col.className,
+                  )}
                 >
                   {sortable ? (
                     <button
