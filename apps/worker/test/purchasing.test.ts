@@ -336,6 +336,42 @@ describe("recordPurchase (UC-01)", () => {
     expect(row).toMatchObject({ wacMc: 2_000_000, replacementCostMc: 2_000_000 });
   });
 
+  it("appends one PURCHASE observation per replacement-cost write across two purchase dates", async () => {
+    const db = createDb(env.DB);
+    const item = await seedItem(db, "Historial de compras en fechas distintas");
+
+    await recordPurchase(
+      db,
+      {
+        accountId: "acc_bank",
+        occurredAt: "2026-07-15T10:00:00.000Z",
+        businessDate: "2026-07-15",
+        lines: [{ itemId: item.id, qty: 1000, lineTotal: 2000 }],
+      },
+      ACTOR,
+    );
+    await recordPurchase(
+      db,
+      {
+        accountId: "acc_bank",
+        occurredAt: "2026-07-16T10:00:00.000Z",
+        businessDate: "2026-07-16",
+        lines: [{ itemId: item.id, qty: 1000, lineTotal: 3000 }],
+      },
+      ACTOR,
+    );
+
+    const observations = await db.query.replacementCostHistory.findMany({
+      where: (t, { eq: eqOp }) => eqOp(t.itemId, item.id),
+      orderBy: (t, { asc }) => [asc(t.businessDate)],
+    });
+    expect(observations).toHaveLength(2);
+    expect(observations.map((row) => row.replacementCostMc)).toEqual([2_000_000, 3_000_000]);
+    expect(observations.map((row) => row.businessDate)).toEqual(["2026-07-15", "2026-07-16"]);
+    expect(observations.every((row) => row.source === "PURCHASE")).toBe(true);
+    expect(observations[0]?.observedAt).not.toBe(observations[1]?.observedAt);
+  });
+
   it("records a multi-line purchase across different items, updating each item's stock/WAC independently", async () => {
     const db = createDb(env.DB);
     const itemA = await seedItem(db, "Multi-line item A");
@@ -1271,6 +1307,14 @@ describe("updatePurchase (R-1)", () => {
     });
     expect(itemRow?.wacMc).toBe(5_000_000);
     expect(itemRow?.replacementCostMc).toBe(5_000_000);
+    const observations = await db.query.replacementCostHistory.findMany({
+      where: (t, { eq: eqOp }) => eqOp(t.itemId, item.id),
+    });
+    expect(observations).toHaveLength(2);
+    expect(observations.map((row) => row.replacementCostMc).sort((a, b) => a - b)).toEqual([
+      2_000_000, 5_000_000,
+    ]);
+    expect(observations.every((row) => row.source === "PURCHASE")).toBe(true);
 
     const stockRow = await db.query.itemStock.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.itemId, item.id),
@@ -1542,6 +1586,14 @@ describe("deletePurchase (R-3, D-8)", () => {
     });
     expect(itemRow?.wacMc).toBe(0); // no kardex left to average
     expect(itemRow?.replacementCostMc).toBe(0); // C-3: no live purchase left to name a price
+    const observations = await db.query.replacementCostHistory.findMany({
+      where: (t, { eq: eqOp }) => eqOp(t.itemId, item.id),
+    });
+    expect(observations).toHaveLength(2);
+    expect(
+      observations.map((observation) => observation.replacementCostMc).sort((a, b) => a - b),
+    ).toEqual([0, 2_000_000]);
+    expect(observations.every((observation) => observation.source === "PURCHASE")).toBe(true);
 
     // Cash reversed entirely: no financial_transactions row survives, balance back to 0.
     expect(await purchaseTx(db, created.purchase.id)).toBeUndefined();

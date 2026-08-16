@@ -22,7 +22,12 @@
 // judgment call: reuse the already-tested primitive rather than hand-roll a second topological
 // sort, so the two correction paths can never disagree on what "dependency order" means.
 
-import { type MilliCentavosPerUnit, nowIso, toMilliCentavosPerUnit } from "@kokoro/shared";
+import {
+  type MilliCentavosPerUnit,
+  nowIso,
+  toBusinessDate,
+  toMilliCentavosPerUnit,
+} from "@kokoro/shared";
 import { eq } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import type { Db } from "../../db/index.js";
@@ -35,6 +40,10 @@ import {
   computeItemReplacementCost,
   type ReplacementCostLine,
 } from "./replacement-cost.js";
+import {
+  buildReplacementCostHistoryInsert,
+  type ReplacementCostHistorySource,
+} from "./replacement-cost-history.js";
 
 type Statement = BatchItem<"sqlite">;
 
@@ -75,7 +84,10 @@ interface CostSource {
  * dependency-
  * order reasoning and the two call sites that share this planner.
  */
-export async function planReplacementCostRefresh(db: Db): Promise<ReplacementCostRefreshPlan> {
+export async function planReplacementCostRefresh(
+  db: Db,
+  historySource: ReplacementCostHistorySource,
+): Promise<ReplacementCostRefreshPlan> {
   // Every item, regardless of kind/active status: an ingredient cost must be resolvable even when
   // the ingredient itself is RAW_MATERIAL (never refreshed here, C-3's other branch owns it,
   // core/purchasing/index.ts) or a deactivated item a recipe still references (Doc 04 Ãƒâ€šÃ‚Â§3.1 ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â items
@@ -186,6 +198,9 @@ export async function planReplacementCostRefresh(db: Db): Promise<ReplacementCos
       ),
     ]),
   );
+  const storedReplacementCost = new Map<string, MilliCentavosPerUnit>(
+    allItemRows.map((row) => [row.id, toMilliCentavosPerUnit(row.replacementCostMc)]),
+  );
   const statements: Statement[] = [];
   const refreshedItemIds: string[] = [];
   const now = nowIso();
@@ -204,6 +219,9 @@ export async function planReplacementCostRefresh(db: Db): Promise<ReplacementCos
     }));
     const newReplacementCost = computeItemReplacementCost(lines, source.denominatorQty);
     liveCost.set(itemId, newReplacementCost);
+    if (newReplacementCost === storedReplacementCost.get(itemId)) {
+      continue;
+    }
     refreshedItemIds.push(itemId);
 
     statements.push(
@@ -215,6 +233,13 @@ export async function planReplacementCostRefresh(db: Db): Promise<ReplacementCos
           updatedAt: now,
         })
         .where(eq(items.id, itemId)),
+      buildReplacementCostHistoryInsert(db, {
+        itemId,
+        replacementCostMc: newReplacementCost,
+        observedAt: now,
+        businessDate: toBusinessDate(now),
+        source: historySource,
+      }),
     );
   }
 
@@ -231,7 +256,7 @@ export async function planReplacementCostRefresh(db: Db): Promise<ReplacementCos
  * statement list doesn't leave room for.
  */
 export async function applyReplacementCostRefresh(db: Db): Promise<ReplacementCostRefreshPlan> {
-  const plan = await planReplacementCostRefresh(db);
+  const plan = await planReplacementCostRefresh(db, "MANUAL");
   if (plan.statements.length > 0) {
     await db.batch(plan.statements as [Statement, ...Statement[]]);
   }
