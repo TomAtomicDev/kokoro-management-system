@@ -9,6 +9,7 @@ import type {
 } from "@kokoro/shared";
 import {
   defaultDisplayUnitFor,
+  displayUnitLabel,
   formatMoney,
   formatQty,
   nowIso,
@@ -36,6 +37,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { ImpactConfirmDialog } from "@/components/ui/ImpactConfirmDialog";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { InfoTooltip } from "@/components/ui/tooltip";
 import { useAssembly, useRecordAssembly, useUpdateAssembly } from "@/features/assemblies/api";
 import { useAssemblyDefinition, useAssemblyDefinitions } from "@/features/assembly-definitions/api";
 import { useItemsQuery } from "@/features/catalog/api";
@@ -222,11 +224,7 @@ function AssemblyForm({ sessionId, assemblyId }: { sessionId?: string; assemblyI
     if (!item) return null;
     const qty = parseLineQuantityToMilliUnits(line.qty, line.unit, item.unit);
     if (qty === null || qty <= 0) {
-      return (
-        <span className="text-subtle-foreground text-xs">
-          {assembliesLabels.lineContribution}: —
-        </span>
-      );
+      return <span className="text-subtle-foreground text-xs">—</span>;
     }
 
     const contribution = totalCentavos(toMilliCentavosPerUnit(item.wacMc), toMilliUnits(qty));
@@ -250,23 +248,16 @@ function AssemblyForm({ sessionId, assemblyId }: { sessionId?: string; assemblyI
         <Check className="size-4" aria-hidden="true" />
       </span>
     ) : (
-      <span
-        role="img"
-        aria-label={assembliesLabels.lineStockInsufficient}
-        title={assembliesLabels.lineStockInsufficient}
-        className="inline-flex text-warning"
-      >
+      <span className="inline-flex items-center gap-1 font-medium text-warning">
         <AlertTriangle className="size-4" aria-hidden="true" />
+        {assembliesLabels.lineStockInsufficient}
       </span>
     );
 
     return (
       <div className="flex items-center gap-2 text-xs">
-        <span className="text-muted-foreground">
-          {assembliesLabels.lineContribution}:{" "}
-          <span className="numeric-cell font-medium text-foreground">
-            {formatMoney(contribution)}
-          </span>
+        <span className="numeric-cell font-medium text-foreground">
+          {formatMoney(contribution)}
         </span>
         {stockIndicator}
       </div>
@@ -398,41 +389,75 @@ function AssemblyForm({ sessionId, assemblyId }: { sessionId?: string; assemblyI
 
         <div className="min-h-0 flex-1 overflow-y-auto">
           <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 py-5 text-sm">
-            <div className="flex flex-col gap-1.5">
-              <label className="font-medium text-foreground" htmlFor="assembly-definition">
-                {assembliesLabels.fieldDefinition}
-              </label>
-              <Select
-                id="assembly-definition"
-                value={definitionId}
-                onChange={(event) => handleDefinitionChange(event.target.value)}
-                disabled={disabled}
-              >
-                <option value="">{assembliesLabels.definitionPlaceholder}</option>
-                {definitions.map((definition) => (
-                  <option key={definition.id} value={definition.id}>
-                    {definition.name}
-                  </option>
-                ))}
-              </Select>
-            </div>
+            {definitionsQuery.isLoading ? (
+              <p className="text-muted-foreground text-sm">{assembliesLabels.loading}</p>
+            ) : definitions.length > 0 ? (
+              <div className="flex flex-col gap-1.5">
+                <div className="flex items-center gap-1.5">
+                  <label className="font-medium text-foreground" htmlFor="assembly-definition">
+                    {assembliesLabels.fieldDefinition}
+                  </label>
+                  <InfoTooltip
+                    content={assembliesLabels.definitionTooltip}
+                    label={assembliesLabels.definitionTooltipLabel}
+                  />
+                </div>
+                <Select
+                  id="assembly-definition"
+                  value={definitionId}
+                  onChange={(event) => handleDefinitionChange(event.target.value)}
+                  disabled={disabled}
+                >
+                  <option value="">{assembliesLabels.definitionPlaceholder}</option>
+                  {definitions.map((definition) => (
+                    <option key={definition.id} value={definition.id}>
+                      {definition.name}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+            ) : (
+              <p className="text-muted-foreground text-sm">
+                {assembliesLabels.definitionEmpty}{" "}
+                <Link
+                  to="/packing/definitions"
+                  className="font-medium text-foreground underline underline-offset-4"
+                >
+                  {assembliesLabels.definitionCreate}
+                </Link>
+              </p>
+            )}
 
             <div className="flex flex-col gap-1.5">
               <span className="font-medium text-foreground">
                 {assembliesLabels.fieldOutputItem}
               </span>
               {selectedDefinition ? (
-                <div className="rounded-md border border-border bg-muted px-3 py-2 text-foreground">
-                  {outputItem?.name ?? selectedDefinition.outputItemId}
+                <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted px-3 py-2 text-foreground">
+                  <span className="min-w-0 truncate">
+                    {outputItem?.name ?? selectedDefinition.outputItemId}
+                  </span>
+                  {outputItem ? (
+                    <span className="shrink-0 text-muted-foreground text-xs">
+                      {assembliesLabels.outputItemUnit(displayUnitLabel(outputItem.unit))}
+                    </span>
+                  ) : null}
                 </div>
               ) : (
-                <ItemPicker
-                  value={outputItemId}
-                  onChange={setOutputItemId}
-                  kindFilter="FINISHED"
-                  placeholder={assembliesLabels.outputItemPlaceholder}
-                  disabled={disabled}
-                />
+                <div className="flex flex-col gap-1.5">
+                  <ItemPicker
+                    value={outputItemId}
+                    onChange={setOutputItemId}
+                    kindFilter="FINISHED"
+                    placeholder={assembliesLabels.outputItemPlaceholder}
+                    disabled={disabled}
+                  />
+                  {outputItem ? (
+                    <span className="text-muted-foreground text-xs">
+                      {assembliesLabels.outputItemUnit(displayUnitLabel(outputItem.unit))}
+                    </span>
+                  ) : null}
+                </div>
               )}
             </div>
 
@@ -478,7 +503,12 @@ function AssemblyForm({ sessionId, assemblyId }: { sessionId?: string; assemblyI
                   disabled={disabled}
                 />
                 {outputItem ? (
-                  <span className="text-muted-foreground text-xs">u. de {outputItem.name}</span>
+                  <span className="text-muted-foreground text-xs">
+                    {assembliesLabels.actualOutputUnit(
+                      displayUnitLabel(outputItem.unit),
+                      outputItem.name,
+                    )}
+                  </span>
                 ) : null}
               </div>
             </div>
@@ -545,6 +575,7 @@ function AssemblyForm({ sessionId, assemblyId }: { sessionId?: string; assemblyI
         </div>
 
         <PinnedSummaryFooter
+          contentClassName="max-w-3xl px-0"
           total={
             <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted px-4 py-2">
               <div className="flex flex-col gap-0.5">

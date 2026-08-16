@@ -1,10 +1,13 @@
 import type { ReactElement, ReactNode } from "react";
 
+import { cn } from "@/lib/utils";
+
 export interface PinnedSummaryFooterProps {
   total: ReactNode;
   destination?: ReactNode;
   warnings?: ReactNode;
   actions: ReactNode;
+  contentClassName?: string;
 }
 
 /**
@@ -16,21 +19,24 @@ export function PinnedSummaryFooter({
   destination,
   warnings,
   actions,
+  contentClassName,
 }: PinnedSummaryFooterProps): ReactElement {
   return (
-    <div className="flex shrink-0 flex-col gap-3 border-border border-t bg-card px-5 py-3">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div className="flex min-w-0 flex-1 flex-col gap-2">
-          {destination ? (
-            <div className="flex min-w-0 items-center gap-2">{destination}</div>
-          ) : null}
-          {warnings ? <div className="flex flex-col gap-1 text-xs">{warnings}</div> : null}
+    <div className="shrink-0 border-border border-t bg-card py-2">
+      <div className={cn("mx-auto flex w-full flex-col gap-2 px-5", contentClassName)}>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+          <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+            {destination ? (
+              <div className="flex min-w-0 items-center gap-2">{destination}</div>
+            ) : null}
+            {warnings ? <div className="flex flex-col gap-1 text-xs">{warnings}</div> : null}
+          </div>
+          <div className="flex shrink-0 items-baseline justify-between gap-3 sm:flex-col sm:items-end">
+            {total}
+          </div>
         </div>
-        <div className="flex shrink-0 items-baseline justify-between gap-3 sm:flex-col sm:items-end">
-          {total}
-        </div>
+        <div className="flex justify-end gap-2">{actions}</div>
       </div>
-      <div className="flex justify-end gap-2">{actions}</div>
     </div>
   );
 }
