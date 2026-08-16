@@ -453,6 +453,7 @@ export function RecipeForm({ open, onOpenChange, recipe, settings }: RecipeFormP
               getValue: (line) => line.unit,
               onChange: updateLineUnit,
               label: recipesLabels.unit,
+              optionLabel: (unit) => qtyDisplayUnitLabels[unit],
             }}
             onItemChange={(_index, itemId) => {
               const item = itemId ? itemsById.get(itemId) : undefined;
