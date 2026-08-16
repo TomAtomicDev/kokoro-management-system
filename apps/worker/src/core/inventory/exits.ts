@@ -119,11 +119,7 @@ async function assertPackagingLinesAllowed(
 ): Promise<void> {
   if (packagingLines.length === 0) return;
   const definition = await db.query.assemblyDefinitions.findFirst({
-    where: and(
-      eq(assemblyDefinitions.outputItemId, itemId),
-      eq(assemblyDefinitions.isDefault, 1),
-      eq(assemblyDefinitions.isActive, 1),
-    ),
+    where: and(eq(assemblyDefinitions.outputItemId, itemId), eq(assemblyDefinitions.isActive, 1)),
   });
   if (definition) {
     throw validationError(

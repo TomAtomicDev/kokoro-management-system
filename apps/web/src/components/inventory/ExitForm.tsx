@@ -109,6 +109,12 @@ function errorMessage(err: unknown): string {
   return err instanceof ApiError ? err.message : inventoryLabels.errors.generic;
 }
 
+export function hasActiveAssemblyDefinition(
+  definitions: readonly { isActive: boolean; isDefault: boolean }[] | undefined,
+): boolean {
+  return definitions?.some((definition) => definition.isActive) ?? false;
+}
+
 export function ExitForm({ open, onOpenChange, exit }: ExitFormProps) {
   const isEditMode = Boolean(exit);
 
@@ -145,9 +151,9 @@ export function ExitForm({ open, onOpenChange, exit }: ExitFormProps) {
       ),
     enabled: Boolean(itemId),
   });
-  const isAssembledPresentation =
-    assemblyDefinitionsQuery.data?.assemblyDefinitions.some((definition) => definition.isDefault) ??
-    false;
+  const isAssembledPresentation = hasActiveAssemblyDefinition(
+    assemblyDefinitionsQuery.data?.assemblyDefinitions,
+  );
 
   useEffect(() => {
     if (open) {

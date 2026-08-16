@@ -58,17 +58,18 @@ async function seedItem(
   return item;
 }
 
-function seedDefaultAssemblyDefinition(
+function seedAssemblyDefinition(
   db: TestDb,
   outputItemId: string,
   outputQty: number,
   lines: readonly { itemId: string; qty: number }[],
+  isDefault = true,
 ) {
   const command: RecordAssemblyDefinitionCommand = {
     name: `Definición ${crypto.randomUUID()}`,
     outputItemId,
     outputQty,
-    isDefault: true,
+    isDefault,
     notes: null,
     lines: [...lines],
   };
@@ -187,6 +188,38 @@ describe("planReplacementCostRefresh (C-3, SEMI_FINISHED/FINISHED)", () => {
 });
 
 describe("planReplacementCostRefresh (C-3d, presentations and combos)", () => {
+  it("refreshes a presentation whose only active definition is non-default", async () => {
+    const db = createDb(env.DB);
+    const packaging = await seedItem(db, "PACKAGING", 3_000_000);
+    const output = await seedItem(db, "FINISHED");
+    await seedAssemblyDefinition(db, output.id, 1000, [{ itemId: packaging.id, qty: 1000 }], false);
+
+    const plan = await planReplacementCostRefresh(db);
+
+    expect(plan.refreshedItemIds).toContain(output.id);
+    expect(plan.skippedItemIds).not.toContain(output.id);
+  });
+
+  it("uses the active default definition instead of a later non-default alternate", async () => {
+    const db = createDb(env.DB);
+    const defaultComponent = await seedItem(db, "PACKAGING", 4_000_000);
+    const alternateComponent = await seedItem(db, "PACKAGING", 9_000_000);
+    const output = await seedItem(db, "FINISHED");
+    await seedAssemblyDefinition(db, output.id, 1000, [{ itemId: defaultComponent.id, qty: 1000 }]);
+    await seedAssemblyDefinition(
+      db,
+      output.id,
+      2000,
+      [{ itemId: alternateComponent.id, qty: 2000 }],
+      false,
+    );
+
+    const plan = await planReplacementCostRefresh(db);
+    await db.batch(plan.statements as [Statement, ...Statement[]]);
+
+    expect((await readItem(db, output.id)).replacementCostMc).toBe(4_000_000);
+  });
+
   it("refreshes Desayuno Kokoro to Bs 44,50 and feeds the below-30% margin alert", async () => {
     const db = createDb(env.DB);
     const components = [
@@ -197,7 +230,7 @@ describe("planReplacementCostRefresh (C-3d, presentations and combos)", () => {
     ];
     const output = await seedItem(db, "FINISHED");
     await db.update(items).set({ salePriceMc: 60_000_000 }).where(eq(items.id, output.id));
-    await seedDefaultAssemblyDefinition(
+    await seedAssemblyDefinition(
       db,
       output.id,
       1000,
@@ -231,7 +264,7 @@ describe("planReplacementCostRefresh (C-3d, presentations and combos)", () => {
     const assemblyComponent = await seedItem(db, "PACKAGING", 9_000_000);
     const output = await seedItem(db, "FINISHED");
     await seedDefaultRecipe(db, output.id, 1000, [{ itemId: recipeIngredient.id, qty: 1000 }]);
-    await seedDefaultAssemblyDefinition(db, output.id, 1000, [
+    await seedAssemblyDefinition(db, output.id, 1000, [
       { itemId: assemblyComponent.id, qty: 1000 },
     ]);
 
@@ -246,12 +279,8 @@ describe("planReplacementCostRefresh (C-3d, presentations and combos)", () => {
     const component = await seedItem(db, "PACKAGING", 7_000_000);
     const presentation = await seedItem(db, "FINISHED", 1_000_000);
     const combo = await seedItem(db, "FINISHED");
-    await seedDefaultAssemblyDefinition(db, presentation.id, 1000, [
-      { itemId: component.id, qty: 1000 },
-    ]);
-    await seedDefaultAssemblyDefinition(db, combo.id, 1000, [
-      { itemId: presentation.id, qty: 2000 },
-    ]);
+    await seedAssemblyDefinition(db, presentation.id, 1000, [{ itemId: component.id, qty: 1000 }]);
+    await seedAssemblyDefinition(db, combo.id, 1000, [{ itemId: presentation.id, qty: 2000 }]);
 
     const plan = await planReplacementCostRefresh(db);
     expect(plan.refreshedItemIds.indexOf(presentation.id)).toBeLessThan(
