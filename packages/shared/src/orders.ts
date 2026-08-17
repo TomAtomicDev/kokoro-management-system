@@ -47,6 +47,9 @@ import { toMilliUnits } from "./qty.js";
 import type { SaleDto } from "./sales.js";
 import { safeText } from "./text.js";
 
+export const ORDER_DESCRIPTION_MAX_LENGTH = 2000;
+export const ORDER_NOTES_MAX_LENGTH = 2000;
+
 /** Centavos (INV-6). The price agreed with the customer; required before an order can be CONFIRMED
  * (Doc 04 §3.3's "required to confirm"), hence optional at quote time. Strictly positive: an order
  * worth nothing has no deposit to take and no sale to create. */
@@ -105,14 +108,18 @@ export type OrderLineCommand = z.input<typeof orderLineCommandSchema>;
  */
 export const quoteOrderCommandSchema = z.object({
   customerId: z.string().min(1),
-  description: z.string().trim().min(1, "La descripción es obligatoria.").pipe(safeText(2000)),
+  description: z
+    .string()
+    .trim()
+    .min(1, "La descripción es obligatoria.")
+    .pipe(safeText(ORDER_DESCRIPTION_MAX_LENGTH)),
   agreedTotal: agreedTotalSchema.optional(),
   /** Centavos the owner expects as a deposit. Omitted → derived at confirm time from the
    * `default_deposit_pct` app setting (basis points, Doc 04 §3.5), falling back to 50% (O-1). */
   depositRequired: z.number().int().nonnegative().optional(),
   deliveryDate: businessDateSchema.optional(),
   deliveryPlace: z.string().trim().pipe(safeText(200)).optional(),
-  notes: z.string().trim().pipe(safeText(2000)).optional(),
+  notes: z.string().trim().pipe(safeText(ORDER_NOTES_MAX_LENGTH)).optional(),
   lines: z.array(orderLineCommandSchema).default([]),
 });
 /** `z.input` — `lines` and each line's `qty` carry defaults. */
@@ -146,7 +153,7 @@ const deliverOrderCommonFields = {
   occurredAt: occurredAtSchema,
   businessDate: businessDateSchema,
   /** Free-text note copied onto the created sale. */
-  notes: z.string().trim().pipe(safeText(2000)).optional(),
+  notes: z.string().trim().pipe(safeText(ORDER_NOTES_MAX_LENGTH)).optional(),
   // R-5 / ADR-016: delivering writes SALE_OUT movements, so a BACKDATED delivery re-weights C-1 for
   // every later kardex entry exactly as a backdated sale does (KOK-064). When it would move cost
   // already booked, the service refuses with a ReplayImpactDto until the caller re-sends with
@@ -212,7 +219,7 @@ export const cancelOrderCommandSchema = z.object({
   resolution: cancelResolutionSchema.optional(),
   /** Where a REFUND's money comes FROM. Omitted → the account the deposit was received into. */
   accountId: z.string().min(1).optional(),
-  notes: z.string().trim().pipe(safeText(2000)).optional(),
+  notes: z.string().trim().pipe(safeText(ORDER_NOTES_MAX_LENGTH)).optional(),
 });
 export type CancelOrderCommand = z.infer<typeof cancelOrderCommandSchema>;
 

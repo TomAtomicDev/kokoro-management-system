@@ -30,6 +30,8 @@ import type { FinancialAccountDto } from "./finance.js";
 import { type MilliCentavosPerUnit, toMilliCentavosPerUnit } from "./money.js";
 import { safeText } from "./text.js";
 
+export const SALE_NOTES_MAX_LENGTH = 2000;
+
 /** Milli-units of the item's own stored unit (Doc 04 §2), matching qty.ts's representation. Always
  * positive — a sale line removes stock, and the OUT sign is applied server-side, never sent. */
 const qtySchema = z
@@ -59,7 +61,7 @@ export type SaleLineCommand = z.infer<typeof saleLineCommandSchema>;
 const saleCommandCommonFields = {
   customerId: z.string().min(1).optional(),
   sessionId: z.string().min(1).optional(),
-  notes: z.string().trim().pipe(safeText(2000)).optional(),
+  notes: z.string().trim().pipe(safeText(SALE_NOTES_MAX_LENGTH)).optional(),
   occurredAt: occurredAtSchema,
   businessDate: businessDateSchema,
   lines: z.array(saleLineCommandSchema).min(1, "Se requiere al menos una línea de venta."),

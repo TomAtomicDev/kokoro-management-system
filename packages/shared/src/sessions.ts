@@ -31,6 +31,9 @@ import type { SessionStatus, SessionType } from "./enums.js";
 import { sessionStatusSchema, sessionTypeSchema } from "./enums.js";
 import { safeText } from "./text.js";
 
+export const SESSION_COST_LABEL_MAX_LENGTH = 200;
+export const SESSION_NOTES_MAX_LENGTH = 2000;
+
 /** `YYYY-MM-DD`, America/La_Paz local calendar date (Doc 04 §1, INV-3). */
 const businessDateSchema = z
   .string()
@@ -56,7 +59,11 @@ const costLineAmountSchema = z
 
 export const sessionCostLineCommandSchema = z
   .object({
-    label: z.string().trim().min(1, "La etiqueta del costo es obligatoria.").pipe(safeText(200)),
+    label: z
+      .string()
+      .trim()
+      .min(1, "La etiqueta del costo es obligatoria.")
+      .pipe(safeText(SESSION_COST_LABEL_MAX_LENGTH)),
     amount: costLineAmountSchema,
     isEstimate: z.boolean().optional().default(false),
     // Required only when isEstimate is false (Doc 03 §6 S-2: estimates never touch cash). This is
@@ -84,7 +91,7 @@ const recordSessionCommandObjectSchema = z.object({
   startedAt: instantSchema,
   endedAt: instantSchema.optional(),
   durationMin: durationMinSchema.optional(),
-  notes: z.string().trim().pipe(safeText(2000)).optional(),
+  notes: z.string().trim().pipe(safeText(SESSION_NOTES_MAX_LENGTH)).optional(),
   // Empty is legitimate — a session may be opened with no shared costs yet and have lines added
   // later via an edit (unlike purchaseLineCommandSchema's lines, Doc 03 §6 states no "at least one
   // cost line" rule for sessions).

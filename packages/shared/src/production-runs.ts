@@ -28,6 +28,8 @@ import { confirmFlagSchema } from "./costing.js";
 import { businessDateSchema, occurredAtSchema } from "./dates.js";
 import { safeText } from "./text.js";
 
+export const PRODUCTION_RUN_NOTES_MAX_LENGTH = 2000;
+
 /** Milli-units of the item's own stored unit (Doc 04 §2), matching qty.ts's representation.
  * Always positive — a production consumption line removes stock, it never adds it (the OUTPUT
  * side is `actualOutputQty`, a separate field, not a line). */
@@ -69,7 +71,7 @@ export const recordProductionRunCommandSchema = z.object({
   batches: batchesSchema,
   actualOutputQty: actualOutputQtySchema,
   indirectCost: indirectCostSchema,
-  notes: z.string().trim().pipe(safeText(2000)).optional(),
+  notes: z.string().trim().pipe(safeText(PRODUCTION_RUN_NOTES_MAX_LENGTH)).optional(),
   occurredAt: occurredAtSchema,
   businessDate: businessDateSchema,
   lines: z.array(productionLineCommandSchema).min(1, "Se requiere al menos un insumo consumido."),

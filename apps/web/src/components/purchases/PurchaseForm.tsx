@@ -19,6 +19,7 @@ import {
   defaultDisplayUnitFor,
   formatMoney,
   nowIso,
+  PURCHASE_NOTES_MAX_LENGTH,
   rateFromTotal,
   recordPurchaseCommandSchema,
   toBusinessDate,
@@ -507,6 +508,7 @@ export function PurchaseForm({ accounts, purchase, preselectedSessionId }: Purch
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             disabled={disabled}
+            maxLength={PURCHASE_NOTES_MAX_LENGTH}
           />
         </div>
 

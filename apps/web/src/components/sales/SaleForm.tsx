@@ -32,6 +32,7 @@ import {
   paymentMethodForAccountType,
   rateFromTotal,
   recordSaleCommandSchema,
+  SALE_NOTES_MAX_LENGTH,
   toBusinessDate,
   toCentavos,
   toMilliCentavosPerUnit,
@@ -613,6 +614,7 @@ export function SaleForm({ accounts, sale }: SaleFormProps) {
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             disabled={disabled}
+            maxLength={SALE_NOTES_MAX_LENGTH}
           />
         </div>
 

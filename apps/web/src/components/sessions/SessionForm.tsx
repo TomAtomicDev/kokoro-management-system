@@ -22,6 +22,8 @@ import {
   fromDatetimeLocal,
   nowIso,
   recordSessionCommandSchema,
+  SESSION_COST_LABEL_MAX_LENGTH,
+  SESSION_NOTES_MAX_LENGTH,
   SESSION_TYPES,
   toBusinessDate,
   toDatetimeLocal,
@@ -505,6 +507,7 @@ export function SessionForm({ open, onOpenChange, accounts, session }: SessionFo
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 disabled={disabled}
+                maxLength={SESSION_NOTES_MAX_LENGTH}
               />
             </div>
 
@@ -539,6 +542,7 @@ export function SessionForm({ open, onOpenChange, accounts, session }: SessionFo
                           value={line.label}
                           onChange={(e) => updateCostLine(index, { label: e.target.value })}
                           disabled={disabled}
+                          maxLength={SESSION_COST_LABEL_MAX_LENGTH}
                         />
                       </div>
                       <div className="flex w-full flex-col gap-1.5 sm:w-32">

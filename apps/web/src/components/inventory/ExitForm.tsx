@@ -24,6 +24,7 @@ import type {
 import {
   nowIso,
   recordStockExitCommandSchema,
+  STOCK_EXIT_NOTES_MAX_LENGTH,
   STOCK_EXIT_REASONS,
   type StockExitReason,
   toBusinessDate,
@@ -327,6 +328,7 @@ export function ExitForm({ open, onOpenChange, exit }: ExitFormProps) {
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               disabled={disabled}
+              maxLength={STOCK_EXIT_NOTES_MAX_LENGTH}
             />
           </div>
 

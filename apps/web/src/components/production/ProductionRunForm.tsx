@@ -20,6 +20,7 @@ import {
   formatMoney,
   formatQty,
   nowIso,
+  PRODUCTION_RUN_NOTES_MAX_LENGTH,
   rateFromTotal,
   recordProductionRunCommandSchema,
   toBusinessDate,
@@ -640,6 +641,7 @@ export function ProductionRunForm({
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               disabled={disabled}
+              maxLength={PRODUCTION_RUN_NOTES_MAX_LENGTH}
             />
           </div>
 
