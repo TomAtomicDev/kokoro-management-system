@@ -25,6 +25,8 @@ export interface DetailDrawerProps {
   /** Optional action rendered alongside the title in the drawer header. */
   headerAction?: ReactNode;
   children: ReactNode;
+  /** Opt out when the drawer owns a draft whose state intentionally survives closing. */
+  disableUnsavedChangesGuard?: boolean;
   /** Created/updated-date footer content — Doc 06 §4. Omit when there's nothing to show yet. */
   footer?: ReactNode;
   /** Entity type string this drawer is showing (must match the `entityType` its core/ service
@@ -48,6 +50,7 @@ export function DetailDrawer({
   headerAction,
   children,
   footer,
+  disableUnsavedChangesGuard = false,
   entityType,
   entityId,
 }: DetailDrawerProps) {
@@ -55,7 +58,13 @@ export function DetailDrawer({
   const editCount = auditQuery.data?.entries.filter((entry) => entry.action === "update").length;
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange} placement="right" aria-label={title}>
+    <Dialog
+      open={open}
+      onOpenChange={onOpenChange}
+      placement="right"
+      aria-label={title}
+      disableUnsavedChangesGuard={disableUnsavedChangesGuard}
+    >
       <div className="flex items-center justify-between border-b border-border px-5 py-4">
         <div>
           <div className="flex items-center gap-2">

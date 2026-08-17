@@ -61,7 +61,7 @@ export const sessionsLabels = {
   fieldStart: "Inicio",
   fieldEnd: "Fin",
   fieldDuration: "Duración (minutos)",
-  durationHint: "Completa el inicio y fin, o directamente la duración en minutos.",
+  durationHint: "La hora de fin y la duración se mantienen sincronizadas.",
 
   costLinesTitle: "Costos compartidos",
   tooltipCostLinesTitle:
@@ -103,7 +103,8 @@ export const sessionsLabels = {
 
   closeAction: "Cerrar sesión",
   closeTitle: "Cerrar sesión",
-  closeDescription: "Registra la hora de fin o la duración total antes de cerrar.",
+  closeDescription:
+    "La hora de fin se completa con la hora actual; puedes editarla o indicar la duración.",
   closeConfirm: "Cerrar sesión",
   closeCancel: "Cancelar",
 
@@ -118,9 +119,12 @@ export const sessionsLabels = {
     typeRequired: "Selecciona un tipo de sesión.",
     dateRequired: "Selecciona una fecha.",
     startRequired: "Indica la hora de inicio.",
+    invalidDuration: "La duración debe ser un número entero positivo.",
     invalidCostLine: "Cada costo compartido necesita una etiqueta y un monto válido.",
     accountRequired: "Selecciona una cuenta para un costo que no es una estimación.",
     closeRequiresDuration: "Indica la hora de fin o la duración para cerrar la sesión.",
+    closeEndRequired: "Indica la hora de fin para cerrar la sesión.",
+    endBeforeStart: "La hora de fin debe ser posterior al inicio.",
   },
 
   chip: {

@@ -29,10 +29,10 @@ import { PackingDefinitionsRoute } from "@/routes/packing-definitions";
 import { PanelRoute } from "@/routes/panel";
 import { PriceHealthRoute } from "@/routes/price-health";
 import { ProductionRoute } from "@/routes/production";
-import { PurchasesRoute } from "@/routes/purchases";
+import { PurchaseEditRoute, PurchaseRecordRoute, PurchasesRoute } from "@/routes/purchases";
 import { RecipesRoute } from "@/routes/recipes";
 import { ReportsRoute } from "@/routes/reports";
-import { SalesRoute } from "@/routes/sales";
+import { SaleEditRoute, SaleRecordRoute, SalesRoute } from "@/routes/sales";
 import { SessionsRoute } from "@/routes/sessions";
 import { SettingsRoute } from "@/routes/settings";
 import { SettingsAiRoute } from "@/routes/settings-ai";
@@ -139,6 +139,18 @@ const salesRoute = createRoute({
   component: SalesRoute,
 });
 
+const salesRecordRoute = createRoute({
+  getParentRoute: () => authenticatedRoute,
+  path: "/sales/new",
+  component: SaleRecordRoute,
+});
+
+const salesEditRoute = createRoute({
+  getParentRoute: () => authenticatedRoute,
+  path: "/sales/$saleId/edit",
+  component: SaleEditRoute,
+});
+
 const ordersRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: "/orders",
@@ -160,6 +172,21 @@ const purchasesRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: "/purchases",
   component: PurchasesRoute,
+});
+
+const purchasesRecordRoute = createRoute({
+  getParentRoute: () => authenticatedRoute,
+  path: "/purchases/new",
+  validateSearch: (search: Record<string, unknown>): { sessionId?: string } => ({
+    sessionId: typeof search.sessionId === "string" ? search.sessionId : undefined,
+  }),
+  component: PurchaseRecordRoute,
+});
+
+const purchasesEditRoute = createRoute({
+  getParentRoute: () => authenticatedRoute,
+  path: "/purchases/$purchaseId/edit",
+  component: PurchaseEditRoute,
 });
 
 // Sibling of productionRoute, NOT a nested child — /production stays a bare placeholder route
@@ -302,6 +329,8 @@ const routeTree = rootRoute.addChildren([
   authenticatedRoute.addChildren([
     panelRoute,
     salesRoute,
+    salesRecordRoute,
+    salesEditRoute,
     ordersRoute,
     productionRoute,
     productionRecipesRoute,
@@ -310,6 +339,8 @@ const routeTree = rootRoute.addChildren([
     packingEditRoute,
     packingDefinitionsRoute,
     purchasesRoute,
+    purchasesRecordRoute,
+    purchasesEditRoute,
     inventoryRoute,
     sessionsRoute,
     financeRoute,

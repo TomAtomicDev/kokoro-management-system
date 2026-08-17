@@ -1,6 +1,7 @@
 // View/edit drawer for a single item (Doc 06 Ã‚Â§4 DetailDrawer contract), plus the two things
 // unique to Catalog: the active toggle and alias chip management (Doc 07 SC-15).
 
+import { ITEM_ALIAS_MAX_LENGTH } from "@kokoro/shared";
 import { Pencil, X } from "lucide-react";
 import { useEffect, useState } from "react";
 
@@ -187,6 +188,7 @@ export function ItemDetailDrawer({ itemId, open, onOpenChange }: ItemDetailDrawe
                 value={aliasInput}
                 onChange={(event) => setAliasInput(event.target.value)}
                 placeholder={catalogLabels.aliasPlaceholder}
+                maxLength={ITEM_ALIAS_MAX_LENGTH}
                 onKeyDown={(event) => {
                   if (event.key === "Enter") {
                     event.preventDefault();

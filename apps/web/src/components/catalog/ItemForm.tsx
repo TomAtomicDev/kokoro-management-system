@@ -8,6 +8,7 @@ import {
   formatQty,
   ITEM_CATEGORIES,
   ITEM_KINDS,
+  ITEM_NAME_MAX_LENGTH,
   type MilliCentavosPerUnit,
   rateFromTotal,
   toCentavos,
@@ -289,9 +290,11 @@ export function ItemForm({
             disabled={disabled}
             autoFocus
             required
-            maxLength={200}
+            maxLength={ITEM_NAME_MAX_LENGTH}
           />
-          <span className="self-end text-muted-foreground text-xs">{values.name.length}/200</span>
+          <span className="self-end text-muted-foreground text-xs">
+            {values.name.length}/{ITEM_NAME_MAX_LENGTH}
+          </span>
         </div>
       </Field>
 

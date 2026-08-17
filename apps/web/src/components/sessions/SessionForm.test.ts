@@ -2,7 +2,14 @@ import type { SessionDto } from "@kokoro/shared";
 import { recordSessionCommandSchema, toBusinessDate } from "@kokoro/shared";
 import { describe, expect, it } from "vitest";
 
-import { buildStartNowCommand, sessionToFormState } from "./SessionForm";
+import {
+  buildStartNowCommand,
+  deriveDurationFromEnd,
+  deriveEndFromDuration,
+  endIsNotAfterStart,
+  isoToDatetimeLocal,
+  sessionToFormState,
+} from "./SessionForm";
 
 // `sessionToFormState` is the SessionDto -> form-initial-state mapper SessionForm's edit mode
 // seeds its local state from. Exercised as a plain function, same rationale as
@@ -75,6 +82,28 @@ describe("sessionToFormState", () => {
 
     expect(state.startedAt).toBe("");
     expect(state.endedAt).toBe("");
+  });
+
+  it("formats session instants in La Paz wall-clock time", () => {
+    expect(isoToDatetimeLocal("2026-07-01T14:30:00.000Z")).toBe("2026-07-01T10:30");
+  });
+});
+
+describe("session close derivation", () => {
+  const startedAt = "2026-07-01T10:30";
+
+  it("derives the end from a positive duration", () => {
+    expect(deriveEndFromDuration(startedAt, "90")).toBe("2026-07-01T12:00");
+  });
+
+  it("derives the duration from an edited end", () => {
+    expect(deriveDurationFromEnd(startedAt, "2026-07-01T12:00")).toBe("90");
+  });
+
+  it("keeps the end-after-start validation live", () => {
+    expect(endIsNotAfterStart(startedAt, "2026-07-01T10:29")).toBe(true);
+    expect(endIsNotAfterStart(startedAt, "2026-07-01T10:30")).toBe(true);
+    expect(endIsNotAfterStart(startedAt, "2026-07-01T10:31")).toBe(false);
   });
 });
 

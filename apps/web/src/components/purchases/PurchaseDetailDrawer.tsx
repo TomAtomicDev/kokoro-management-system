@@ -19,6 +19,7 @@ import {
   totalCentavos,
   WHOLE_UNIT_MILLI_UNITS,
 } from "@kokoro/shared";
+import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 
 import { DetailDrawer } from "@/components/data-table/DetailDrawer";
@@ -30,8 +31,6 @@ import { useDeletePurchase, usePurchase, useRestorePurchase } from "@/features/p
 import { useReplayConfirmableMutation } from "@/hooks/useReplayConfirmableMutation";
 import { ApiError } from "@/lib/api";
 import { purchasesLabels } from "@/lib/i18n-purchases";
-
-import { PurchaseForm } from "./PurchaseForm";
 
 export interface PurchaseDetailDrawerProps {
   purchaseId: string | null;
@@ -46,11 +45,11 @@ export function PurchaseDetailDrawer({
   onOpenChange,
   accounts,
 }: PurchaseDetailDrawerProps) {
+  const navigate = useNavigate();
   const purchaseQuery = usePurchase(purchaseId ?? undefined);
   const itemsQuery = useItemsQuery({ isActive: true });
   const { show, showUndo } = useToast();
 
-  const [editOpen, setEditOpen] = useState(false);
   // Frozen at the moment delete succeeds — see deleteReplay's onSuccess below. The restore mutation
   // is deliberately built from THIS, never from the live `purchaseId` prop: `onOpenChange(false)`
   // closes the drawer as part of that same onSuccess, which flips `purchaseId` to `null` on the
@@ -137,8 +136,16 @@ export function PurchaseDetailDrawer({
           <p className="text-muted-foreground text-sm">{purchasesLabels.loading}</p>
         ) : (
           <div className="flex flex-col gap-5 text-sm">
-            <div className="flex items-center justify-end gap-2">
-              <Button type="button" variant="outline" size="sm" onClick={() => setEditOpen(true)}>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  void navigate({ to: "/purchases/$purchaseId/edit", params: { purchaseId } });
+                  onOpenChange(false);
+                }}
+              >
                 {purchasesLabels.edit}
               </Button>
               <Button
@@ -241,15 +248,6 @@ export function PurchaseDetailDrawer({
           </div>
         )}
       </DetailDrawer>
-
-      {purchase ? (
-        <PurchaseForm
-          open={editOpen}
-          onOpenChange={setEditOpen}
-          accounts={accounts}
-          purchase={purchase}
-        />
-      ) : null}
 
       {deleteReplay.pendingConfirmation ? (
         <ImpactConfirmDialog

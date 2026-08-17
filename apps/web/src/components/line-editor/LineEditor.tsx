@@ -20,7 +20,7 @@ import {
 import { X } from "lucide-react";
 import { type ReactNode, useState } from "react";
 
-import { ItemPicker } from "@/components/catalog/ItemPicker";
+import { ItemPicker, type ItemPickerEligibility } from "@/components/catalog/ItemPicker";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -75,6 +75,10 @@ export interface LineEditorProps<T extends LineEditorLine> {
   /** Passed straight through to each row's ItemPicker. An array means "any of these kinds"
    * (ItemPicker filters client-side since `GET /items` only accepts one `kind`). */
   itemKindFilter?: ItemKind | ItemKind[];
+  /** Additional constraints passed through to each row's ItemPicker. */
+  itemEligibility?: ItemPickerEligibility;
+  /** Explains why no item matches itemEligibility. */
+  itemEmptyMessage?: string;
   /** Resolves an item's canonical unit for the unit suffix or opt-in display-unit selector. */
   getItemUnit?: (itemId: string) => Unit | undefined;
   /** Opt in to a per-line display-unit selector. Omit to show the canonical unit suffix. */
@@ -93,6 +97,8 @@ export function LineEditor<T extends LineEditorLine>({
   onItemChange,
   disabled,
   itemKindFilter,
+  itemEligibility,
+  itemEmptyMessage,
   getItemUnit,
   unitSelector,
   showAmount = true,
@@ -164,6 +170,8 @@ export function LineEditor<T extends LineEditorLine>({
                   updateLine(index, { itemId, ...extraPatch } as Partial<T>);
                 }}
                 kindFilter={itemKindFilter}
+                eligibility={itemEligibility}
+                emptyMessage={itemEmptyMessage}
                 disabled={disabled}
                 placeholder={labels.item}
               />

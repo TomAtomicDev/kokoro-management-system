@@ -176,7 +176,7 @@ export function ExitDetailDrawer({ exitId, open, onOpenChange }: ExitDetailDrawe
               </p>
             ) : null}
 
-            <div className="flex justify-end gap-2 border-border border-t pt-3">
+            <div className="flex flex-wrap justify-end gap-2 border-border border-t pt-3">
               <Button type="button" variant="outline" onClick={() => setEditOpen(true)}>
                 {inventoryLabels.editExit}
               </Button>

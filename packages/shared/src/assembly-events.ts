@@ -3,6 +3,10 @@ import { confirmFlagSchema } from "./costing.js";
 import { businessDateSchema, occurredAtSchema } from "./dates.js";
 import { safeText } from "./text.js";
 
+/** Optional order link. On update, omitted (`undefined`) preserves the existing link while
+ * explicit `null` clears it; create treats either value as an unlinked assembly (O-4). */
+const customOrderIdSchema = z.string().min(1).nullish();
+
 export const assemblyLineCommandSchema = z.object({
   itemId: z.string().min(1),
   qty: z
@@ -17,7 +21,7 @@ export const recordAssemblyCommandSchema = z.object({
   businessDate: businessDateSchema,
   definitionId: z.string().min(1).optional(),
   sessionId: z.string().min(1).optional(),
-  customOrderId: z.string().min(1).optional(),
+  customOrderId: customOrderIdSchema,
   outputItemId: z.string().min(1),
   plannedOutputQty: z.number().int().positive().optional(),
   actualOutputQty: z

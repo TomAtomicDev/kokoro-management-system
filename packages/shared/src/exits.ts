@@ -19,6 +19,8 @@ import type { StockExitReason } from "./enums.js";
 import { stockExitReasonSchema } from "./enums.js";
 import { safeText } from "./text.js";
 
+export const STOCK_EXIT_NOTES_MAX_LENGTH = 2000;
+
 /** Milli-units of the item's own stored unit (Doc 04 §2), matching qty.ts's representation.
  * Always positive — the sign convention (exits are negative kardex movements) lives only in
  * `stock_movements` per Doc 04 §3.3 vs §3.4; `stock_exits.qty` itself is the positive reported
@@ -44,7 +46,7 @@ export const recordStockExitCommandSchema = z.object({
   // sessions table here (no FK check beyond what the DB's own `ON DELETE restrict` FK enforces at
   // write time), mirroring purchasing.ts's identical `sessionId` precedent.
   sessionId: z.string().min(1).optional(),
-  notes: z.string().trim().pipe(safeText(2000)).optional(),
+  notes: z.string().trim().pipe(safeText(STOCK_EXIT_NOTES_MAX_LENGTH)).optional(),
   occurredAt: occurredAtSchema,
   businessDate: businessDateSchema,
   packagingLines: z.array(stockExitPackagingLineCommandSchema).optional().default([]),
