@@ -561,7 +561,11 @@ async function buildAssemblyUpdateInputs(
   );
   // KOK-137: only validate when the link is actually CHANGING — see the identical rationale in
   // core/production/index.ts's buildProductionRunUpdateInputs.
-  if (command.customOrderId && command.customOrderId !== existing.customOrderId) {
+  // `undefined` means leave the existing link unchanged; `null` explicitly unlinks it.
+  if (
+    typeof command.customOrderId === "string" &&
+    command.customOrderId !== existing.customOrderId
+  ) {
     await assertOrderLinkable(db, command.customOrderId);
   }
   await validateDefinition(db, command.definitionId, command.outputItemId);
@@ -618,7 +622,8 @@ async function buildAssemblyUpdateInputs(
     businessDate: command.businessDate,
     definitionId: command.definitionId ?? null,
     sessionId: resolvedSession.sessionId,
-    customOrderId: command.customOrderId ?? null,
+    customOrderId:
+      command.customOrderId === undefined ? existing.customOrderId : command.customOrderId,
     outputItemId: command.outputItemId,
     plannedOutputQty: command.plannedOutputQty ?? null,
     actualOutputQty: command.actualOutputQty,

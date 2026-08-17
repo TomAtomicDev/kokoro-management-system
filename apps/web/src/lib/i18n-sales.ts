@@ -48,6 +48,7 @@ export const salesLabels = {
   } satisfies Record<PaymentMethod, string>,
 
   recordTitle: "Nueva venta",
+  backToSales: "Volver a ventas",
   fieldPaymentStatus: "Estado de pago",
   fieldAccount: "Cuenta",
   fieldPaymentAccount: "Cuenta y método de pago",
@@ -67,6 +68,9 @@ export const salesLabels = {
   lineSubtotal: "Subtotal",
 
   totalPreviewLabel: "Total estimado",
+  deductedFromAccount: (amount: string, account: string) =>
+    `Se descontará ${amount} de la cuenta ${account || "seleccionada"}`,
+  paymentOnCredit: "No se descuenta de una cuenta hasta cobrar esta venta.",
 
   warnings: {
     /** INV-8: this line's (aggregated-by-item) qty would take the item's on-hand stock negative. */

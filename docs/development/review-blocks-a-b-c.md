@@ -537,7 +537,7 @@ card before starting the task** — the table row is a summary, not a spec.
 | KOK-175 | Session drawer action row overflows               | web     | S    | 2   | 📋 To Do | Badge + 4 buttons in one non-wrapping flex row clips **Eliminar** — the destructive action — in half. Wrap or use an overflow menu; audit the other detail drawers too. Closes F-38. → §4.4.4                                                               |
 | KOK-176 | Pickers must only offer acceptable items          | web     | S    | 2   | 📋 To Do | Purchases offer Agua and Envasado offers non-`UNIT` outputs, both rejected only at submit by rules the UI never displayed. Add kind/unit/`isUnmetered` eligibility to `ItemPicker`. Closes F-42, picker half of F-33. → §4.4.5                              |
 | KOK-159 | Client-side length caps                           | web     | S    | 2   | 📋 To Do | The app has exactly **one** `maxLength`. Derive it from the same `safeText(N)` bound the shared schema declares so the two cannot drift. Closes F-8. → §4.4.6                                                                                               |
-| KOK-160 | Purchase total + "Se descontará X de la cuenta Y" | web     | S    | 2   | 📋 To Do | Agreed in §B, never ticketed, never built (zero matches). Reuse `PinnedSummaryFooter`. Absorbed by KOK-140 if that lands first — close it explicitly either way. Closes F-9. → §4.4.7                                                                       |
+| KOK-160 | Purchase total + "Se descontará X de la cuenta Y" | web     | S    | 2   | ✅ Done | delivered by KOK-140 (commit 861d027): Purchase and Sale pinned footers render the computed total and destination-account line. Closes F-9. → §4.4.7                                                                       |
 | KOK-161 | Packaging suggestion on exits                     | full    | M    | 3   | 📋 To Do | A-1 case 3: prefill packaging from the applicable **default** definition when the exit is of an unassembled product. The only surviving piece of the "suggested packaging" idea. Closes F-10. → §4.4.8                                                      |
 | KOK-162 | PWA update strategy                               | web     | S    | 3   | 📋 To Do | Hardcoded `CACHE_NAME` + cache-first document = white screen after any deploy. **Now real**, because staging deploys again. Keep the `/api/` exclusion exactly as it is. Closes F-11. → §4.4.9                                                              |
 | KOK-163 | Harden `customOrderId` semantics before Phase 4   | shared  | S    | 4   | 📋 To Do | "Omitted" currently means "clear the link". A Telegram/AI capture path omitting the field would silently unlink a delivered order's production run. Fix before Phase 4 starts. Closes F-13. → §4.4.10                                                       |
@@ -1053,6 +1053,8 @@ a test asserts each capped field's `maxLength` equals its schema bound.
 no KOK id was ever created for it. It vanished between the agreement and the backlog.
 
 **What to build.** The computed purchase total and the destination line in `PinnedSummaryFooter`.
+
+**Disposition.** delivered by KOK-140 (commit 861d027): both the PurchaseForm and SaleForm pinned footers render the computed total and destination-account line.
 
 **Process note.** If KOK-140 lands first, deliver this inside it and **close this row explicitly as
 "delivered by KOK-140"** rather than dropping it. The silent drop is what produced this finding.

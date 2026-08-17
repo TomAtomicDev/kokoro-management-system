@@ -4,7 +4,7 @@
 // cheap) and delegates inline-create to the shared CreateItemDialog, instead of leaving each
 // future caller to reimplement "search items, or create one on the fly."
 
-import type { ItemDto, ItemKind } from "@kokoro/shared";
+import type { ItemDto, ItemKind, Unit } from "@kokoro/shared";
 import { Plus } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
@@ -14,6 +14,30 @@ import { catalogLabels } from "@/lib/i18n-catalog";
 
 import { CreateItemDialog } from "./CreateItemDialog";
 
+export interface ItemPickerEligibility {
+  kind?: ItemKind | ItemKind[];
+  unit?: Unit | Unit[];
+  isUnmetered?: boolean;
+}
+
+type ItemEligibilityFields = Pick<ItemDto, "kind" | "unit" | "isUnmetered">;
+
+function matchesEligibilityValue<T>(value: T, expected: T | T[] | undefined): boolean {
+  if (expected === undefined) return true;
+  return Array.isArray(expected) ? expected.includes(value) : value === expected;
+}
+
+export function isItemEligible(
+  item: ItemEligibilityFields,
+  eligibility?: ItemPickerEligibility,
+): boolean {
+  return (
+    matchesEligibilityValue(item.kind, eligibility?.kind) &&
+    matchesEligibilityValue(item.unit, eligibility?.unit) &&
+    matchesEligibilityValue(item.isUnmetered, eligibility?.isUnmetered)
+  );
+}
+
 export interface ItemPickerProps {
   value: string | null;
   onChange: (itemId: string | null, item: ItemDto | null) => void;
@@ -22,7 +46,11 @@ export interface ItemPickerProps {
    * to that endpoint — it only accepts one `kind` — so instead the unfiltered/search-matched
    * result set is fetched and narrowed client-side; fine at this app's (solo-business) scale. */
   kindFilter?: ItemKind | ItemKind[];
+  /** Additional client-side constraints for the items this event can accept. */
+  eligibility?: ItemPickerEligibility;
   placeholder?: string;
+  /** Explains why no eligible item is available instead of showing a generic blank result. */
+  emptyMessage?: string;
   disabled?: boolean;
   /** On by default — the inline "crear ítem" flow this component exists to provide. */
   allowCreate?: boolean;
@@ -32,7 +60,9 @@ export function ItemPicker({
   value,
   onChange,
   kindFilter,
+  eligibility,
   placeholder,
+  emptyMessage,
   disabled,
   allowCreate = true,
 }: ItemPickerProps) {
@@ -41,11 +71,17 @@ export function ItemPicker({
   const [createOpen, setCreateOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const isMultiKind = Array.isArray(kindFilter);
+  const effectiveEligibility: ItemPickerEligibility | undefined =
+    eligibility || kindFilter !== undefined
+      ? { ...eligibility, kind: eligibility?.kind ?? kindFilter }
+      : undefined;
+  const effectiveKind = effectiveEligibility?.kind;
+  const singleKindFilter: ItemKind | undefined =
+    typeof effectiveKind === "string" ? effectiveKind : undefined;
 
   const selectedItemQuery = useItemQuery(value ?? undefined);
   const searchQuery = useItemsQuery({
-    kind: isMultiKind ? undefined : kindFilter,
+    kind: singleKindFilter,
     isActive: true,
     search: query.trim() || undefined,
   });
@@ -63,9 +99,7 @@ export function ItemPicker({
 
   const displayValue = open ? query : (selectedItemQuery.data?.name ?? "");
   const rawResults = searchQuery.data?.items ?? [];
-  const results = isMultiKind
-    ? rawResults.filter((item) => kindFilter.includes(item.kind))
-    : rawResults;
+  const results = rawResults.filter((item) => isItemEligible(item, effectiveEligibility));
   const trimmedQuery = query.trim();
   const exactNameMatch = results.some(
     (item) => item.name.toLowerCase() === trimmedQuery.toLowerCase(),
@@ -94,7 +128,7 @@ export function ItemPicker({
         <div className="absolute z-20 mt-1 max-h-72 w-full overflow-y-auto rounded-md border border-border bg-popover shadow-md">
           {results.length === 0 ? (
             <p className="px-3 py-2 text-muted-foreground text-sm">
-              {catalogLabels.itemPickerEmpty}
+              {emptyMessage ?? catalogLabels.itemPickerEmpty}
             </p>
           ) : (
             <ul>
@@ -137,8 +171,10 @@ export function ItemPicker({
           initialName={trimmedQuery}
           // CreateItemDialog only pre-selects a single ItemKind; with a multi-kind filter there's
           // no single right default, so leave it unset and let the owner pick in the form.
-          kindFilter={isMultiKind ? undefined : kindFilter}
-          onCreated={selectItem}
+          kindFilter={singleKindFilter}
+          onCreated={(item) => {
+            if (isItemEligible(item, effectiveEligibility)) selectItem(item);
+          }}
         />
       ) : null}
     </div>

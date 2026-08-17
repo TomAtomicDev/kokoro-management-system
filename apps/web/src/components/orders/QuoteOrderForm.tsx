@@ -5,7 +5,11 @@
 // `agreedTotal`/`depositRequired` are both optional here (Doc 04 §3.3: "required to confirm", not
 // to quote) — a quote may legitimately be opened before the price is settled.
 
-import { quoteOrderCommandSchema } from "@kokoro/shared";
+import {
+  ORDER_DESCRIPTION_MAX_LENGTH,
+  ORDER_NOTES_MAX_LENGTH,
+  quoteOrderCommandSchema,
+} from "@kokoro/shared";
 import { useEffect, useState } from "react";
 
 import { CustomerPicker } from "@/components/customers/CustomerPicker";
@@ -148,6 +152,7 @@ export function QuoteOrderForm({ open, onOpenChange }: QuoteOrderFormProps) {
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             disabled={disabled}
+            maxLength={ORDER_DESCRIPTION_MAX_LENGTH}
           />
         </div>
 
@@ -216,6 +221,7 @@ export function QuoteOrderForm({ open, onOpenChange }: QuoteOrderFormProps) {
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             disabled={disabled}
+            maxLength={ORDER_NOTES_MAX_LENGTH}
           />
         </div>
 

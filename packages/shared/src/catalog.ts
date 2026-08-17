@@ -14,8 +14,19 @@ import { itemCategorySchema, itemKindSchema, unitSchema } from "./enums.js";
 import { type MilliCentavosPerUnit, toMilliCentavosPerUnit } from "./money.js";
 import { safeText } from "./text.js";
 
-const itemNameSchema = z.string().trim().min(1, "El nombre es obligatorio.").pipe(safeText(200));
-const aliasSchema = z.string().trim().min(1, "El alias no puede estar vacío.").pipe(safeText(200));
+export const ITEM_NAME_MAX_LENGTH = 200;
+export const ITEM_ALIAS_MAX_LENGTH = 200;
+
+const itemNameSchema = z
+  .string()
+  .trim()
+  .min(1, "El nombre es obligatorio.")
+  .pipe(safeText(ITEM_NAME_MAX_LENGTH));
+const aliasSchema = z
+  .string()
+  .trim()
+  .min(1, "El alias no puede estar vacío.")
+  .pipe(safeText(ITEM_ALIAS_MAX_LENGTH));
 const notesSchema = z.string().trim().pipe(safeText(2000)).nullable().optional();
 /** Centavos, matching money.ts's Centavos representation (INV-6). */
 const salePriceMcSchema = z

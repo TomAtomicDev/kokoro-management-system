@@ -28,6 +28,8 @@ import { confirmFlagSchema } from "./costing.js";
 import { businessDateSchema, occurredAtSchema } from "./dates.js";
 import { safeText } from "./text.js";
 
+export const PRODUCTION_RUN_NOTES_MAX_LENGTH = 2000;
+
 /** Milli-units of the item's own stored unit (Doc 04 §2), matching qty.ts's representation.
  * Always positive — a production consumption line removes stock, it never adds it (the OUTPUT
  * side is `actualOutputQty`, a separate field, not a line). */
@@ -44,6 +46,9 @@ const actualOutputQtySchema = z
   .number()
   .int()
   .positive("La cantidad de salida real debe ser un entero positivo (mili-unidades).");
+/** Optional order link. On update, omitted (`undefined`) preserves the existing link while
+ * explicit `null` clears it; create treats either value as an unlinked run (O-4). */
+const customOrderIdSchema = z.string().min(1).nullish();
 /** Centavos (INV-6), run-specific extras not tracked as raw-material consumption (Doc 04 §3.3
  * comment: "run-specific extras"). Optional, defaults to 0 — most runs have none. Never negative:
  * this is a cost, not a signed adjustment. */
@@ -65,11 +70,11 @@ export const recordProductionRunCommandSchema = z.object({
   // not validated against their tables here beyond the DB's own `ON DELETE restrict` FK, mirroring
   // purchasing.ts's identical `sessionId` precedent.
   sessionId: z.string().min(1).optional(),
-  customOrderId: z.string().min(1).optional(),
+  customOrderId: customOrderIdSchema,
   batches: batchesSchema,
   actualOutputQty: actualOutputQtySchema,
   indirectCost: indirectCostSchema,
-  notes: z.string().trim().pipe(safeText(2000)).optional(),
+  notes: z.string().trim().pipe(safeText(PRODUCTION_RUN_NOTES_MAX_LENGTH)).optional(),
   occurredAt: occurredAtSchema,
   businessDate: businessDateSchema,
   lines: z.array(productionLineCommandSchema).min(1, "Se requiere al menos un insumo consumido."),

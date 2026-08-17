@@ -9,17 +9,16 @@
 // ProductionRunDetailDrawer.tsx renders its recipe as a plain label, not a link, so a bare
 // list-screen link per section is the reasonable stopping point rather than inventing new
 // per-record deep-linking for four other screens at once), and the "Cerrar sesión" quick action —
-// a small inline close form (end time OR duration) that submits the full session unchanged plus
-// `status: "CLOSED"`, since UpdateSessionCommand is a full replace, not a patch.
+// a small inline close form that keeps end time and duration synchronized for display, then sends
+// only the derived end time to the full-replacement UpdateSessionCommand.
 
 import type { FinancialAccountDto } from "@kokoro/shared";
 import { addMoney, formatMoney, toCentavos, updateSessionCommandSchema } from "@kokoro/shared";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 
 import { DetailDrawer } from "@/components/data-table/DetailDrawer";
 import { ProductionRunForm } from "@/components/production/ProductionRunForm";
-import { PurchaseForm } from "@/components/purchases/PurchaseForm";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,7 +32,16 @@ import {
 import { ApiError } from "@/lib/api";
 import { sessionsLabels } from "@/lib/i18n-sessions";
 
-import { datetimeLocalToIso, parseDurationMinutes, SessionForm } from "./SessionForm";
+import {
+  datetimeLocalToIso,
+  deriveDurationFromEnd,
+  deriveEndFromDuration,
+  endIsNotAfterStart,
+  isoToDatetimeLocal,
+  nowDatetimeLocal,
+  parseDurationMinutes,
+  SessionForm,
+} from "./SessionForm";
 
 export interface SessionDetailDrawerProps {
   sessionId: string | null;
@@ -48,13 +56,13 @@ export function SessionDetailDrawer({
   onOpenChange,
   accounts,
 }: SessionDetailDrawerProps) {
+  const navigate = useNavigate();
   const sessionQuery = useSession(sessionId ?? undefined);
   const { show, showUndo } = useToast();
 
   const [editOpen, setEditOpen] = useState(false);
   const [closeFormOpen, setCloseFormOpen] = useState(false);
   const [productionFormOpen, setProductionFormOpen] = useState(false);
-  const [purchaseFormOpen, setPurchaseFormOpen] = useState(false);
   const [closeEndedAt, setCloseEndedAt] = useState("");
   const [closeDurationMin, setCloseDurationMin] = useState("");
   const [closeError, setCloseError] = useState<string | null>(null);
@@ -98,28 +106,43 @@ export function SessionDetailDrawer({
     }
   }
 
+  function openCloseForm() {
+    if (!session?.startedAt) return;
+    const start = isoToDatetimeLocal(session.startedAt);
+    const end = nowDatetimeLocal();
+    setCloseEndedAt(end);
+    setCloseDurationMin(deriveDurationFromEnd(start, end) ?? "");
+    setCloseError(endIsNotAfterStart(start, end) ? sessionsLabels.errors.endBeforeStart : null);
+    setCloseFormOpen(true);
+  }
+
   async function handleClose() {
     if (!session) return;
     setCloseError(null);
-    const durationValue = parseDurationMinutes(closeDurationMin);
-    if (durationValue === null) {
-      setCloseError(sessionsLabels.errors.generic);
+    if (parseDurationMinutes(closeDurationMin) === null) {
+      setCloseError(sessionsLabels.errors.invalidDuration);
       return;
     }
     const endedAtIso = datetimeLocalToIso(closeEndedAt);
-    if (durationValue === undefined && endedAtIso === undefined) {
-      setCloseError(sessionsLabels.errors.closeRequiresDuration);
+    if (!endedAtIso) {
+      setCloseError(sessionsLabels.errors.closeEndRequired);
+      return;
+    }
+    if (
+      !session.startedAt ||
+      endIsNotAfterStart(isoToDatetimeLocal(session.startedAt), closeEndedAt)
+    ) {
+      setCloseError(sessionsLabels.errors.endBeforeStart);
       return;
     }
     // Full replace (UpdateSessionCommand is not a patch): re-send the session's own current
-    // fields unchanged, plus this mini-form's end time/duration and `status: "CLOSED"`. Validated
-    // through the same shared schema the API route parses with (D-4), same as SessionForm.
+    // fields unchanged, plus exactly one closing field (`endedAt`) and `status: "CLOSED"`.
+    // The shared schema's exclusivity refinement remains unchanged.
     const parsed = updateSessionCommandSchema.safeParse({
       type: session.type,
       businessDate: session.businessDate,
       startedAt: session.startedAt ?? undefined,
-      endedAt: endedAtIso ?? session.endedAt ?? undefined,
-      durationMin: durationValue ?? session.durationMin ?? undefined,
+      endedAt: endedAtIso,
       notes: session.notes ?? undefined,
       costLines: session.costLines.map((line) => ({
         label: line.label,
@@ -152,6 +175,7 @@ export function SessionDetailDrawer({
         subtitle={session?.businessDate}
         entityType="sessions"
         entityId={session?.id}
+        disableUnsavedChangesGuard
         footer={
           session ? (
             <span>
@@ -165,11 +189,11 @@ export function SessionDetailDrawer({
           <p className="text-muted-foreground text-sm">{sessionsLabels.loading}</p>
         ) : (
           <div className="flex flex-col gap-5 text-sm">
-            <div className="flex items-center justify-between gap-2">
-              <Badge variant={session.status === "OPEN" ? "default" : "muted"}>
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <Badge className="shrink-0" variant={session.status === "OPEN" ? "default" : "muted"}>
                 {sessionsLabels.statusLabels[session.status]}
               </Badge>
-              <div className="flex items-center gap-2">
+              <div className="flex min-w-0 basis-full flex-wrap items-center justify-end gap-2 sm:flex-1 sm:basis-auto">
                 {session.type === "PRODUCTION" ? (
                   <Button
                     type="button"
@@ -185,7 +209,10 @@ export function SessionDetailDrawer({
                     type="button"
                     variant="outline"
                     size="sm"
-                    onClick={() => setPurchaseFormOpen(true)}
+                    onClick={() => {
+                      void navigate({ to: "/purchases/new", search: { sessionId: session.id } });
+                      onOpenChange(false);
+                    }}
                   >
                     {sessionsLabels.linkedEvents.registerPurchase}
                   </Button>
@@ -195,7 +222,7 @@ export function SessionDetailDrawer({
                     type="button"
                     variant="outline"
                     size="sm"
-                    onClick={() => setCloseFormOpen((v) => !v)}
+                    onClick={() => (closeFormOpen ? setCloseFormOpen(false) : openCloseForm())}
                   >
                     {sessionsLabels.closeAction}
                   </Button>
@@ -228,7 +255,17 @@ export function SessionDetailDrawer({
                       id="sdd-close-end"
                       type="datetime-local"
                       value={closeEndedAt}
-                      onChange={(e) => setCloseEndedAt(e.target.value)}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        const start = isoToDatetimeLocal(session.startedAt);
+                        setCloseEndedAt(value);
+                        setCloseDurationMin(deriveDurationFromEnd(start, value) ?? "");
+                        setCloseError(
+                          endIsNotAfterStart(start, value)
+                            ? sessionsLabels.errors.endBeforeStart
+                            : null,
+                        );
+                      }}
                       disabled={closeMutation.isPending}
                     />
                   </div>
@@ -241,7 +278,18 @@ export function SessionDetailDrawer({
                       inputMode="numeric"
                       placeholder="0"
                       value={closeDurationMin}
-                      onChange={(e) => setCloseDurationMin(e.target.value)}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        const start = isoToDatetimeLocal(session.startedAt);
+                        setCloseDurationMin(value);
+                        const derivedEnd = deriveEndFromDuration(start, value);
+                        if (derivedEnd) {
+                          setCloseEndedAt(derivedEnd);
+                          setCloseError(null);
+                        } else if (value.trim() === "") {
+                          setCloseError(null);
+                        }
+                      }}
                       disabled={closeMutation.isPending}
                     />
                   </div>
@@ -368,12 +416,6 @@ export function SessionDetailDrawer({
           <ProductionRunForm
             open={productionFormOpen}
             onOpenChange={setProductionFormOpen}
-            preselectedSessionId={session.id}
-          />
-          <PurchaseForm
-            open={purchaseFormOpen}
-            onOpenChange={setPurchaseFormOpen}
-            accounts={accounts}
             preselectedSessionId={session.id}
           />
         </>

@@ -19,6 +19,7 @@ import {
   totalCentavos,
   WHOLE_UNIT_MILLI_UNITS,
 } from "@kokoro/shared";
+import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 
 import { DetailDrawer } from "@/components/data-table/DetailDrawer";
@@ -33,8 +34,6 @@ import { useReplayConfirmableMutation } from "@/hooks/useReplayConfirmableMutati
 import { ApiError } from "@/lib/api";
 import { salesLabels } from "@/lib/i18n-sales";
 
-import { SaleForm } from "./SaleForm";
-
 export interface SaleDetailDrawerProps {
   saleId: string | null;
   open: boolean;
@@ -43,11 +42,11 @@ export interface SaleDetailDrawerProps {
 }
 
 export function SaleDetailDrawer({ saleId, open, onOpenChange, accounts }: SaleDetailDrawerProps) {
+  const navigate = useNavigate();
   const saleQuery = useSale(saleId ?? undefined);
   const itemsQuery = useItemsQuery({ isActive: true });
   const { show, showUndo } = useToast();
 
-  const [editOpen, setEditOpen] = useState(false);
   // Frozen at the moment delete succeeds — see deleteReplay's onSuccess below. The restore mutation
   // is deliberately built from THIS, never from the live `saleId` prop — same bug precedent
   // PurchaseDetailDrawer.tsx's identical comment documents (ProductionRunDetailDrawer, KOK-026):
@@ -140,7 +139,15 @@ export function SaleDetailDrawer({ saleId, open, onOpenChange, accounts }: SaleD
         ) : (
           <div className="flex flex-col gap-5 text-sm">
             <div className="flex items-center justify-end gap-2">
-              <Button type="button" variant="outline" size="sm" onClick={() => setEditOpen(true)}>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  void navigate({ to: "/sales/$saleId/edit", params: { saleId } });
+                  onOpenChange(false);
+                }}
+              >
                 {salesLabels.edit}
               </Button>
               <Button
@@ -237,10 +244,6 @@ export function SaleDetailDrawer({ saleId, open, onOpenChange, accounts }: SaleD
           </div>
         )}
       </DetailDrawer>
-
-      {sale ? (
-        <SaleForm open={editOpen} onOpenChange={setEditOpen} accounts={accounts} sale={sale} />
-      ) : null}
 
       {deleteReplay.pendingConfirmation ? (
         <ImpactConfirmDialog

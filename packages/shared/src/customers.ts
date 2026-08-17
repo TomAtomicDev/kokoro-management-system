@@ -10,13 +10,27 @@ import { z } from "zod";
 
 import { safeText } from "./text.js";
 
+export const CUSTOMER_NAME_MAX_LENGTH = 200;
+export const CUSTOMER_PHONE_MAX_LENGTH = 50;
+export const CUSTOMER_NOTES_MAX_LENGTH = 2000;
+
 const customerNameSchema = z
   .string()
   .trim()
   .min(1, "El nombre es obligatorio.")
-  .pipe(safeText(200));
-const phoneSchema = z.string().trim().pipe(safeText(50)).nullable().optional();
-const notesSchema = z.string().trim().pipe(safeText(2000)).nullable().optional();
+  .pipe(safeText(CUSTOMER_NAME_MAX_LENGTH));
+const phoneSchema = z
+  .string()
+  .trim()
+  .pipe(safeText(CUSTOMER_PHONE_MAX_LENGTH))
+  .nullable()
+  .optional();
+const notesSchema = z
+  .string()
+  .trim()
+  .pipe(safeText(CUSTOMER_NOTES_MAX_LENGTH))
+  .nullable()
+  .optional();
 
 export const createCustomerCommandSchema = z.object({
   name: customerNameSchema,

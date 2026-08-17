@@ -22,7 +22,9 @@ import fc from "fast-check";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { createItem, updateItem } from "../src/core/catalog/index.js";
+import { createCustomer } from "../src/core/customers/index.js";
 import { recordExit } from "../src/core/inventory/exits.js";
+import { quoteOrder } from "../src/core/orders/index.js";
 import {
   computeProductionCosts,
   deleteProductionRun,
@@ -852,6 +854,63 @@ describe("reads: getProductionRun / listProductionRuns", () => {
 // Mirrors purchasing.test.ts's identical section, minus the cash-side assertions.
 // ---------------------------------------------------------------------------
 describe("updateProductionRun (R-1)", () => {
+  it("omitting customOrderId preserves an existing link, while null explicitly clears it", async () => {
+    const db = createDb(env.DB);
+    const rawItem = await seedItem(db, "Update linked raw");
+    const output = await seedItem(db, "Update linked output", "SEMI_FINISHED");
+    const recipe = await seedRecipe(db, output.id, [{ itemId: rawItem.id, qty: 100 }]);
+    const customer = await createCustomer(db, { name: "Update linked customer" }, ACTOR);
+    const { order } = await quoteOrder(
+      db,
+      { customerId: customer.id, description: "Update linked order" },
+      ACTOR,
+    );
+    const created = await recordProductionRun(
+      db,
+      {
+        recipeId: recipe.id,
+        customOrderId: order.id,
+        batches: 1,
+        actualOutputQty: 500,
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        lines: [{ itemId: rawItem.id, qty: 100 }],
+      },
+      ACTOR,
+    );
+
+    const omitted = await updateProductionRun(
+      db,
+      created.productionRun.id,
+      {
+        recipeId: recipe.id,
+        batches: 1,
+        actualOutputQty: 500,
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        lines: [{ itemId: rawItem.id, qty: 100 }],
+      },
+      ACTOR,
+    );
+    expect(omitted.productionRun.customOrderId).toBe(order.id);
+
+    const cleared = await updateProductionRun(
+      db,
+      created.productionRun.id,
+      {
+        recipeId: recipe.id,
+        customOrderId: null,
+        batches: 1,
+        actualOutputQty: 500,
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        lines: [{ itemId: rawItem.id, qty: 100 }],
+      },
+      ACTOR,
+    );
+    expect(cleared.productionRun.customOrderId).toBeNull();
+  });
+
   it("descriptive-only edit (notes) leaves the kardex byte-identical, writes no items UPDATE, no costing_adjustments, needs no confirmation", async () => {
     const db = createDb(env.DB);
     const rawItem = await seedItem(db, "Update descriptive raw");

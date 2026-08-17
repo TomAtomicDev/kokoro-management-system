@@ -1,4 +1,4 @@
-// Dialog for UC-01 "recordPurchase" (Doc 07 SC-07). Per-line unit-cost preview against the item's
+// Full-page form for UC-01 "recordPurchase" (Doc 07 SC-07). Per-line unit-cost preview against the item's
 // stored replacement cost is this screen's "inflation signal" â€” a purchase priced meaningfully
 // above what the item last cost to replace gets flagged inline as the line is entered, before the
 // purchase is even submitted. Validated with the exact same `recordPurchaseCommandSchema` the API
@@ -19,6 +19,7 @@ import {
   defaultDisplayUnitFor,
   formatMoney,
   nowIso,
+  PURCHASE_NOTES_MAX_LENGTH,
   rateFromTotal,
   recordPurchaseCommandSchema,
   toBusinessDate,
@@ -28,12 +29,14 @@ import {
   totalCentavos,
   WHOLE_UNIT_MILLI_UNITS,
 } from "@kokoro/shared";
-import { type ChangeEvent, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "@tanstack/react-router";
+import { type ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 
+import { FormPage } from "@/components/common/FormPage";
+import { PinnedSummaryFooter } from "@/components/common/PinnedSummaryFooter";
 import { LineEditor, type LineEditorLine } from "@/components/line-editor/LineEditor";
 import { parseLineQuantityToMilliUnits } from "@/components/line-editor/line-editor-quantity";
 import { Button } from "@/components/ui/button";
-import { Dialog } from "@/components/ui/dialog";
 import { ImpactConfirmDialog } from "@/components/ui/ImpactConfirmDialog";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -43,15 +46,19 @@ import {
   useRecordPurchase,
   useUpdatePurchase,
 } from "@/features/purchases/api";
+import {
+  clearPersistentDraft,
+  readPersistentDraft,
+  writePersistentDraft,
+} from "@/hooks/usePersistentDraft";
 import { useReplayConfirmableMutation } from "@/hooks/useReplayConfirmableMutation";
+import { hasUnsavedChanges, useUnsavedChangesGuard } from "@/hooks/useUnsavedChangesGuard";
 import { ApiError } from "@/lib/api";
 import { formatIntAsDecimalInput, parseDecimalToInt } from "@/lib/decimal";
 import { purchasesLabels } from "@/lib/i18n-purchases";
 import { cn } from "@/lib/utils";
 
 export interface PurchaseFormProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
   accounts: FinancialAccountDto[];
   /** Present -> edit mode: prefill from this purchase and submit via `useUpdatePurchase`. Absent ->
    * create mode, submits via `useRecordPurchase`. Both branches are wrapped in
@@ -114,14 +121,12 @@ export function purchaseToFormState(purchase: PurchaseDto): PurchaseFormState {
  * inflation signal, past ordinary rounding/price noise. Judgment call â€” 2 percentage points. */
 const INFLATION_SIGNAL_THRESHOLD = 0.02;
 
-export function PurchaseForm({
-  open,
-  onOpenChange,
-  accounts,
-  purchase,
-  preselectedSessionId,
-}: PurchaseFormProps) {
+export function PurchaseForm({ accounts, purchase, preselectedSessionId }: PurchaseFormProps) {
+  const navigate = useNavigate();
   const isEditMode = Boolean(purchase);
+  const draftKey = purchase
+    ? `purchase:${purchase.id}`
+    : `purchase:new:${preselectedSessionId ?? "none"}`;
 
   const [supplierName, setSupplierName] = useState("");
   const [accountId, setAccountId] = useState("");
@@ -133,17 +138,45 @@ export function PurchaseForm({
   const [photoError, setPhotoError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const initialFormStateRef = useRef<PurchaseFormState | null>(null);
+  const currentFormState: PurchaseFormState = {
+    supplierName,
+    accountId,
+    businessDate,
+    notes,
+    lines,
+    photoKey,
+  };
+  const unsavedChangesGuard = useUnsavedChangesGuard({
+    isDirty:
+      initialFormStateRef.current !== null &&
+      hasUnsavedChanges(initialFormStateRef.current, currentFormState),
+    blockNavigation: true,
+  });
+
   const createMutation = useRecordPurchase();
   const createReplay = useReplayConfirmableMutation<RecordPurchaseCommand, RecordPurchaseResult>(
     (command) => createMutation.mutateAsync(command),
-    { onSuccess: () => onOpenChange(false) },
+    {
+      onSuccess: () => {
+        clearPersistentDraft(draftKey);
+        unsavedChangesGuard.markClean();
+        void navigate({ to: "/purchases" });
+      },
+    },
   );
   // Called unconditionally (rules of hooks) even in create mode â€” `purchase?.id` is only "" then,
   // and the mutation is never actually invoked unless `isEditMode` is true (see handleSubmit).
   const updateMutation = useUpdatePurchase(purchase?.id ?? "");
   const editReplay = useReplayConfirmableMutation<UpdatePurchaseCommand, UpdatePurchaseResult>(
     (command) => updateMutation.mutateAsync(command),
-    { onSuccess: () => onOpenChange(false) },
+    {
+      onSuccess: () => {
+        clearPersistentDraft(draftKey);
+        unsavedChangesGuard.markClean();
+        void navigate({ to: "/purchases" });
+      },
+    },
   );
 
   const itemsQuery = useItemsQuery({ isActive: true });
@@ -158,30 +191,63 @@ export function PurchaseForm({
   // `purchase?.id` stands in for `purchase` itself so a background refetch of the SAME purchase
   // (e.g. window refocus) never clobbers in-progress edits; `accounts` is deliberately excluded
   // the same way it always was.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: see comment above.
+  const initializedRef = useRef<string | null>(null);
+
+  // Route-mounted forms initialize once per record, so refetches cannot clobber in-progress edits.
   useEffect(() => {
-    if (open) {
-      if (purchase) {
-        const initial = purchaseToFormState(purchase);
-        setSupplierName(initial.supplierName);
-        setAccountId(initial.accountId);
-        setBusinessDate(initial.businessDate);
-        setNotes(initial.notes);
-        setLines(initial.lines);
-        setPhotoKey(initial.photoKey);
-      } else {
-        setSupplierName("");
-        setAccountId(accounts[0]?.id ?? "");
-        setBusinessDate(toBusinessDate(nowIso()));
-        setNotes("");
-        setLines([emptyLine()]);
-        setPhotoKey(null);
+    const initializationKey = draftKey;
+    if (initializedRef.current === initializationKey) {
+      if (!purchase && !accountId && accounts[0]) {
+        setAccountId(accounts[0].id);
+        if (initialFormStateRef.current) {
+          initialFormStateRef.current = {
+            ...initialFormStateRef.current,
+            accountId: accounts[0].id,
+          };
+        }
       }
-      setPhotoUploading(false);
-      setPhotoError(null);
-      setError(null);
+      return;
     }
-  }, [open, purchase?.id]);
+    const savedDraft = readPersistentDraft<PurchaseFormState>(draftKey);
+    let initialFormState: PurchaseFormState;
+    if (savedDraft) {
+      initialFormState = savedDraft;
+    } else if (purchase) {
+      initialFormState = purchaseToFormState(purchase);
+    } else {
+      initialFormState = {
+        supplierName: "",
+        accountId: accounts[0]?.id ?? "",
+        businessDate: toBusinessDate(nowIso()),
+        notes: "",
+        lines: [emptyLine()],
+        photoKey: null,
+      };
+    }
+    setSupplierName(initialFormState.supplierName);
+    setAccountId(initialFormState.accountId);
+    setBusinessDate(initialFormState.businessDate);
+    setNotes(initialFormState.notes);
+    setLines(initialFormState.lines);
+    setPhotoKey(initialFormState.photoKey);
+    initialFormStateRef.current = initialFormState;
+    setPhotoUploading(false);
+    setPhotoError(null);
+    setError(null);
+    initializedRef.current = initializationKey;
+  }, [accountId, accounts, draftKey, purchase]);
+
+  useEffect(() => {
+    if (initializedRef.current !== draftKey) return;
+    writePersistentDraft<PurchaseFormState>(draftKey, {
+      supplierName,
+      accountId,
+      businessDate,
+      notes,
+      lines,
+      photoKey,
+    });
+  }, [accountId, businessDate, draftKey, lines, notes, photoKey, supplierName]);
 
   const disabled = (isEditMode ? editReplay.isPending : createReplay.isPending) || photoUploading;
 
@@ -305,152 +371,184 @@ export function PurchaseForm({
     );
   }
 
-  const dialogTitle = isEditMode ? purchasesLabels.editTitle : purchasesLabels.recordTitle;
+  const pageTitle = isEditMode ? purchasesLabels.editTitle : purchasesLabels.recordTitle;
+  const totalPreview = lines.reduce((total, line) => {
+    const lineTotal = parseDecimalToInt(line.amount, 2);
+    return lineTotal !== null && lineTotal >= 0 ? total + lineTotal : total;
+  }, 0);
+  const accountName = accounts.find((account) => account.id === accountId)?.name ?? accountId;
 
   return (
     <>
-      <Dialog
-        open={open}
-        onOpenChange={onOpenChange}
-        aria-label={dialogTitle}
-        className="max-w-4xl"
-      >
-        <div className="border-border border-b px-5 py-4">
-          <h2 className="font-medium text-foreground text-md">{dialogTitle}</h2>
-        </div>
-        <div className="flex flex-1 flex-col gap-4 overflow-y-auto px-5 py-4 text-sm">
-          <div className="grid grid-cols-2 gap-3">
-            <div className="flex flex-col gap-1.5">
-              <label className="font-medium text-foreground" htmlFor="pf-supplier">
-                {purchasesLabels.fieldSupplier}
-              </label>
-              <Input
-                id="pf-supplier"
-                placeholder={purchasesLabels.supplierPlaceholder}
-                value={supplierName}
-                onChange={(e) => setSupplierName(e.target.value)}
-                disabled={disabled}
-                autoFocus
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <label className="font-medium text-foreground" htmlFor="pf-account">
-                {purchasesLabels.fieldAccount}
-              </label>
-              <Select
-                id="pf-account"
-                value={accountId}
-                onChange={(e) => setAccountId(e.target.value)}
-                disabled={disabled}
-              >
-                {accounts.map((account) => (
-                  <option key={account.id} value={account.id}>
-                    {account.name}
-                  </option>
-                ))}
-              </Select>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="flex flex-col gap-1.5">
-              <label className="font-medium text-foreground" htmlFor="pf-date">
-                {purchasesLabels.fieldDate}
-              </label>
-              <Input
-                id="pf-date"
-                type="date"
-                value={businessDate}
-                onChange={(e) => setBusinessDate(e.target.value)}
-                disabled={disabled}
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <label className="font-medium text-foreground" htmlFor="pf-photo">
-                {purchasesLabels.fieldPhoto}
-              </label>
-              <Input
-                id="pf-photo"
-                type="file"
-                accept="image/*,application/pdf"
-                onChange={handlePhotoChange}
-                disabled={disabled}
-              />
-              {photoUploading ? (
-                <span className="text-muted-foreground text-xs">
-                  {purchasesLabels.photoUploading}
+      <FormPage
+        title={pageTitle}
+        backTo="/purchases"
+        backLabel={purchasesLabels.backToPurchases}
+        footer={
+          <PinnedSummaryFooter
+            contentClassName="max-w-3xl px-0"
+            destination={
+              <span className="text-muted-foreground text-xs">
+                {purchasesLabels.deductedFromAccount(
+                  formatMoney(toCentavos(totalPreview)),
+                  accountName,
+                )}
+              </span>
+            }
+            total={
+              <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted px-4 py-2">
+                <span className="font-medium text-foreground text-sm">
+                  {purchasesLabels.totalPreviewLabel}
                 </span>
-              ) : photoKey ? (
-                <span className="text-positive text-xs">{purchasesLabels.photoReady}</span>
-              ) : null}
-              {photoError ? <span className="text-negative text-xs">{photoError}</span> : null}
-            </div>
-          </div>
-
+                <span className="numeric-cell font-semibold text-foreground text-lg">
+                  {formatMoney(toCentavos(totalPreview))}
+                </span>
+              </div>
+            }
+            warnings={
+              displayError ? <p className="text-negative text-sm">{displayError}</p> : undefined
+            }
+            actions={
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    clearPersistentDraft(draftKey);
+                    unsavedChangesGuard.markClean();
+                    void navigate({ to: "/purchases" });
+                  }}
+                  disabled={disabled}
+                >
+                  {purchasesLabels.cancel}
+                </Button>
+                <Button type="button" onClick={handleSubmit} disabled={disabled || !accountId}>
+                  {isEditMode ? purchasesLabels.save : purchasesLabels.submit}
+                </Button>
+              </>
+            }
+          />
+        }
+      >
+        <div className="grid gap-3 sm:grid-cols-2">
           <div className="flex flex-col gap-1.5">
-            <label className="font-medium text-foreground" htmlFor="pf-notes">
-              {purchasesLabels.fieldNotes}
+            <label className="font-medium text-foreground" htmlFor="pf-supplier">
+              {purchasesLabels.fieldSupplier}
             </label>
             <Input
-              id="pf-notes"
-              placeholder={purchasesLabels.notesPlaceholder}
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
+              id="pf-supplier"
+              placeholder={purchasesLabels.supplierPlaceholder}
+              value={supplierName}
+              onChange={(e) => setSupplierName(e.target.value)}
               disabled={disabled}
+              autoFocus
             />
           </div>
-
           <div className="flex flex-col gap-1.5">
-            <span className="font-medium text-foreground">{purchasesLabels.linesTitle}</span>
-            <LineEditor
-              lines={lines}
-              onChange={setLines}
-              createLine={emptyLine}
+            <label className="font-medium text-foreground" htmlFor="pf-account">
+              {purchasesLabels.fieldAccount}
+            </label>
+            <Select
+              id="pf-account"
+              value={accountId}
+              onChange={(e) => setAccountId(e.target.value)}
               disabled={disabled}
-              getItemUnit={(itemId) => itemsById.get(itemId)?.unit}
-              unitSelector={{
-                getValue: (line) => line.unit,
-                onChange: (index, unit) =>
-                  setLines((currentLines) =>
-                    currentLines.map((line, lineIndex) =>
-                      lineIndex === index ? { ...line, unit } : line,
-                    ),
-                  ),
-                label: purchasesLabels.unit,
-              }}
-              onItemChange={(_index, itemId) => {
-                const item = itemId ? itemsById.get(itemId) : undefined;
-                return { qty: "", unit: item ? defaultDisplayUnitFor(item.unit) : null };
-              }}
-              labels={{
-                item: purchasesLabels.lineItem,
-                qty: purchasesLabels.lineQty,
-                amount: purchasesLabels.lineTotal,
-                addLine: purchasesLabels.addLine,
-                removeLine: purchasesLabels.removeLine,
-                amountPlaceholder: "0.00",
-                qtyPlaceholder: "0",
-              }}
-              renderExtraColumns={renderLineExtra}
+            >
+              {accounts.map((account) => (
+                <option key={account.id} value={account.id}>
+                  {account.name}
+                </option>
+              ))}
+            </Select>
+          </div>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="flex flex-col gap-1.5">
+            <label className="font-medium text-foreground" htmlFor="pf-date">
+              {purchasesLabels.fieldDate}
+            </label>
+            <Input
+              id="pf-date"
+              type="date"
+              value={businessDate}
+              onChange={(e) => setBusinessDate(e.target.value)}
+              disabled={disabled}
             />
           </div>
+          <div className="flex flex-col gap-1.5">
+            <label className="font-medium text-foreground" htmlFor="pf-photo">
+              {purchasesLabels.fieldPhoto}
+            </label>
+            <Input
+              id="pf-photo"
+              type="file"
+              accept="image/*,application/pdf"
+              onChange={handlePhotoChange}
+              disabled={disabled}
+            />
+            {photoUploading ? (
+              <span className="text-muted-foreground text-xs">
+                {purchasesLabels.photoUploading}
+              </span>
+            ) : photoKey ? (
+              <span className="text-positive text-xs">{purchasesLabels.photoReady}</span>
+            ) : null}
+            {photoError ? <span className="text-negative text-xs">{photoError}</span> : null}
+          </div>
+        </div>
 
-          {displayError ? <p className="text-negative text-sm">{displayError}</p> : null}
-        </div>
-        <div className="flex justify-end gap-2 border-border border-t px-5 py-3">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => onOpenChange(false)}
+        <div className="flex flex-col gap-1.5">
+          <label className="font-medium text-foreground" htmlFor="pf-notes">
+            {purchasesLabels.fieldNotes}
+          </label>
+          <Input
+            id="pf-notes"
+            placeholder={purchasesLabels.notesPlaceholder}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
             disabled={disabled}
-          >
-            {purchasesLabels.cancel}
-          </Button>
-          <Button type="button" onClick={handleSubmit} disabled={disabled || !accountId}>
-            {isEditMode ? purchasesLabels.save : purchasesLabels.submit}
-          </Button>
+            maxLength={PURCHASE_NOTES_MAX_LENGTH}
+          />
         </div>
-      </Dialog>
+
+        <div className="flex flex-col gap-1.5">
+          <span className="font-medium text-foreground">{purchasesLabels.linesTitle}</span>
+          <LineEditor
+            lines={lines}
+            onChange={setLines}
+            createLine={emptyLine}
+            disabled={disabled}
+            itemEligibility={{ isUnmetered: false }}
+            itemEmptyMessage={purchasesLabels.itemPickerEmpty}
+            getItemUnit={(itemId) => itemsById.get(itemId)?.unit}
+            unitSelector={{
+              getValue: (line) => line.unit,
+              onChange: (index, unit) =>
+                setLines((currentLines) =>
+                  currentLines.map((line, lineIndex) =>
+                    lineIndex === index ? { ...line, unit } : line,
+                  ),
+                ),
+              label: purchasesLabels.unit,
+            }}
+            onItemChange={(_index, itemId) => {
+              const item = itemId ? itemsById.get(itemId) : undefined;
+              return { qty: "", unit: item ? defaultDisplayUnitFor(item.unit) : null };
+            }}
+            labels={{
+              item: purchasesLabels.lineItem,
+              qty: purchasesLabels.lineQty,
+              amount: purchasesLabels.lineTotal,
+              addLine: purchasesLabels.addLine,
+              removeLine: purchasesLabels.removeLine,
+              amountPlaceholder: "0.00",
+              qtyPlaceholder: "0",
+            }}
+            renderExtraColumns={renderLineExtra}
+          />
+        </div>
+      </FormPage>
       {isEditMode && editReplay.pendingConfirmation ? (
         <ImpactConfirmDialog
           open

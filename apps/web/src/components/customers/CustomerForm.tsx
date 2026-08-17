@@ -3,6 +3,11 @@
 // dialog and any future customer-editing UI never drift apart. Deliberately minimal (Doc 01
 // non-goals: "no CRM ambitions") — just name/phone/notes, per Doc 04 §3.3.
 
+import {
+  CUSTOMER_NAME_MAX_LENGTH,
+  CUSTOMER_NOTES_MAX_LENGTH,
+  CUSTOMER_PHONE_MAX_LENGTH,
+} from "@kokoro/shared";
 import { useId } from "react";
 
 import { Input } from "@/components/ui/input";
@@ -67,6 +72,7 @@ export function CustomerForm({ values, onChange, disabled }: CustomerFormProps) 
           disabled={disabled}
           autoFocus
           required
+          maxLength={CUSTOMER_NAME_MAX_LENGTH}
         />
       </div>
 
@@ -79,6 +85,7 @@ export function CustomerForm({ values, onChange, disabled }: CustomerFormProps) 
           value={values.phone}
           onChange={(e) => set("phone", e.target.value)}
           disabled={disabled}
+          maxLength={CUSTOMER_PHONE_MAX_LENGTH}
         />
       </div>
 
@@ -92,6 +99,7 @@ export function CustomerForm({ values, onChange, disabled }: CustomerFormProps) 
           value={values.notes}
           onChange={(e) => set("notes", e.target.value)}
           disabled={disabled}
+          maxLength={CUSTOMER_NOTES_MAX_LENGTH}
         />
       </div>
     </div>

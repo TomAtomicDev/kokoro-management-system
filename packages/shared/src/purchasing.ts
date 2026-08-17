@@ -17,6 +17,8 @@ import { businessDateSchema, occurredAtSchema } from "./dates.js";
 import type { FinancialAccountDto } from "./finance.js";
 import { safeText } from "./text.js";
 
+export const PURCHASE_NOTES_MAX_LENGTH = 2000;
+
 /** Milli-units of the item's own stored unit (Doc 04 §2), matching qty.ts's representation. Always
  * positive — a purchase line adds stock, it never removes it. */
 const qtySchema = z
@@ -44,7 +46,7 @@ export const recordPurchaseCommandSchema = z.object({
   // write time).
   sessionId: z.string().min(1).optional(),
   receiptPhotoKey: z.string().min(1).optional(),
-  notes: z.string().trim().pipe(safeText(2000)).optional(),
+  notes: z.string().trim().pipe(safeText(PURCHASE_NOTES_MAX_LENGTH)).optional(),
   occurredAt: occurredAtSchema,
   businessDate: businessDateSchema,
   lines: z.array(purchaseLineCommandSchema).min(1, "Se requiere al menos una línea de compra."),

@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   businessDateSchema,
   DEFAULT_TIMEZONE,
+  fromDatetimeLocal,
   nowIso,
   occurredAtSchema,
   toBusinessDate,
+  toDatetimeLocal,
 } from "./dates";
 
 describe("toBusinessDate (INV-3, America/La_Paz = UTC-4, no DST)", () => {
@@ -45,6 +47,21 @@ describe("nowIso", () => {
     const iso = nowIso();
     expect(iso).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
     expect(Number.isNaN(new Date(iso).getTime())).toBe(false);
+  });
+});
+
+describe("datetime-local timezone helpers", () => {
+  it("formats an instant in America/La_Paz without using the host timezone", () => {
+    expect(toDatetimeLocal("2026-07-01T14:30:00.000Z")).toBe("2026-07-01T10:30");
+  });
+
+  it("round-trips a La Paz wall-clock value through UTC", () => {
+    expect(fromDatetimeLocal("2026-07-01T10:30")).toBe("2026-07-01T14:30:00.000Z");
+  });
+
+  it("rejects malformed or impossible wall-clock values", () => {
+    expect(fromDatetimeLocal("2026-07-01T10:30:45")).toBeUndefined();
+    expect(fromDatetimeLocal("2026-02-30T10:30")).toBeUndefined();
   });
 });
 

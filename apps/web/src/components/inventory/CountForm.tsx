@@ -74,7 +74,12 @@ export function CountForm({ open, onOpenChange, onStarted }: CountFormProps) {
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange} aria-label={inventoryLabels.startCountTitle}>
+    <Dialog
+      open={open}
+      onOpenChange={onOpenChange}
+      aria-label={inventoryLabels.startCountTitle}
+      disableUnsavedChangesGuard
+    >
       <div className="border-border border-b px-5 py-4">
         <h2 className="font-medium text-foreground text-md">{inventoryLabels.startCountTitle}</h2>
       </div>

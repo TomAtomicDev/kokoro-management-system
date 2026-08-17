@@ -148,6 +148,7 @@ export function CountDetailView({ countId, items, open, onOpenChange }: CountDet
     <DetailDrawer
       open={open}
       onOpenChange={onOpenChange}
+      disableUnsavedChangesGuard
       title={
         count
           ? `${inventoryLabels.countDetailTitlePrefix} · ${count.businessDate}`

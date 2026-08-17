@@ -6,6 +6,7 @@ import { createRoot } from "react-dom/client";
 import { ToastProvider } from "@/components/ui/toast";
 import { initializeTheme } from "@/features/theme/use-theme";
 import { queryClient } from "@/lib/query-client";
+import { registerServiceWorker } from "@/lib/service-worker";
 import { router } from "@/router";
 
 import "@/styles/globals.css";
@@ -29,6 +30,6 @@ createRoot(rootElement).render(
 
 if (import.meta.env.PROD && "serviceWorker" in navigator) {
   window.addEventListener("load", () => {
-    void navigator.serviceWorker.register("/sw.js").catch(() => undefined);
+    void registerServiceWorker();
   });
 }

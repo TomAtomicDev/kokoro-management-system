@@ -24,6 +24,7 @@ export const purchasesLabels = {
 
   recordTitle: "Registrar compra",
   editTitle: "Editar compra",
+  backToPurchases: "Volver a compras",
   fieldSupplier: "Proveedor",
   supplierPlaceholder: "Opcional",
   fieldAccount: "Cuenta",
@@ -39,9 +40,13 @@ export const purchasesLabels = {
   lineQty: "Cantidad",
   unit: "Unidad",
   lineTotal: "Total de línea (Bs)",
+  itemPickerEmpty: "No hay ítems medibles disponibles para registrar una compra.",
   addLine: "Agregar línea",
   removeLine: "Quitar línea",
   unitCostLabel: "Costo unitario",
+  totalPreviewLabel: "Total de la compra",
+  deductedFromAccount: (amount: string, account: string) =>
+    `Se descontará ${amount} de la cuenta ${account || "seleccionada"}`,
   vsReplacementCost: "vs. costo de reposición anterior",
 
   save: "Guardar",
