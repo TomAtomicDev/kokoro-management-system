@@ -31,7 +31,7 @@ import {
   updateStockExitCommandSchema,
 } from "@kokoro/shared";
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { ItemPicker } from "@/components/catalog/ItemPicker";
 import { LineEditor, type LineEditorLine } from "@/components/line-editor/LineEditor";
@@ -75,6 +75,53 @@ interface PackagingLineValue extends LineEditorLine {
 
 function emptyPackagingLine(): PackagingLineValue {
   return { itemId: null, qty: "" };
+}
+
+interface AssemblyDefinitionForPackagingSuggestion {
+  isActive: boolean;
+  isDefault: boolean;
+  outputQty: number;
+  lines: readonly { itemId: string; qty: number }[];
+}
+
+/**
+ * A default assembly definition is a suggestion template, not an exit template: only its
+ * PACKAGING components can become optional packaging lines on a stock exit. An applicable
+ * definition contains the exited item as a component; when more than one default definition
+ * contains it, the form stays empty rather than guessing which presentation the owner intends.
+ */
+export function packagingLinesFromDefaultDefinition(
+  itemId: string,
+  exitQty: number | null,
+  definitions: readonly AssemblyDefinitionForPackagingSuggestion[] | undefined,
+  packagingItemIds: ReadonlySet<string>,
+): PackagingLineValue[] {
+  if (exitQty === null || exitQty <= 0) return [];
+  const matchingDefinitions =
+    definitions?.filter(
+      (definition) =>
+        definition.isActive &&
+        definition.isDefault &&
+        definition.lines.some((line) => line.itemId === itemId),
+    ) ?? [];
+  if (matchingDefinitions.length !== 1) return [];
+
+  const [defaultDefinition] = matchingDefinitions;
+  if (!defaultDefinition || defaultDefinition.outputQty <= 0) return [];
+
+  return defaultDefinition.lines
+    .filter((line) => packagingItemIds.has(line.itemId))
+    .map((line) => ({
+      itemId: line.itemId,
+      // Match the assembly recording form's quantity prefill: scale the template's milli-units
+      // by the requested output and round to the nearest representable milli-unit.
+      qty: Math.round((line.qty * exitQty) / defaultDefinition.outputQty),
+    }))
+    .filter((line) => line.qty > 0)
+    .map((line) => ({
+      itemId: line.itemId,
+      qty: formatIntAsDecimalInput(line.qty, 3),
+    }));
 }
 
 /** Absent `exit` (create) -> today's blank form. Present `exit` (edit) -> every field prefilled
@@ -127,6 +174,8 @@ export function ExitForm({ open, onOpenChange, exit }: ExitFormProps) {
   const [notes, setNotes] = useState("");
   const [packagingLines, setPackagingLines] = useState<PackagingLineValue[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const packagingSuggestionItemIdRef = useRef<string | null>(null);
+  const packagingLinesEditedRef = useRef(false);
 
   const createMutation = useRecordStockExit();
   const createReplay = useReplayConfirmableMutation<RecordStockExitCommand, RecordStockExitResult>(
@@ -151,12 +200,18 @@ export function ExitForm({ open, onOpenChange, exit }: ExitFormProps) {
     for (const item of packagingItemsQuery.data?.items ?? []) map.set(item.id, item.unit);
     return map;
   }, [packagingItemsQuery.data]);
+  const packagingItemIds = useMemo(() => new Set(packagingItemsById.keys()), [packagingItemsById]);
   const assemblyDefinitionsQuery = useQuery({
     queryKey: ["assembly-definitions", "exit-packaging-gate", itemId ?? ""],
     queryFn: () =>
       api.get<ListAssemblyDefinitionsResult>(
         `/assembly-definitions?outputItemId=${encodeURIComponent(itemId ?? "")}&isActive=true`,
       ),
+    enabled: Boolean(itemId),
+  });
+  const packagingSuggestionDefinitionsQuery = useQuery({
+    queryKey: ["assembly-definitions", "exit-packaging-suggestions"],
+    queryFn: () => api.get<ListAssemblyDefinitionsResult>("/assembly-definitions?isActive=true"),
     enabled: Boolean(itemId),
   });
   const isAssembledPresentation = hasActiveAssemblyDefinition(
@@ -172,9 +227,63 @@ export function ExitForm({ open, onOpenChange, exit }: ExitFormProps) {
       setBusinessDate(initial.businessDate);
       setNotes(initial.notes);
       setPackagingLines(initial.packagingLines);
+      packagingSuggestionItemIdRef.current = initial.itemId;
+      packagingLinesEditedRef.current = false;
       setError(null);
     }
   }, [open, exit]);
+
+  useEffect(() => {
+    if (
+      !open ||
+      isEditMode ||
+      !itemId ||
+      !assemblyDefinitionsQuery.isSuccess ||
+      isAssembledPresentation ||
+      !packagingSuggestionDefinitionsQuery.isSuccess ||
+      !packagingItemsQuery.isSuccess ||
+      packagingLinesEditedRef.current
+    ) {
+      return;
+    }
+
+    const exitQty = parseDecimalToInt(qty, 3);
+    const hasSuggestedItem = packagingSuggestionItemIdRef.current === itemId;
+    if (hasSuggestedItem && exitQty === null) return;
+    packagingSuggestionItemIdRef.current = itemId;
+    setPackagingLines(
+      packagingLinesFromDefaultDefinition(
+        itemId,
+        exitQty,
+        packagingSuggestionDefinitionsQuery.data.assemblyDefinitions,
+        packagingItemIds,
+      ),
+    );
+  }, [
+    assemblyDefinitionsQuery.isSuccess,
+    isEditMode,
+    isAssembledPresentation,
+    itemId,
+    open,
+    packagingItemIds,
+    packagingSuggestionDefinitionsQuery.data,
+    packagingSuggestionDefinitionsQuery.isSuccess,
+    packagingItemsQuery.isSuccess,
+    qty,
+  ]);
+
+  function handleItemChange(nextItemId: string | null): void {
+    setItemId(nextItemId);
+    if (nextItemId === itemId) return;
+    setPackagingLines([]);
+    packagingSuggestionItemIdRef.current = null;
+    packagingLinesEditedRef.current = false;
+  }
+
+  function handlePackagingLinesChange(nextLines: PackagingLineValue[]): void {
+    packagingLinesEditedRef.current = true;
+    setPackagingLines(nextLines);
+  }
 
   const disabled = isEditMode ? updateReplay.isPending : createReplay.isPending;
   const activeReplay = isEditMode ? updateReplay : createReplay;
@@ -257,7 +366,7 @@ export function ExitForm({ open, onOpenChange, exit }: ExitFormProps) {
             <span className="font-medium text-foreground">{inventoryLabels.fieldItem}</span>
             <ItemPicker
               value={itemId}
-              onChange={(id) => setItemId(id)}
+              onChange={handleItemChange}
               eligibility={{ isUnmetered: false }}
               emptyMessage={inventoryLabels.itemPickerEmpty}
               disabled={disabled}
@@ -344,7 +453,7 @@ export function ExitForm({ open, onOpenChange, exit }: ExitFormProps) {
               </div>
               <LineEditor
                 lines={packagingLines}
-                onChange={setPackagingLines}
+                onChange={handlePackagingLinesChange}
                 createLine={emptyPackagingLine}
                 labels={{
                   item: inventoryLabels.packagingLineItem,

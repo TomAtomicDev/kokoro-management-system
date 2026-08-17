@@ -1,7 +1,11 @@
 import type { StockExitDto } from "@kokoro/shared";
 import { describe, expect, it } from "vitest";
 
-import { exitFormInitialState, hasActiveAssemblyDefinition } from "./ExitForm";
+import {
+  exitFormInitialState,
+  hasActiveAssemblyDefinition,
+  packagingLinesFromDefaultDefinition,
+} from "./ExitForm";
 
 // `exitFormInitialState` is the (absent -> blank create state) / (StockExitDto -> edit-mode
 // prefill) mapper ExitForm's local state is seeded from. Exercised as a plain function, same
@@ -96,5 +100,82 @@ describe("hasActiveAssemblyDefinition", () => {
   it("does not treat missing or inactive definitions as an assembled presentation", () => {
     expect(hasActiveAssemblyDefinition(undefined)).toBe(false);
     expect(hasActiveAssemblyDefinition([{ isActive: false, isDefault: true }])).toBe(false);
+  });
+});
+
+describe("packagingLinesFromDefaultDefinition", () => {
+  it("prefills only packaging components from the active default definition", () => {
+    const lines = packagingLinesFromDefaultDefinition(
+      "bulk-product",
+      500,
+      [
+        {
+          isActive: true,
+          isDefault: true,
+          outputQty: 1000,
+          lines: [
+            { itemId: "bulk-product", qty: 1000 },
+            { itemId: "bag-1", qty: 2500 },
+          ],
+        },
+      ],
+      new Set(["bag-1"]),
+    );
+
+    expect(lines).toEqual([{ itemId: "bag-1", qty: "1.25" }]);
+  });
+
+  it("defaults to no lines when no unique active default definition applies", () => {
+    expect(
+      packagingLinesFromDefaultDefinition(
+        "bulk-product",
+        1000,
+        [
+          {
+            isActive: true,
+            isDefault: false,
+            outputQty: 1000,
+            lines: [
+              { itemId: "bulk-product", qty: 1000 },
+              { itemId: "bag-1", qty: 1000 },
+            ],
+          },
+          {
+            isActive: false,
+            isDefault: true,
+            outputQty: 1000,
+            lines: [
+              { itemId: "bulk-product", qty: 1000 },
+              { itemId: "bag-2", qty: 1000 },
+            ],
+          },
+        ],
+        new Set(["bag-1", "bag-2"]),
+      ),
+    ).toEqual([]);
+    expect(
+      packagingLinesFromDefaultDefinition("bulk-product", 1000, undefined, new Set(["bag-1"])),
+    ).toEqual([]);
+  });
+
+  it("does not guess when multiple default definitions use the same product", () => {
+    const definition = {
+      isActive: true,
+      isDefault: true,
+      outputQty: 1000,
+      lines: [
+        { itemId: "bulk-product", qty: 1000 },
+        { itemId: "bag-1", qty: 1000 },
+      ],
+    };
+
+    expect(
+      packagingLinesFromDefaultDefinition(
+        "bulk-product",
+        1000,
+        [definition, { ...definition, lines: [{ itemId: "bulk-product", qty: 500 }] }],
+        new Set(["bag-1"]),
+      ),
+    ).toEqual([]);
   });
 });
