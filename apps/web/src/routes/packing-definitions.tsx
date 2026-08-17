@@ -256,7 +256,8 @@ function AssemblyDefinitionForm({
           <ItemPicker
             value={outputItemId}
             onChange={setOutputItemId}
-            kindFilter="FINISHED"
+            eligibility={{ kind: "FINISHED", unit: "UNIT" }}
+            emptyMessage={assemblyDefinitionsLabels.outputItemEmpty}
             placeholder={assemblyDefinitionsLabels.outputPlaceholder}
             disabled={disabled}
           />

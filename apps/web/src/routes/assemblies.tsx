@@ -448,7 +448,8 @@ function AssemblyForm({ sessionId, assemblyId }: { sessionId?: string; assemblyI
                   <ItemPicker
                     value={outputItemId}
                     onChange={setOutputItemId}
-                    kindFilter="FINISHED"
+                    eligibility={{ kind: "FINISHED", unit: "UNIT" }}
+                    emptyMessage={assembliesLabels.outputItemEmpty}
                     placeholder={assembliesLabels.outputItemPlaceholder}
                     disabled={disabled}
                   />

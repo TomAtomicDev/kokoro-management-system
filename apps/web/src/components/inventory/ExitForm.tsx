@@ -254,7 +254,13 @@ export function ExitForm({ open, onOpenChange, exit }: ExitFormProps) {
         <div className="flex flex-1 flex-col gap-4 overflow-y-auto px-5 py-4 text-sm">
           <div className="flex flex-col gap-1.5">
             <span className="font-medium text-foreground">{inventoryLabels.fieldItem}</span>
-            <ItemPicker value={itemId} onChange={(id) => setItemId(id)} disabled={disabled} />
+            <ItemPicker
+              value={itemId}
+              onChange={(id) => setItemId(id)}
+              eligibility={{ isUnmetered: false }}
+              emptyMessage={inventoryLabels.itemPickerEmpty}
+              disabled={disabled}
+            />
           </div>
 
           <div className="grid grid-cols-2 gap-3">

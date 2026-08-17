@@ -40,6 +40,7 @@ export const purchasesLabels = {
   lineQty: "Cantidad",
   unit: "Unidad",
   lineTotal: "Total de línea (Bs)",
+  itemPickerEmpty: "No hay ítems medibles disponibles para registrar una compra.",
   addLine: "Agregar línea",
   removeLine: "Quitar línea",
   unitCostLabel: "Costo unitario",

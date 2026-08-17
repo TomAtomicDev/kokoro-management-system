@@ -517,6 +517,8 @@ export function PurchaseForm({ accounts, purchase, preselectedSessionId }: Purch
             onChange={setLines}
             createLine={emptyLine}
             disabled={disabled}
+            itemEligibility={{ isUnmetered: false }}
+            itemEmptyMessage={purchasesLabels.itemPickerEmpty}
             getItemUnit={(itemId) => itemsById.get(itemId)?.unit}
             unitSelector={{
               getValue: (line) => line.unit,
