@@ -360,7 +360,7 @@ export function ProductionRunForm({
 
     const parsed = recordProductionRunCommandSchema.safeParse({
       recipeId,
-      customOrderId: customOrderId ?? undefined,
+      customOrderId,
       sessionId: productionRun ? undefined : preselectedSessionId,
       batches: batchesValue,
       actualOutputQty: actualOutputQtyValue,

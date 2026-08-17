@@ -898,7 +898,11 @@ async function buildProductionRunUpdateInputs(
   // DELIVERED/CANCELLED — the link is historical fact at that point (O-4), not something this
   // edit is newly asserting, so re-validating it here would make an already-linked run
   // permanently unsavable for reasons unrelated to what the user is actually changing.
-  if (command.customOrderId && command.customOrderId !== existing.customOrderId) {
+  // `undefined` means leave the existing link unchanged; `null` explicitly unlinks it.
+  if (
+    typeof command.customOrderId === "string" &&
+    command.customOrderId !== existing.customOrderId
+  ) {
     await assertOrderLinkable(db, command.customOrderId);
   }
   const recipe = await findActiveRecipeRowOrThrow(db, command.recipeId);
@@ -969,7 +973,8 @@ async function buildProductionRunUpdateInputs(
     businessDate: command.businessDate,
     recipeId: command.recipeId,
     sessionId: resolvedSession.sessionId,
-    customOrderId: command.customOrderId ?? null,
+    customOrderId:
+      command.customOrderId === undefined ? existing.customOrderId : command.customOrderId,
     batches: command.batches,
     outputItemId: recipe.outputItemId,
     actualOutputQty: command.actualOutputQty,

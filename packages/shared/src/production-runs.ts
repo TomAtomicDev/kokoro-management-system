@@ -46,6 +46,9 @@ const actualOutputQtySchema = z
   .number()
   .int()
   .positive("La cantidad de salida real debe ser un entero positivo (mili-unidades).");
+/** Optional order link. On update, omitted (`undefined`) preserves the existing link while
+ * explicit `null` clears it; create treats either value as an unlinked run (O-4). */
+const customOrderIdSchema = z.string().min(1).nullish();
 /** Centavos (INV-6), run-specific extras not tracked as raw-material consumption (Doc 04 §3.3
  * comment: "run-specific extras"). Optional, defaults to 0 — most runs have none. Never negative:
  * this is a cost, not a signed adjustment. */
@@ -67,7 +70,7 @@ export const recordProductionRunCommandSchema = z.object({
   // not validated against their tables here beyond the DB's own `ON DELETE restrict` FK, mirroring
   // purchasing.ts's identical `sessionId` precedent.
   sessionId: z.string().min(1).optional(),
-  customOrderId: z.string().min(1).optional(),
+  customOrderId: customOrderIdSchema,
   batches: batchesSchema,
   actualOutputQty: actualOutputQtySchema,
   indirectCost: indirectCostSchema,

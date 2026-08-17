@@ -19,6 +19,8 @@ import {
   updateAssembly,
 } from "../src/core/assembly-events/index.js";
 import { createItem } from "../src/core/catalog/index.js";
+import { createCustomer } from "../src/core/customers/index.js";
+import { quoteOrder } from "../src/core/orders/index.js";
 import { recordPurchase } from "../src/core/purchasing/index.js";
 import {
   recordSession as recordSessionCore,
@@ -507,6 +509,49 @@ describe("recordAssembly", () => {
     expect(movements.find((movement) => movement.type === "ASSEMBLY_OUT")?.unitCostMc).toBe(
       originalSnapshot,
     );
+  });
+
+  it("omitting customOrderId preserves an existing link, while null explicitly clears it", async () => {
+    const db = createDb(env.DB);
+    const component = await createComponent(db, "Componente vinculado", "PACKAGING", 1000);
+    const output = await createFinished(db, "Salida vinculada");
+    const customer = await createCustomer(db, { name: "Cliente vinculado" }, ACTOR);
+    const { order } = await quoteOrder(
+      db,
+      { customerId: customer.id, description: "Pedido vinculado" },
+      ACTOR,
+    );
+    const sessionId = await createProductionSession(db);
+    const command = {
+      occurredAt: OCCURRED_AT,
+      businessDate: BUSINESS_DATE,
+      sessionId,
+      customOrderId: order.id,
+      outputItemId: output.id,
+      actualOutputQty: 1000,
+      lines: [{ itemId: component.id, qty: 1000 }],
+    };
+    const recorded = await recordAssembly(db, command, ACTOR);
+
+    const omitted = await updateAssembly(
+      db,
+      recorded.assembly.id,
+      {
+        ...command,
+        customOrderId: undefined,
+        notes: "Conserva el pedido",
+      },
+      ACTOR,
+    );
+    expect(omitted.assembly.customOrderId).toBe(order.id);
+
+    const cleared = await updateAssembly(
+      db,
+      recorded.assembly.id,
+      { ...command, customOrderId: null },
+      ACTOR,
+    );
+    expect(cleared.assembly.customOrderId).toBeNull();
   });
 
   it("treats a notes-only edit as kardex-unchanged", async () => {

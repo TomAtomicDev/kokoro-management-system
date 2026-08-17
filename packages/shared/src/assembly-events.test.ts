@@ -56,6 +56,13 @@ describe("assembly mutation schemas", () => {
     expect(deleteAssemblyCommandSchema.parse({}).confirm).toBe(false);
   });
 
+  it("distinguishes an omitted order link from an explicit clear", () => {
+    expect(updateAssemblyCommandSchema.parse(command).customOrderId).toBeUndefined();
+    expect(
+      updateAssemblyCommandSchema.parse({ ...command, customOrderId: null }).customOrderId,
+    ).toBeNull();
+  });
+
   it("accepts create, update, and delete impact requests", () => {
     expect(assemblyImpactRequestSchema.safeParse({ op: "create", command }).success).toBe(true);
     expect(

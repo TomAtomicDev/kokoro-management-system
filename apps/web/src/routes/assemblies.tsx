@@ -340,7 +340,7 @@ function AssemblyForm({ sessionId, assemblyId }: { sessionId?: string; assemblyI
 
     const command = {
       definitionId: definitionId || undefined,
-      customOrderId: customOrderId ?? undefined,
+      customOrderId,
       sessionId: assembly?.sessionId ?? sessionId,
       outputItemId,
       plannedOutputQty: plannedOutputQtyValue,
