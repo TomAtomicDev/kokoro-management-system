@@ -2,4 +2,6 @@
 
 export const commonLabels = {
   unsavedChanges: "Tienes cambios sin guardar. ¿Quieres salir sin guardar?",
+  pwaUpdateAvailable: "Hay una nueva versión disponible.",
+  pwaUpdateAction: "Actualizar",
 } as const;

@@ -1,4 +1,5 @@
-const CACHE_NAME = "kokoro-static-v1";
+// Replaced with the built shell hash by vite.config.ts before deployment.
+const CACHE_NAME = "kokoro-static-__KOKORO_BUILD_ID__";
 const STATIC_DESTINATIONS = new Set(["document", "script", "style"]);
 
 function isStaticAsset(request) {
@@ -16,12 +17,7 @@ function isStaticAsset(request) {
 }
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(
-    caches
-      .open(CACHE_NAME)
-      .then((cache) => cache.add("/"))
-      .then(() => self.skipWaiting()),
-  );
+  event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.add("/")));
 });
 
 self.addEventListener("activate", (event) => {
@@ -41,25 +37,43 @@ self.addEventListener("activate", (event) => {
   );
 });
 
+self.addEventListener("message", (event) => {
+  if (event.data?.type === "SKIP_WAITING") self.skipWaiting();
+});
+
 self.addEventListener("fetch", (event) => {
   if (!isStaticAsset(event.request)) return;
 
-  event.respondWith(
-    (async () => {
-      const cache = await caches.open(CACHE_NAME);
-      const cached = await cache.match(event.request);
-      if (cached) return cached;
+  if (event.request.destination === "document") {
+    event.respondWith(networkFirstDocument(event.request));
+    return;
+  }
 
-      try {
-        const response = await fetch(event.request);
-        if (response.ok) await cache.put(event.request, response.clone());
-        return response;
-      } catch {
-        if (event.request.destination === "document") {
-          return (await cache.match("/")) ?? Response.error();
-        }
-        return Response.error();
-      }
-    })(),
-  );
+  event.respondWith(cacheFirstAsset(event.request));
 });
+
+async function networkFirstDocument(request) {
+  const cache = await caches.open(CACHE_NAME);
+
+  try {
+    const response = await fetch(request);
+    if (response.ok) await cache.put(request, response.clone());
+    return response;
+  } catch {
+    return (await cache.match(request)) ?? (await cache.match("/")) ?? Response.error();
+  }
+}
+
+async function cacheFirstAsset(request) {
+  const cache = await caches.open(CACHE_NAME);
+  const cached = await cache.match(request);
+  if (cached) return cached;
+
+  try {
+    const response = await fetch(request);
+    if (response.ok) await cache.put(request, response.clone());
+    return response;
+  } catch {
+    return Response.error();
+  }
+}
