@@ -106,13 +106,23 @@ export function LineEditor<T extends LineEditorLine>({
   const amountLabel = labels.amount ?? "Aporte al costo";
   const [selectedItemUnits, setSelectedItemUnits] = useState<Map<string, Unit>>(() => new Map());
 
-  const gridColumns = showAmount
-    ? renderExtraColumns
-      ? "grid-cols-[minmax(0,1fr)_9rem_10rem_12rem_2.75rem]"
-      : "grid-cols-[minmax(0,1fr)_9rem_10rem_2.75rem]"
-    : renderExtraColumns
-      ? "grid-cols-[minmax(0,1fr)_9rem_12rem_2.75rem]"
-      : "grid-cols-[minmax(0,1fr)_9rem_2.75rem]";
+  // A display-unit selector shares this column with the quantity input. Give the pair enough
+  // room for a readable quantity while keeping the canonical-unit suffix layout compact.
+  const gridColumns = unitSelector
+    ? showAmount
+      ? renderExtraColumns
+        ? "grid-cols-[minmax(0,1fr)_15rem_10rem_12rem_2.75rem]"
+        : "grid-cols-[minmax(0,1fr)_15rem_10rem_2.75rem]"
+      : renderExtraColumns
+        ? "grid-cols-[minmax(0,1fr)_15rem_12rem_2.75rem]"
+        : "grid-cols-[minmax(0,1fr)_15rem_2.75rem]"
+    : showAmount
+      ? renderExtraColumns
+        ? "grid-cols-[minmax(0,1fr)_9rem_10rem_12rem_2.75rem]"
+        : "grid-cols-[minmax(0,1fr)_9rem_10rem_2.75rem]"
+      : renderExtraColumns
+        ? "grid-cols-[minmax(0,1fr)_9rem_12rem_2.75rem]"
+        : "grid-cols-[minmax(0,1fr)_9rem_2.75rem]";
 
   function updateLine(index: number, patch: Partial<T>) {
     onChange(lines.map((line, i) => (i === index ? { ...line, ...patch } : line)));

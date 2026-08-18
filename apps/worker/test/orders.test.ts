@@ -17,9 +17,15 @@
 //     place, which is what releases the liability (see core/orders' header).
 import { env } from "cloudflare:test";
 import type { CustomOrderStatus } from "@kokoro/shared";
-import { toMilliCentavosPerUnit, toMilliUnits, totalCentavos } from "@kokoro/shared";
+import {
+  toBusinessDate,
+  toDatetimeLocal,
+  toMilliCentavosPerUnit,
+  toMilliUnits,
+  totalCentavos,
+} from "@kokoro/shared";
 import { eq, inArray, sql } from "drizzle-orm";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createItem } from "../src/core/catalog/index.js";
 import { createCustomer } from "../src/core/customers/index.js";
@@ -1525,6 +1531,36 @@ describe("getOrder / listOrders", () => {
     });
 
     expect(orders.map((order) => order.description)).toEqual(["Creado hoy", "También creado hoy"]);
+  });
+
+  it("keeps an evening La Paz order in the default business-date range", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-21T02:30:00.000Z"));
+
+    try {
+      const db = createDb(env.DB);
+      const customer = await seedCustomer(db);
+      const { order } = await quoteOrder(
+        db,
+        { customerId: customer.id, description: "Pedido nocturno" },
+        ACTOR,
+      );
+      const today = toBusinessDate(new Date());
+      const defaultRange = { fromDate: `${today.slice(0, 7)}-01`, toDate: today };
+
+      expect(toDatetimeLocal(order.createdAt)).toBe("2026-07-20T22:30");
+      expect(toBusinessDate(order.createdAt)).toBe(today);
+      const { orders } = await listOrders(db, defaultRange);
+      expect(orders.map((listedOrder) => listedOrder.id)).toContain(order.id);
+
+      vi.setSystemTime(new Date("2026-07-21T13:30:00.000Z"));
+      const nextMorning = toBusinessDate(new Date());
+      const nextMorningRange = { fromDate: `${nextMorning.slice(0, 7)}-01`, toDate: nextMorning };
+      const nextMorningOrders = await listOrders(db, nextMorningRange);
+      expect(nextMorningOrders.orders.map((listedOrder) => listedOrder.id)).toContain(order.id);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

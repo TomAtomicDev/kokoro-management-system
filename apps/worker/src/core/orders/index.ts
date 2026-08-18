@@ -75,6 +75,7 @@ import type {
 import {
   addMoney,
   allocateAgreedTotalToOrderLines,
+  businessDateRangeToUtcWindow,
   DEFAULT_DEPOSIT_PCT_BP,
   generateUuidV7,
   mulMoneyByBasisPoints,
@@ -1295,17 +1296,24 @@ export async function listOrders(
   db: Db,
   filters: ListOrdersFilters = {},
 ): Promise<ListOrdersResult> {
+  const fromDate = filters.fromDate ?? filters.toDate;
+  const toDate = filters.toDate ?? filters.fromDate;
+  const dateWindow =
+    fromDate !== undefined && toDate !== undefined
+      ? businessDateRangeToUtcWindow(fromDate, toDate)
+      : undefined;
+
   const rows = await db.query.customOrders.findMany({
-    where: (t, { and, eq: eqOp, gte, isNull, lte, notInArray }) => {
+    where: (t, { and, eq: eqOp, gte, isNull, lt, notInArray }) => {
       const clauses = [isNull(t.deletedAt)];
       if (filters.status !== undefined) clauses.push(eqOp(t.status, filters.status));
       if (filters.excludeStatuses !== undefined && filters.excludeStatuses.length > 0)
         clauses.push(notInArray(t.status, filters.excludeStatuses));
       if (filters.customerId !== undefined) clauses.push(eqOp(t.customerId, filters.customerId));
-      if (filters.fromDate !== undefined)
-        clauses.push(gte(t.createdAt, `${filters.fromDate}T00:00:00.000Z`));
-      if (filters.toDate !== undefined)
-        clauses.push(lte(t.createdAt, `${filters.toDate}T23:59:59.999Z`));
+      if (filters.fromDate !== undefined && dateWindow !== undefined)
+        clauses.push(gte(t.createdAt, dateWindow.startInclusive));
+      if (filters.toDate !== undefined && dateWindow !== undefined)
+        clauses.push(lt(t.createdAt, dateWindow.endExclusive));
       return and(...clauses);
     },
     orderBy: (t, { asc, sql: sqlOp }) => [sqlOp`${t.deliveryDate} IS NULL`, asc(t.deliveryDate)],

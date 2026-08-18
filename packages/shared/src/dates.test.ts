@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  businessDateRangeToUtcWindow,
   businessDateSchema,
+  calendarDateSchema,
   DEFAULT_TIMEZONE,
   fromDatetimeLocal,
   nowIso,
@@ -8,6 +10,7 @@ import {
   toBusinessDate,
   toDatetimeLocal,
 } from "./dates";
+import { quoteOrderCommandSchema } from "./orders";
 
 describe("toBusinessDate (INV-3, America/La_Paz = UTC-4, no DST)", () => {
   it("maps a late-night UTC instant back to the previous local day", () => {
@@ -63,6 +66,17 @@ describe("datetime-local timezone helpers", () => {
     expect(fromDatetimeLocal("2026-07-01T10:30:45")).toBeUndefined();
     expect(fromDatetimeLocal("2026-02-30T10:30")).toBeUndefined();
   });
+
+  it("includes a 20:30 La Paz instant in that local day's UTC window", () => {
+    const window = businessDateRangeToUtcWindow("2026-07-13", "2026-07-13");
+    const eveningInstant = new Date("2026-07-14T00:30:00.000Z");
+
+    expect(toBusinessDate(eveningInstant)).toBe("2026-07-13");
+    expect(eveningInstant.getTime()).toBeGreaterThanOrEqual(
+      new Date(window.startInclusive).getTime(),
+    );
+    expect(eveningInstant.getTime()).toBeLessThan(new Date(window.endExclusive).getTime());
+  });
 });
 
 describe("shared event date schemas", () => {
@@ -86,6 +100,24 @@ describe("shared event date schemas", () => {
     expect(result.success).toBe(false);
     if (!result.success) {
       expect(result.error.issues[0]?.message).toBe("La fecha no puede ser futura.");
+    }
+  });
+
+  it("accepts a future delivery date while rejecting a future transaction date", () => {
+    const futureDate = shiftedDate(14);
+    const quote = quoteOrderCommandSchema.safeParse({
+      customerId: "customer-1",
+      description: "Pedido para la próxima quincena",
+      deliveryDate: futureDate,
+    });
+
+    expect(calendarDateSchema.safeParse(futureDate).success).toBe(true);
+    expect(quote.success).toBe(true);
+
+    const businessDate = businessDateSchema.safeParse(futureDate);
+    expect(businessDate.success).toBe(false);
+    if (!businessDate.success) {
+      expect(businessDate.error.issues[0]?.message).toBe("La fecha no puede ser futura.");
     }
   });
 
