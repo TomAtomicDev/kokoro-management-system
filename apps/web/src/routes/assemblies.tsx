@@ -535,16 +535,6 @@ function AssemblyForm({ sessionId, assemblyId }: { sessionId?: string; assemblyI
                 showAmount={false}
                 itemKindFilter={["SEMI_FINISHED", "FINISHED", "PACKAGING"]}
                 getItemUnit={(itemId) => itemsById.get(itemId)?.unit}
-                unitSelector={{
-                  getValue: (line) => line.unit,
-                  onChange: (index, unit) =>
-                    setLines((currentLines) =>
-                      currentLines.map((line, lineIndex) =>
-                        lineIndex === index ? { ...line, unit } : line,
-                      ),
-                    ),
-                  label: assembliesLabels.unit,
-                }}
                 onItemChange={(_index, itemId) => {
                   const item = itemId ? itemsById.get(itemId) : undefined;
                   return { qty: "", unit: item ? defaultDisplayUnitFor(item.unit) : null };
