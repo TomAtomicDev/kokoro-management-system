@@ -10,7 +10,7 @@ import { sessionsLabels } from "@/lib/i18n-sessions";
 
 // Stand-in for the real `QuickAddModal` (Doc 06 §4), which will host every event form
 // (venta, compra, producción, gasto, …). Opened here from the sidebar "Registrar" item and the
-// topbar "+ Registrar" button — both wire to the same `onOpenChange` state in AppShell.
+// topbar "+ Sesión" button — both wire to the same `onOpenChange` state in AppShell.
 export function QuickAddModalPlaceholder({
   open,
   onOpenChange,

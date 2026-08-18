@@ -1,5 +1,62 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
-  <title>Kokoro</title>
-  <rect width="64" height="64" rx="14" fill="#0f766e" />
-  <path d="M18 14h9v14.1L41.2 14H53L37.8 30.2 53 50H41.4L29 34.3l-2 2V50h-9V14Z" fill="#fff" />
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" fill="#fff"/>
+
+  <!-- Clean, favicon-friendly redraw: fewer nodes, stronger silhouette, rounded strokes -->
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Heart + central loop -->
+    <path
+      d="M245 431
+         C182 407 113 370 68 319
+         C28 273 8 222 20 173
+         C32 125 74 88 125 84
+         C176 80 214 103 241 145
+         C246 153 250 157 256 157
+         C262 157 266 153 271 145
+         C300 94 344 58 393 55
+         C444 52 485 84 496 132
+         C510 192 480 257 435 308
+         C389 360 325 401 245 431
+         C229 437 214 443 191 452"
+      stroke="#4C362A"
+      stroke-width="25"/>
+
+    <!-- Characteristic inner curl -->
+    <path
+      d="M255 161
+         C244 177 229 196 223 219
+         C217 241 222 258 236 264
+         C252 271 269 261 273 245
+         C277 229 269 211 256 200"
+      stroke="#4C362A"
+      stroke-width="22"/>
+
+    <!-- Sprout stem -->
+    <path d="M389 327 C392 288 391 244 387 205"
+          stroke="#CFAE9F" stroke-width="16"/>
+
+    <!-- Top leaf -->
+    <path d="M384 190
+             C363 176 352 150 357 121
+             C359 108 365 98 370 96
+             C380 99 393 117 397 137
+             C401 157 396 178 384 190 Z"
+          stroke="#CFAE9F" stroke-width="15"/>
+
+    <!-- Left leaf -->
+    <path d="M383 240
+             C360 241 337 227 323 205
+             C317 195 314 186 316 181
+             C327 181 346 188 360 200
+             C375 213 382 227 383 240 Z"
+          stroke="#CFAE9F" stroke-width="15"/>
+
+    <!-- Right leaf -->
+    <path d="M392 242
+             C393 220 404 198 423 183
+             C432 176 441 172 446 174
+             C447 185 443 205 433 220
+             C423 235 408 242 392 242 Z"
+          stroke="#CFAE9F" stroke-width="15"/>
+  </g>
 </svg>

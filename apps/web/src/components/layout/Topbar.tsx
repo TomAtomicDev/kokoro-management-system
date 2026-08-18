@@ -29,7 +29,7 @@ export function Topbar({ onOpenQuickAdd }: { onOpenQuickAdd: () => void }) {
       <button
         type="button"
         disabled
-        className="flex h-9 flex-1 max-w-sm items-center gap-2 rounded-md border border-input bg-muted px-3 text-muted-foreground text-sm disabled:cursor-not-allowed"
+        className="hidden h-9 flex-1 max-w-sm items-center gap-2 rounded-md border border-input bg-muted px-3 text-muted-foreground text-sm disabled:cursor-not-allowed"
       >
         <Search className="size-4 shrink-0" />
         <span className="flex-1 text-left">{topbarLabels.searchPlaceholder}</span>

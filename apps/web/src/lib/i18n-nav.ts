@@ -25,7 +25,7 @@ export const navLabels = {
 export const topbarLabels = {
   searchPlaceholder: "Buscar…",
   searchShortcutHint: "⌘K",
-  quickAdd: "+ Registrar",
+  quickAdd: "+ Sesión",
   alerts: "Alertas",
 } as const;
 

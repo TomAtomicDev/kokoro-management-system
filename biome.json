@@ -22,7 +22,8 @@
       "!**/.mcp.json",
       "!**/pnpm-lock.yaml",
       "!**/apps/worker/migrations",
-      "!**/graphify-out"
+      "!**/graphify-out",
+      "!**/public/**"
     ]
   },
   "formatter": {

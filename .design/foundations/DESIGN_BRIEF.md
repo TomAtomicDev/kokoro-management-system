@@ -139,7 +139,7 @@ capture the shared vocabulary the design language must define. Status is relativ
 | ---------------- | -------------- | --------------------------------------------------------------------- |
 | AppShell         | Modify         | Re-skin to warm neutrals; verify grid (topbar 56 / sidebar 232/64).   |
 | Sidebar          | Modify         | Warm palette, coffee active state; collapsible to icons.              |
-| Topbar           | Modify         | Global search (⌘K), `+ Registrar`, alerts bell, SessionChip.          |
+| Topbar           | Modify         | Global search (⌘K), `+ Sesión`, alerts bell, SessionChip.          |
 | MobileBottomTabs | Modify         | Panel · Ventas · Inventario · Finanzas · Más.                         |
 | MoneyText        | New            | centavos → `Bs 1.234,50`; `signed`, `colorBySign` (green in / ink out).|
 | QtyText          | New            | milli-units + unit → `1,5 kg`, `12 u`; tabular.                       |
@@ -160,7 +160,7 @@ capture the shared vocabulary the design language must define. Status is relativ
 
 ## Key Interactions
 
-- **Three-tap capture**: `+ Registrar` / ⌘K → QuickAddModal with the right form → confirm → done.
+- **Three-tap capture**: `+ Sesión` / ⌘K → QuickAddModal with the right form → confirm → done.
   Optimistic UI, server reconciliation via TanStack Query. The fast path is always visible.
 - **Table → drawer, never a page jump**: clicking a row opens the right-side DetailDrawer for
   view/edit; the filtered table stays behind it so she never loses her place.

@@ -56,20 +56,20 @@ problem — and its fix is already written down in our own KB.**
 Three things are true, and the third is the strategic point of this revision:
 
 1. **The domain core is genuinely well built.** Costing, replay, atomicity and state machines are
- careful, correct and well tested. Nothing in §2 needs re-doing.
+areful, correct and well tested. Nothing in §2 needs re-doing.
 2. **The pipeline risk is retired, and retiring it paid for itself.** Pushing Block C forced the deploy
- that found `PRAGMA foreign_keys=OFF` is a no-op inside D1's implicit migration transaction — which
- means migrations 0012/0013/0014/0022 would have **silently deleted** every item alias, purchase line
- and production consumption row the first time they met a non-empty database. That bug was invisible
- to a from-scratch test and would have been catastrophic in production. The month of local-only work
- was a real mistake; discovering this was the reward for ending it.
+hat found `PRAGMA foreign_keys=OFF` is a no-op inside D1's implicit migration transaction — which
+eans migrations 0012/0013/0014/0022 would have **silently deleted** every item alias, purchase line
+nd production consumption row the first time they met a non-empty database. That bug was invisible
+o a from-scratch test and would have been catastrophic in production. The month of local-only work
+as a real mistake; discovering this was the reward for ending it.
 3. **Every single one of the owner's fourteen new complaints lands in a form, and nine of them are
- symptoms of one unbuilt pattern.** Doc 06 §3 and Doc 07 §8 — written before any of this code — say
- every line-bearing form (Compra, Venta, Producción, Envasado/Armado, Pedido, Conteo) is **a full
- page with its own URL and a pinned summary footer**, and §A-12 of the agreements adds an
- unsaved-changes guard to all of them. Today **only Envasado/Armado is a page**; the rest are
- dialogs. The owner independently rediscovered our own specification, in her own words: *"El
- formulario de registrar compra es un desastre!! Mejor hacerla una pantalla separada."*
+ymptoms of one unbuilt pattern.** Doc 06 §3 and Doc 07 §8 — written before any of this code — say
+very line-bearing form (Compra, Venta, Producción, Envasado/Armado, Pedido, Conteo) is **a full
+age with its own URL and a pinned summary footer**, and §A-12 of the agreements adds an
+nsaved-changes guard to all of them. Today **only Envasado/Armado is a page**; the rest are
+ialogs. The owner independently rediscovered our own specification, in her own words: *"El
+ormulario de registrar compra es un desastre!! Mejor hacerla una pantalla separada."*
 
   That is not a new requirement. It is **KOK-140/141/142, sitting in Block D**, behind work that
    matters less to her daily use. The correct response is to **pull the form pattern forward**, not to
@@ -495,10 +495,10 @@ card before starting the task** — the table row is a summary, not a spec.
 **Two standing instructions for this batch:**
 
 1. **Nothing here is a licence to touch `core/` costing.** §2 lists what is already correct. If a task
- seems to require changing replay, WAC or C-10, stop and escalate — it almost certainly doesn't.
+eems to require changing replay, WAC or C-10, stop and escalate — it almost certainly doesn't.
 2. **Every UI task ships with a browser verification** using the `verify-ui` skill, at desktop **and**
- ~390 px, in **both themes**. "It compiles" is not evidence; this whole revision exists because
- fourteen defects survived a thorough source review.
+390 px, in **both themes**. "It compiles" is not evidence; this whole revision exists because
+ourteen defects survived a thorough source review.
 
 ---
 
@@ -515,33 +515,33 @@ card before starting the task** — the table row is a summary, not a spec.
 #### P0 — required before go-live on real data
 
 
-| ID      | Task                                              | Area    | Size | 🧠  | Status   | Description                                                                                                                                                                                                                                         |
-| ------- | ------------------------------------------------- | ------- | ---- | --- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| KOK-172 | Rebuild `LineEditor` as one aligned grid          | web     | L    | 3   | 📋 To Do | **Do first.** Header and rows share one grid so columns can't drift; row never overflows, so the remove button and cost preview stay visible; per-line unit selector (Kg/g) reused from `RecipeForm`. Closes F-41, F-34. → §4.3.1                   |
-| KOK-155 | Repair the seed fixture, make it un-breakable     | full    | M    | 4   | 📋 To Do | Delete `rl_pan_caja` (recipe consuming PACKAGING, double-charges the box), add the two missing presentations + *cordel*/*tarjeta*, and add a test that pushes every fixture line through the domain validators. Closes F-2, F-20. → §4.3.2          |
-| KOK-156 | "Envasar" section: definitions CRUD + history     | full    | L    | 4   | 📋 To Do | Block B's flagship model has no UI. Own top-level nav section, definitions CRUD with live cost preview, Envasado list/detail/edit/delete, owner's vocabulary, Doc 06/07 amended in the same PR. Closes F-3, F-25, F-44, half of F-37. → §4.3.3      |
-| KOK-173 | Envasado recording form: usability pass           | web     | M    | 3   | 📋 To Do | Hide the empty "Definición" selector and explain what a definition is; show the output item's unit; explicit "Stock insuficiente" text; constrain the pinned footer to the form width. Closes F-32, F-35, F-36. → §4.3.4                            |
-| KOK-157 | Packaging double-deduction + `isDefault` contract | full    | M    | 4   | 📋 To Do | Three layers test `isDefault=1` where they mean "is this an assembled presentation?". Use *any active definition* for correctness; enforce one default per output item as the owner's "envasado predeterminado". Closes F-4, half of F-37. → §4.3.5 |
-| KOK-158 | Fix sticky table headers                          | web     | S    | 2   | 📋 To Do | Nested `overflow-x-auto` wrappers become phantom scroll containers, so headers stick to nothing. Drop or bound them and move sticky onto `<th>`. The sessions calendar already works — use it as the reference. Closes F-1, F-45. → §4.3.6          |
-| KOK-073 | `replacement_cost_history` log                    | backend | S    | 3   | 📋 To Do | Already in the backlog (Phase 5.5) and already committed in §C as a go-live prerequisite. Must ship **before the owner's first real purchase** — the series cannot be reconstructed backwards. Closes F-5. → §4.3.7                                 |
+| ID      | Task                                              | Area    | Size | 🧠  | Status | Description                                                                                                                                                                                                                                         |
+| ------- | ------------------------------------------------- | ------- | ---- | --- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| KOK-172 | Rebuild `LineEditor` as one aligned grid          | web     | L    | 3   | ✅ Done | **Do first.** Header and rows share one grid so columns can't drift; row never overflows, so the remove button and cost preview stay visible; per-line unit selector (Kg/g) reused from `RecipeForm`. Closes F-41, F-34. → §4.3.1                   |
+| KOK-155 | Repair the seed fixture, make it un-breakable     | full    | M    | 4   | ✅ Done | Delete `rl_pan_caja` (recipe consuming PACKAGING, double-charges the box), add the two missing presentations + *cordel*/*tarjeta*, and add a test that pushes every fixture line through the domain validators. Closes F-2, F-20. → §4.3.2          |
+| KOK-156 | "Envasar" section: definitions CRUD + history     | full    | L    | 4   | ✅ Done | Block B's flagship model has no UI. Own top-level nav section, definitions CRUD with live cost preview, Envasado list/detail/edit/delete, owner's vocabulary, Doc 06/07 amended in the same PR. Closes F-3, F-25, F-44, half of F-37. → §4.3.3      |
+| KOK-173 | Envasado recording form: usability pass           | web     | M    | 3   | ✅ Done | Hide the empty "Definición" selector and explain what a definition is; show the output item's unit; explicit "Stock insuficiente" text; constrain the pinned footer to the form width. Closes F-32, F-35, F-36. → §4.3.4                            |
+| KOK-157 | Packaging double-deduction + `isDefault` contract | full    | M    | 4   | ✅ Done | Three layers test `isDefault=1` where they mean "is this an assembled presentation?". Use *any active definition* for correctness; enforce one default per output item as the owner's "envasado predeterminado". Closes F-4, half of F-37. → §4.3.5 |
+| KOK-158 | Fix sticky table headers                          | web     | S    | 2   | ✅ Done | Nested `overflow-x-auto` wrappers become phantom scroll containers, so headers stick to nothing. Drop or bound them and move sticky onto `<th>`. The sessions calendar already works — use it as the reference. Closes F-1, F-45. → §4.3.6          |
+| KOK-073 | `replacement_cost_history` log                    | backend | S    | 3   | ✅ Done | Already in the backlog (Phase 5.5) and already committed in §C as a go-live prerequisite. Must ship **before the owner's first real purchase** — the series cannot be reconstructed backwards. Closes F-5. → §4.3.7                                 |
 
 
 #### P1 — close before the next owner test session
 
 
-| ID      | Task                                              | Area    | Size | 🧠  | Status   | Description                                                                                                                                                                                                                                                 |
-| ------- | ------------------------------------------------- | ------- | ---- | --- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| KOK-140 | Full-page form pattern + Compra and Venta         | web     | L    | 3   | 📋 To Do | **Pulled forward from Block D.** Doc 06 §3 always specified it; the owner demanded it in her own words. Own URL, state owned by the route, pinned footer with the total and "Se descontará X de la cuenta Y". Closes F-40, F-9, structurally F-43. → §4.4.1 |
-| KOK-142 | Global unsaved-changes guard                      | web     | S    | 2   | 📋 To Do | **Pulled forward from Block D.** One hook on the `Dialog` primitive + route-level blocking + `beforeunload`. Dirty = differs from initial, not "was touched". Closes F-7, F-43. → §4.4.2                                                                    |
-| KOK-174 | Closing a session should take one click           | web     | S    | 3   | 📋 To Do | Default the end time to now; derive end ↔ duration instead of forbidding both. Submit one field, so the shared schema and Doc 03 S-2 stay unchanged. Closes F-39. → §4.4.3                                                                                  |
-| KOK-175 | Session drawer action row overflows               | web     | S    | 2   | 📋 To Do | Badge + 4 buttons in one non-wrapping flex row clips **Eliminar** — the destructive action — in half. Wrap or use an overflow menu; audit the other detail drawers too. Closes F-38. → §4.4.4                                                               |
-| KOK-176 | Pickers must only offer acceptable items          | web     | S    | 2   | 📋 To Do | Purchases offer Agua and Envasado offers non-`UNIT` outputs, both rejected only at submit by rules the UI never displayed. Add kind/unit/`isUnmetered` eligibility to `ItemPicker`. Closes F-42, picker half of F-33. → §4.4.5                              |
-| KOK-159 | Client-side length caps                           | web     | S    | 2   | 📋 To Do | The app has exactly **one** `maxLength`. Derive it from the same `safeText(N)` bound the shared schema declares so the two cannot drift. Closes F-8. → §4.4.6                                                                                               |
-| KOK-160 | Purchase total + "Se descontará X de la cuenta Y" | web     | S    | 2   | ✅ Done | delivered by KOK-140 (commit 861d027): Purchase and Sale pinned footers render the computed total and destination-account line. Closes F-9. → §4.4.7                                                                       |
-| KOK-161 | Packaging suggestion on exits                     | full    | M    | 3   | 📋 To Do | A-1 case 3: prefill packaging from the applicable **default** definition when the exit is of an unassembled product. The only surviving piece of the "suggested packaging" idea. Closes F-10. → §4.4.8                                                      |
-| KOK-162 | PWA update strategy                               | web     | S    | 3   | 📋 To Do | Hardcoded `CACHE_NAME` + cache-first document = white screen after any deploy. **Now real**, because staging deploys again. Keep the `/api/` exclusion exactly as it is. Closes F-11. → §4.4.9                                                              |
-| KOK-163 | Harden `customOrderId` semantics before Phase 4   | shared  | S    | 4   | 📋 To Do | "Omitted" currently means "clear the link". A Telegram/AI capture path omitting the field would silently unlink a delivered order's production run. Fix before Phase 4 starts. Closes F-13. → §4.4.10                                                       |
-| KOK-164 | Decide KOK-135's disposition                      | backend | S    | 3   | 📋 To Do | Deduplicated-hours primitive is correct, property-tested and has **zero call sites**. Either expose it with the agreed copy, or re-mark it a prerequisite and record the gap in KOK-051. Closes F-12. → §4.4.11                                             |
+| ID      | Task                                              | Area    | Size | 🧠  | Status | Description                                                                                                                                                                                                                                                 |
+| ------- | ------------------------------------------------- | ------- | ---- | --- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| KOK-140 | Full-page form pattern + Compra and Venta         | web     | L    | 3   | ✅ Done | **Pulled forward from Block D.** Doc 06 §3 always specified it; the owner demanded it in her own words. Own URL, state owned by the route, pinned footer with the total and "Se descontará X de la cuenta Y". Closes F-40, F-9, structurally F-43. → §4.4.1 |
+| KOK-142 | Global unsaved-changes guard                      | web     | S    | 2   | ✅ Done | **Pulled forward from Block D.** One hook on the `Dialog` primitive + route-level blocking + `beforeunload`. Dirty = differs from initial, not "was touched". Closes F-7, F-43. → §4.4.2                                                                    |
+| KOK-174 | Closing a session should take one click           | web     | S    | 3   | ✅ Done | Default the end time to now; derive end ↔ duration instead of forbidding both. Submit one field, so the shared schema and Doc 03 S-2 stay unchanged. Closes F-39. → §4.4.3                                                                                  |
+| KOK-175 | Session drawer action row overflows               | web     | S    | 2   | ✅ Done | Badge + 4 buttons in one non-wrapping flex row clips **Eliminar** — the destructive action — in half. Wrap or use an overflow menu; audit the other detail drawers too. Closes F-38. → §4.4.4                                                               |
+| KOK-176 | Pickers must only offer acceptable items          | web     | S    | 2   | ✅ Done | Purchases offer Agua and Envasado offers non-`UNIT` outputs, both rejected only at submit by rules the UI never displayed. Add kind/unit/`isUnmetered` eligibility to `ItemPicker`. Closes F-42, picker half of F-33. → §4.4.5                              |
+| KOK-159 | Client-side length caps                           | web     | S    | 2   | ✅ Done | The app has exactly **one** `maxLength`. Derive it from the same `safeText(N)` bound the shared schema declares so the two cannot drift. Closes F-8. → §4.4.6                                                                                               |
+| KOK-160 | Purchase total + "Se descontará X de la cuenta Y" | web     | S    | 2   | ✅ Done | delivered by KOK-140 (commit 861d027): Purchase and Sale pinned footers render the computed total and destination-account line. Closes F-9. → §4.4.7                                                                                                        |
+| KOK-161 | Packaging suggestion on exits                     | full    | M    | 3   | ✅ Done | A-1 case 3: prefill packaging from the applicable **default** definition when the exit is of an unassembled product. The only surviving piece of the "suggested packaging" idea. Closes F-10. → §4.4.8                                                      |
+| KOK-162 | PWA update strategy                               | web     | S    | 3   | ✅ Done | Hardcoded `CACHE_NAME` + cache-first document = white screen after any deploy. **Now real**, because staging deploys again. Keep the `/api/` exclusion exactly as it is. Closes F-11. → §4.4.9                                                              |
+| KOK-163 | Harden `customOrderId` semantics before Phase 4   | shared  | S    | 4   | ✅ Done | "Omitted" currently means "clear the link". A Telegram/AI capture path omitting the field would silently unlink a delivered order's production run. Fix before Phase 4 starts. Closes F-13. → §4.4.10                                                       |
+| KOK-164 | Decide KOK-135's disposition                      | backend | S    | 3   | ✅ Done | Deduplicated-hours primitive is correct, property-tested and has **zero call sites**. Either expose it with the agreed copy, or re-mark it a prerequisite and record the gap in KOK-051. Closes F-12. → §4.4.11                                             |
 
 
 #### P2 — test and documentation integrity
@@ -607,22 +607,22 @@ every later form task builds on the result.
 **What to build.**
 
 1. **Replace the parallel-flex-rows layout with one grid definition.** Header (`:92-100`) and each row
- (`:103-168`) currently declare their widths independently, so any cell with an intrinsic minimum
- wider than its nominal width desynchronizes them permanently. Define the column template **once**
- and apply it to both, so alignment cannot drift. `StepCount.tsx:252`'s `COUNT_GRID_COLUMNS`
- constant is the in-repo precedent for this and should be followed.
+`:103-168`) currently declare their widths independently, so any cell with an intrinsic minimum
+ider than its nominal width desynchronizes them permanently. Define the column template **once**
+nd apply it to both, so alignment cannot drift. `StepCount.tsx:252`'s `COUNT_GRID_COLUMNS`
+onstant is the in-repo precedent for this and should be followed.
 2. **Guarantee the row never overflows its container.** Give the item cell a real `min-w-0` and let the
- combobox truncate rather than push; the remove control and the `renderExtraColumns` slot must remain
- visible at every breakpoint down to 390 px without horizontal scrolling. If the desktop layout
- genuinely cannot hold every column, the mobile stacked layout is the correct fallback — not a
- scrollbar.
+ombobox truncate rather than push; the remove control and the `renderExtraColumns` slot must remain
+isible at every breakpoint down to 390 px without horizontal scrolling. If the desktop layout
+enuinely cannot hold every column, the mobile stacked layout is the correct fallback — not a
+crollbar.
 3. **Make removal obvious.** The ghost icon-only `<Button>` at `:158-167` survives, but it must be
- visible, hit-target-sized (≥44 px) and reachable by keyboard, with its `aria-label` unchanged.
+isible, hit-target-sized (≥44 px) and reachable by keyboard, with its `aria-label` unchanged.
 4. **Promote the per-line unit selector to a first-class prop.** KOK-101 already built the compatible-unit
- selector with magnitude-based defaults; `RecipeForm` wires it through `onItemChange`
- (`LineEditor.tsx:55`). Lift that into an opt-in `unitSelector` capability on `LineEditor` and adopt
- it in `PurchaseForm` and the Envasado form. Where a caller opts out, still **display** the item's
- canonical unit next to the quantity input — never leave the unit unstated.
+elector with magnitude-based defaults; `RecipeForm` wires it through `onItemChange`
+`LineEditor.tsx:55`). Lift that into an opt-in `unitSelector` capability on `LineEditor` and adopt
+t in `PurchaseForm` and the Envasado form. Where a caller opts out, still **display** the item's
+anonical unit next to the quantity input — never leave the unit unstated.
 
 **Acceptance.**
 
@@ -660,17 +660,17 @@ combo cost and its Precios y márgenes row are **wrong right now**.
 
 1. Delete `rl_pan_caja`.
 2. Add **"Pan de masa madre 500 g"** and **"Ghee 200 g"** as `FINISHED` / `UNIT` presentations with
- their own assembly definitions, so Desayuno Kokoro consumes **presentations**, not bulk product —
- restoring the two-level structure the worked example depends on.
+heir own assembly definitions, so Desayuno Kokoro consumes **presentations**, not bulk product —
+estoring the two-level structure the worked example depends on.
 3. Add the missing *cordel* and *tarjeta* `PACKAGING` items.
 4. Mark one definition per output item as `isDefault` (see KOK-157) so the fixture also exercises the
- default path.
+efault path.
 5. **Add a fixture-validation test** that loads the fixture and pushes every recipe line and every
- definition line through the domain's own kind validators (`validateRecipeItemKinds`,
- `validateAssemblyItemKinds`). This is the actual deliverable: raw SQL must never again be able to
- encode a rule the services forbid.
+efinition line through the domain's own kind validators (`validateRecipeItemKinds`,
+validateAssemblyItemKinds`). This is the actual deliverable: raw SQL must never again be able to
+ncode a rule the services forbid.
 6. Fix the misleading Agua comments (F-20): the data says `231` = Bs 0,00231/L and is correct; the
- comment says Bs 0.005/L and invites someone to "fix" the right number into a wrong one.
+omment says Bs 0.005/L and invites someone to "fix" the right number into a wrong one.
 
 **Acceptance.** Loading the fixture and running the agreements' worked example end to end reproduces
 **Bs 13,00/u, Bs 18,00/u, Bs 5,70/u and Bs 40,70/u**. The validation test fails if `rl_pan_caja` is
@@ -703,23 +703,22 @@ unlabelled link card is why she could not find it.
 **What to build.**
 
 1. **A top-level "Envasar" nav section** with its own route, added to `AppPath`, `primaryNav`, and the
- mobile "Más" sheet. Landing page lists recorded Envasados (date, output, qty, unit cost, session)
- with the standard `EventTable` filters, plus a primary "Registrar envasado" action and a secondary
- entry into definitions.
+obile "Más" sheet. Landing page lists recorded Envasados (date, output, qty, unit cost, session)
+ith the standard `EventTable` filters, plus a primary "Registrar envasado" action and a secondary
+ntry into definitions.
 2. **Definitions CRUD**: list, create, edit, activate/deactivate (never hard-delete — Doc 03 treats
- definitions exactly like recipes), with the **live component-cost preview the backend already
- returns**. Enforce the cycle prohibition message the service already produces rather than
- re-implementing the check client-side.
+efinitions exactly like recipes), with the **live component-cost preview the backend already
+eturns**. Enforce the cycle prohibition message the service already produces rather than
+e-implementing the check client-side.
 3. **Event history**: detail view, edit, delete and restore, wired to the existing endpoints, with the
- `ImpactConfirmDialog` / `useReplayConfirmableMutation` pattern for replay-affecting edits — same as
- `ProductionRunForm`.
+ImpactConfirmDialog`/`useReplayConfirmableMutation `pattern for replay-affecting edits — same as ProductionRunForm`.
 4. **Terminology.** Adopt the owner's vocabulary in the UI: the section is **Envasar**, the record is
- an **Envasado**, the template is a **Definición de envasado**. Keep `Assembly` / `AssemblyDefinition`
- as the code and KB identifiers (D-9: Spanish in `i18n/`, English in identifiers) — this is a
- `i18n-assemblies.ts` + `i18n-nav.ts` change, **not** a rename of tables, services or KB entities.
+n **Envasado**, the template is a **Definición de envasado**. Keep `Assembly` / `AssemblyDefinition`
+s the code and KB identifiers (D-9: Spanish in `i18n/`, English in identifiers) — this is a
+i18n-assemblies.ts`+`i18n-nav.ts` change, **not** a rename of tables, services or KB entities.
 5. **KB amendment in the same PR** (D-1/D-6): Doc 06 §2's nav tree and Doc 07 SC-20's route/placement
- currently put this under `/production`. Update both to the new section, and record the reason
- (owner's Phase 3.2 test, Issue #30). Do not silently diverge from the KB — amend it.
+urrently put this under `/production`. Update both to the new section, and record the reason
+owner's Phase 3.2 test, Issue #30). Do not silently diverge from the KB — amend it.
 
 **Acceptance.** From a cold start with an empty database, the owner can: find Envasar in the nav
 without being told the URL; create a "Kéfir natural 500 ml" presentation and a combo; see their
@@ -748,25 +747,25 @@ defects, all cheap:
 **What to build.**
 
 1. **The "Definición" field.** Hide the `<select>` entirely when there are no active definitions
- (`routes/assemblies.tsx:340-352`), and in its place show a one-line explanation with a link to
- create one: a definition is a **reusable template** ("Pan integral + bolsa + etiqueta + cordel")
- that pre-fills this form. When definitions do exist, replace the placeholder *"Sin definición
- (entrada manual)"* (`i18n-assemblies.ts:6`) with wording that describes the owner's choice, not the
- implementation branch — e.g. *"Sin plantilla — cargar componentes a mano"* — and add an
- `InfoTooltip` (the KOK-108 primitive) explaining the field.
+`routes/assemblies.tsx:340-352`), and in its place show a one-line explanation with a link to
+reate one: a definition is a **reusable template** ("Pan integral + bolsa + etiqueta + cordel")
+hat pre-fills this form. When definitions do exist, replace the placeholder *"Sin definición
+entrada manual)"* (`i18n-assemblies.ts:6`) with wording that describes the owner's choice, not the
+mplementation branch — e.g. *"Sin plantilla — cargar componentes a mano"* — and add an
+InfoTooltip` (the KOK-108 primitive) explaining the field.
 2. **Output-item unit, visibly.** Show the selected item's unit next to it, and next to the "Salida
- real" input replace the hardcoded `"u. de {name}"` (`:416`, also F-24) with an i18n string. Pair with
- KOK-176's picker filter so an ineligible item can no longer be chosen at all. The error at
- `core/assemblies/assembly-definitions.ts:44` must become unreachable through the UI.
+eal" input replace the hardcoded `"u. de {name}"` (`:416`, also F-24) with an i18n string. Pair with
+OK-176's picker filter so an ineligible item can no longer be chosen at all. The error at
+core/assemblies/assembly-definitions.ts:44` must become unreachable through the UI.
 3. **Line presentation** (F-35). Drop the repeated `"Aporte al costo:"` prefix now that the column has
- a header (KOK-172 guarantees the header aligns), and render insufficient stock as **explicit text**
- — *"Stock insuficiente"* — not an icon with a `title` attribute. Keep the ✓ / neutral-dash states
- and keep the unmetered branch exactly as it is; the logic at `:163-200` is correct.
+eader (KOK-172 guarantees the header aligns), and render insufficient stock as **explicit text**
+"Stock insuficiente"* — not an icon with a `title` attribute. Keep the ✓ / neutral-dash states
+nd keep the unmetered branch exactly as it is; the logic at `:163-200` is correct.
 4. **Footer** (F-36). `PinnedSummaryFooter` is full-bleed while the form body is `max-w-3xl` centred,
- so the footer reads as a wider, disconnected block and steals vertical space. Constrain its inner
- content to the same `max-w-3xl` container and tighten its vertical rhythm. **Check every other
- consumer** of `PinnedSummaryFooter` in the same pass — this is a shared component and the same
- mismatch will appear wherever the body is width-constrained.
+o the footer reads as a wider, disconnected block and steals vertical space. Constrain its inner
+ontent to the same `max-w-3xl` container and tighten its vertical rhythm. **Check every other
+onsumer** of `PinnedSummaryFooter` in the same pass — this is a shared component and the same
+ismatch will appear wherever the body is width-constrained.
 
 **Acceptance.** On an empty database the form explains what a definition is instead of offering an
 empty dropdown. With definitions present, choosing one pre-fills components and output. The output
@@ -886,10 +885,10 @@ cobrar, transferir, retirar, iniciar sesión, confirmations — stay dialogs. On
 **What to build.**
 
 1. **The pattern**: own route and URL (shareable, real browser back), form state owned by the route so
- it survives incidental unmounts, `PinnedSummaryFooter` (total, affected account, warnings) — with
- KOK-173's width fix applied — and the unsaved-changes guard from KOK-142.
+t survives incidental unmounts, `PinnedSummaryFooter` (total, affected account, warnings) — with
+OK-173's width fix applied — and the unsaved-changes guard from KOK-142.
 2. **Migrate Compra**, and with it deliver the agreed **"Se descontará X de la cuenta Y"** line
- (F-9 / KOK-160) in the pinned footer, alongside the computed total.
+F-9 / KOK-160) in the pinned footer, alongside the computed total.
 3. **Migrate Venta.**
 4. Keep KOK-172's `LineEditor` as the line body — do not fork it.
 
@@ -950,13 +949,13 @@ available, and closing a session she just finished requires her to type a timest
 **What to build.**
 
 1. **Default `endedAt` to now** when the close form opens (La Paz time, via the existing
- `Intl.DateTimeFormat`/`America/La_Paz` helpers — do **not** hand-roll a timezone), editable.
+Intl.DateTimeFormat`/`America/La_Paz` helpers — do **not** hand-roll a timezone), editable.
 2. **Derive, don't forbid.** Typing a duration recomputes the end instant from `startedAt`; editing the
- end recomputes the duration. Both stay visible and consistent. Stop disabling the end field.
+nd recomputes the duration. Both stay visible and consistent. Stop disabling the end field.
 3. **Submit exactly one field.** Send `endedAt` only. This satisfies
- `packages/shared/src/sessions.ts:96-102` **unchanged** and Doc 03 S-2 unchanged — the exclusivity is
- a command rule, not a display rule. **No schema change, no KB amendment.** If implementation
- suggests otherwise, stop and escalate rather than relaxing the refinement.
+packages/shared/src/sessions.ts:96-102` **unchanged** and Doc 03 S-2 unchanged — the exclusivity is
+ommand rule, not a display rule. **No schema change, no KB amendment.** If implementation
+uggests otherwise, stop and escalate rather than relaxing the refinement.
 4. Keep the "end must be after start" error and surface it live rather than on submit.
 
 **Acceptance.** Opening the close form on an open session and pressing "Cerrar" immediately closes it
@@ -1135,35 +1134,35 @@ These caused more of the findings above than any individual coding mistake. Two 
 since the first issue; the rest stand.
 
 1. **Work is being marked Done without the "Done" definition being met.** Definition-of-Done item 5
- (deployed to staging, smoke-tested) had not been met by any of the three blocks, yet 30+ tasks were
- ✅. **Partially answered:** KOK-154 restored the pipeline, so item 5 is achievable again — but it
- was 30 tasks' worth of "Done" claimed before it was. Honour it or amend it.
+deployed to staging, smoke-tested) had not been met by any of the three blocks, yet 30+ tasks were
+. **Partially answered:** KOK-154 restored the pipeline, so item 5 is achievable again — but it
+as 30 tasks' worth of "Done" claimed before it was. Honour it or amend it.
 2. `**full`-area tasks are shipping backend-only.** KOK-123 and KOK-124 are both `full` and both Done,
- yet the management UI for either never existed — KOK-153 was created mid-Block-C to notice the
- *recording* form was missing, and the definitions UI still hasn't been built. **Suggested guard,
- now with evidence behind it: a `full` task is not Done until a named screen is reachable from the
- navigation by someone who was not told the URL.** The owner could not find `/production/assemblies/new`.
+et the management UI for either never existed — KOK-153 was created mid-Block-C to notice the
+recording* form was missing, and the definitions UI still hasn't been built. **Suggested guard,
+ow with evidence behind it: a `full` task is not Done until a named screen is reachable from the
+avigation by someone who was not told the URL.** The owner could not find `/production/assemblies/new`.
 3. **The agreements doc and the backlog have drifted.** One §B item was lost entirely (F-9), one
- checklist point is scheduled two phases away (§3.5), and a status commit regressed the row it was
- meant to update (F-15). One reconciliation pass (KOK-167), then treat §B as a checklist with ids.
+hecklist point is scheduled two phases away (§3.5), and a status commit regressed the row it was
+eant to update (F-15). One reconciliation pass (KOK-167), then treat §B as a checklist with ids.
 4. **Long-lived local work is a real risk.** ✅ **Answered, expensively and instructively.** Twenty
- unpushed commits containing a full block of domain changes lived on one machine; pushing them
- revealed three migration bugs that would have silently destroyed data on any non-empty database.
- **Push per task, not per block** — and note that from-scratch migration tests are not sufficient
- evidence. Any migration that rebuilds a table must be tested against a **populated** database.
+npushed commits containing a full block of domain changes lived on one machine; pushing them
+evealed three migration bugs that would have silently destroyed data on any non-empty database.
+*Push per task, not per block** — and note that from-scratch migration tests are not sufficient
+vidence. Any migration that rebuilds a table must be tested against a **populated** database.
 5. **Self-reports are optimistic in a specific, predictable way:** they accurately describe what was
- *built* and under-report what was *not reached*. Ask each block report to state explicitly what it
- did **not** verify.
+built* and under-report what was *not reached*. Ask each block report to state explicitly what it
+id **not** verify.
 6. **New: source review cannot substitute for the owner using the app.** Every finding in §3.2 that
- the owner confirmed had already been predicted here — but F-33, F-38, F-39 and F-41 were invisible
- to source reading, and F-41 in particular (a working delete button she cannot see) is the kind of
- defect that only a real user finds. Sixty minutes of her time produced fourteen findings.
- **Schedule the owner-led pass as a standing gate at the end of every block, not as a one-off.**
+he owner confirmed had already been predicted here — but F-33, F-38, F-39 and F-41 were invisible
+o source reading, and F-41 in particular (a working delete button she cannot see) is the kind of
+efect that only a real user finds. Sixty minutes of her time produced fourteen findings.
+*Schedule the owner-led pass as a standing gate at the end of every block, not as a one-off.**
 7. **New: we specified the fix before we built the problem.** Doc 06 §3 has said "full page with a
- pinned summary footer" since before any of these forms were written, and they were all built as
- dialogs anyway, with the correction scheduled into a later block. The owner then asked for it in
- her own words. When the KB already answers a design question, building the other thing first is not
- a shortcut — it is the same work, done twice.
+inned summary footer" since before any of these forms were written, and they were all built as
+ialogs anyway, with the correction scheduled into a later block. The owner then asked for it in
+er own words. When the KB already answers a design question, building the other thing first is not
+hortcut — it is the same work, done twice.
 
 ---
 
@@ -1178,40 +1177,37 @@ Test on **desktop and at ~390 px**, and in **both themes**.
 ### B. Flows never exercised by any pass
 
 1. **Orders lifecycle.** Create → confirm (check the single *Método de pago + Cuenta* selector and that
- the payment date is editable) → En producción → back to Confirmado → Listo **with no linked
- production** (expect a warning you must confirm) → Entregar → **Deshacer entrega**. Note which
- confirmations are plain browser pop-ups versus proper in-app dialogs (F-19), and whether undoing a
- delivery that was **already collected** is refused with a clear message.
-2. **Production form.** Check: the order picker appears and offers orders in every status except
- Entregado/Cancelado; the per-ingredient stock indicator shows ✓ / ! and a neutral "No medido" for
- Agua; actual output prefills from the recipe and **recomputes when you change batches — but does not
- overwrite a number you typed yourself**. **This is F-31 — try it in *edit* mode specifically, on a
- saved production run.** It is the last finding still unconfirmed; ticket it only if reproduced.
+he payment date is editable) → En producción → back to Confirmado → Listo **with no linked
+roduction** (expect a warning you must confirm) → Entregar → **Deshacer entrega**. Note which
+onfirmations are plain browser pop-ups versus proper in-app dialogs (F-19), and whether undoing a
+elivery that was **already collected** is refused with a clear message.
+2. **Production form.** Check: the order picker appears and offers orders in every status except  
+ntregado/Cancelado; the per-ingredient stock indicator shows ✓ / ! and a neutral "No medido" for  
+gua; actual output prefills from the recipe and **recomputes when you change batches — but does not**  
+**rewrite a number you typed yourself**. **This is F-31 — try it in *edit* mode specifically, on a saved production run.** It is the last finding still unconfirmed; ticket it only if reproduced.
 3. **Validation behaviour.** On *Crear ítem* and *Nueva venta*: type letters into a numeric field, paste
- a very long text into notes, and submit with a required field empty. Record **when** feedback appears
- (as you type? on leaving the field? only on save?) and whether required fields are marked. This is
- the baseline for **KOK-143** (live validation, Block D's largest task) — these notes are worth more
- than any code review.
+ery long text into notes, and submit with a required field empty. Record **when** feedback appears
+as you type? on leaving the field? only on save?) and whether required fields are marked. This is
+he baseline for **KOK-143** (live validation, Block D's largest task) — these notes are worth more
+han any code review.
 4. **Filters and sorting.** On Ventas / Pedidos / Salidas: does the date range default to *inicio de mes
- → hoy*, and does it survive a page reload? Click column headers to sort — asc, desc, back to natural
- — and confirm sorting a second column clears the first. Try it with the keyboard (Tab + Enter).
+oy*, and does it survive a page reload? Click column headers to sort — asc, desc, back to natural
+nd confirm sorting a second column clears the first. Try it with the keyboard (Tab + Enter).
 5. **Stock exits.** Record a waste/self-consumption exit. Does it offer packaging lines for an item that
- already has an assembly definition? (That is F-4 seen from the owner's side.) Does it offer Agua?
- (F-42.)
+lready has an assembly definition? (That is F-4 seen from the owner's side.) Does it offer Agua?
+F-42.)
 
 ### C. Cross-cutting
 
 6. **Dark mode.** Toggle it in Configuración and check the **calendar icons** on date fields (the
- original complaint) and general contrast on 2–3 screens.
-7. **PWA (F-11).** Install it on your phone. Then have someone rebuild/redeploy and open it again —
- does it still work, or does it break until you force-refresh? **This is now testable for the first
- time**, since staging actually deploys.
-8. **Mobile at ~390 px.** Start a session from the header, open the weekly calendar, and fill one
- line-bearing form. Also judge F-30: should **Sesiones** be a primary bottom tab instead of hidden
- under "Más"?
+riginal complaint) and general contrast on 2–3 screens.
+7. **PWA (F-11).** Install it on your phone. Then have someone rebuild/redeploy and open it again — does it still work, or does it break until you force-refresh? **This is now testable for the first**  
+**time**, since staging actually deploys.
+8. **Mobile at ~390 px.** Start a session from the header, open the weekly calendar, and fill one line-bearing form. Also judge F-30: should **Sesiones** be a primary bottom tab instead of hidden
+nder "Más"?
 9. **Copy check.** Confirm live: "Artículos comprados", "Artículos vendidos", "Artículos del pedido",
- "Preparación", "Costo invisible del periodo", and the Ventas note telling you to use *Entregar
- pedido* for an order.
+Preparación", "Costo invisible del periodo", and the Ventas note telling you to use *Entregar
+edido* for an order.
 
 ### Already verified in the browser
 

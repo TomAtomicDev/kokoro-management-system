@@ -2,7 +2,6 @@
 description: Execute a documented block of development tasks quickly through sequential Codex workers on one cumulative worktree
 argument-hint: <PLAN-DOC> <BLOCK-OR-SCOPE>
 ---
-
 # Execute documented task block — $ARGUMENTS
 
 You are the **orchestrator**, not the primary developer.
@@ -129,13 +128,13 @@ The worker must read:
 
 - the planning document;
 - the complete detailed card for its assigned task;
-- `AGENTS.md`;
+- `CLAUDE.md`;
 - referenced KB sections;
 - the current code, including commits made by previous workers.
 
 Give it approximately this instruction:
 
-> Implement **<TASK-ID>** from **<PLAN-DOC>**.
+> Implement <TASK-ID> from <PLAN-DOC>.
 >
 > Read the whole requested block for context, but your implementation scope is only this task.
 >
@@ -158,6 +157,7 @@ Give it approximately this instruction:
 > When the task is complete and checks pass, review your own diff, then create **one commit for this task** using the task ID.
 >
 > Report:
+>
 > - commit hash;
 > - files changed;
 > - checks run and result;
@@ -182,9 +182,15 @@ or the version-matched documented equivalent.
 
 A successful command return, `input_accepted`, or `tui-idle` is not proof that Codex actually entered the task.
 
-Verify evidence of a real Codex turn using the documented Orca inspection primitives.
+**Standard dispatch sequence.** Treat the paste sitting unsubmitted in the composer as the common case, not an edge case — it happens on most dispatches, not occasionally:
 
-If the instruction is visibly sitting unsubmitted in the composer, send **Enter only**. Never paste the same instruction again when it is already present.
+1. create or reuse the terminal; confirm it is idle (booted, not mid-MCP-startup);
+2. `task-create` the spec;
+3. `worker-start --terminal <handle>` (dispatch onto that terminal, not a fresh `--agent codex` launch, once the terminal already exists);
+4. read the terminal — if the spec is visibly pasted but unsubmitted, send **Enter only** once (never paste the same instruction again when it is already present);
+5. read the terminal again to confirm the worker is actually acting on it (planning, investigating, tool calls) — not merely idle with the text still sitting there.
+
+Do not consider a task dispatched until step 5 shows real work starting.
 
 If startup still fails, stop improvising and use the recovery primitives from the loaded `orchestration` skill.
 
@@ -200,7 +206,7 @@ Use Orca's documented wait/check primitive for:
 - `question`;
 - `escalation`.
 
-A timeout does not mean failure.
+A timeout does not mean failure. If a blocking wait errors with `waiter_exists` (an earlier wait on the same run is still alive server-side), do not keep retrying `--wait` — fall back to non-blocking `--peek` polling instead.
 
 Inspect the worker/dispatch state and determine whether it is:
 
@@ -214,6 +220,15 @@ After processing a delivered Orca message, **acknowledge it using the documented
 If Codex shows a rate-limit/model-switch dialog, accept the reasonable capacity-preserving model switch and then verify the transcript before sending anything else.
 
 Treat a stuck `tui-idle`/blocked indicator as inconclusive when the transcript clearly shows the blocking interaction has already been resolved.
+
+### Resolving a worker escalation
+
+A worker's `question`/`escalation` message means it hit genuine ambiguity and correctly declined to guess. Resolving it is the orchestrator's job, not the worker's:
+
+- the orchestrator may investigate the KB/code directly, or delegate the investigation to a strictly **read-only** sub-investigation;
+- a delegated investigation must **report back to the orchestrator only** — it must never contact the worker or answer on the orchestrator's behalf, even if it thinks it found a confident, doc-grounded answer;
+- the orchestrator reviews the finding and, if it is genuinely grounded in the plan doc/KB, replies to the worker itself;
+- if the ambiguity is a real product/business call with no doc-grounded answer, escalate to the human instead of resolving it unilaterally — per §2, do not guess.
 
 ---
 
@@ -408,12 +423,12 @@ After all requested tasks are accepted:
 2. inspect the final linear commit list;
 3. inspect cumulative diff only for shared/high-risk surfaces that warrant coordinator review;
 4. report:
-   - tasks completed;
-   - commit per task;
-   - blocked or incomplete tasks;
-   - decisions/escalations;
-   - pending human infrastructure actions;
-   - final verification result.
+  - tasks completed;
+  - commit per task;
+  - blocked or incomplete tasks;
+  - decisions/escalations;
+  - pending human infrastructure actions;
+  - final verification result.
 
 Do not merge, push, deploy or open PRs unless explicitly requested.
 
@@ -435,3 +450,4 @@ Do not merge, push, deploy or open PRs unless explicitly requested.
 12. **Shared/staging/production mutations always require explicit human approval.**
 13. **No dependent task starts from an unaccepted upstream task.**
 14. **Git history is the primary handoff and audit trail.**
+
