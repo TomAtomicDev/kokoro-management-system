@@ -424,10 +424,12 @@ type and is out of scope.
 
 ### A-6. Dates
 
-- **Future dates are rejected.** Transactions post immediately and affect today's balance even when
-  they carry a future date in reports; this is not scheduled payment, and allowing it would
-  communicate something false. Rejected with a clear message. Applies to purchases, sales,
-  production runs, assemblies, exits and order payments.
+- **Future transaction dates are rejected.** Transactions post immediately and affect today's
+  balance even when they carry a future date in reports; this is not scheduled payment, and
+  allowing it would communicate something false. Rejected with a clear message. Applies to
+  purchases, sales, production runs, assemblies, exits and order payments. This rule covers only
+  transaction `business_date` values: `custom_orders.delivery_date` is a promised calendar date,
+  not a transaction date, and is explicitly allowed to be in the future.
 - **Payment dates are editable** when confirming and when delivering an order (the backend already
   accepts backdating through the existing recalculation path; only the field was missing).
 - **Date-range filter** on Ventas, Pedidos and Salidas, defaulting to *start of month → today*. The

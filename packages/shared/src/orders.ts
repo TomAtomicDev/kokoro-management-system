@@ -26,7 +26,7 @@
 
 import { z } from "zod";
 import { confirmFlagSchema } from "./costing.js";
-import { businessDateSchema, occurredAtSchema } from "./dates.js";
+import { businessDateSchema, calendarDateSchema, occurredAtSchema } from "./dates.js";
 import {
   type CancelResolution,
   type CustomOrderStatus,
@@ -117,7 +117,8 @@ export const quoteOrderCommandSchema = z.object({
   /** Centavos the owner expects as a deposit. Omitted → derived at confirm time from the
    * `default_deposit_pct` app setting (basis points, Doc 04 §3.5), falling back to 50% (O-1). */
   depositRequired: z.number().int().nonnegative().optional(),
-  deliveryDate: businessDateSchema.optional(),
+  /** Promised calendar date; unlike transaction dates, it may be in the future (Doc 03 O-5). */
+  deliveryDate: calendarDateSchema.optional(),
   deliveryPlace: z.string().trim().pipe(safeText(200)).optional(),
   notes: z.string().trim().pipe(safeText(ORDER_NOTES_MAX_LENGTH)).optional(),
   lines: z.array(orderLineCommandSchema).default([]),

@@ -111,26 +111,68 @@ export function fromDatetimeLocal(
   return toDatetimeLocal(instant, timezone) === trimmed ? instant.toISOString() : undefined;
 }
 
+/** Half-open UTC instant window for an inclusive local business-date range. */
+export interface BusinessDateUtcWindow {
+  startInclusive: string;
+  endExclusive: string;
+}
+
+function nextCalendarDate(value: string): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    throw new RangeError(`businessDateRangeToUtcWindow: invalid calendar date: ${value}`);
+  }
+
+  const instant = new Date(`${value}T00:00:00.000Z`);
+  if (Number.isNaN(instant.getTime()) || instant.toISOString().slice(0, 10) !== value) {
+    throw new RangeError(`businessDateRangeToUtcWindow: invalid calendar date: ${value}`);
+  }
+
+  instant.setUTCDate(instant.getUTCDate() + 1);
+  return instant.toISOString().slice(0, 10);
+}
+
+function localMidnightToUtc(value: string, timezone: string): string {
+  const instant = fromDatetimeLocal(`${value}T00:00`, timezone);
+  if (instant === undefined) {
+    throw new RangeError(`businessDateRangeToUtcWindow: invalid calendar date: ${value}`);
+  }
+  return instant;
+}
+
+/** Convert inclusive local business dates into a half-open UTC instant window. */
+export function businessDateRangeToUtcWindow(
+  fromDate: string,
+  toDate: string,
+  timezone: string = DEFAULT_TIMEZONE,
+): BusinessDateUtcWindow {
+  const startInclusive = localMidnightToUtc(fromDate, timezone);
+  const endExclusive = localMidnightToUtc(nextCalendarDate(toDate), timezone);
+  return { startInclusive, endExclusive };
+}
+
 /** Current instant as a UTC ISO-8601 string (Doc 04 §1, `*_at` columns). */
 export function nowIso(): string {
   return new Date().toISOString();
 }
 
-/** `YYYY-MM-DD`, America/La_Paz local calendar date (Doc 04 §1, INV-3). Rejects a future business
- * date (Doc 04 §5, agreements §A-6): transactions post immediately and affect today's balance, so
- * a future date would communicate something false. Backdating remains fully allowed — only a date
- * strictly after today (America/La_Paz) is rejected. THE single source; every command schema in
+/** `YYYY-MM-DD` calendar date in the shop's timezone (Doc 04 §1, INV-3). Future values are valid
+ * for promises such as `custom_orders.delivery_date`; transaction dates use `businessDateSchema`
+ * below when they must not be future-dated. THE single source; every command schema in
  * packages/shared imports this rather than declaring its own copy (D-4). */
-export const businessDateSchema = z
+export const calendarDateSchema = z
   .string()
-  .regex(/^\d{4}-\d{2}-\d{2}$/, "La fecha debe tener el formato AAAA-MM-DD.")
-  .refine(
-    (value) =>
-      Number.isNaN(new Date(value).getTime()) ? true : value <= toBusinessDate(new Date()),
-    {
-      message: "La fecha no puede ser futura.",
-    },
-  );
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "La fecha debe tener el formato AAAA-MM-DD.");
+
+/** `YYYY-MM-DD`, America/La_Paz local transaction date (Doc 04 §1, INV-3). Rejects a future
+ * business date (Doc 04 §5, agreements §A-6): transactions post immediately and affect today's
+ * balance, so a future date would communicate something false. Backdating remains fully allowed
+ * — only a date strictly after today (America/La_Paz) is rejected. */
+export const businessDateSchema = calendarDateSchema.refine(
+  (value) => (Number.isNaN(new Date(value).getTime()) ? true : value <= toBusinessDate(new Date())),
+  {
+    message: "La fecha no puede ser futura.",
+  },
+);
 
 /** UTC ISO-8601 instant (Doc 04 §1). Same future-date rule as `businessDateSchema`, checked
  * independently on this field's own America/La_Paz business date (callers supply both fields

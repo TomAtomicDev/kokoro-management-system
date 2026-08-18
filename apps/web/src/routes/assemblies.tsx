@@ -184,7 +184,9 @@ function AssemblyForm({ sessionId, assemblyId }: { sessionId?: string; assemblyI
     }
 
     setOutputItemId(definition.outputItemId);
-    setPlannedOutputQty(formatIntAsDecimalInput(definition.outputQty, 3));
+    const plannedOutputQtyValue = formatIntAsDecimalInput(definition.outputQty, 3);
+    setPlannedOutputQty(plannedOutputQtyValue);
+    setActualOutputQty(plannedOutputQtyValue);
     const nextLines =
       definition.lines.length > 0
         ? definition.lines.map(
@@ -476,25 +478,17 @@ function AssemblyForm({ sessionId, assemblyId }: { sessionId?: string; assemblyI
                 />
               </div>
 
-              {selectedDefinition ? (
-                <div className="flex flex-col gap-1.5">
-                  <label className="font-medium text-foreground" htmlFor="assembly-planned-output">
-                    {assembliesLabels.fieldPlannedOutputQty}
-                  </label>
-                  <Input
-                    id="assembly-planned-output"
-                    inputMode="decimal"
-                    value={plannedOutputQty}
-                    onChange={(event) => setPlannedOutputQty(event.target.value)}
-                    disabled={disabled}
-                  />
-                </div>
-              ) : null}
-
               <div className="flex flex-col gap-1.5">
-                <label className="font-medium text-foreground" htmlFor="assembly-actual-output">
-                  {assembliesLabels.fieldActualOutputQty}
-                </label>
+                <div className="flex items-center justify-between gap-2">
+                  <label className="font-medium text-foreground" htmlFor="assembly-actual-output">
+                    {assembliesLabels.fieldActualOutputQty}
+                  </label>
+                  {plannedOutputQty.trim() !== "" ? (
+                    <span className="text-muted-foreground text-xs">
+                      {assembliesLabels.fieldPlannedOutputQty}: {plannedOutputQty}
+                    </span>
+                  ) : null}
+                </div>
                 <Input
                   id="assembly-actual-output"
                   inputMode="decimal"
@@ -535,16 +529,6 @@ function AssemblyForm({ sessionId, assemblyId }: { sessionId?: string; assemblyI
                 showAmount={false}
                 itemKindFilter={["SEMI_FINISHED", "FINISHED", "PACKAGING"]}
                 getItemUnit={(itemId) => itemsById.get(itemId)?.unit}
-                unitSelector={{
-                  getValue: (line) => line.unit,
-                  onChange: (index, unit) =>
-                    setLines((currentLines) =>
-                      currentLines.map((line, lineIndex) =>
-                        lineIndex === index ? { ...line, unit } : line,
-                      ),
-                    ),
-                  label: assembliesLabels.unit,
-                }}
                 onItemChange={(_index, itemId) => {
                   const item = itemId ? itemsById.get(itemId) : undefined;
                   return { qty: "", unit: item ? defaultDisplayUnitFor(item.unit) : null };
