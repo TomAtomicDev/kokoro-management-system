@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  businessDateRangeToUtcWindow,
   businessDateSchema,
   calendarDateSchema,
   DEFAULT_TIMEZONE,
@@ -64,6 +65,17 @@ describe("datetime-local timezone helpers", () => {
   it("rejects malformed or impossible wall-clock values", () => {
     expect(fromDatetimeLocal("2026-07-01T10:30:45")).toBeUndefined();
     expect(fromDatetimeLocal("2026-02-30T10:30")).toBeUndefined();
+  });
+
+  it("includes a 20:30 La Paz instant in that local day's UTC window", () => {
+    const window = businessDateRangeToUtcWindow("2026-07-13", "2026-07-13");
+    const eveningInstant = new Date("2026-07-14T00:30:00.000Z");
+
+    expect(toBusinessDate(eveningInstant)).toBe("2026-07-13");
+    expect(eveningInstant.getTime()).toBeGreaterThanOrEqual(
+      new Date(window.startInclusive).getTime(),
+    );
+    expect(eveningInstant.getTime()).toBeLessThan(new Date(window.endExclusive).getTime());
   });
 });
 

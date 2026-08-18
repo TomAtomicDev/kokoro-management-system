@@ -111,6 +111,45 @@ export function fromDatetimeLocal(
   return toDatetimeLocal(instant, timezone) === trimmed ? instant.toISOString() : undefined;
 }
 
+/** Half-open UTC instant window for an inclusive local business-date range. */
+export interface BusinessDateUtcWindow {
+  startInclusive: string;
+  endExclusive: string;
+}
+
+function nextCalendarDate(value: string): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    throw new RangeError(`businessDateRangeToUtcWindow: invalid calendar date: ${value}`);
+  }
+
+  const instant = new Date(`${value}T00:00:00.000Z`);
+  if (Number.isNaN(instant.getTime()) || instant.toISOString().slice(0, 10) !== value) {
+    throw new RangeError(`businessDateRangeToUtcWindow: invalid calendar date: ${value}`);
+  }
+
+  instant.setUTCDate(instant.getUTCDate() + 1);
+  return instant.toISOString().slice(0, 10);
+}
+
+function localMidnightToUtc(value: string, timezone: string): string {
+  const instant = fromDatetimeLocal(`${value}T00:00`, timezone);
+  if (instant === undefined) {
+    throw new RangeError(`businessDateRangeToUtcWindow: invalid calendar date: ${value}`);
+  }
+  return instant;
+}
+
+/** Convert inclusive local business dates into a half-open UTC instant window. */
+export function businessDateRangeToUtcWindow(
+  fromDate: string,
+  toDate: string,
+  timezone: string = DEFAULT_TIMEZONE,
+): BusinessDateUtcWindow {
+  const startInclusive = localMidnightToUtc(fromDate, timezone);
+  const endExclusive = localMidnightToUtc(nextCalendarDate(toDate), timezone);
+  return { startInclusive, endExclusive };
+}
+
 /** Current instant as a UTC ISO-8601 string (Doc 04 §1, `*_at` columns). */
 export function nowIso(): string {
   return new Date().toISOString();
