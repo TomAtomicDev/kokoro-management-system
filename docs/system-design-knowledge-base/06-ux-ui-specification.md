@@ -49,7 +49,7 @@ Currency `Bs 1.234,50` (space, comma decimals); dates `lun 6 jul` / `06/07/2026`
 ## 2. Web app — navigation & layout
 
 Persistent left sidebar (collapsible to icons), topbar with global search (⌘K), quick-add
-button (`+ Registrar`), alerts bell, and open-session indicator chip (e.g., "🟢 Producción
+button (`+ Sesión`), alerts bell, and open-session indicator chip (e.g., "🟢 Producción
 2h 15m").
 
 **Topbar additions (Phase 3.2, decided 2026-08-11, implementation pending):** a **start-session**
