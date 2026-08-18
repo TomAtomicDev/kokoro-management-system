@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   businessDateSchema,
+  calendarDateSchema,
   DEFAULT_TIMEZONE,
   fromDatetimeLocal,
   nowIso,
@@ -8,6 +9,7 @@ import {
   toBusinessDate,
   toDatetimeLocal,
 } from "./dates";
+import { quoteOrderCommandSchema } from "./orders";
 
 describe("toBusinessDate (INV-3, America/La_Paz = UTC-4, no DST)", () => {
   it("maps a late-night UTC instant back to the previous local day", () => {
@@ -86,6 +88,24 @@ describe("shared event date schemas", () => {
     expect(result.success).toBe(false);
     if (!result.success) {
       expect(result.error.issues[0]?.message).toBe("La fecha no puede ser futura.");
+    }
+  });
+
+  it("accepts a future delivery date while rejecting a future transaction date", () => {
+    const futureDate = shiftedDate(14);
+    const quote = quoteOrderCommandSchema.safeParse({
+      customerId: "customer-1",
+      description: "Pedido para la próxima quincena",
+      deliveryDate: futureDate,
+    });
+
+    expect(calendarDateSchema.safeParse(futureDate).success).toBe(true);
+    expect(quote.success).toBe(true);
+
+    const businessDate = businessDateSchema.safeParse(futureDate);
+    expect(businessDate.success).toBe(false);
+    if (!businessDate.success) {
+      expect(businessDate.error.issues[0]?.message).toBe("La fecha no puede ser futura.");
     }
   });
 
