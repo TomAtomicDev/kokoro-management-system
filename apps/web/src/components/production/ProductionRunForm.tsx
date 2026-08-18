@@ -64,7 +64,7 @@ export interface ProductionRunFormProps {
   preselectedSessionId?: string;
 }
 
-interface ProductionLineValue extends LineEditorLine {
+export interface ProductionLineValue extends LineEditorLine {
   /** Stable identity lets batch recomputation follow recipe lines after manual row edits. */
   lineKey: string;
   itemId: string | null;
@@ -98,9 +98,80 @@ interface ProductionRunFormState {
   lines: ProductionLineValue[];
 }
 
+export interface ProductionRunEditTracking {
+  actualOutputQtyAuto: string | null;
+  actualOutputQtyDirty: boolean;
+  lineAutoQty: ReadonlyMap<string, string>;
+  dirtyLineKeys: ReadonlySet<string>;
+}
+
+export interface ProductionRunQuantityState {
+  actualOutputQty: string;
+  actualOutputQtyAuto: string | null;
+  actualOutputQtyDirty: boolean;
+  lines: readonly ProductionLineValue[];
+  lineAutoQty: ReadonlyMap<string, string>;
+  dirtyLineKeys: ReadonlySet<string>;
+}
+
+export interface ProductionRunRecomputeResult {
+  actualOutputQty: string;
+  actualOutputQtyAuto: string | null;
+  lines: ProductionLineValue[];
+  lineAutoQty: Map<string, string>;
+  dirtyLineKeys: Set<string>;
+}
+
+function syntheticSavedProductionLineKey(
+  consumptionId: string,
+  recipeLineIds: ReadonlySet<string>,
+  usedLineKeys: ReadonlySet<string>,
+): string {
+  const baseKey = `saved-production-line-${consumptionId}`;
+  let candidate = baseKey;
+  let suffix = 0;
+  while (recipeLineIds.has(candidate) || usedLineKeys.has(candidate)) {
+    suffix += 1;
+    candidate = `${baseKey}-${suffix}`;
+  }
+  return candidate;
+}
+
+function recipeLineIdsByItemId(recipe?: RecipeDto): Map<string, string[]> {
+  const lineIdsByItemId = new Map<string, string[]>();
+  for (const line of recipe?.lines ?? []) {
+    const lineIds = lineIdsByItemId.get(line.itemId) ?? [];
+    lineIds.push(line.id);
+    lineIdsByItemId.set(line.itemId, lineIds);
+  }
+  return lineIdsByItemId;
+}
+
 /** Mirrors PurchaseForm's `purchaseToFormState` â€” pure and framework-free so it stays testable
  * without rendering the component (this workspace has neither jsdom nor @testing-library/react). */
-export function productionRunToFormState(productionRun: ProductionRunDto): ProductionRunFormState {
+export function productionRunToFormState(
+  productionRun: ProductionRunDto,
+  recipe?: RecipeDto,
+): ProductionRunFormState {
+  const recipeLineIds = new Set(recipe?.lines.map((line) => line.id) ?? []);
+  const lineIdsByItemId = recipeLineIdsByItemId(recipe);
+  const usedRecipeLineIds = new Set<string>();
+  const usedLineKeys = new Set<string>();
+  const savedLines = productionRun.lines.map((line) => {
+    const matchingLineId = lineIdsByItemId
+      .get(line.itemId)
+      ?.find((lineId) => !usedRecipeLineIds.has(lineId));
+    const lineKey =
+      matchingLineId ?? syntheticSavedProductionLineKey(line.id, recipeLineIds, usedLineKeys);
+    if (matchingLineId) usedRecipeLineIds.add(matchingLineId);
+    usedLineKeys.add(lineKey);
+    return {
+      lineKey,
+      itemId: line.itemId,
+      qty: formatIntAsDecimalInput(line.qty, 3),
+    };
+  });
+
   return {
     recipeId: productionRun.recipeId,
     customOrderId: productionRun.customOrderId,
@@ -110,14 +181,7 @@ export function productionRunToFormState(productionRun: ProductionRunDto): Produ
       productionRun.indirectCost > 0 ? formatIntAsDecimalInput(productionRun.indirectCost, 2) : "",
     businessDate: productionRun.businessDate,
     notes: productionRun.notes ?? "",
-    lines:
-      productionRun.lines.length > 0
-        ? productionRun.lines.map((line, index) => ({
-            lineKey: `saved-production-line-${index}`,
-            itemId: line.itemId,
-            qty: formatIntAsDecimalInput(line.qty, 3),
-          }))
-        : [emptyLine()],
+    lines: savedLines.length > 0 ? savedLines : [emptyLine()],
   };
 }
 
@@ -134,6 +198,77 @@ function parseBatches(input: string): number | null {
 
 function quantityForBatches(quantity: number, batches: number): string {
   return formatIntAsDecimalInput(toMilliUnits(Math.round(quantity * batches)), 3);
+}
+
+export function productionRunEditTracking(
+  productionRun: ProductionRunDto,
+  recipe: RecipeDto | undefined,
+  lines: readonly ProductionLineValue[],
+): ProductionRunEditTracking {
+  const lineAutoQty = new Map<string, string>();
+  const dirtyLineKeys = new Set<string>();
+  if (!recipe) {
+    for (const line of lines) dirtyLineKeys.add(line.lineKey);
+    return {
+      actualOutputQtyAuto: null,
+      actualOutputQtyDirty: true,
+      lineAutoQty,
+      dirtyLineKeys,
+    };
+  }
+
+  const recipeLinesById = new Map(recipe.lines.map((line) => [line.id, line]));
+  const expectedActualOutputQty = quantityForBatches(
+    recipe.expectedYieldQty,
+    productionRun.batches,
+  );
+  for (const line of lines) {
+    const recipeLine = recipeLinesById.get(line.lineKey);
+    if (!recipeLine) {
+      dirtyLineKeys.add(line.lineKey);
+      continue;
+    }
+    const expectedQty = quantityForBatches(recipeLine.qty, productionRun.batches);
+    lineAutoQty.set(line.lineKey, expectedQty);
+    if (line.qty !== expectedQty) dirtyLineKeys.add(line.lineKey);
+  }
+
+  return {
+    actualOutputQtyAuto: expectedActualOutputQty,
+    actualOutputQtyDirty:
+      formatIntAsDecimalInput(productionRun.actualOutputQty, 3) !== expectedActualOutputQty,
+    lineAutoQty,
+    dirtyLineKeys,
+  };
+}
+
+export function recomputeProductionRunForBatches(
+  current: ProductionRunQuantityState,
+  recipe: RecipeDto,
+  batches: number,
+): ProductionRunRecomputeResult {
+  let actualOutputQty = current.actualOutputQty;
+  let actualOutputQtyAuto = current.actualOutputQtyAuto;
+  if (!current.actualOutputQtyDirty && actualOutputQtyAuto === actualOutputQty) {
+    actualOutputQty = quantityForBatches(recipe.expectedYieldQty, batches);
+    actualOutputQtyAuto = actualOutputQty;
+  }
+
+  const recipeLinesById = new Map(recipe.lines.map((line) => [line.id, line]));
+  const lineAutoQty = new Map(current.lineAutoQty);
+  const dirtyLineKeys = new Set(current.dirtyLineKeys);
+  const lines = current.lines.map((line) => {
+    const recipeLine = recipeLinesById.get(line.lineKey);
+    const lastAutoQty = lineAutoQty.get(line.lineKey);
+    if (!recipeLine || dirtyLineKeys.has(line.lineKey) || lastAutoQty !== line.qty) {
+      return line;
+    }
+    const nextQty = quantityForBatches(recipeLine.qty, batches);
+    lineAutoQty.set(line.lineKey, nextQty);
+    return { ...line, qty: nextQty };
+  });
+
+  return { actualOutputQty, actualOutputQtyAuto, lines, lineAutoQty, dirtyLineKeys };
 }
 
 export function ProductionRunForm({
@@ -157,6 +292,7 @@ export function ProductionRunForm({
   const actualOutputQtyDirtyRef = useRef(false);
   const lineAutoQtyRef = useRef(new Map<string, string>());
   const dirtyLineKeysRef = useRef(new Set<string>());
+  const formResetKeyRef = useRef<string | null>(null);
 
   const createMutation = useRecordProductionRun();
   const createReplay = useReplayConfirmableMutation<
@@ -198,45 +334,61 @@ export function ProductionRunForm({
   }, [stockQuery.data]);
 
   const selectedRecipe = recipeId ? (recipesById.get(recipeId) ?? null) : null;
+  const productionRunRecipe = productionRun
+    ? (recipesById.get(productionRun.recipeId) ?? null)
+    : null;
+  const editSeedRecipe = productionRunRecipe ?? selectedRecipe;
   const outputItem = selectedRecipe ? (itemsById.get(selectedRecipe.outputItemId) ?? null) : null;
 
-  // Reset only on the open transition (or a switch to a different run while open) â€” mirrors
-  // PurchaseForm's `purchase?.id` precedent so a background refetch of the SAME run never clobbers
-  // in-progress edits.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: see comment above.
   useEffect(() => {
-    if (open) {
-      if (productionRun) {
-        const initial = productionRunToFormState(productionRun);
-        setRecipeId(initial.recipeId);
-        setCustomOrderId(initial.customOrderId);
-        setBatches(initial.batches);
-        setActualOutputQty(initial.actualOutputQty);
-        setIndirectCost(initial.indirectCost);
-        setBusinessDate(initial.businessDate);
-        setNotes(initial.notes);
-        setLines(initial.lines);
-        actualOutputQtyAutoRef.current = null;
-        actualOutputQtyDirtyRef.current = true;
-        lineAutoQtyRef.current.clear();
-        dirtyLineKeysRef.current.clear();
-      } else {
-        setRecipeId("");
-        setCustomOrderId(null);
-        setBatches("1");
-        setActualOutputQty("");
-        setIndirectCost("");
-        setBusinessDate(toBusinessDate(nowIso()));
-        setNotes("");
-        setLines([emptyLine()]);
-        actualOutputQtyAutoRef.current = null;
-        actualOutputQtyDirtyRef.current = false;
-        lineAutoQtyRef.current.clear();
-        dirtyLineKeysRef.current.clear();
-      }
-      setError(null);
+    if (!open) {
+      formResetKeyRef.current = null;
+      return;
     }
-  }, [open, productionRun?.id]);
+
+    // Recipe data can arrive after the run. Wait for it before seeding edit tracking so a clean
+    // saved value is not mistaken for a hand edit just because the query was still loading.
+    if (productionRun && recipesQuery.isLoading && !productionRunRecipe) return;
+
+    const resetKey = productionRun?.id ?? "create";
+    if (formResetKeyRef.current === resetKey) return;
+    formResetKeyRef.current = resetKey;
+
+    if (productionRun) {
+      const initial = productionRunToFormState(productionRun, editSeedRecipe ?? undefined);
+      const tracking = productionRunEditTracking(
+        productionRun,
+        editSeedRecipe ?? undefined,
+        initial.lines,
+      );
+      setRecipeId(initial.recipeId);
+      setCustomOrderId(initial.customOrderId);
+      setBatches(initial.batches);
+      setActualOutputQty(initial.actualOutputQty);
+      setIndirectCost(initial.indirectCost);
+      setBusinessDate(initial.businessDate);
+      setNotes(initial.notes);
+      setLines(initial.lines);
+      actualOutputQtyAutoRef.current = tracking.actualOutputQtyAuto;
+      actualOutputQtyDirtyRef.current = tracking.actualOutputQtyDirty;
+      lineAutoQtyRef.current = new Map(tracking.lineAutoQty);
+      dirtyLineKeysRef.current = new Set(tracking.dirtyLineKeys);
+    } else {
+      setRecipeId("");
+      setCustomOrderId(null);
+      setBatches("1");
+      setActualOutputQty("");
+      setIndirectCost("");
+      setBusinessDate(toBusinessDate(nowIso()));
+      setNotes("");
+      setLines([emptyLine()]);
+      actualOutputQtyAutoRef.current = null;
+      actualOutputQtyDirtyRef.current = false;
+      lineAutoQtyRef.current.clear();
+      dirtyLineKeysRef.current.clear();
+    }
+    setError(null);
+  }, [editSeedRecipe, open, productionRun, productionRunRecipe, recipesQuery.isLoading]);
 
   const disabled = isEditMode ? editReplay.isPending : createReplay.isPending;
 
@@ -275,25 +427,23 @@ export function ProductionRunForm({
     const batchesValue = parseBatches(nextBatches);
     if (!selectedRecipe || batchesValue === null) return;
 
-    if (!actualOutputQtyDirtyRef.current && actualOutputQtyAutoRef.current === actualOutputQty) {
-      const nextActualOutputQty = quantityForBatches(selectedRecipe.expectedYieldQty, batchesValue);
-      setActualOutputQty(nextActualOutputQty);
-      actualOutputQtyAutoRef.current = nextActualOutputQty;
-    }
-
-    const recipeLinesById = new Map(selectedRecipe.lines.map((line) => [line.id, line]));
-    setLines((currentLines) =>
-      currentLines.map((line) => {
-        const recipeLine = recipeLinesById.get(line.lineKey);
-        const lastAutoQty = lineAutoQtyRef.current.get(line.lineKey);
-        if (!recipeLine || dirtyLineKeysRef.current.has(line.lineKey) || lastAutoQty !== line.qty) {
-          return line;
-        }
-        const nextQty = quantityForBatches(recipeLine.qty, batchesValue);
-        lineAutoQtyRef.current.set(line.lineKey, nextQty);
-        return { ...line, qty: nextQty };
-      }),
+    const next = recomputeProductionRunForBatches(
+      {
+        actualOutputQty,
+        actualOutputQtyAuto: actualOutputQtyAutoRef.current,
+        actualOutputQtyDirty: actualOutputQtyDirtyRef.current,
+        lines,
+        lineAutoQty: lineAutoQtyRef.current,
+        dirtyLineKeys: dirtyLineKeysRef.current,
+      },
+      selectedRecipe,
+      batchesValue,
     );
+    setActualOutputQty(next.actualOutputQty);
+    actualOutputQtyAutoRef.current = next.actualOutputQtyAuto;
+    setLines(next.lines);
+    lineAutoQtyRef.current = next.lineAutoQty;
+    dirtyLineKeysRef.current = next.dirtyLineKeys;
   }
 
   function handleActualOutputQtyChange(nextValue: string) {
