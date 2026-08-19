@@ -56,6 +56,7 @@ export function PackingDefinitionsRoute() {
     {
       id: "name",
       header: assemblyDefinitionsLabels.columnName,
+      isRowIdentifier: true,
       cell: (row) => (
         <div className="flex items-center gap-2">
           <span className="font-medium">{row.name}</span>

@@ -2,8 +2,10 @@
 // personal actions; liability strip (placeholder until Phase 3); table of all financial
 // transactions.
 
+import { getRouteApi } from "@tanstack/react-router";
 import { useState } from "react";
 
+import type { EventTableSortState } from "@/components/data-table/EventTable";
 import { AccountCard } from "@/components/finance/AccountCard";
 import { LiabilityReceivableStrip } from "@/components/finance/LiabilityReceivableStrip";
 import { RecordTransactionDialog } from "@/components/finance/RecordTransactionDialog";
@@ -14,7 +16,11 @@ import { Button } from "@/components/ui/button";
 import { useAccounts, useTransactions } from "@/features/finance/api";
 import { financeLabels } from "@/lib/i18n-finance";
 
+const routeApi = getRouteApi("/_authenticated/finance");
+
 export function FinanceRoute() {
+  const search = routeApi.useSearch();
+  const navigate = routeApi.useNavigate();
   const accountsQuery = useAccounts();
   const transactionsQuery = useTransactions();
 
@@ -24,6 +30,20 @@ export function FinanceRoute() {
   const [withdrawOpen, setWithdrawOpen] = useState(false);
 
   const accounts = accountsQuery.data?.accounts ?? [];
+  const sortState: EventTableSortState | null =
+    search.sort && search.sortDirection
+      ? { columnId: search.sort, direction: search.sortDirection }
+      : null;
+
+  function updateSort(next: EventTableSortState | null): void {
+    void navigate({
+      search: (previous) => ({
+        ...previous,
+        sort: next?.columnId,
+        sortDirection: next?.direction,
+      }),
+    });
+  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -64,6 +84,8 @@ export function FinanceRoute() {
         transactions={transactionsQuery.data?.transactions ?? []}
         accounts={accounts}
         loading={transactionsQuery.isLoading}
+        sortState={sortState}
+        onSortChange={updateSort}
       />
 
       <RecordTransactionDialog

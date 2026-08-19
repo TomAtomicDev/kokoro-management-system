@@ -43,11 +43,12 @@ export function Topbar({ onOpenQuickAdd }: { onOpenQuickAdd: () => void }) {
           {topbarLabels.quickAdd}
         </Button>
 
+        {/* Alerts stay hidden until KOK-046 restores this as a real, non-placeholder control. */}
         <button
           type="button"
           disabled
           aria-label={topbarLabels.alerts}
-          className="flex size-9 items-center justify-center rounded-md text-muted-foreground hover:bg-accent disabled:cursor-not-allowed"
+          className="hidden flex size-9 items-center justify-center rounded-md text-muted-foreground hover:bg-accent disabled:cursor-not-allowed"
         >
           <Bell className="size-4" />
         </button>

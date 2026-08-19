@@ -3,7 +3,7 @@
 
 import { getRouteApi, Link } from "@tanstack/react-router";
 import { useState } from "react";
-
+import type { EventTableSortState } from "@/components/data-table/EventTable";
 import { PurchaseDetailDrawer } from "@/components/purchases/PurchaseDetailDrawer";
 import { PurchaseForm } from "@/components/purchases/PurchaseForm";
 import { PurchasesTable } from "@/components/purchases/PurchasesTable";
@@ -14,6 +14,7 @@ import { purchasesLabels } from "@/lib/i18n-purchases";
 
 const newRouteApi = getRouteApi("/_authenticated/purchases/new");
 const editRouteApi = getRouteApi("/_authenticated/purchases/$purchaseId/edit");
+const routeApi = getRouteApi("/_authenticated/purchases");
 
 export function PurchaseRecordRoute() {
   const { sessionId } = newRouteApi.useSearch();
@@ -37,12 +38,28 @@ export function PurchaseEditRoute() {
 }
 
 export function PurchasesRoute() {
+  const search = routeApi.useSearch();
+  const navigate = routeApi.useNavigate();
   const accountsQuery = useAccounts();
   const purchasesQuery = usePurchases();
 
   const [selectedPurchaseId, setSelectedPurchaseId] = useState<string | null>(null);
 
   const accounts = accountsQuery.data?.accounts ?? [];
+  const sortState: EventTableSortState | null =
+    search.sort && search.sortDirection
+      ? { columnId: search.sort, direction: search.sortDirection }
+      : null;
+
+  function updateSort(next: EventTableSortState | null): void {
+    void navigate({
+      search: (previous) => ({
+        ...previous,
+        sort: next?.columnId,
+        sortDirection: next?.direction,
+      }),
+    });
+  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -61,6 +78,8 @@ export function PurchasesRoute() {
         accounts={accounts}
         loading={purchasesQuery.isLoading}
         onRowClick={(purchase) => setSelectedPurchaseId(purchase.id)}
+        sortState={sortState}
+        onSortChange={updateSort}
       />
 
       <PurchaseDetailDrawer

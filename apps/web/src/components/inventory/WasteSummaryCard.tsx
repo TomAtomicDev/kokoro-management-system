@@ -22,7 +22,7 @@ export function WasteSummaryCard({ dateRange }: WasteSummaryCardProps) {
   }
 
   return (
-    <div className="flex flex-1 flex-col gap-2 rounded-lg border border-border bg-card p-4 shadow-sm">
+    <div className="flex w-full max-w-md flex-col gap-2 rounded-lg border border-border bg-card p-4 shadow-sm">
       <span className="font-medium text-foreground text-sm">
         {inventoryLabels.wasteSummaryTitle}
       </span>

@@ -15,6 +15,7 @@
 // identical confirm-and-retry path rather than a dead-end error string.
 
 import type {
+  ItemKind,
   ListAssemblyDefinitionsResult,
   RecordStockExitCommand,
   RecordStockExitResult,
@@ -22,6 +23,7 @@ import type {
   Unit,
 } from "@kokoro/shared";
 import {
+  ITEM_KINDS,
   nowIso,
   recordStockExitCommandSchema,
   STOCK_EXIT_NOTES_MAX_LENGTH,
@@ -168,6 +170,7 @@ export function ExitForm({ open, onOpenChange, exit }: ExitFormProps) {
   const isEditMode = Boolean(exit);
 
   const [itemId, setItemId] = useState<string | null>(null);
+  const [itemKind, setItemKind] = useState<ItemKind | "">("FINISHED");
   const [qty, setQty] = useState("");
   const [reason, setReason] = useState<StockExitReason>(STOCK_EXIT_REASONS[0]);
   const [businessDate, setBusinessDate] = useState("");
@@ -222,6 +225,7 @@ export function ExitForm({ open, onOpenChange, exit }: ExitFormProps) {
     if (open) {
       const initial = exitFormInitialState(exit);
       setItemId(initial.itemId);
+      setItemKind("FINISHED");
       setQty(initial.qty);
       setReason(initial.reason);
       setBusinessDate(initial.businessDate);
@@ -363,10 +367,31 @@ export function ExitForm({ open, onOpenChange, exit }: ExitFormProps) {
         </div>
         <div className="flex flex-1 flex-col gap-4 overflow-y-auto px-5 py-4 text-sm">
           <div className="flex flex-col gap-1.5">
+            <label className="font-medium text-foreground" htmlFor="ef-kind">
+              {inventoryLabels.fieldExitKind}
+            </label>
+            <Select
+              id="ef-kind"
+              value={itemKind}
+              onChange={(event) => setItemKind(event.target.value as ItemKind | "")}
+              disabled={disabled}
+              className="sm:max-w-xs"
+            >
+              <option value="">{inventoryLabels.filterKindAll}</option>
+              {ITEM_KINDS.map((kind) => (
+                <option key={kind} value={kind}>
+                  {inventoryLabels.kindLabels[kind]}
+                </option>
+              ))}
+            </Select>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
             <span className="font-medium text-foreground">{inventoryLabels.fieldItem}</span>
             <ItemPicker
               value={itemId}
               onChange={handleItemChange}
+              kindFilter={itemKind || undefined}
               eligibility={{ isUnmetered: false }}
               emptyMessage={inventoryLabels.itemPickerEmpty}
               disabled={disabled}

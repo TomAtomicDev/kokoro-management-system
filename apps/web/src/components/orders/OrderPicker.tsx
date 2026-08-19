@@ -14,6 +14,16 @@ export interface OrderPickerProps {
   disabled?: boolean;
 }
 
+export function formatOrderPickerDisplay(
+  order: Pick<OrderDto, "customerName" | "deliveryDate" | "description">,
+): string {
+  return [
+    order.customerName ?? ordersLabels.orderPickerDeletedCustomer,
+    order.deliveryDate ?? ordersLabels.noDeliveryDate,
+    order.description,
+  ].join(" · ");
+}
+
 export function OrderPicker(props: OrderPickerProps): JSX.Element {
   const { value, onChange, placeholder, disabled } = props;
   const [open, setOpen] = useState(false);
@@ -47,9 +57,7 @@ export function OrderPicker(props: OrderPickerProps): JSX.Element {
       field?.toLowerCase().includes(trimmedQuery),
     );
   });
-  const displayValue = open
-    ? query
-    : (selectedOrder?.customerName ?? selectedOrder?.description ?? "");
+  const displayValue = open ? query : selectedOrder ? formatOrderPickerDisplay(selectedOrder) : "";
 
   function selectOrder(order: OrderDto): void {
     onChange(order.id, order);
@@ -59,10 +67,11 @@ export function OrderPicker(props: OrderPickerProps): JSX.Element {
 
   return (
     <div ref={containerRef} className="relative flex items-center gap-1.5">
-      <div className="relative flex-1">
+      <div className="relative min-w-0 flex-1">
         <Input
           id="linked-order-picker"
           value={displayValue}
+          className="truncate"
           placeholder={placeholder ?? ordersLabels.orderPickerPlaceholder}
           disabled={disabled}
           onFocus={() => {
@@ -84,15 +93,20 @@ export function OrderPicker(props: OrderPickerProps): JSX.Element {
                   <li key={order.id}>
                     <button
                       type="button"
-                      className="flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left text-sm hover:bg-accent"
+                      className="flex w-full min-w-0 flex-col items-start gap-0.5 px-3 py-2 text-left text-sm hover:bg-accent"
                       onClick={() => selectOrder(order)}
                     >
-                      <span className="text-foreground">
+                      <span className="w-full truncate font-medium text-foreground">
                         {order.customerName ?? ordersLabels.orderPickerDeletedCustomer}
                       </span>
-                      <span className="text-muted-foreground text-xs">
+                      <span className="w-full truncate text-muted-foreground text-xs">
                         {order.deliveryDate ?? ordersLabels.noDeliveryDate}
                       </span>
+                      {order.description ? (
+                        <span className="w-full truncate text-foreground text-xs">
+                          {order.description}
+                        </span>
+                      ) : null}
                     </button>
                   </li>
                 ))}

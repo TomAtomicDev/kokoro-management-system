@@ -47,7 +47,7 @@ function formatWeekBound(date: string): string {
 export function SessionsRoute() {
   const { open, view: searchView } = routeApi.useSearch();
   const navigate = routeApi.useNavigate();
-  const view = searchView ?? "list";
+  const view = searchView ?? "calendar";
   const accountsQuery = useAccounts();
   const sessionsQuery = useSessions();
 

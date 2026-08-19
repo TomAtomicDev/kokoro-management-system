@@ -376,11 +376,41 @@ export function SaleForm({ accounts, sale }: SaleFormProps) {
     }
 
     const parsedLines: { itemId: string; qty: number; unitPriceMc: number }[] = [];
-    for (const line of lines) {
+    const lastEnteredLineIndex = lines.reduce(
+      (lastIndex, line, index) =>
+        !line.itemId && line.qty.trim() === "" && line.amount.trim() === "" ? lastIndex : index,
+      -1,
+    );
+
+    for (const [index, line] of lines.entries()) {
+      // A trailing untouched row is the editor's affordance for adding another line, not an
+      // invalid sale line. Empty rows in the middle still identify the missing item below.
+      if (index > lastEnteredLineIndex) continue;
+
+      const lineNumber = index + 1;
+      const qtyText = line.qty.trim();
+      const unitPriceText = line.amount.trim();
+      if (!line.itemId) {
+        setError(salesLabels.errors.lineIncomplete(lineNumber, salesLabels.lineItem));
+        return;
+      }
+      if (qtyText === "") {
+        setError(salesLabels.errors.lineIncomplete(lineNumber, salesLabels.lineQty));
+        return;
+      }
+      if (unitPriceText === "") {
+        setError(salesLabels.errors.lineIncomplete(lineNumber, salesLabels.lineUnitPrice));
+        return;
+      }
+
       const qty = parseDecimalToInt(line.qty, 3);
       const unitPrice = parseDecimalToInt(line.amount, 2);
-      if (!line.itemId || qty === null || qty <= 0 || unitPrice === null) {
-        setError(salesLabels.errors.invalidLine);
+      if (qty === null || qty <= 0) {
+        setError(salesLabels.errors.lineInvalidValue(lineNumber, salesLabels.lineQty));
+        return;
+      }
+      if (unitPrice === null) {
+        setError(salesLabels.errors.lineInvalidValue(lineNumber, salesLabels.lineUnitPrice));
         return;
       }
       parsedLines.push({
@@ -616,6 +646,11 @@ export function SaleForm({ accounts, sale }: SaleFormProps) {
             disabled={disabled}
             maxLength={SALE_NOTES_MAX_LENGTH}
           />
+          {notes.length >= SALE_NOTES_MAX_LENGTH * 0.8 ? (
+            <span className="text-muted-foreground text-xs" aria-live="polite">
+              {salesLabels.charactersRemaining(Math.max(0, SALE_NOTES_MAX_LENGTH - notes.length))}
+            </span>
+          ) : null}
         </div>
 
         <div className="flex flex-col gap-1.5">

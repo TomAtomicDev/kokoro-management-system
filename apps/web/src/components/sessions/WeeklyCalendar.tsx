@@ -142,7 +142,7 @@ function SessionCard({
     <button
       type="button"
       onClick={onClick}
-      className="absolute overflow-hidden rounded-sm border border-border bg-card px-1.5 py-1 text-left text-xs hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+      className="absolute overflow-hidden rounded-sm border border-input bg-accent px-1.5 py-1 text-left text-accent-foreground text-xs hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
       style={{
         top,
         height,
@@ -161,7 +161,7 @@ function SessionCard({
         ) : null}
         <span className="truncate">{sessionsLabels.typeLabels[session.type]}</span>
       </span>
-      <span className="block truncate text-muted-foreground">{formatTimeRange(session)}</span>
+      <span className="block truncate text-accent-foreground/80">{formatTimeRange(session)}</span>
     </button>
   );
 }
