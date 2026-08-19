@@ -50,15 +50,8 @@ export function SettingsCatalogRoute() {
     {
       id: "name",
       header: catalogLabels.columnName,
-      cell: (item) => (
-        <button
-          type="button"
-          className="font-medium text-foreground hover:underline"
-          onClick={() => setDetailItemId(item.id)}
-        >
-          {item.name}
-        </button>
-      ),
+      isRowIdentifier: true,
+      cell: (item) => <span className="font-medium text-foreground">{item.name}</span>,
     },
     {
       id: "kind",

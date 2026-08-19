@@ -4,9 +4,10 @@
 // the investment (D-10). It already covers column defs + row click; swap the internals for
 // @tanstack/react-table later without touching call sites if sorting/pagination need it.
 
-import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, Pencil } from "lucide-react";
 import { type ReactNode, useMemo, useState } from "react";
 
+import { commonLabels } from "@/lib/i18n-common";
 import { cn } from "@/lib/utils";
 
 type EventTableSortValue = string | number | null | undefined;
@@ -44,6 +45,8 @@ export interface EventTableColumn<T> {
   /** Right-aligns + applies tabular-nums (Doc 06 §3: mandatory on every numeric column). */
   numeric?: boolean;
   className?: string;
+  /** Identifies the cell that opens this row's detail view. Set on exactly one column per clickable table. */
+  isRowIdentifier?: boolean;
   /** Enables client-side sorting when paired with a comparable value accessor. */
   sortable?: boolean;
   sortValue?: (row: T) => EventTableSortValue;
@@ -92,6 +95,8 @@ export function EventTable<T>({
       })
       .map(({ row }) => row);
   }, [columns, rows, sortState]);
+
+  const rowIdentifierColumnId = columns.find((column) => column.isRowIdentifier)?.id;
 
   function handleSort(column: EventTableColumn<T>): void {
     if (!column.sortable || !column.sortValue) return;
@@ -190,21 +195,39 @@ export function EventTable<T>({
                 className={cn(
                   "border-b border-border last:border-0",
                   onRowClick &&
-                    "cursor-pointer hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
+                    "group cursor-pointer hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
                 )}
               >
-                {columns.map((col) => (
-                  <td
-                    key={col.id}
-                    className={cn(
-                      "px-4 py-2.5 align-middle",
-                      col.numeric && "numeric-cell text-right",
-                      col.className,
-                    )}
-                  >
-                    {col.cell(row)}
-                  </td>
-                ))}
+                {columns.map((col) => {
+                  const isRowIdentifier =
+                    onRowClick !== undefined && col.id === rowIdentifierColumnId;
+
+                  return (
+                    <td
+                      key={col.id}
+                      className={cn(
+                        "px-4 py-2.5 align-middle",
+                        col.numeric && "numeric-cell text-right",
+                        col.className,
+                      )}
+                    >
+                      {isRowIdentifier ? (
+                        <div className="inline-flex max-w-full items-center gap-1.5 border-current border-b pb-0.5">
+                          <div className="min-w-0">{col.cell(row)}</div>
+                          <span
+                            aria-hidden="true"
+                            title={commonLabels.eventTableOpenRow}
+                            className="shrink-0 text-muted-foreground"
+                          >
+                            <Pencil className="size-3.5 opacity-100 transition-opacity sm:opacity-0 sm:group-focus-within:opacity-100 sm:group-hover:opacity-100" />
+                          </span>
+                        </div>
+                      ) : (
+                        col.cell(row)
+                      )}
+                    </td>
+                  );
+                })}
               </tr>
             ))
           )}

@@ -64,6 +64,7 @@ export function ProductionRunsTable({
     {
       id: "recipe",
       header: productionLabels.columnRecipe,
+      isRowIdentifier: true,
       cell: (row) => recipesById.get(row.recipeId)?.name ?? row.recipeId,
     },
     {

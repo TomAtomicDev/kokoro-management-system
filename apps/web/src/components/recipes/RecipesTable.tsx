@@ -32,6 +32,7 @@ export function RecipesTable({ recipes, loading, onRowClick }: RecipesTableProps
     {
       id: "name",
       header: recipesLabels.columnName,
+      isRowIdentifier: true,
       cell: (row) => (
         <div className="flex items-center gap-2">
           <span className="font-medium text-foreground">{row.name}</span>

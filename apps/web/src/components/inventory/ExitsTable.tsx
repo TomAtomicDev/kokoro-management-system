@@ -37,6 +37,7 @@ export function ExitsTable({ rows, items, loading, onRowClick }: ExitsTableProps
     {
       id: "item",
       header: inventoryLabels.exitsColumnItem,
+      isRowIdentifier: true,
       cell: (row) => items.get(row.itemId)?.name ?? "—",
     },
     {

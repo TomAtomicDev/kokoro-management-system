@@ -111,6 +111,7 @@ export function SalesTable({
     {
       id: "items",
       header: salesLabels.columnItems,
+      isRowIdentifier: true,
       cell: (row) => summarizeLines(row.lines, itemNameById),
     },
     {

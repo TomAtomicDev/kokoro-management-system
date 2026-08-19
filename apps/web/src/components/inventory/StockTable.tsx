@@ -37,6 +37,7 @@ export function StockTable({ rows, loading, onRowClick }: StockTableProps) {
     {
       id: "name",
       header: inventoryLabels.columnName,
+      isRowIdentifier: true,
       cell: (row) => (
         <div className="flex items-center gap-2">
           <span className="font-medium text-foreground">{row.name}</span>

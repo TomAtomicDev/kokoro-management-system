@@ -60,6 +60,7 @@ export function PurchasesTable({ purchases, accounts, loading, onRowClick }: Pur
     {
       id: "items",
       header: purchasesLabels.columnItems,
+      isRowIdentifier: true,
       cell: (row) => summarizeLines(row.lines, itemNameById),
     },
     {

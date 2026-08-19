@@ -24,6 +24,7 @@ export function CountsTable({ rows, loading, onRowClick }: CountsTableProps) {
     {
       id: "date",
       header: inventoryLabels.countsColumnDate,
+      isRowIdentifier: true,
       cell: (row) => row.businessDate,
     },
     {
