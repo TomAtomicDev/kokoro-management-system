@@ -214,6 +214,7 @@ function toOrderDto(
     deliveryPlace: row.deliveryPlace,
     saleId: row.saleId,
     cancelResolution: row.cancelResolution,
+    code: row.code,
     notes: row.notes,
     lines: lineRows.map(toOrderLineDto),
     // Derived, never stored: what the customer still owes (O-2's "balance").
@@ -240,6 +241,7 @@ function toSaleDto(row: SaleRow, lineRows: readonly SaleLineRow[]): SaleDto {
     paidAt: row.paidAt,
     paymentMethod: row.paymentMethod,
     accountId: row.accountId,
+    code: row.code,
     notes: row.notes,
     lines: lineRows.map((l) => ({
       id: l.id,
@@ -414,6 +416,9 @@ export async function quoteOrder(
     deliveryPlace: command.deliveryPlace ?? null,
     saleId: null,
     cancelResolution: null,
+    // KOK-185: assigned by an AFTER INSERT trigger (migration 0024), never by core/ — re-read
+    // after db.batch() and folded into the returned DTO.
+    code: null,
     notes: command.notes ?? null,
     deletedAt: null,
     createdAt: now,
@@ -444,7 +449,18 @@ export async function quoteOrder(
 
   await db.batch(statements as [Statement, ...Statement[]]);
 
-  return { order: toOrderDto(orderRow, lineRows, await loadCustomerName(db, command.customerId)) };
+  const codeRow = await db.query.customOrders.findFirst({
+    where: (t, { eq: eqOp }) => eqOp(t.id, orderId),
+    columns: { code: true },
+  });
+
+  return {
+    order: toOrderDto(
+      { ...orderRow, code: codeRow?.code ?? null },
+      lineRows,
+      await loadCustomerName(db, command.customerId),
+    ),
+  };
 }
 
 // ---- UC-06 confirm (O-1) ----------------------------------------------------------------------
@@ -778,6 +794,10 @@ async function buildDeliveryPlan(
     paidAt: isPaid ? command.occurredAt : null,
     paymentMethod: command.balancePaymentStatus === "PAID" ? command.paymentMethod : null,
     accountId: balanceAccountId,
+    // KOK-185: assigned by an AFTER INSERT trigger (migration 0024), never by core/ — re-read
+    // after db.batch() and folded into the returned DTO (mirrors core/sales/index.ts's own
+    // recordSale, which this delivery-created sale otherwise parallels).
+    code: null,
     notes: command.notes ?? null,
     deletedAt: null,
     createdAt: now,
@@ -905,9 +925,14 @@ export async function deliverOrder(
 
   await db.batch(statements as [Statement, ...Statement[]]);
 
+  const saleCodeRow = await db.query.sales.findFirst({
+    where: (t, { eq: eqOp }) => eqOp(t.id, plan.saleId),
+    columns: { code: true },
+  });
+
   return {
     order: await readOrderDto(db, id),
-    sale: toSaleDto(plan.saleRow, plan.saleLineRows),
+    sale: toSaleDto({ ...plan.saleRow, code: saleCodeRow?.code ?? null }, plan.saleLineRows),
     account:
       account !== null
         ? toAccountDto({

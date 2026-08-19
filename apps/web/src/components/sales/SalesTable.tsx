@@ -99,6 +99,14 @@ export function SalesTable({
 
   const columns: EventTableColumn<SaleDto>[] = [
     {
+      id: "code",
+      header: salesLabels.columnCode,
+      isRowIdentifier: true,
+      cell: (row) => row.code ?? row.id,
+      sortable: true,
+      sortValue: (row) => row.code,
+    },
+    {
       id: "date",
       header: salesLabels.columnDate,
       cell: (row) => row.businessDate,
@@ -128,7 +136,6 @@ export function SalesTable({
     {
       id: "items",
       header: salesLabels.columnItems,
-      isRowIdentifier: true,
       cell: (row) => summarizeLines(row.lines, itemNameById),
       sortable: true,
       sortValue: (row) => summarizeLines(row.lines, itemNameById),

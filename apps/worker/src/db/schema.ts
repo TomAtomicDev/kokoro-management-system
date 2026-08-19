@@ -16,6 +16,7 @@ import {
   check,
   index,
   integer,
+  primaryKey,
   real,
   sqliteTable,
   text,
@@ -208,6 +209,10 @@ export const sessions = sqliteTable(
     status: text("status", { enum: ["OPEN", "CLOSED"] })
       .notNull()
       .default("OPEN"),
+    // KOK-185: human-readable code (SES-NNNN-YYYY), assigned by an AFTER INSERT trigger
+    // (migration 0024) — never set by core/, see that migration's header for why it's nullable
+    // here despite every row getting one in practice.
+    code: text("code"),
     notes: text("notes"),
     deletedAt: text("deleted_at"),
     createdAt: text("created_at").notNull(),
@@ -222,6 +227,7 @@ export const sessions = sqliteTable(
     uxOpenPerType: uniqueIndex("ux_sessions_open_per_type")
       .on(t.type)
       .where(sql`${t.status} = 'OPEN' AND ${t.deletedAt} IS NULL`),
+    uxCode: uniqueIndex("ux_sessions_code").on(t.code),
   }),
 );
 
@@ -249,25 +255,33 @@ export const sessionCosts = sqliteTable(
 // 3. Business events (Doc 04 Ãƒâ€šÃ‚Â§3.3)
 // ============================================================================
 
-export const purchases = sqliteTable("purchases", {
-  id: text("id").primaryKey(),
-  occurredAt: text("occurred_at").notNull(),
-  businessDate: text("business_date").notNull(),
-  supplierName: text("supplier_name"),
-  sessionId: text("session_id")
-    .notNull()
-    .references(() => sessions.id, { onDelete: "restrict" }),
-  // Forward reference ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â financial_accounts is declared later (Doc 04 Ãƒâ€šÃ‚Â§3.4).
-  accountId: text("account_id")
-    .notNull()
-    .references((): AnySQLiteColumn => financialAccounts.id, { onDelete: "restrict" }),
-  total: integer("total").notNull(),
-  receiptPhotoKey: text("receipt_photo_key"),
-  notes: text("notes"),
-  deletedAt: text("deleted_at"),
-  createdAt: text("created_at").notNull(),
-  updatedAt: text("updated_at").notNull(),
-});
+export const purchases = sqliteTable(
+  "purchases",
+  {
+    id: text("id").primaryKey(),
+    occurredAt: text("occurred_at").notNull(),
+    businessDate: text("business_date").notNull(),
+    supplierName: text("supplier_name"),
+    sessionId: text("session_id")
+      .notNull()
+      .references(() => sessions.id, { onDelete: "restrict" }),
+    // Forward reference ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â financial_accounts is declared later (Doc 04 Ãƒâ€šÃ‚Â§3.4).
+    accountId: text("account_id")
+      .notNull()
+      .references((): AnySQLiteColumn => financialAccounts.id, { onDelete: "restrict" }),
+    total: integer("total").notNull(),
+    receiptPhotoKey: text("receipt_photo_key"),
+    // KOK-185: human-readable code (CMP-NNNN-YYYY) - see sessions.code above.
+    code: text("code"),
+    notes: text("notes"),
+    deletedAt: text("deleted_at"),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (t) => ({
+    uxCode: uniqueIndex("ux_purchases_code").on(t.code),
+  }),
+);
 
 export const purchaseLines = sqliteTable(
   "purchase_lines",
@@ -313,6 +327,8 @@ export const productionRuns = sqliteTable(
     allocatedSessionCost: integer("allocated_session_cost").notNull().default(0),
     directCost: integer("direct_cost").notNull().default(0),
     totalCost: integer("total_cost").notNull().default(0),
+    // KOK-185: human-readable code (PRD-NNNN-YYYY) - see sessions.code above.
+    code: text("code"),
     notes: text("notes"),
     deletedAt: text("deleted_at"),
     createdAt: text("created_at").notNull(),
@@ -321,6 +337,7 @@ export const productionRuns = sqliteTable(
   (t) => ({
     batchesCheck: check("production_runs_batches_check", sql`${t.batches} > 0`),
     outputQtyCheck: check("production_runs_actual_output_qty_check", sql`${t.actualOutputQty} > 0`),
+    uxCode: uniqueIndex("ux_production_runs_code").on(t.code),
   }),
 );
 
@@ -363,6 +380,8 @@ export const assemblies = sqliteTable(
     plannedOutputQty: integer("planned_output_qty"),
     actualOutputQty: integer("actual_output_qty").notNull(),
     directCost: integer("direct_cost").notNull().default(0),
+    // KOK-185: human-readable code (ENV-NNNN-YYYY) - see sessions.code above.
+    code: text("code"),
     notes: text("notes"),
     deletedAt: text("deleted_at"),
     createdAt: text("created_at").notNull(),
@@ -379,6 +398,7 @@ export const assemblies = sqliteTable(
     ),
     ixDate: index("ix_assemblies_date").on(t.businessDate),
     ixOrder: index("ix_assemblies_order").on(t.customOrderId),
+    uxCode: uniqueIndex("ux_assemblies_code").on(t.code),
   }),
 );
 
@@ -430,6 +450,8 @@ export const sales = sqliteTable(
     accountId: text("account_id").references((): AnySQLiteColumn => financialAccounts.id, {
       onDelete: "restrict",
     }),
+    // KOK-185: human-readable code (VTA-NNNN-YYYY) - see sessions.code above.
+    code: text("code"),
     notes: text("notes"),
     deletedAt: text("deleted_at"),
     createdAt: text("created_at").notNull(),
@@ -446,6 +468,7 @@ export const sales = sqliteTable(
       sql`${t.paymentMethod} IN ('CASH','BANK_QR')`,
     ),
     ixDate: index("ix_sales_date").on(t.businessDate),
+    uxCode: uniqueIndex("ux_sales_code").on(t.code),
     ixStatus: index("ix_sales_status")
       .on(t.paymentStatus)
       .where(sql`${t.paymentStatus} = 'ON_CREDIT'`),
@@ -494,6 +517,8 @@ export const customOrders = sqliteTable(
     // Backward reference ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â sales is declared above, no forward-ref annotation needed.
     saleId: text("sale_id").references(() => sales.id, { onDelete: "restrict" }),
     cancelResolution: text("cancel_resolution", { enum: ["REFUND", "FORFEIT"] }),
+    // KOK-185: human-readable code (PED-NNNN-YYYY) - see sessions.code above.
+    code: text("code"),
     notes: text("notes"),
     deletedAt: text("deleted_at"),
     createdAt: text("created_at").notNull(),
@@ -508,6 +533,7 @@ export const customOrders = sqliteTable(
       "custom_orders_cancel_resolution_check",
       sql`${t.cancelResolution} IN ('REFUND','FORFEIT')`,
     ),
+    uxCode: uniqueIndex("ux_custom_orders_code").on(t.code),
     ixStatusDate: index("ix_orders_status_date").on(t.status, t.deliveryDate),
   }),
 );
@@ -538,6 +564,8 @@ export const stockExits = sqliteTable(
     }).notNull(),
     unitCostSnapshotMc: integer("unit_cost_snapshot_mc").notNull(),
     sessionId: text("session_id").references(() => sessions.id, { onDelete: "restrict" }),
+    // KOK-185: human-readable code (SAL-NNNN-YYYY) - see sessions.code above.
+    code: text("code"),
     notes: text("notes"),
     deletedAt: text("deleted_at"),
     createdAt: text("created_at").notNull(),
@@ -550,6 +578,7 @@ export const stockExits = sqliteTable(
       sql`${t.reason} IN ('WASTE','SELF_CONSUMPTION','GIFT_SAMPLE','SPOILAGE','OTHER')`,
     ),
     ixDate: index("ix_exits_date").on(t.businessDate),
+    uxCode: uniqueIndex("ux_stock_exits_code").on(t.code),
   }),
 );
 
@@ -580,6 +609,8 @@ export const inventoryCounts = sqliteTable(
     status: text("status", { enum: ["DRAFT", "COMMITTED"] })
       .notNull()
       .default("DRAFT"),
+    // KOK-185: human-readable code (CNT-NNNN-YYYY) - see sessions.code above.
+    code: text("code"),
     notes: text("notes"),
     deletedAt: text("deleted_at"),
     createdAt: text("created_at").notNull(),
@@ -587,6 +618,7 @@ export const inventoryCounts = sqliteTable(
   },
   (t) => ({
     statusCheck: check("inventory_counts_status_check", sql`${t.status} IN ('DRAFT','COMMITTED')`),
+    uxCode: uniqueIndex("ux_inventory_counts_code").on(t.code),
   }),
 );
 
@@ -708,6 +740,13 @@ export const financialTransactions = sqliteTable(
     ),
     sourceEventType: text("source_event_type"),
     sourceEventId: text("source_event_id"),
+    // KOK-185: human-readable code (GTO-/ING-/RET-/TRF-NNNN-YYYY), assigned only for MANUAL rows
+    // (source_event_id IS NULL) - system-owned rows (SALE, SUPPLY_PURCHASE, DEBT_COLLECTION,
+    // ORDER_DEPOSIT, ORDER_BALANCE, DEPOSIT_REFUND) inherit their source event's code instead and
+    // stay NULL here. A TRANSFER's two legs (TRANSFER_OUT/TRANSFER_IN) share one code - see
+    // migration 0024's header for the AFTER UPDATE trigger that makes that possible despite
+    // core/finance/transfer.ts inserting both rows with counterpart_tx_id initially NULL.
+    code: text("code"),
     description: text("description"),
     deletedAt: text("deleted_at"),
     createdAt: text("created_at").notNull(),
@@ -726,6 +765,30 @@ export const financialTransactions = sqliteTable(
     ixAccountDate: index("ix_tx_account_date").on(t.accountId, t.businessDate),
     ixSource: index("ix_tx_source").on(t.sourceEventType, t.sourceEventId),
     ixCategoryDate: index("ix_tx_category_date").on(t.category, t.businessDate),
+    // Partial: excludes TRANSFER_IN, whose code is a deliberate mirror of its TRANSFER_OUT
+    // counterpart's (migration 0024's header) — see that migration for the full reasoning.
+    uxCode: uniqueIndex("ux_financial_transactions_code")
+      .on(t.code)
+      .where(sql`${t.type} != 'TRANSFER_IN'`),
+  }),
+);
+
+// KOK-185: per-(event_type, year) counter backing every `code` column above. Incremented
+// exclusively by the AFTER INSERT/AFTER UPDATE triggers in migration 0024 (never written to
+// directly from core/, and never read from core/ either - a create path re-reads the *event
+// row's* code after db.batch(), never this table). event_type values reuse the existing
+// sourceEventType vocabulary where one already exists ('sale', 'purchase', 'production_run',
+// 'assembly') and add new keys for the rest ('session', 'custom_order', 'inventory_count',
+// 'stock_exit', 'expense', 'income', 'withdrawal', 'transfer') - see Doc 04's KOK-185 subsection.
+export const codeSequences = sqliteTable(
+  "code_sequences",
+  {
+    eventType: text("event_type").notNull(),
+    year: text("year").notNull(),
+    nextSeq: integer("next_seq").notNull(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.eventType, t.year] }),
   }),
 );
 

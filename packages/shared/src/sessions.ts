@@ -182,6 +182,9 @@ export interface SessionDto {
    * `SessionListItemDto.durationMin` exposes for the list screen. */
   durationMin: number | null;
   status: SessionStatus;
+  /** KOK-185: human-readable code (SES-NNNN-YYYY) — see packages/shared/src/sales.ts's
+   * SaleDto.code for the full contract. */
+  code: string | null;
   notes: string | null;
   costLines: SessionCostLineDto[];
   createdAt: string;
@@ -254,6 +257,8 @@ export interface SessionListItemDto {
   /** Centavos (INV-6): Σ `session_costs.amount` across ALL lines, estimates included — Doc 03 §6
    * distinguishes estimates only for cash creation, never for this display total. */
   costsTotal: number;
+  /** KOK-185: human-readable code (SES-NNNN-YYYY) — see SessionDto.code. */
+  code: string | null;
 }
 
 export interface ListSessionsResult {

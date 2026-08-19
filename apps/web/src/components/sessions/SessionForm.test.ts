@@ -26,6 +26,7 @@ function session(overrides: Partial<SessionDto> = {}): SessionDto {
     endedAt: "2026-07-01T16:00:00.000Z",
     durationMin: 90,
     status: "OPEN",
+    code: null,
     notes: "Turno de la tarde",
     costLines: [
       { id: "line-1", label: "Transporte", amount: 1500, isEstimate: false, accountId: "acc-1" },

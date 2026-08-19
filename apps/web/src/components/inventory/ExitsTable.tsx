@@ -43,6 +43,14 @@ export function ExitsTable({
 }: ExitsTableProps) {
   const columns: EventTableColumn<StockExitDto>[] = [
     {
+      id: "code",
+      header: inventoryLabels.exitsColumnCode,
+      isRowIdentifier: true,
+      cell: (row) => row.code ?? row.id,
+      sortable: true,
+      sortValue: (row) => row.code,
+    },
+    {
       id: "date",
       header: inventoryLabels.exitsColumnDate,
       cell: (row) => row.businessDate,
@@ -52,7 +60,6 @@ export function ExitsTable({
     {
       id: "item",
       header: inventoryLabels.exitsColumnItem,
-      isRowIdentifier: true,
       cell: (row) => items.get(row.itemId)?.name ?? "—",
       sortable: true,
       sortValue: (row) => items.get(row.itemId)?.name ?? "—",

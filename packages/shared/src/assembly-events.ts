@@ -80,6 +80,9 @@ export interface AssemblyDto {
   actualOutputQty: number;
   directCost: number;
   outputUnitCostMc: number;
+  /** KOK-185: human-readable code (ENV-NNNN-YYYY) — see packages/shared/src/sales.ts's
+   * SaleDto.code for the full contract. */
+  code: string | null;
   notes: string | null;
   lines: AssemblyLineDto[];
   createdAt: string;

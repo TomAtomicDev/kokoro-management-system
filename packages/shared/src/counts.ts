@@ -104,6 +104,9 @@ export interface InventoryCountDto {
   occurredAt: string;
   businessDate: string;
   status: InventoryCountStatus;
+  /** KOK-185: human-readable code (CNT-NNNN-YYYY) — see packages/shared/src/sales.ts's
+   * SaleDto.code for the full contract. */
+  code: string | null;
   notes: string | null;
   lines: InventoryCountLineDto[];
   createdAt: string;

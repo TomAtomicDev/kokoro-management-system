@@ -161,7 +161,9 @@ export function OrderDetailDrawer({ orderId, open, onOpenChange }: OrderDetailDr
         open={open}
         onOpenChange={onOpenChange}
         title={ordersLabels.detailTitle}
-        subtitle={order?.description}
+        subtitle={
+          order && (order.code ? `${order.code} · ${order.description}` : order.description)
+        }
         entityType="custom_orders"
         entityId={order?.id}
         footer={

@@ -303,6 +303,9 @@ export interface OrderDto {
   /** Set on delivery (O-2): the auto-created `CUSTOM_ORDER`-channel sale. */
   saleId: string | null;
   cancelResolution: CancelResolution | null;
+  /** KOK-185: human-readable code (PED-NNNN-YYYY) — see packages/shared/src/sales.ts's
+   * SaleDto.code for the full contract. */
+  code: string | null;
   notes: string | null;
   lines: OrderLineDto[];
   /** DERIVED, not stored: `agreedTotal − depositPaid`, or `null` while `agreedTotal` is unset.

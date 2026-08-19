@@ -15,6 +15,7 @@ export const salesLabels = {
   orderClarification: "Para un pedido no necesitas registrar una venta, usa Entregar pedido.",
   actionRecord: "Nueva venta",
 
+  columnCode: "Código",
   columnDate: "Fecha",
   columnChannel: "Canal",
   columnCustomer: "Cliente",

@@ -65,6 +65,14 @@ export function ProductionRunsTable({
 
   const columns: EventTableColumn<ProductionRunDto>[] = [
     {
+      id: "code",
+      header: productionLabels.columnCode,
+      isRowIdentifier: true,
+      cell: (row) => row.code ?? row.id,
+      sortable: true,
+      sortValue: (row) => row.code,
+    },
+    {
       id: "date",
       header: productionLabels.columnDate,
       cell: (row) => row.businessDate,
@@ -74,7 +82,6 @@ export function ProductionRunsTable({
     {
       id: "recipe",
       header: productionLabels.columnRecipe,
-      isRowIdentifier: true,
       cell: (row) => recipesById.get(row.recipeId)?.name ?? row.recipeId,
       sortable: true,
       sortValue: (row) => recipesById.get(row.recipeId)?.name ?? row.recipeId,

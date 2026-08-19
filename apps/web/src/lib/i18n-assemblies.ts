@@ -49,6 +49,7 @@ export const assembliesLabels = {
   submit: "Registrar envasado",
   save: "Guardar cambios",
 
+  columnCode: "Código",
   columnDate: "Fecha",
   columnOutput: "Salida",
   columnQty: "Cantidad",

@@ -198,6 +198,12 @@ export interface SaleDto {
   paymentMethod: PaymentMethod | null;
   /** The credited account for a PAID sale; `null` for ON_CREDIT (no cash moved yet). */
   accountId: string | null;
+  /** KOK-185: human-readable code (VTA-NNNN-YYYY), assigned server-side at creation by an
+   * AFTER INSERT trigger and never mutated afterward. Nullable at the DB level by deliberate
+   * design (migration 0024's header) rather than a hard NOT NULL — in practice always set for a
+   * row that exists, but never generated client-side (Telegram bot included; see Doc 04's
+   * KOK-185 subsection), so treat a null here as "not backfilled yet", never compute one. */
+  code: string | null;
   notes: string | null;
   lines: SaleLineDto[];
   createdAt: string;
@@ -268,6 +274,8 @@ export interface ReceivableDto {
   channel: SaleChannel;
   customOrderId: string | null;
   daysOutstanding: number;
+  /** KOK-185: the sale's own code (VTA-NNNN-YYYY) — see SaleDto.code. */
+  code: string | null;
 }
 
 export interface ListReceivablesResult {

@@ -31,9 +31,16 @@ export function formatDuration(durationMin: number | null): string {
 export function SessionsTable({ sessions, loading, onRowClick }: SessionsTableProps) {
   const columns: EventTableColumn<SessionListItemDto>[] = [
     {
+      id: "code",
+      header: sessionsLabels.columnCode,
+      isRowIdentifier: true,
+      cell: (row) => row.code ?? row.id,
+      sortable: true,
+      sortValue: (row) => row.code,
+    },
+    {
       id: "date",
       header: sessionsLabels.columnDate,
-      isRowIdentifier: true,
       cell: (row) => row.businessDate,
     },
     {

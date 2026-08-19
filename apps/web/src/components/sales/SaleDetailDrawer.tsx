@@ -122,7 +122,7 @@ export function SaleDetailDrawer({ saleId, open, onOpenChange, accounts }: SaleD
         open={open}
         onOpenChange={onOpenChange}
         title={salesLabels.detailTitle}
-        subtitle={sale?.businessDate}
+        subtitle={sale && (sale.code ? `${sale.code} · ${sale.businessDate}` : sale.businessDate)}
         entityType="sales"
         entityId={sale?.id}
         footer={

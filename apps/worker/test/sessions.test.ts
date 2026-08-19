@@ -916,9 +916,15 @@ describe("getSession: linked events viewer (Doc 07 SC-09)", () => {
 
     const fetched = await getSession(db, created.session.id);
     expect(fetched.linkedEvents.purchases).toHaveLength(1);
+    // KOK-185: the linked-event label prefers the purchase's own code over supplierName now that
+    // one exists (same fix as packing.tsx's session cell — a bare descriptive label can't
+    // distinguish two purchases the way a stable code can). Asserted against the value
+    // recordPurchase actually returned, not a hardcoded literal — the exact sequence number
+    // depends on how many other purchases this worker's shared test DB has already recorded.
+    expect(purchase.purchase.code).not.toBeNull();
     expect(fetched.linkedEvents.purchases[0]).toMatchObject({
       id: purchase.purchase.id,
-      label: "Proveedor X",
+      label: purchase.purchase.code,
     });
     expect(fetched.linkedEvents.productionRuns).toEqual([]);
     expect(fetched.linkedEvents.sales).toEqual([]);

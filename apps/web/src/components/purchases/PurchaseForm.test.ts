@@ -19,6 +19,7 @@ function purchase(overrides: Partial<PurchaseDto> = {}): PurchaseDto {
     accountId: "account-1",
     total: 1500,
     receiptPhotoKey: "receipts/abc.jpg",
+    code: null,
     notes: "Compra semanal",
     lines: [
       { id: "line-1", itemId: "item-1", qty: 2000, lineTotal: 1000 },
