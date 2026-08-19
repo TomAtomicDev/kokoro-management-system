@@ -114,6 +114,7 @@ function toPurchaseDto(row: PurchaseRow, lineRows: readonly PurchaseLineRow[]): 
     accountId: row.accountId,
     total: row.total,
     receiptPhotoKey: row.receiptPhotoKey,
+    code: row.code,
     notes: row.notes,
     lines,
     createdAt: row.createdAt,
@@ -249,6 +250,9 @@ async function buildPurchaseCreateMovements(db: Db, command: RecordPurchaseComma
     accountId: command.accountId,
     total,
     receiptPhotoKey: command.receiptPhotoKey ?? null,
+    // KOK-185: assigned by an AFTER INSERT trigger (migration 0024), never by core/ — re-read
+    // after db.batch() and folded into the returned DTO.
+    code: null,
     notes: command.notes ?? null,
     deletedAt: null,
     createdAt: now,
@@ -430,8 +434,13 @@ export async function recordPurchase(
   // test/inventory.test.ts's execBatch helper uses for the identical reason.
   await db.batch(statements as [Statement, ...Statement[]]);
 
+  const codeRow = await db.query.purchases.findFirst({
+    where: (t, { eq: eqOp }) => eqOp(t.id, purchaseId),
+    columns: { code: true },
+  });
+
   return {
-    purchase: toPurchaseDto(purchaseRow, purchaseLineRows),
+    purchase: toPurchaseDto({ ...purchaseRow, code: codeRow?.code ?? null }, purchaseLineRows),
     account: toAccountDto({
       ...account,
       balance: subMoney(toCentavos(account.balance), total),

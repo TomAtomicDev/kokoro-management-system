@@ -135,6 +135,12 @@ export interface FinancialTransactionDto {
   counterpartTxId: string | null;
   sourceEventType: string | null;
   sourceEventId: string | null;
+  /** KOK-185: human-readable code (GTO-/ING-/RET-/TRF-NNNN-YYYY) — assigned ONLY for manual rows
+   * (`sourceEventId === null`); a system-owned row (SALE, SUPPLY_PURCHASE, DEBT_COLLECTION,
+   * ORDER_DEPOSIT, ORDER_BALANCE, DEPOSIT_REFUND) always carries `code: null` here by design — it
+   * inherits its source event's own code for display instead (Doc 07). Both legs of a TRANSFER
+   * share the same code. */
+  code: string | null;
   description: string | null;
   createdAt: string;
   updatedAt: string;

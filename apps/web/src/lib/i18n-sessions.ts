@@ -10,6 +10,7 @@ export const sessionsLabels = {
   subtitle: "Registra tramos de tiempo (producción, compras, entregas) y sus costos compartidos.",
   actionRecord: "Nueva sesión",
 
+  columnCode: "Código",
   columnDate: "Fecha",
   columnType: "Tipo",
   columnDuration: "Duración",

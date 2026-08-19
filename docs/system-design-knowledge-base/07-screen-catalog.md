@@ -31,9 +31,10 @@ opens it in thirty seconds between batches.
 
 ## SC-02 · Sales list — `/sales` (UC-03, UC-04, UC-18)
 
-Table: fecha, canal, cliente, items resumen, total, margen (from `unit_cost_snapshot`), estado
-pago (badge POR COBRAR), método. Actions: new sale, mark paid (account + method inline),
-edit/delete. Filter presets include "Por cobrar" (v_receivables with aging).
+Table: código (KOK-185, Doc 04 §3.6), fecha, canal, cliente, items resumen, total, margen (from
+`unit_cost_snapshot`), estado pago (badge POR COBRAR), método. Actions: new sale, mark paid
+(account + method inline), edit/delete. Filter presets include "Por cobrar" (v_receivables with
+aging).
 
 This margin is historical — the WAC frozen at sale time, not the item's current replacement cost —
 so it is a plain neutral figure, deliberately **not** `MarginBadge`/C-5-thresholded (KOK-036):
@@ -63,8 +64,8 @@ duplicate it.
 
 ## SC-04 · Orders board — `/orders` (UC-05…UC-08)
 
-`OrderBoard` columns = status (QUOTING → … → DELIVERED); cards show customer, delivery
-date/place, agreed total, deposit paid/pending badge, balance. Card → drawer with full lifecycle
+`OrderBoard` columns = status (QUOTING → … → DELIVERED); cards show código (KOK-185, Doc 04 §3.6),
+customer, delivery date/place, agreed total, deposit paid/pending badge, balance. Card → drawer with full lifecycle
 actions: **Confirmar** (captures deposit: amount default 50%, account) · **Iniciar producción**
 · **Marcar listo** · **Entregar** (creates the Sale; balance: paid method/account or ON_CREDIT)
 · **Cancelar** (REFUND/FORFEIT choice, O-3). Linked production runs and their costs → order
@@ -82,8 +83,8 @@ vinculada — ¿continuar?") — a warning, never a block (O-4).
 
 ## SC-05 · Production list — `/production` (UC-02)
 
-Table: fecha, receta, tandas, salida real vs esperada (yield %), costo total, costo unitario,
-sesión, pedido. New run flow: pick recipe → batches → **consumption lines prefilled from recipe,
+Table: código (KOK-185, Doc 04 §3.6), fecha, receta, tandas, salida real vs esperada (yield %),
+costo total, costo unitario, sesión, pedido. New run flow: pick recipe → batches → **consumption lines prefilled from recipe,
 editable** → actual output qty → indirect cost. Shows live computed unit cost before commit
 (`CalcTrace` shows C-4 formula).
 
@@ -125,7 +126,8 @@ milli-units without adding the display unit to the recipe command.
 
 ## SC-07 · Purchases list — `/purchases` (UC-01, UC-18)
 
-Table: fecha, proveedor, items, total, cuenta, sesión, foto icon (R2 signed URL viewer). The
+Table: código (KOK-185, Doc 04 §3.6), fecha, proveedor, items, total, cuenta, sesión, foto icon
+(R2 signed URL viewer). The
 **receipt photo stays in full** — removing it was requested and then reversed on 2026-08-11,
 partly because dropping the column would also close the door on receipt OCR. Row →
 detail drawer with Editar/Eliminar (KOK-024). Form (full page in Phase 3.2, shared by create and
@@ -145,7 +147,8 @@ Tabs:
 - **Stock** (default): v_stock table — item, kind, on hand, min, WAC, replacement cost, stock
   value; low-stock and negative-stock (INV-8 flag) rows pinned on top. Row → **Kardex** drawer
   (`KardexView`).
-- **Salidas** (exits): list + form (item, qty, reason, session) showing valued cost; the item's
+- **Salidas** (exits): list (código, KOK-185, Doc 04 §3.6, leading the columns) + form (item, qty,
+  reason, session) showing valued cost; the item's
   unit sits next to **Cantidad** (KOK-107). "Costo invisible **del periodo**" by reason, over an
   arbitrary day range rather than only whole calendar months (KOK-114 — this changes the
   aggregation, not just the label). Row → detail drawer (`ExitDetailDrawer`, KOK-024) with
@@ -155,7 +158,8 @@ Tabs:
   *unassembled* product (gifting an unbagged loaf in a bag with a label). Default is none;
   packaging is suggested only when the exited item is not itself an assembled presentation; an
   exit of a presentation never offers them, because its WAC already contains its packaging.
-- **Conteos** (counts): count sessions; new count → item checklist (filter by category) with
+- **Conteos** (counts): count sessions, listed with their own código (KOK-185, Doc 04 §3.6); new
+  count → item checklist (filter by category) with
   expected vs counted; commit shows variance summary and creates ADJUST movements.
   **Phase 3.2 (KOK-141):** the count is a **full page**, not a drawer — for legibility on a long
   checklist, not for data loss: counted quantities already save on blur — and a DRAFT count can
@@ -165,8 +169,8 @@ Tabs:
 
 ## SC-09 · Sessions — `/sessions` (UC-14)
 
-List: fecha, tipo, duración, costos compartidos, eventos vinculados (count chips), Bs/h de la
-sesión (S-4). Open-session banner. Form: type, start/end or duration, `session_costs` editor
+List: código (KOK-185, Doc 04 §3.6), fecha, tipo, duración, costos compartidos, eventos vinculados
+(count chips), Bs/h de la sesión (S-4). Open-session banner. Form: type, start/end or duration, `session_costs` editor
 (label, amount, is_estimate, account), linked events viewer. Closing a PRODUCTION session
 triggers shared-cost allocation (S-3) and shows the resulting per-run cost updates.
 
@@ -192,16 +196,26 @@ triggers shared-cost allocation (S-3) and shows the resulting per-run cost updat
 
 Header: account cards (Banco, Caja chica) with balances + "Transferir" + "Retiro personal"
 actions; liability strip: Anticipos de clientes (v_liability) + Por cobrar (v_receivables).
-Table: all financial_transactions (fecha, cuenta, tipo, categoría, monto signed-colored,
+Table: all financial_transactions (fecha, código, cuenta, tipo, categoría, monto signed-colored,
 descripción, source-event link). System-owned rows (with source_event) are read-only here with
 "editar el evento origen" link (Doc 04 §5). Forms: gasto operativo / otro ingreso; transfer
 (from→to, amount); withdrawal (account, amount).
 
 **Phase 3.2:** manual rows (no `source_event_id`) become **editable and deletable** — transfers as
-an atomic pair via `counterpart_tx_id`, deletion soft and audit-reversible (KOK-146). The
-source-event column shows a readable **"Compra · 12/08"** label linking to the event; **no internal
-IDs are exposed** — events carry no short human code and UUIDs are unreadable, and inventing a code
-system was considered and rejected as unnecessary (KOK-147).
+an atomic pair via `counterpart_tx_id`, deletion soft and audit-reversible (KOK-146).
+
+**Codes (KOK-185, Doc 04 §3.6) — supersedes the code-related text this row originally carried.**
+The **código** column shows each manual row's own `GTO-`/`ING-`/`RET-`/`TRF-` code directly (both
+legs of a transfer share one); a system-owned row shows nothing in that column, because the
+source-event label already carries the identity that matters — it reads e.g. **"Compra
+CMP-0031-2026 · 12/08"** rather than the bare "Compra · 12/08" this screen showed before a code
+existed to put there. KOK-147's original premise here — *"no internal IDs are exposed — events
+have no short human code and the internal ones are unreadable UUIDs, and inventing a code system
+was considered and rejected as unnecessary"* — **was reversed** (Issue #44 §B-4; the owner hit
+exactly the problem that decision predicted would not matter). That reversal made this row's own
+deliverable *easier*, not harder: the label was always going to need something readable to show,
+and now that something already exists everywhere else in the system instead of being invented
+one-off for Finanzas.
 
 ## SC-11 · Cash flow report — `/reports/cashflow`
 
@@ -342,8 +356,12 @@ top-level operation, not a Producción sub-route: it has its own history at `/pa
 at `/packing/new`, editing at `/packing/:assemblyId/edit`, and definition management at
 `/packing/definitions`. `Assembly` and `AssemblyDefinition` remain the domain identifiers.
 
-List: fecha, presentación/combo, unidades armadas vs planeadas, costo total, costo unitario,
-sesión, pedido. New assembly flow (full page): pick definition → planned qty → **component lines
+List: código (KOK-185, Doc 04 §3.6), fecha, presentación/combo, unidades armadas vs planeadas,
+costo total, costo unitario, sesión, pedido. The **sesión** column shows the linked session's own
+code, not its bare type label (F-57: three packings against three different PRODUCTION sessions
+used to all read the identical word "Producción," with no way to tell them apart — the owner's
+original ask that started KOK-185). New assembly flow (full page): pick definition → planned qty →
+**component lines
 prefilled from the definition, editable** → actual units obtained → notes. Live unit cost before
 commit with `CalcTrace` showing C-10.
 

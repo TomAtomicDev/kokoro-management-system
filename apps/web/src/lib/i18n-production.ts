@@ -13,6 +13,7 @@ export const productionLabels = {
    * top-level "Producción" item). */
   goToRecipes: "Ver recetas",
 
+  columnCode: "Código",
   columnDate: "Fecha",
   columnRecipe: "Receta",
   columnBatches: "Tandas",

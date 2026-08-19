@@ -145,6 +145,7 @@ function toProductionRunDto(
     // columns, never cached, so it can never drift from them. ADR-017: the one sanctioned
     // total->rate conversion (`rateFromTotal`), not a bare `×1000`.
     outputUnitCostMc: rateFromTotal(toCentavos(row.totalCost), toMilliUnits(row.actualOutputQty)),
+    code: row.code,
     notes: row.notes,
     lines,
     createdAt: row.createdAt,
@@ -403,6 +404,9 @@ async function buildProductionRunCreateInputs(
     allocatedSessionCost: 0,
     directCost,
     totalCost,
+    // KOK-185: assigned by an AFTER INSERT trigger (migration 0024), never by core/ — re-read
+    // after db.batch() and folded into the returned DTO.
+    code: null,
     notes: command.notes ?? null,
     deletedAt: null,
     createdAt: now,
@@ -558,7 +562,17 @@ export async function recordProductionRun(
 
   await db.batch(statements as [Statement, ...Statement[]]);
 
-  return { productionRun: toProductionRunDto(created.runRow, built.consumptionRows) };
+  const codeRow = await db.query.productionRuns.findFirst({
+    where: (t, { eq: eqOp }) => eqOp(t.id, built.runId),
+    columns: { code: true },
+  });
+
+  return {
+    productionRun: toProductionRunDto(
+      { ...created.runRow, code: codeRow?.code ?? null },
+      built.consumptionRows,
+    ),
+  };
 }
 
 // ============================================================================================

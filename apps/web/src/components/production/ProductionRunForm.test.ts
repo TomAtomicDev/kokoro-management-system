@@ -45,6 +45,7 @@ function productionRun(overrides: Partial<ProductionRunDto> = {}): ProductionRun
     directCost: 100,
     totalCost: 100,
     outputUnitCostMc: 100,
+    code: null,
     notes: "Nota original",
     lines: [
       { id: "consumption-1", itemId: "ingredient-1", qty: 200, unitCostSnapshotMc: 100 },

@@ -112,7 +112,12 @@ export function ProductionRunDetailDrawer({
         open={open}
         onOpenChange={onOpenChange}
         title={recipe?.name ?? productionLabels.detailTitle}
-        subtitle={productionRun?.businessDate}
+        subtitle={
+          productionRun &&
+          (productionRun.code
+            ? `${productionRun.code} · ${productionRun.businessDate}`
+            : productionRun.businessDate)
+        }
         entityType="production_runs"
         entityId={productionRun?.id}
         footer={

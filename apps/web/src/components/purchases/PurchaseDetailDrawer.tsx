@@ -120,7 +120,10 @@ export function PurchaseDetailDrawer({
         open={open}
         onOpenChange={onOpenChange}
         title={purchase?.supplierName ?? purchasesLabels.detailTitle}
-        subtitle={purchase?.businessDate}
+        subtitle={
+          purchase &&
+          (purchase.code ? `${purchase.code} · ${purchase.businessDate}` : purchase.businessDate)
+        }
         entityType="purchases"
         entityId={purchaseId}
         footer={

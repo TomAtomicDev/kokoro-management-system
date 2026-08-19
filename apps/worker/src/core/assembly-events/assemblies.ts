@@ -78,6 +78,7 @@ function toAssemblyDto(
     actualOutputQty: row.actualOutputQty,
     directCost: row.directCost,
     outputUnitCostMc: rateFromTotal(toCentavos(row.directCost), toMilliUnits(row.actualOutputQty)),
+    code: row.code,
     notes: row.notes,
     lines,
     createdAt: row.createdAt,
@@ -222,6 +223,9 @@ async function buildAssemblyCreateInputs(
     plannedOutputQty: command.plannedOutputQty ?? null,
     actualOutputQty: command.actualOutputQty,
     directCost,
+    // KOK-185: assigned by an AFTER INSERT trigger (migration 0024), never by core/ — re-read
+    // after db.batch() and folded into the returned DTO.
+    code: null,
     notes: command.notes ?? null,
     deletedAt: null,
     createdAt: now,
@@ -294,7 +298,18 @@ export async function recordAssembly(
     ...plan.statements,
   ];
   await db.batch(statements as [Statement, ...Statement[]]);
-  return { assembly: toAssemblyDto(built.assemblyRow, built.consumptionRows) };
+
+  const codeRow = await db.query.assemblies.findFirst({
+    where: (t, { eq: eqOp }) => eqOp(t.id, built.assemblyId),
+    columns: { code: true },
+  });
+
+  return {
+    assembly: toAssemblyDto(
+      { ...built.assemblyRow, code: codeRow?.code ?? null },
+      built.consumptionRows,
+    ),
+  };
 }
 
 interface ProjectedKardexRow extends ReplayMovement {

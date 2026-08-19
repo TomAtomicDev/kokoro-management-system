@@ -77,6 +77,10 @@ export async function recordTransaction(
     counterpartTxId: null,
     sourceEventType: null,
     sourceEventId: null,
+    // KOK-185: assigned by an AFTER INSERT trigger (migration 0024) — never by core/. `category`
+    // is one of the manual, non-TRANSFER categories here (assertLegalCategoryForType only allows
+    // INCOME/EXPENSE), so the trigger always fires for this row.
+    code: null,
     description: command.description ?? null,
     deletedAt: null,
     createdAt: now,
@@ -102,8 +106,15 @@ export async function recordTransaction(
       ? addMoney(toCentavos(account.balance), toCentavos(command.amount))
       : subMoney(toCentavos(account.balance), toCentavos(command.amount));
 
+  // The one answer that cannot disagree with what the trigger actually wrote (mirrors
+  // core/sales/index.ts's readAccountDtoOrThrow).
+  const codeRow = await db.query.financialTransactions.findFirst({
+    where: (t, { eq: eqOp }) => eqOp(t.id, row.id),
+    columns: { code: true },
+  });
+
   return {
-    transaction: toTransactionDto(row),
+    transaction: toTransactionDto({ ...row, code: codeRow?.code ?? null }),
     account: toAccountDto({ ...account, balance: newBalance }),
   };
 }
@@ -128,6 +139,8 @@ export async function withdraw(
     counterpartTxId: null,
     sourceEventType: null,
     sourceEventId: null,
+    // KOK-185: assigned by an AFTER INSERT trigger (migration 0024) — see recordTransaction above.
+    code: null,
     description: command.description ?? null,
     deletedAt: null,
     createdAt: now,
@@ -147,8 +160,13 @@ export async function withdraw(
     }),
   ]);
 
+  const codeRow = await db.query.financialTransactions.findFirst({
+    where: (t, { eq: eqOp }) => eqOp(t.id, row.id),
+    columns: { code: true },
+  });
+
   return {
-    transaction: toTransactionDto(row),
+    transaction: toTransactionDto({ ...row, code: codeRow?.code ?? null }),
     account: toAccountDto({
       ...account,
       balance: subMoney(toCentavos(account.balance), toCentavos(command.amount)),

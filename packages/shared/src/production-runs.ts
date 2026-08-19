@@ -185,6 +185,9 @@ export interface ProductionRunDto {
    * column (Doc 04 §3.3 has no such column — only `total_cost` and `actual_output_qty`, from
    * which this is always recomputable). */
   outputUnitCostMc: number;
+  /** KOK-185: human-readable code (PRD-NNNN-YYYY) — see packages/shared/src/sales.ts's
+   * SaleDto.code for the full contract. */
+  code: string | null;
   notes: string | null;
   lines: ProductionLineDto[];
   createdAt: string;

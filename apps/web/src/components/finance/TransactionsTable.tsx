@@ -52,6 +52,16 @@ export function TransactionsTable({
       sortValue: (row) => row.businessDate,
     },
     {
+      id: "code",
+      header: financeLabels.columnCode,
+      // KOK-185: only manual rows (gasto/ingreso/retiro/transferencia) get their own code — a
+      // system-owned row already shows the "source" badge below and inherits its source event's
+      // code there (Doc 07), so this column intentionally mirrors that column's em-dash for it.
+      cell: (row) => row.code ?? "—",
+      sortable: true,
+      sortValue: (row) => row.code ?? "—",
+    },
+    {
       id: "account",
       header: financeLabels.columnAccount,
       cell: (row) => accountNameById.get(row.accountId) ?? row.accountId,

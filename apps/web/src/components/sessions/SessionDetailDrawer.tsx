@@ -172,7 +172,10 @@ export function SessionDetailDrawer({
         open={open}
         onOpenChange={onOpenChange}
         title={session ? sessionsLabels.typeLabels[session.type] : sessionsLabels.detailTitle}
-        subtitle={session?.businessDate}
+        subtitle={
+          session &&
+          (session.code ? `${session.code} · ${session.businessDate}` : session.businessDate)
+        }
         entityType="sessions"
         entityId={session?.id}
         disableUnsavedChangesGuard

@@ -31,6 +31,7 @@ export const financeLabels = {
   liabilityHint: "De tu caja, no es tuyo todavía",
 
   columnDate: "Fecha",
+  columnCode: "Código",
   columnAccount: "Cuenta",
   columnType: "Tipo",
   columnCategory: "Categoría",

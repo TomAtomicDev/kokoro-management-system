@@ -61,6 +61,14 @@ export function PurchasesTable({
 
   const columns: EventTableColumn<PurchaseDto>[] = [
     {
+      id: "code",
+      header: purchasesLabels.columnCode,
+      isRowIdentifier: true,
+      cell: (row) => row.code ?? row.id,
+      sortable: true,
+      sortValue: (row) => row.code,
+    },
+    {
       id: "date",
       header: purchasesLabels.columnDate,
       cell: (row) => row.businessDate,
@@ -77,7 +85,6 @@ export function PurchasesTable({
     {
       id: "items",
       header: purchasesLabels.columnItems,
-      isRowIdentifier: true,
       cell: (row) => summarizeLines(row.lines, itemNameById),
       sortable: true,
       sortValue: (row) => summarizeLines(row.lines, itemNameById),

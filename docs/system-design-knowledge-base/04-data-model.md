@@ -557,6 +557,82 @@ CREATE TABLE pending_drafts (                    -- one active AI draft per Tele
 );
 ```
 
+### 3.6 Human-readable event codes (KOK-185, INV-12)
+
+**Reverses a recorded decision.** An earlier pass of this KB (the original KOK-147 row, Doc 10)
+concluded "no internal IDs are exposed — events have no short human code and the internal ones
+are unreadable UUIDs, and inventing a code system was rejected as unnecessary." The owner hit the
+exact problem that decision predicted would not matter (Issue #44 §B-4: a production session
+rendering as the bare word "Producción," indistinguishable from every other session of that type)
+— **the reversal is the correct call**, formats as `{PREFIX}-{NNNN}-{YYYY}` (4-digit zero-padded
+sequence, then 4-digit year), and is now the system of record.
+
+```sql
+CREATE TABLE code_sequences (
+  event_type TEXT NOT NULL,
+  year TEXT NOT NULL,                            -- substr(created_at, 1, 4), never business_date
+  next_seq INTEGER NOT NULL,
+  PRIMARY KEY (event_type, year)
+);
+```
+
+Every codeable table carries a nullable `code TEXT` column plus a `CREATE UNIQUE INDEX` (a
+partial one, `WHERE type != 'TRANSFER_IN'`, on `financial_transactions` only — see below).
+**Nullable, not `NOT NULL`, by deliberate design**: SQLite/D1 cannot add a `NOT NULL` column
+without a default in one step, and the full drop/recreate-table rebuild that would (§8, migration
+0022's precedent) is not worth it for a display convenience feature, not a money/correctness
+invariant — see migration `0024_add_event_codes.sql`'s header for the full trade-off.
+
+| Table / row class | `event_type` | prefix |
+|---|---|---|
+| `sessions` | `session` | `SES` |
+| `production_runs` | `production_run` | `PRD` |
+| `assemblies` | `assembly` | `ENV` |
+| `sales` | `sale` | `VTA` |
+| `purchases` | `purchase` | `CMP` |
+| `custom_orders` | `custom_order` | `PED` |
+| `inventory_counts` | `inventory_count` | `CNT` |
+| `stock_exits` | `stock_exit` | `SAL` |
+| `financial_transactions`, category IN (`OPERATING_EXPENSE`,`EQUIPMENT`,`OTHER_EXPENSE`) | `expense` | `GTO` |
+| `financial_transactions`, category = `OTHER_INCOME` | `income` | `ING` |
+| `financial_transactions`, category = `OWNER_WITHDRAWAL` | `withdrawal` | `RET` |
+| `financial_transactions`, category = `TRANSFER` (both legs) | `transfer` | `TRF` |
+
+**Manual vs. system-owned `financial_transactions`.** Only rows with `source_event_id IS NULL`
+get a code — a system-owned row (`SALE`, `SUPPLY_PURCHASE`, `DEBT_COLLECTION`, `ORDER_DEPOSIT`,
+`ORDER_BALANCE`, `DEPOSIT_REFUND`) inherits its source event's code for display instead (§4 /
+Doc 07 SC-10), so a second code of its own would be redundant.
+
+**Transfer pairs share one code.** `core/finance/transfer.ts` inserts both legs
+(`TRANSFER_OUT`/`TRANSFER_IN`) with `counterpart_tx_id` still NULL, then links them via two
+separate `UPDATE`s later in the same batch (that FK is not deferrable — see that file's header).
+An `AFTER UPDATE OF counterpart_tx_id` trigger, scoped to `WHEN NEW.type = 'TRANSFER_OUT'`,
+allocates one sequence number and writes it onto both rows once both exist — independent of which
+of the two linking `UPDATE`s the caller runs first. The `ux_financial_transactions_code` unique
+index is partial (`WHERE type != 'TRANSFER_IN'`) specifically to allow this: the IN leg's code is
+a deliberate mirror of its OUT counterpart's, not a second independent identity competing for
+uniqueness.
+
+**Allocation mechanism (D-3 compliance).** A code is assigned by an `AFTER INSERT` (or, for
+transfers, `AFTER UPDATE OF counterpart_tx_id`) SQLite trigger — not by `core/` itself — so it is
+always written inside the same implicit transaction the triggering command's `db.batch()` already
+wraps every statement in, and a rolled-back batch never burns a sequence number. `core/` never
+computes a code and never reads `code_sequences` directly; every create path re-reads the
+just-assigned `code` from its row after `db.batch()` completes (mirrors the existing
+"re-read after the batch is the one answer that cannot disagree with what was written" pattern) and
+folds it into the DTO it returns. See migration `0024_add_event_codes.sql`'s header for the full
+reasoning, including why this needed a trigger where D1's batch API alone could not chain a
+counter read into a same-batch `INSERT`'s bound value.
+
+**Backfill.** Existing rows are assigned codes deterministically, ordered by `(created_at, id)` —
+a total order — via `ROW_NUMBER()` (the same technique `0015_recipe_name_unique.sql` already
+proved works against this project's D1). Re-running `db:reset:dev` against the same seed data
+reproduces byte-identical codes.
+
+**Immutability.** A code is assigned once and never reassigned — every trigger guards on `WHEN
+NEW.code IS NULL`, which an already-coded row never satisfies again, and no `core/` `UPDATE`
+statement ever includes `code` in its `SET` list.
+
 ## 4. Views (created as SQL views in migrations)
 
 | View | Definition (essence) |
@@ -564,10 +640,10 @@ CREATE TABLE pending_drafts (                    -- one active AI draft per Tele
 | `v_stock` | items ⨝ item_stock + `stock_value = round(qty_on_hand × wac_mc / 1e6)`, low-stock flag. Also selects `replacement_cost_updated_at` (migration 0016) so `core/inventory/queries.ts`'s `listStock` can apply the same C-3c effective-replacement-cost fallback `toItemDto`/`price-health.ts` already do — the view exposes the raw column plus timestamp only, the fallback projection itself happens in `queries.ts`, not in SQL (same precedent as `v_price_health` below). |
 | `v_kardex` | stock_movements ⨝ items, ordered, with running balance via window function |
 | `v_price_health` | FINISHED items: id, name, sale_price_mc, wac_mc, replacement_cost_mc, replacement_cost_updated_at. Raw columns only — margins, the C-3c effective-replacement-cost fallback, and the alert-suppression rule are all computed in `core/costing/price-health.ts` (KOK-035, KOK-103), not in this view; the former SQL margin columns were removed in migration 0006 because they mixed per-whole-unit prices with per-milli-unit costs. |
-| `v_receivables` | sales WHERE payment_status='ON_CREDIT' AND deleted_at IS NULL, aged; `total` = **uncollected remainder**, i.e. `sales.total − custom_orders.deposit_paid` for a CUSTOM_ORDER sale (KOK-033, migration 0005) and plain `sales.total` otherwise |
+| `v_receivables` | sales WHERE payment_status='ON_CREDIT' AND deleted_at IS NULL, aged; `total` = **uncollected remainder**, i.e. `sales.total − custom_orders.deposit_paid` for a CUSTOM_ORDER sale (KOK-033, migration 0005) and plain `sales.total` otherwise. Also selects `s.code` (migration 0024, KOK-185/§3.6). |
 | `v_liability` | current customer_deposits (see §3.4) |
 | `v_cashflow_daily` | financial_transactions grouped by business_date × category |
-| `v_session_hours` | sessions with derived hours + linked event counts. Per-session hours only — S-5's **deduplicated** wall-clock total (the union of overlapping session intervals, for G3) is computed by a pure function in `core/`, not here, following the same rule as the business-health aggregates below: interval-union arithmetic belongs where property tests can reach it. |
+| `v_session_hours` | sessions with derived hours + linked event counts. Per-session hours only — S-5's **deduplicated** wall-clock total (the union of overlapping session intervals, for G3) is computed by a pure function in `core/`, not here, following the same rule as the business-health aggregates below: interval-union arithmetic belongs where property tests can reach it. Also selects `s.code` (migration 0024, KOK-185/§3.6). |
 | `v_waste` | stock_exits valued, grouped by reason × month |
 
 **Business-health aggregates are NOT views.** Every metric in Phase 5.5 (money at risk, input
@@ -717,3 +793,17 @@ which this drizzle-orm version's `text()` builder cannot emit. `schema.ts` carri
 that column pointing back to the patch. Anyone regenerating a future migration from a changed
 `schema.ts` must reapply these three additions to the new file — `drizzle-kit generate` alone is
 not sufficient for a from-scratch migration in this schema.
+
+**`drizzle-kit`'s own journal has drifted stale (found during KOK-185, migration 0024).**
+`migrations/meta/_journal.json` — drizzle-kit's internal bookkeeping for what it has already
+generated, entirely separate from `wrangler d1 migrations apply`'s own tracking — stops at
+`0016_v_stock_effective_replacement_cost`; migrations `0017`–`0023` were added without a
+matching `drizzle-kit generate` run (and their snapshots), so the journal doesn't know about
+them. Running `drizzle-kit generate` in this state produces a migration that redundantly
+`CREATE TABLE`s several already-existing tables and spuriously rebuilds others — **do not run
+it and apply the output as-is**. `wrangler d1 migrations apply` is unaffected (it applies
+`migrations/*.sql` by filename order, tracking progress in D1 itself, never reading the
+journal), so hand-writing the next migration directly — mirroring `0024`'s own approach — remains
+safe and is the current de facto practice. Resyncing the journal itself is unresolved tech debt,
+out of scope for whichever task next touches this file; note it in that PR's description if it
+still blocks you.

@@ -34,9 +34,16 @@ export function CountsTable({
 }: CountsTableProps) {
   const columns: EventTableColumn<InventoryCountDto>[] = [
     {
+      id: "code",
+      header: inventoryLabels.countsColumnCode,
+      isRowIdentifier: true,
+      cell: (row) => row.code ?? row.id,
+      sortable: true,
+      sortValue: (row) => row.code,
+    },
+    {
       id: "date",
       header: inventoryLabels.countsColumnDate,
-      isRowIdentifier: true,
       cell: (row) => row.businessDate,
       sortable: true,
       sortValue: (row) => row.businessDate,

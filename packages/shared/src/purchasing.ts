@@ -156,6 +156,9 @@ export interface PurchaseDto {
   /** Centavos (INV-6), server-recomputed as Σ lineTotal — never caller-supplied (Doc 04 §5). */
   total: number;
   receiptPhotoKey: string | null;
+  /** KOK-185: human-readable code (CMP-NNNN-YYYY) — see packages/shared/src/sales.ts's
+   * SaleDto.code for the full contract (server-assigned, nullable at the DB level by design). */
+  code: string | null;
   notes: string | null;
   lines: PurchaseLineDto[];
   createdAt: string;

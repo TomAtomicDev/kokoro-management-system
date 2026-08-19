@@ -144,6 +144,7 @@ export const inventoryLabels = {
     generic: "Ocurrió un error inesperado. Intenta de nuevo.",
   },
 
+  exitsColumnCode: "Código",
   exitsColumnDate: "Fecha",
   exitsColumnItem: "Ítem",
   exitsColumnQty: "Cantidad",
@@ -171,6 +172,7 @@ export const inventoryLabels = {
   fieldCountCategory: "Categoría",
   filterCategoryAll: "Todas las categorías",
 
+  countsColumnCode: "Código",
   countsColumnDate: "Fecha",
   countsColumnStatus: "Estado",
   countsColumnLines: "Ítems",

@@ -63,6 +63,12 @@ export async function transfer(
     counterpartTxId: inId,
     sourceEventType: null,
     sourceEventId: null,
+    // KOK-185: NOT assigned by a plain AFTER INSERT — both legs are inserted with
+    // counterpartTxId still null (see this module's header), so neither row's sibling exists yet
+    // at INSERT time. Migration 0024 instead fires an AFTER UPDATE OF counterpart_tx_id trigger,
+    // scoped to WHEN NEW.type = 'TRANSFER_OUT', on the linking UPDATE below — by then both rows
+    // exist, so it writes ONE code onto both. Re-read after db.batch() below.
+    code: null,
     description: command.description ?? null,
     deletedAt: null,
     createdAt: now,
@@ -79,6 +85,8 @@ export async function transfer(
     counterpartTxId: outId,
     sourceEventType: null,
     sourceEventId: null,
+    // Same code as outRow — see the comment there.
+    code: null,
     description: command.description ?? null,
     deletedAt: null,
     createdAt: now,
@@ -115,9 +123,17 @@ export async function transfer(
     }),
   ]);
 
+  // KOK-185: re-read the OUT leg's code — the AFTER UPDATE trigger wrote the SAME value onto both
+  // rows (see outRow's comment above), so one read covers both return values.
+  const codeRow = await db.query.financialTransactions.findFirst({
+    where: (t, { eq: eqOp }) => eqOp(t.id, outId),
+    columns: { code: true },
+  });
+  const code = codeRow?.code ?? null;
+
   return {
-    outTransaction: toTransactionDto(outRow),
-    inTransaction: toTransactionDto(inRow),
+    outTransaction: toTransactionDto({ ...outRow, code }),
+    inTransaction: toTransactionDto({ ...inRow, code }),
     fromAccount: toAccountDto({
       ...fromAccount,
       balance: subMoney(toCentavos(fromAccount.balance), toCentavos(command.amount)),

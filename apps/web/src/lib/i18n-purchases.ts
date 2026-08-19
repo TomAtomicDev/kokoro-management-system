@@ -10,6 +10,7 @@ export const purchasesLabels = {
   subtitle: "Registra compras de insumos, con recibo y aviso de subida de precios.",
   actionRecord: "Registrar compra",
 
+  columnCode: "Código",
   columnDate: "Fecha",
   columnSupplier: "Proveedor",
   columnItems: "Ítems",

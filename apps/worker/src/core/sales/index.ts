@@ -140,6 +140,7 @@ function toSaleDto(row: SaleRow, lineRows: readonly SaleLineRow[]): SaleDto {
     paidAt: row.paidAt,
     paymentMethod: row.paymentMethod,
     accountId: row.accountId,
+    code: row.code,
     notes: row.notes,
     lines,
     createdAt: row.createdAt,
@@ -279,6 +280,9 @@ async function buildSaleCreateMovements(
     paidAt: isPaid ? command.occurredAt : null,
     paymentMethod: command.paymentStatus === "PAID" ? command.paymentMethod : null,
     accountId: command.paymentStatus === "PAID" ? command.accountId : null,
+    // KOK-185: assigned by an AFTER INSERT trigger (migration 0024), never by core/ — re-read
+    // after db.batch() and folded into the returned DTO.
+    code: null,
     notes: command.notes ?? null,
     deletedAt: null,
     createdAt: now,
@@ -382,8 +386,13 @@ export async function recordSale(
   // technique as core/purchasing/index.ts's recordPurchase, for the same reason.
   await db.batch(statements as [Statement, ...Statement[]]);
 
+  const codeRow = await db.query.sales.findFirst({
+    where: (t, { eq: eqOp }) => eqOp(t.id, saleId),
+    columns: { code: true },
+  });
+
   return {
-    sale: toSaleDto(saleRow, saleLineRows),
+    sale: toSaleDto({ ...saleRow, code: codeRow?.code ?? null }, saleLineRows),
     account:
       account !== null
         ? toAccountDto({
@@ -1228,6 +1237,8 @@ interface ReceivableRow {
   channel: SaleDto["channel"];
   custom_order_id: string | null;
   days_outstanding: number;
+  // KOK-185: v_receivables was recreated in migration 0024 to add `s.code AS code`.
+  code: string | null;
 }
 
 /**
@@ -1251,6 +1262,7 @@ export async function listReceivables(db: Db): Promise<ListReceivablesResult> {
     channel: row.channel,
     customOrderId: row.custom_order_id,
     daysOutstanding: row.days_outstanding,
+    code: row.code,
   }));
 
   return { receivables };

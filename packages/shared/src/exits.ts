@@ -142,6 +142,9 @@ export interface StockExitDto {
   unitCostSnapshotMc: number;
   packagingLines: StockExitPackagingLineDto[];
   sessionId: string | null;
+  /** KOK-185: human-readable code (SAL-NNNN-YYYY) — see packages/shared/src/sales.ts's
+   * SaleDto.code for the full contract. */
+  code: string | null;
   notes: string | null;
   createdAt: string;
   updatedAt: string;

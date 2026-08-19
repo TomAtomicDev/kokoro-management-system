@@ -104,6 +104,7 @@ function toSessionDto(row: SessionRow, costRows: readonly SessionCostRow[]): Ses
     endedAt: row.endedAt,
     durationMin: row.durationMin,
     status: row.status,
+    code: row.code,
     notes: row.notes,
     costLines: costRows.map(toSessionCostLineDto),
     createdAt: row.createdAt,
@@ -310,6 +311,11 @@ export async function resolveSessionForEvent(
     endedAt: null,
     durationMin: null,
     status: "OPEN",
+    // KOK-185: assigned by an AFTER INSERT trigger (migration 0024), never by core/. This
+    // function returns raw pieces (no SessionDto), so unlike the other create paths there is no
+    // post-batch re-read here — the caller's own batch carries this insert, and anyone who later
+    // needs the code reads it fresh via getSession/listSessions.
+    code: null,
     notes: null,
     deletedAt: null,
     createdAt: now,
@@ -380,6 +386,9 @@ export async function recordSession(
     endedAt: command.endedAt ?? null,
     durationMin: command.durationMin ?? null,
     status,
+    // KOK-185: assigned by an AFTER INSERT trigger (migration 0024), never by core/ — re-read
+    // after db.batch() and folded into the returned DTO.
+    code: null,
     notes: command.notes ?? null,
     deletedAt: null,
     createdAt: now,
@@ -458,7 +467,14 @@ export async function recordSession(
 
   await db.batch(statements as [Statement, ...Statement[]]);
 
-  return { session: toSessionDto(sessionRow, costRows) };
+  const codeRow = await db.query.sessions.findFirst({
+    where: (t, { eq: eqOp }) => eqOp(t.id, sessionId),
+    columns: { code: true },
+  });
+
+  return {
+    session: toSessionDto({ ...sessionRow, code: codeRow?.code ?? null }, costRows),
+  };
 }
 
 /** Loads a session and its cost lines for mutation, refusing one that is missing or already
@@ -690,6 +706,9 @@ export async function closeAndStartSession(
     endedAt: command.newSession.endedAt ?? null,
     durationMin: command.newSession.durationMin ?? null,
     status: "OPEN",
+    // KOK-185: assigned by an AFTER INSERT trigger (migration 0024), never by core/ — re-read
+    // after db.batch() and folded into the returned DTO.
+    code: null,
     notes: command.newSession.notes ?? null,
     deletedAt: null,
     createdAt: now,
@@ -774,9 +793,15 @@ export async function closeAndStartSession(
   ];
 
   await db.batch(statements as [Statement, ...Statement[]]);
+
+  const newCodeRow = await db.query.sessions.findFirst({
+    where: (t, { eq: eqOp }) => eqOp(t.id, newSessionId),
+    columns: { code: true },
+  });
+
   return {
     closedSession: toSessionDto(closedRow, existingCostRows),
-    newSession: toSessionDto(newRow, newCostRows),
+    newSession: toSessionDto({ ...newRow, code: newCodeRow?.code ?? null }, newCostRows),
   };
 }
 
@@ -967,30 +992,34 @@ export async function getSession(db: Db, id: string): Promise<GetSessionResult> 
     }),
   ]);
 
+  // KOK-185: prefer each linked event's own code over the bare type label that used to sit here
+  // (the F-57 symptom this whole task was written for — packing.tsx's session cell had the exact
+  // same "every row of one type reads identically" problem). Falls back to the pre-KOK-185 label
+  // only if a code somehow isn't set.
   const linkedEvents: SessionLinkedEventsDto = {
     purchases: purchaseRows.map((r) => ({
       id: r.id,
       occurredAt: r.occurredAt,
       businessDate: r.businessDate,
-      label: r.supplierName ?? "Compra",
+      label: r.code ?? r.supplierName ?? "Compra",
     })),
     productionRuns: productionRunRows.map((r) => ({
       id: r.id,
       occurredAt: r.occurredAt,
       businessDate: r.businessDate,
-      label: "Producción",
+      label: r.code ?? "Producción",
     })),
     sales: saleRows.map((r) => ({
       id: r.id,
       occurredAt: r.occurredAt,
       businessDate: r.businessDate,
-      label: r.channel === "CUSTOM_ORDER" ? "Venta (pedido)" : "Venta",
+      label: r.code ?? (r.channel === "CUSTOM_ORDER" ? "Venta (pedido)" : "Venta"),
     })),
     stockExits: stockExitRows.map((r) => ({
       id: r.id,
       occurredAt: r.occurredAt,
       businessDate: r.businessDate,
-      label: r.reason,
+      label: r.code ?? r.reason,
     })),
   };
 
@@ -1009,6 +1038,8 @@ interface SessionHoursViewRow {
   ended_at: string | null;
   duration_min: number | null;
   linked_event_count: number;
+  // KOK-185: v_session_hours was recreated in migration 0024 to add `s.code AS code`.
+  code: string | null;
 }
 
 /** One session's effective interval for S-5 union arithmetic. `endedAt` here is always a real
@@ -1168,6 +1199,7 @@ export async function listSessions(
       durationMin: row.duration_min,
       linkedEventCount: row.linked_event_count,
       costsTotal: costsBySession.get(row.session_id) ?? 0,
+      code: row.code,
     })),
   };
 }

@@ -97,6 +97,7 @@ function toStockExitDto(
       unitCostSnapshotMc: line.unitCostSnapshotMc,
     })),
     sessionId: row.sessionId,
+    code: row.code,
     notes: row.notes,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
@@ -331,6 +332,9 @@ export async function recordExit(
     reason: command.reason,
     unitCostSnapshotMc,
     sessionId: command.sessionId ?? null,
+    // KOK-185: assigned by an AFTER INSERT trigger (migration 0024), never by core/ — re-read
+    // after db.batch() and folded into the returned DTO.
+    code: null,
     notes: command.notes ?? null,
     deletedAt: null,
     createdAt: now,
@@ -363,7 +367,14 @@ export async function recordExit(
   // same cast technique as core/purchasing/index.ts's recordPurchase, for the same reason.
   await db.batch(statements as [Statement, ...Statement[]]);
 
-  return { exit: toStockExitDto(exitRow, packagingLineRows) };
+  const codeRow = await db.query.stockExits.findFirst({
+    where: (t, { eq: eqOp }) => eqOp(t.id, exitId),
+    columns: { code: true },
+  });
+
+  return {
+    exit: toStockExitDto({ ...exitRow, code: codeRow?.code ?? null }, packagingLineRows),
+  };
 }
 
 /**

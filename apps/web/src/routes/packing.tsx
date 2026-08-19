@@ -65,6 +65,14 @@ export function PackingRoute() {
 
   const columns: EventTableColumn<AssemblyDto>[] = [
     {
+      id: "code",
+      header: assembliesLabels.columnCode,
+      isRowIdentifier: true,
+      cell: (row) => row.code ?? row.id,
+      sortable: true,
+      sortValue: (row) => row.code,
+    },
+    {
       id: "date",
       header: assembliesLabels.columnDate,
       cell: (row) => row.businessDate,
@@ -74,7 +82,6 @@ export function PackingRoute() {
     {
       id: "output",
       header: assembliesLabels.columnOutput,
-      isRowIdentifier: true,
       cell: (row) => itemById.get(row.outputItemId)?.name ?? row.outputItemId,
       sortable: true,
       sortValue: (row) => itemById.get(row.outputItemId)?.name ?? row.outputItemId,
@@ -101,10 +108,15 @@ export function PackingRoute() {
     {
       id: "session",
       header: assembliesLabels.columnSession,
+      // KOK-185: a session's code, not its bare type label — three packings against three
+      // different PRODUCTION sessions used to all read "Producción" here with no way to tell
+      // them apart (the owner's original complaint, Issue #44 §B-4).
       cell: (row) => {
         const session = sessionById.get(row.sessionId);
-        return session ? sessionsLabels.typeLabels[session.type] : row.sessionId;
+        return session ? (session.code ?? sessionsLabels.typeLabels[session.type]) : row.sessionId;
       },
+      sortable: true,
+      sortValue: (row) => sessionById.get(row.sessionId)?.code,
     },
   ];
 
@@ -202,7 +214,10 @@ function AssemblyDetailDrawer({
         open={open}
         onOpenChange={onOpenChange}
         title={outputItem?.name ?? assembliesLabels.detailTitle}
-        subtitle={assembly?.businessDate}
+        subtitle={
+          assembly &&
+          (assembly.code ? `${assembly.code} · ${assembly.businessDate}` : assembly.businessDate)
+        }
         entityType="assemblies"
         entityId={assembly?.id}
         footer={

@@ -151,7 +151,7 @@ export function CountDetailView({ countId, items, open, onOpenChange }: CountDet
       disableUnsavedChangesGuard
       title={
         count
-          ? `${inventoryLabels.countDetailTitlePrefix} · ${count.businessDate}`
+          ? `${inventoryLabels.countDetailTitlePrefix} · ${count.code ?? count.businessDate}`
           : inventoryLabels.countDetailTitlePrefix
       }
       subtitle={count?.notes ?? undefined}

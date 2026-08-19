@@ -15,13 +15,16 @@ export interface OrderPickerProps {
 }
 
 export function formatOrderPickerDisplay(
-  order: Pick<OrderDto, "customerName" | "deliveryDate" | "description">,
+  order: Pick<OrderDto, "code" | "customerName" | "deliveryDate" | "description">,
 ): string {
   return [
+    order.code,
     order.customerName ?? ordersLabels.orderPickerDeletedCustomer,
     order.deliveryDate ?? ordersLabels.noDeliveryDate,
     order.description,
-  ].join(" · ");
+  ]
+    .filter((part): part is string => part !== null)
+    .join(" · ");
 }
 
 export function OrderPicker(props: OrderPickerProps): JSX.Element {
@@ -53,7 +56,7 @@ export function OrderPicker(props: OrderPickerProps): JSX.Element {
   const trimmedQuery = query.trim().toLowerCase();
   const results = orders.filter((order) => {
     if (trimmedQuery === "") return true;
-    return [order.customerName, order.description].some((field) =>
+    return [order.code, order.customerName, order.description].some((field) =>
       field?.toLowerCase().includes(trimmedQuery),
     );
   });
@@ -100,6 +103,7 @@ export function OrderPicker(props: OrderPickerProps): JSX.Element {
                         {order.customerName ?? ordersLabels.orderPickerDeletedCustomer}
                       </span>
                       <span className="w-full truncate text-muted-foreground text-xs">
+                        {order.code ? `${order.code} · ` : ""}
                         {order.deliveryDate ?? ordersLabels.noDeliveryDate}
                       </span>
                       {order.description ? (

@@ -35,6 +35,7 @@ better correction ergonomics for a solo operator (ADR-009).
 | INV-9 | Derived rows always carry `source_event_type` + `source_event_id`; orphan derived rows are forbidden. |
 | INV-10 | Deleting an event soft-deletes it and removes/reverses its derived rows in the same batch; history stays in `audit_log`. |
 | INV-11 | A create/edit/delete of a movement-affecting event whose `(occurred_at, created_at)` point precedes the latest already-processed movement for an affected item triggers a synchronous, bounded WAC/cost replay before the command commits (R-2, ADR-016); the nightly sentinel (INV-5) is a backstop auditor, never the primary corrector. |
+| INV-12 | Every session, production run, sale, assembly, purchase, custom order, inventory count, and stock exit carries a unique, stable, human-readable `code` (KOK-185, Doc 04 §3.6), assigned atomically at creation and never mutated thereafter; a manual (non-system-owned) `financial_transactions` row carries one too, with both legs of a transfer sharing one code, while a system-owned row carries none (it is identified by its source event's code instead). Never generated client-side (web or Telegram) — always server-assigned. |
 
 ## 3. Aggregates and key entities
 

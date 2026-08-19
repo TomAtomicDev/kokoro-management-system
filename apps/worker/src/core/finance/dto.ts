@@ -31,6 +31,7 @@ export function toTransactionDto(row: FinancialTransactionRow): FinancialTransac
     counterpartTxId: row.counterpartTxId,
     sourceEventType: row.sourceEventType,
     sourceEventId: row.sourceEventId,
+    code: row.code,
     description: row.description,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,

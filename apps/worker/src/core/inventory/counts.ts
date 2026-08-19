@@ -88,6 +88,7 @@ function toCountDto(
     occurredAt: row.occurredAt,
     businessDate: row.businessDate,
     status: row.status,
+    code: row.code,
     notes: row.notes,
     lines: lineRows.map((line) => toLineDto(line, priorMovementItemIds)),
     createdAt: row.createdAt,
@@ -169,6 +170,9 @@ export async function startCount(
     occurredAt: command.occurredAt,
     businessDate: command.businessDate,
     status: "DRAFT",
+    // KOK-185: assigned by an AFTER INSERT trigger (migration 0024), never by core/ — re-read
+    // after db.batch() and folded into the returned DTO.
+    code: null,
     notes: command.notes ?? null,
     deletedAt: null,
     createdAt: now,
@@ -192,7 +196,14 @@ export async function startCount(
   // empty — same cast technique as core/purchasing/index.ts's recordPurchase, for the same reason.
   await db.batch(statements as [Statement, ...Statement[]]);
 
-  return { count: toCountDto(countRow, lineRows, priorMovementItemIds) };
+  const codeRow = await db.query.inventoryCounts.findFirst({
+    where: (t, { eq: eqOp }) => eqOp(t.id, countId),
+    columns: { code: true },
+  });
+
+  return {
+    count: toCountDto({ ...countRow, code: codeRow?.code ?? null }, lineRows, priorMovementItemIds),
+  };
 }
 
 /**

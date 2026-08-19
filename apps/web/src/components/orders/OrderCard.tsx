@@ -22,9 +22,12 @@ export function OrderCard({ order, onClick }: OrderCardProps) {
       className="flex w-full flex-col gap-2 rounded-md border border-border bg-card p-3 text-left text-sm hover:border-primary/50 hover:bg-accent"
     >
       <div className="flex items-start justify-between gap-2">
-        <span className="font-medium text-foreground">
-          {order.customerName ?? ordersLabels.columnCustomer}
-        </span>
+        <div className="flex flex-col">
+          <span className="font-medium text-foreground">
+            {order.customerName ?? ordersLabels.columnCustomer}
+          </span>
+          {order.code ? <span className="text-muted-foreground text-xs">{order.code}</span> : null}
+        </div>
         <Badge variant={hasDeposit ? "default" : "muted"}>
           {hasDeposit ? ordersLabels.depositPaidBadge : ordersLabels.depositPendingBadge}
         </Badge>
