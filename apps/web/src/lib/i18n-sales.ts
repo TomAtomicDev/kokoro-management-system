@@ -55,6 +55,7 @@ export const salesLabels = {
   fieldCustomer: "Cliente",
   fieldDate: "Fecha",
   fieldNotes: "Notas",
+  charactersRemaining: (count: number) => `${count} caracteres restantes.`,
   notesPlaceholder: "Opcional",
 
   productLinesTitle: "Artículos vendidos",
@@ -92,6 +93,10 @@ export const salesLabels = {
   collectSubmit: "Confirmar cobro",
 
   errors: {
+    lineIncomplete: (line: number, field: string) =>
+      `La línea ${line} está incompleta: falta ${field}.`,
+    lineInvalidValue: (line: number, field: string) =>
+      `La línea ${line} tiene un valor inválido en ${field}.`,
     generic: "Ocurrió un error inesperado. Intenta de nuevo.",
     invalidLine: "Cada línea necesita un ítem, una cantidad y un precio unitario válidos.",
     accountRequired: "Selecciona una cuenta.",

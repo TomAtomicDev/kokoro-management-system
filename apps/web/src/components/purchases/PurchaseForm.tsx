@@ -278,12 +278,42 @@ export function PurchaseForm({ accounts, purchase, preselectedSessionId }: Purch
     }
 
     const parsedLines: { itemId: string; qty: number; lineTotal: number }[] = [];
-    for (const line of lines) {
+    const lastEnteredLineIndex = lines.reduce(
+      (lastIndex, line, index) =>
+        !line.itemId && line.qty.trim() === "" && line.amount.trim() === "" ? lastIndex : index,
+      -1,
+    );
+
+    for (const [index, line] of lines.entries()) {
+      // A trailing untouched row is the editor's affordance for adding another line, not an
+      // invalid purchase line. Empty rows in the middle still identify the missing item below.
+      if (index > lastEnteredLineIndex) continue;
+
+      const lineNumber = index + 1;
+      const qtyText = line.qty.trim();
+      const lineTotalText = line.amount.trim();
+      if (!line.itemId) {
+        setError(purchasesLabels.errors.lineIncomplete(lineNumber, purchasesLabels.lineItem));
+        return;
+      }
+      if (qtyText === "") {
+        setError(purchasesLabels.errors.lineIncomplete(lineNumber, purchasesLabels.lineQty));
+        return;
+      }
+      if (lineTotalText === "") {
+        setError(purchasesLabels.errors.lineIncomplete(lineNumber, purchasesLabels.lineTotal));
+        return;
+      }
+
       const item = line.itemId ? itemsById.get(line.itemId) : undefined;
       const qty = item ? parseLineQuantityToMilliUnits(line.qty, line.unit, item.unit) : null;
       const lineTotal = parseDecimalToInt(line.amount, 2);
-      if (!line.itemId || qty === null || qty <= 0 || lineTotal === null) {
-        setError(purchasesLabels.errors.invalidLine);
+      if (qty === null || qty <= 0) {
+        setError(purchasesLabels.errors.lineInvalidValue(lineNumber, purchasesLabels.lineQty));
+        return;
+      }
+      if (lineTotal === null) {
+        setError(purchasesLabels.errors.lineInvalidValue(lineNumber, purchasesLabels.lineTotal));
         return;
       }
       parsedLines.push({ itemId: line.itemId, qty, lineTotal });
@@ -510,6 +540,13 @@ export function PurchaseForm({ accounts, purchase, preselectedSessionId }: Purch
             disabled={disabled}
             maxLength={PURCHASE_NOTES_MAX_LENGTH}
           />
+          {notes.length >= PURCHASE_NOTES_MAX_LENGTH * 0.8 ? (
+            <span className="text-muted-foreground text-xs" aria-live="polite">
+              {purchasesLabels.charactersRemaining(
+                Math.max(0, PURCHASE_NOTES_MAX_LENGTH - notes.length),
+              )}
+            </span>
+          ) : null}
         </div>
 
         <div className="flex flex-col gap-1.5">
