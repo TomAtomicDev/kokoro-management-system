@@ -119,6 +119,7 @@ export const inventoryLabels = {
   recordExitTitle: "Registrar salida",
   recordExitButton: "Registrar salida",
 
+  fieldExitKind: "Tipo de ítem",
   fieldItem: "Ítem",
   itemPickerEmpty: "No hay ítems medibles disponibles para registrar una salida.",
   fieldQty: "Cantidad",

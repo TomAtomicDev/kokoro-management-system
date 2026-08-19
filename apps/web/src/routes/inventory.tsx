@@ -241,11 +241,12 @@ export function InventoryRoute() {
         <div className="flex flex-col gap-4">
           <div className="flex flex-wrap items-end justify-between gap-4">
             <DateRangeFilter fromDate={fromDate} toDate={toDate} onChange={updateDateRange} />
-            <WasteSummaryCard dateRange={{ fromDate, toDate }} />
             <Button type="button" onClick={() => setExitFormOpen(true)}>
               {inventoryLabels.recordExitButton}
             </Button>
           </div>
+
+          <WasteSummaryCard dateRange={{ fromDate, toDate }} />
 
           <ExitsTable
             rows={exitsQuery.data?.exits ?? []}
