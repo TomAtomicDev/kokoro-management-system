@@ -182,7 +182,7 @@ export function sessionToFormState(session: SessionDto): SessionFormState {
 export function SessionForm({ open, onOpenChange, accounts, session }: SessionFormProps) {
   const isEditMode = Boolean(session);
 
-  const [createMode, setCreateMode] = useState<CreateMode>("START_NOW");
+  const [createMode, setCreateMode] = useState<CreateMode>("LOG_PAST");
   const [type, setType] = useState<SessionType>("PRODUCTION");
   const [businessDate, setBusinessDate] = useState("");
   const [notes, setNotes] = useState("");
@@ -213,7 +213,7 @@ export function SessionForm({ open, onOpenChange, accounts, session }: SessionFo
         setDurationMin(initial.durationMin);
         setCostLines(initial.costLines);
       } else {
-        setCreateMode("START_NOW");
+        setCreateMode("LOG_PAST");
         setType("PRODUCTION");
         setBusinessDate(toBusinessDate(nowIso()));
         setNotes("");
@@ -426,7 +426,7 @@ export function SessionForm({ open, onOpenChange, accounts, session }: SessionFo
 
         {isEditMode || createMode === "LOG_PAST" ? (
           <>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div className="flex flex-col gap-1.5">
                 <label className="font-medium text-foreground" htmlFor="sf-start">
                   {sessionsLabels.fieldStart} ({sessionsLabels.required})
