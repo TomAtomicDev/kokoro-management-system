@@ -16,6 +16,7 @@ import {
   DateRangeFilter,
   getDefaultDateRange,
 } from "@/components/common/DateRangeFilter";
+import type { EventTableSortState } from "@/components/data-table/EventTable";
 import { SaleDetailDrawer } from "@/components/sales/SaleDetailDrawer";
 import { SaleForm } from "@/components/sales/SaleForm";
 import { SalesTable } from "@/components/sales/SalesTable";
@@ -53,6 +54,10 @@ export function SalesRoute() {
   const fromDate = search.fromDate ?? defaults.fromDate;
   const toDate = search.toDate ?? defaults.toDate;
   const receivableOnly = search.paymentStatus === "ON_CREDIT";
+  const sortState: EventTableSortState | null =
+    search.sort && search.sortDirection
+      ? { columnId: search.sort, direction: search.sortDirection }
+      : null;
   const accountsQuery = useAccounts();
   const salesQuery = useSales({
     fromDate,
@@ -74,6 +79,16 @@ export function SalesRoute() {
       search: (previous) => ({
         ...previous,
         paymentStatus: nextReceivableOnly ? "ON_CREDIT" : undefined,
+      }),
+    });
+  }
+
+  function updateSort(next: EventTableSortState | null): void {
+    void navigate({
+      search: (previous) => ({
+        ...previous,
+        sort: next?.columnId,
+        sortDirection: next?.direction,
       }),
     });
   }
@@ -130,6 +145,8 @@ export function SalesRoute() {
         loading={salesQuery.isLoading}
         onRowClick={(sale) => setSelectedSaleId(sale.id)}
         daysOutstandingBySaleId={daysOutstandingBySaleId}
+        sortState={sortState}
+        onSortChange={updateSort}
       />
 
       <SaleDetailDrawer

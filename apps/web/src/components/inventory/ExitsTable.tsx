@@ -12,7 +12,11 @@ import {
   totalCentavos,
 } from "@kokoro/shared";
 
-import { EventTable, type EventTableColumn } from "@/components/data-table/EventTable";
+import {
+  EventTable,
+  type EventTableColumn,
+  type EventTableSortState,
+} from "@/components/data-table/EventTable";
 import { inventoryLabels } from "@/lib/i18n-inventory";
 
 export interface ExitsTableProps {
@@ -25,19 +29,33 @@ export interface ExitsTableProps {
   loading?: boolean;
   /** Row -> detail drawer (KOK-024 Phase G) — same optional-prop precedent as PurchasesTable's. */
   onRowClick?: (row: StockExitDto) => void;
+  sortState: EventTableSortState | null;
+  onSortChange: (sortState: EventTableSortState | null) => void;
 }
 
-export function ExitsTable({ rows, items, loading, onRowClick }: ExitsTableProps) {
+export function ExitsTable({
+  rows,
+  items,
+  loading,
+  onRowClick,
+  sortState,
+  onSortChange,
+}: ExitsTableProps) {
   const columns: EventTableColumn<StockExitDto>[] = [
     {
       id: "date",
       header: inventoryLabels.exitsColumnDate,
       cell: (row) => row.businessDate,
+      sortable: true,
+      sortValue: (row) => row.businessDate,
     },
     {
       id: "item",
       header: inventoryLabels.exitsColumnItem,
+      isRowIdentifier: true,
       cell: (row) => items.get(row.itemId)?.name ?? "—",
+      sortable: true,
+      sortValue: (row) => items.get(row.itemId)?.name ?? "—",
     },
     {
       id: "qty",
@@ -47,11 +65,15 @@ export function ExitsTable({ rows, items, loading, onRowClick }: ExitsTableProps
         const unit = items.get(row.itemId)?.unit ?? "UNIT";
         return formatQty(row.qty, unit);
       },
+      sortable: true,
+      sortValue: (row) => row.qty,
     },
     {
       id: "reason",
       header: inventoryLabels.exitsColumnReason,
       cell: (row) => inventoryLabels.reasonLabels[row.reason],
+      sortable: true,
+      sortValue: (row) => inventoryLabels.reasonLabels[row.reason],
     },
     {
       id: "valuedCost",
@@ -62,6 +84,9 @@ export function ExitsTable({ rows, items, loading, onRowClick }: ExitsTableProps
         formatMoney(
           totalCentavos(toMilliCentavosPerUnit(row.unitCostSnapshotMc), toMilliUnits(row.qty)),
         ),
+      sortable: true,
+      sortValue: (row) =>
+        totalCentavos(toMilliCentavosPerUnit(row.unitCostSnapshotMc), toMilliUnits(row.qty)),
     },
   ];
 
@@ -74,6 +99,8 @@ export function ExitsTable({ rows, items, loading, onRowClick }: ExitsTableProps
       emptyMessage={inventoryLabels.noExits}
       loading={loading}
       loadingMessage={inventoryLabels.loading}
+      sortState={sortState}
+      onSortChange={onSortChange}
     />
   );
 }

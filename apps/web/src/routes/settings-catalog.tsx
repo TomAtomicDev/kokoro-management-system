@@ -13,12 +13,17 @@ import {
   totalCentavos,
   WHOLE_UNIT_MILLI_UNITS,
 } from "@kokoro/shared";
+import { getRouteApi } from "@tanstack/react-router";
 import { useState } from "react";
 
 import { CreateItemDialog } from "@/components/catalog/CreateItemDialog";
 import { ItemDetailDrawer } from "@/components/catalog/ItemDetailDrawer";
 import { MergeItemsDialog } from "@/components/catalog/MergeItemsDialog";
-import { EventTable, type EventTableColumn } from "@/components/data-table/EventTable";
+import {
+  EventTable,
+  type EventTableColumn,
+  type EventTableSortState,
+} from "@/components/data-table/EventTable";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,8 +33,11 @@ import { useItemsQuery, useSetItemActiveMutation } from "@/features/catalog/api"
 import { catalogLabels } from "@/lib/i18n-catalog";
 
 type ActiveFilter = "all" | "active" | "inactive";
+const routeApi = getRouteApi("/_authenticated/settings/catalog");
 
 export function SettingsCatalogRoute() {
+  const searchParams = routeApi.useSearch();
+  const navigate = routeApi.useNavigate();
   const [search, setSearch] = useState("");
   const [kind, setKind] = useState<ItemKind | "">("");
   const [category, setCategory] = useState<ItemCategory | "">("");
@@ -37,6 +45,20 @@ export function SettingsCatalogRoute() {
   const [createOpen, setCreateOpen] = useState(false);
   const [mergeOpen, setMergeOpen] = useState(false);
   const [detailItemId, setDetailItemId] = useState<string | null>(null);
+  const sortState: EventTableSortState | null =
+    searchParams.sort && searchParams.sortDirection
+      ? { columnId: searchParams.sort, direction: searchParams.sortDirection }
+      : null;
+
+  function updateSort(next: EventTableSortState | null): void {
+    void navigate({
+      search: (previous) => ({
+        ...previous,
+        sort: next?.columnId,
+        sortDirection: next?.direction,
+      }),
+    });
+  }
 
   const itemsQuery = useItemsQuery({
     kind: kind || undefined,
@@ -50,30 +72,31 @@ export function SettingsCatalogRoute() {
     {
       id: "name",
       header: catalogLabels.columnName,
-      cell: (item) => (
-        <button
-          type="button"
-          className="font-medium text-foreground hover:underline"
-          onClick={() => setDetailItemId(item.id)}
-        >
-          {item.name}
-        </button>
-      ),
+      isRowIdentifier: true,
+      cell: (item) => <span className="font-medium text-foreground">{item.name}</span>,
+      sortable: true,
+      sortValue: (item) => item.name,
     },
     {
       id: "kind",
       header: catalogLabels.columnKind,
       cell: (item) => catalogLabels.kindLabels[item.kind],
+      sortable: true,
+      sortValue: (item) => catalogLabels.kindLabels[item.kind],
     },
     {
       id: "category",
       header: catalogLabels.columnCategory,
       cell: (item) => catalogLabels.categoryLabels[item.category],
+      sortable: true,
+      sortValue: (item) => catalogLabels.categoryLabels[item.category],
     },
     {
       id: "unit",
       header: catalogLabels.columnUnit,
       cell: (item) => catalogLabels.unitLabels[item.unit].replace(/ \(.+\)/, ""),
+      sortable: true,
+      sortValue: (item) => catalogLabels.unitLabels[item.unit].replace(/ \(.+\)/, ""),
     },
     {
       id: "price",
@@ -83,12 +106,16 @@ export function SettingsCatalogRoute() {
         item.salePriceMc === null
           ? "—"
           : formatMoney(totalCentavos(item.salePriceMc, WHOLE_UNIT_MILLI_UNITS)),
+      sortable: true,
+      sortValue: (item) => item.salePriceMc,
     },
     {
       id: "minStock",
       header: catalogLabels.columnMinStock,
       numeric: true,
       cell: (item) => (item.minStockQty === null ? "—" : formatQty(item.minStockQty, item.unit)),
+      sortable: true,
+      sortValue: (item) => item.minStockQty,
     },
     {
       id: "aliases",
@@ -105,6 +132,8 @@ export function SettingsCatalogRoute() {
             ))}
           </div>
         ),
+      sortable: true,
+      sortValue: (item) => item.aliases[0]?.alias ?? "—",
     },
     {
       id: "active",
@@ -117,6 +146,8 @@ export function SettingsCatalogRoute() {
           aria-label={`${catalogLabels.columnActive}: ${item.name}`}
         />
       ),
+      sortable: true,
+      sortValue: (item) => (item.isActive ? 1 : 0),
     },
   ];
 
@@ -187,6 +218,8 @@ export function SettingsCatalogRoute() {
         emptyMessage={catalogLabels.noItems}
         loading={itemsQuery.isLoading}
         loadingMessage={catalogLabels.loading}
+        sortState={sortState}
+        onSortChange={updateSort}
       />
 
       <CreateItemDialog open={createOpen} onOpenChange={setCreateOpen} />

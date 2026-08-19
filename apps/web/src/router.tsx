@@ -14,6 +14,7 @@ import {
   redirect,
 } from "@tanstack/react-router";
 import { getDefaultDateRange } from "@/components/common/DateRangeFilter";
+import type { EventTableSortDirection } from "@/components/data-table/EventTable";
 import { AppShell } from "@/components/layout/AppShell";
 import { fetchSession, sessionQueryKey } from "@/features/auth/api";
 import { queryClient } from "@/lib/query-client";
@@ -48,7 +49,22 @@ interface RouterContext {
   queryClient: QueryClient;
 }
 
-interface SalesSearch {
+interface TableSortSearch {
+  sort?: string;
+  sortDirection?: EventTableSortDirection;
+}
+
+function parseTableSortSearch(search: Record<string, unknown>): TableSortSearch {
+  return {
+    sort: typeof search.sort === "string" && search.sort.length > 0 ? search.sort : undefined,
+    sortDirection:
+      search.sortDirection === "ascending" || search.sortDirection === "descending"
+        ? search.sortDirection
+        : undefined,
+  };
+}
+
+interface SalesSearch extends TableSortSearch {
   fromDate?: string;
   toDate?: string;
   paymentStatus?: "PAID" | "ON_CREDIT";
@@ -66,7 +82,7 @@ interface PackingSearch {
 
 type InventoryTab = "stock" | "salidas" | "conteos";
 
-interface InventorySearch {
+interface InventorySearch extends TableSortSearch {
   fromDate?: string;
   toDate?: string;
   tab?: InventoryTab;
@@ -74,6 +90,11 @@ interface InventorySearch {
   lowStockOnly?: boolean;
   negativeOnly?: boolean;
 }
+
+type ProductionSearch = TableSortSearch;
+type PurchasesSearch = TableSortSearch;
+type FinanceSearch = TableSortSearch;
+type CatalogSearch = TableSortSearch;
 
 function dateRangeDefaults<T extends { fromDate?: string; toDate?: string }>(
   parsed: T,
@@ -134,6 +155,7 @@ const salesRoute = createRoute({
       fromDate: range.fromDate,
       toDate: range.toDate,
       paymentStatus: parsed.paymentStatus,
+      ...parseTableSortSearch(search),
     };
   },
   component: SalesRoute,
@@ -165,12 +187,16 @@ const ordersRoute = createRoute({
 const productionRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: "/production",
+  validateSearch: (search: Record<string, unknown>): ProductionSearch =>
+    parseTableSortSearch(search),
   component: ProductionRoute,
 });
 
 const purchasesRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: "/purchases",
+  validateSearch: (search: Record<string, unknown>): PurchasesSearch =>
+    parseTableSortSearch(search),
   component: PurchasesRoute,
 });
 
@@ -248,6 +274,7 @@ const inventoryRoute = createRoute({
       kind: stockFilters.kind,
       lowStockOnly: stockFilters.lowStockOnly,
       negativeOnly: stockFilters.negativeOnly,
+      ...parseTableSortSearch(search),
     };
   },
   component: InventoryRoute,
@@ -274,6 +301,7 @@ const sessionsRoute = createRoute({
 const financeRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: "/finance",
+  validateSearch: (search: Record<string, unknown>): FinanceSearch => parseTableSortSearch(search),
   component: FinanceRoute,
 });
 
@@ -310,6 +338,7 @@ const settingsAiRoute = createRoute({
 const settingsCatalogRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: "/settings/catalog",
+  validateSearch: (search: Record<string, unknown>): CatalogSearch => parseTableSortSearch(search),
   component: SettingsCatalogRoute,
 });
 

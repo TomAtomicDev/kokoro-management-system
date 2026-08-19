@@ -74,6 +74,7 @@ export function PackingRoute() {
     {
       id: "output",
       header: assembliesLabels.columnOutput,
+      isRowIdentifier: true,
       cell: (row) => itemById.get(row.outputItemId)?.name ?? row.outputItemId,
       sortable: true,
       sortValue: (row) => itemById.get(row.outputItemId)?.name ?? row.outputItemId,

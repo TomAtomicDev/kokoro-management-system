@@ -16,7 +16,11 @@ import {
   WHOLE_UNIT_MILLI_UNITS,
 } from "@kokoro/shared";
 import { CalcTrace } from "@/components/common/CalcTrace";
-import { EventTable, type EventTableColumn } from "@/components/data-table/EventTable";
+import {
+  EventTable,
+  type EventTableColumn,
+  type EventTableSortState,
+} from "@/components/data-table/EventTable";
 import { Badge } from "@/components/ui/badge";
 import { inventoryLabels } from "@/lib/i18n-inventory";
 import { cn } from "@/lib/utils";
@@ -25,6 +29,8 @@ export interface StockTableProps {
   rows: StockRowDto[];
   loading?: boolean;
   onRowClick?: (row: StockRowDto) => void;
+  sortState: EventTableSortState | null;
+  onSortChange: (sortState: EventTableSortState | null) => void;
 }
 
 /** ADR-017: both rates are integer milli-centavos per WHOLE unit. */
@@ -32,11 +38,18 @@ function formatUnitCostMc(rateMc: number, unit: StockRowDto["unit"]): string {
   return `${formatMoney(totalCentavos(toMilliCentavosPerUnit(rateMc), WHOLE_UNIT_MILLI_UNITS))} / ${inventoryLabels.unitAbbrev[unit]}`;
 }
 
-export function StockTable({ rows, loading, onRowClick }: StockTableProps) {
+export function StockTable({
+  rows,
+  loading,
+  onRowClick,
+  sortState,
+  onSortChange,
+}: StockTableProps) {
   const columns: EventTableColumn<StockRowDto>[] = [
     {
       id: "name",
       header: inventoryLabels.columnName,
+      isRowIdentifier: true,
       cell: (row) => (
         <div className="flex items-center gap-2">
           <span className="font-medium text-foreground">{row.name}</span>
@@ -47,21 +60,29 @@ export function StockTable({ rows, loading, onRowClick }: StockTableProps) {
           ) : null}
         </div>
       ),
+      sortable: true,
+      sortValue: (row) => row.name,
     },
     {
       id: "kind",
       header: inventoryLabels.columnKind,
       cell: (row) => inventoryLabels.kindLabels[row.kind],
+      sortable: true,
+      sortValue: (row) => inventoryLabels.kindLabels[row.kind],
     },
     {
       id: "category",
       header: inventoryLabels.columnCategory,
       cell: (row) => inventoryLabels.categoryLabels[row.category],
+      sortable: true,
+      sortValue: (row) => inventoryLabels.categoryLabels[row.category],
     },
     {
       id: "unit",
       header: inventoryLabels.columnUnit,
       cell: (row) => inventoryLabels.unitAbbrev[row.unit],
+      sortable: true,
+      sortValue: (row) => inventoryLabels.unitAbbrev[row.unit],
     },
     {
       id: "onHand",
@@ -72,24 +93,32 @@ export function StockTable({ rows, loading, onRowClick }: StockTableProps) {
           {formatQty(row.qtyOnHand, row.unit)}
         </span>
       ),
+      sortable: true,
+      sortValue: (row) => row.qtyOnHand,
     },
     {
       id: "minStock",
       header: inventoryLabels.columnMinStock,
       numeric: true,
       cell: (row) => (row.minStockQty === null ? "—" : formatQty(row.minStockQty, row.unit)),
+      sortable: true,
+      sortValue: (row) => row.minStockQty,
     },
     {
       id: "wac",
       header: inventoryLabels.columnWac,
       numeric: true,
       cell: (row) => formatUnitCostMc(row.wacMc, row.unit),
+      sortable: true,
+      sortValue: (row) => row.wacMc,
     },
     {
       id: "replacementCostMc",
       header: inventoryLabels.columnReplacementCost,
       numeric: true,
       cell: (row) => formatUnitCostMc(row.replacementCostMc, row.unit),
+      sortable: true,
+      sortValue: (row) => row.replacementCostMc,
     },
     {
       id: "stockValue",
@@ -107,6 +136,8 @@ export function StockTable({ rows, loading, onRowClick }: StockTableProps) {
           />
         </div>
       ),
+      sortable: true,
+      sortValue: (row) => row.stockValue,
     },
   ];
 
@@ -119,6 +150,8 @@ export function StockTable({ rows, loading, onRowClick }: StockTableProps) {
       emptyMessage={inventoryLabels.noStock}
       loading={loading}
       loadingMessage={inventoryLabels.loading}
+      sortState={sortState}
+      onSortChange={onSortChange}
     />
   );
 }

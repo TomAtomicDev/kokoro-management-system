@@ -30,6 +30,7 @@ export const purchasesLabels = {
   fieldAccount: "Cuenta",
   fieldDate: "Fecha",
   fieldNotes: "Notas",
+  charactersRemaining: (count: number) => `${count} caracteres restantes.`,
   notesPlaceholder: "Opcional",
   fieldPhoto: "Foto del recibo",
   photoUploading: "Subiendo…",
@@ -69,6 +70,10 @@ export const purchasesLabels = {
   } satisfies Record<Unit, string>,
 
   errors: {
+    lineIncomplete: (line: number, field: string) =>
+      `La línea ${line} está incompleta: falta ${field}.`,
+    lineInvalidValue: (line: number, field: string) =>
+      `La línea ${line} tiene un valor inválido en ${field}.`,
     generic: "Ocurrió un error inesperado. Intenta de nuevo.",
     invalidLine: "Cada línea necesita un ítem, una cantidad y un total válidos.",
     accountRequired: "Selecciona una cuenta.",

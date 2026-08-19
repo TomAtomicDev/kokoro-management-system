@@ -33,6 +33,7 @@ export function SessionsTable({ sessions, loading, onRowClick }: SessionsTablePr
     {
       id: "date",
       header: sessionsLabels.columnDate,
+      isRowIdentifier: true,
       cell: (row) => row.businessDate,
     },
     {
