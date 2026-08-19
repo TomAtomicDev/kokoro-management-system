@@ -1,13 +1,13 @@
 {
-  "name": "Kokoro Management",
-  "short_name": "Kokoro",
+  "name": "__KOKORO_PWA_NAME__",
+  "short_name": "__KOKORO_PWA_SHORT_NAME__",
   "description": "Operaciones, inventario y flujo de caja de Kokoro.",
   "lang": "es-BO",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "background_color": "#f8fafc",
-  "theme_color": "#0f766e",
+  "theme_color": "__KOKORO_PWA_THEME_COLOR__",
   "icons": [
     {
       "src": "/android-chrome-192x192.png",

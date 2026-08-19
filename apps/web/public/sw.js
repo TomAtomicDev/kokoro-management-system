@@ -1,4 +1,6 @@
-// Replaced with the built shell hash by vite.config.ts before deployment.
+// Replaced with a hash of the built index.html by vite.config.ts before deployment. Because
+// index.html contains the per-environment PWA identity, staging and production get distinct
+// cache names while each environment still invalidates its cache after a redeploy.
 const CACHE_NAME = "kokoro-static-__KOKORO_BUILD_ID__";
 const STATIC_DESTINATIONS = new Set(["document", "script", "style"]);
 
