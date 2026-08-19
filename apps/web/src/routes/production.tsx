@@ -6,9 +6,10 @@
 // that the real screen exists — the link to Recipes is kept, just demoted to a header button
 // alongside the primary action. Envasar is a separate top-level section (KOK-156).
 
-import { Link } from "@tanstack/react-router";
+import { getRouteApi, Link } from "@tanstack/react-router";
 import { useState } from "react";
 
+import type { EventTableSortState } from "@/components/data-table/EventTable";
 import { ProductionRunDetailDrawer } from "@/components/production/ProductionRunDetailDrawer";
 import { ProductionRunForm } from "@/components/production/ProductionRunForm";
 import { ProductionRunsTable } from "@/components/production/ProductionRunsTable";
@@ -17,7 +18,11 @@ import { useProductionRuns } from "@/features/production-runs/api";
 import { useRecipesQuery } from "@/features/recipes/api";
 import { productionLabels } from "@/lib/i18n-production";
 
+const routeApi = getRouteApi("/_authenticated/production");
+
 export function ProductionRoute() {
+  const search = routeApi.useSearch();
+  const navigate = routeApi.useNavigate();
   const productionRunsQuery = useProductionRuns();
   const recipesQuery = useRecipesQuery({ isActive: true });
 
@@ -25,6 +30,20 @@ export function ProductionRoute() {
   const [selectedProductionRunId, setSelectedProductionRunId] = useState<string | null>(null);
 
   const recipes = recipesQuery.data?.recipes ?? [];
+  const sortState: EventTableSortState | null =
+    search.sort && search.sortDirection
+      ? { columnId: search.sort, direction: search.sortDirection }
+      : null;
+
+  function updateSort(next: EventTableSortState | null): void {
+    void navigate({
+      search: (previous) => ({
+        ...previous,
+        sort: next?.columnId,
+        sortDirection: next?.direction,
+      }),
+    });
+  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -48,6 +67,8 @@ export function ProductionRoute() {
         recipes={recipes}
         loading={productionRunsQuery.isLoading}
         onRowClick={(productionRun) => setSelectedProductionRunId(productionRun.id)}
+        sortState={sortState}
+        onSortChange={updateSort}
       />
 
       <ProductionRunForm open={formOpen} onOpenChange={setFormOpen} />

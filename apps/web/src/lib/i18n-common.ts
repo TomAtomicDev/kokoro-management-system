@@ -5,4 +5,5 @@ export const commonLabels = {
   pwaUpdateAvailable: "Hay una nueva versión disponible.",
   pwaUpdateAction: "Actualizar",
   eventTableOpenRow: "Abrir detalle",
+  eventTableSortScope: "Ordena solo las filas ya cargadas (200–500), no toda la tabla.",
 } as const;

@@ -5,7 +5,11 @@
 
 import type { InventoryCountDto } from "@kokoro/shared";
 
-import { EventTable, type EventTableColumn } from "@/components/data-table/EventTable";
+import {
+  EventTable,
+  type EventTableColumn,
+  type EventTableSortState,
+} from "@/components/data-table/EventTable";
 import { Badge } from "@/components/ui/badge";
 import { inventoryLabels } from "@/lib/i18n-inventory";
 
@@ -13,19 +17,29 @@ export interface CountsTableProps {
   rows: InventoryCountDto[];
   loading?: boolean;
   onRowClick: (row: InventoryCountDto) => void;
+  sortState: EventTableSortState | null;
+  onSortChange: (sortState: EventTableSortState | null) => void;
 }
 
 function varianceCount(count: InventoryCountDto): number {
   return count.lines.filter((line) => line.countedQty !== line.expectedQty).length;
 }
 
-export function CountsTable({ rows, loading, onRowClick }: CountsTableProps) {
+export function CountsTable({
+  rows,
+  loading,
+  onRowClick,
+  sortState,
+  onSortChange,
+}: CountsTableProps) {
   const columns: EventTableColumn<InventoryCountDto>[] = [
     {
       id: "date",
       header: inventoryLabels.countsColumnDate,
       isRowIdentifier: true,
       cell: (row) => row.businessDate,
+      sortable: true,
+      sortValue: (row) => row.businessDate,
     },
     {
       id: "status",
@@ -35,18 +49,24 @@ export function CountsTable({ rows, loading, onRowClick }: CountsTableProps) {
           {inventoryLabels.countStatusLabels[row.status]}
         </Badge>
       ),
+      sortable: true,
+      sortValue: (row) => inventoryLabels.countStatusLabels[row.status],
     },
     {
       id: "lines",
       header: inventoryLabels.countsColumnLines,
       numeric: true,
       cell: (row) => row.lines.length,
+      sortable: true,
+      sortValue: (row) => row.lines.length,
     },
     {
       id: "variance",
       header: inventoryLabels.countsColumnVariance,
       numeric: true,
       cell: (row) => varianceCount(row),
+      sortable: true,
+      sortValue: (row) => varianceCount(row),
     },
   ];
 
@@ -59,6 +79,8 @@ export function CountsTable({ rows, loading, onRowClick }: CountsTableProps) {
       emptyMessage={inventoryLabels.noCounts}
       loading={loading}
       loadingMessage={inventoryLabels.loading}
+      sortState={sortState}
+      onSortChange={onSortChange}
     />
   );
 }

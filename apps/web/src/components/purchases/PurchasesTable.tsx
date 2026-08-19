@@ -8,7 +8,11 @@ import { formatMoney, toCentavos } from "@kokoro/shared";
 import { Paperclip } from "lucide-react";
 import { useMemo } from "react";
 
-import { EventTable, type EventTableColumn } from "@/components/data-table/EventTable";
+import {
+  EventTable,
+  type EventTableColumn,
+  type EventTableSortState,
+} from "@/components/data-table/EventTable";
 import { useItemsQuery } from "@/features/catalog/api";
 import { purchasesLabels } from "@/lib/i18n-purchases";
 
@@ -17,6 +21,8 @@ export interface PurchasesTableProps {
   accounts: FinancialAccountDto[];
   loading?: boolean;
   onRowClick?: (purchase: PurchaseDto) => void;
+  sortState: EventTableSortState | null;
+  onSortChange: (sortState: EventTableSortState | null) => void;
 }
 
 function summarizeLines(lines: PurchaseLineDto[], itemNameById: Map<string, string>): string {
@@ -28,7 +34,14 @@ function summarizeLines(lines: PurchaseLineDto[], itemNameById: Map<string, stri
     : firstName;
 }
 
-export function PurchasesTable({ purchases, accounts, loading, onRowClick }: PurchasesTableProps) {
+export function PurchasesTable({
+  purchases,
+  accounts,
+  loading,
+  onRowClick,
+  sortState,
+  onSortChange,
+}: PurchasesTableProps) {
   // Same query key ItemPicker/PurchaseForm use for their own item lookups — TanStack Query dedups
   // identical keys, so this doesn't add a second network round-trip in the common case where the
   // form has already been opened once.
@@ -51,28 +64,38 @@ export function PurchasesTable({ purchases, accounts, loading, onRowClick }: Pur
       id: "date",
       header: purchasesLabels.columnDate,
       cell: (row) => row.businessDate,
+      sortable: true,
+      sortValue: (row) => row.businessDate,
     },
     {
       id: "supplier",
       header: purchasesLabels.columnSupplier,
       cell: (row) => row.supplierName ?? purchasesLabels.noSupplier,
+      sortable: true,
+      sortValue: (row) => row.supplierName ?? purchasesLabels.noSupplier,
     },
     {
       id: "items",
       header: purchasesLabels.columnItems,
       isRowIdentifier: true,
       cell: (row) => summarizeLines(row.lines, itemNameById),
+      sortable: true,
+      sortValue: (row) => summarizeLines(row.lines, itemNameById),
     },
     {
       id: "total",
       header: purchasesLabels.columnTotal,
       numeric: true,
       cell: (row) => formatMoney(toCentavos(row.total)),
+      sortable: true,
+      sortValue: (row) => row.total,
     },
     {
       id: "account",
       header: purchasesLabels.columnAccount,
       cell: (row) => accountNameById.get(row.accountId) ?? row.accountId,
+      sortable: true,
+      sortValue: (row) => accountNameById.get(row.accountId) ?? row.accountId,
     },
     {
       id: "photo",
@@ -97,6 +120,8 @@ export function PurchasesTable({ purchases, accounts, loading, onRowClick }: Pur
       emptyMessage={purchasesLabels.noPurchases}
       loading={loading}
       loadingMessage={purchasesLabels.loading}
+      sortState={sortState}
+      onSortChange={onSortChange}
     />
   );
 }

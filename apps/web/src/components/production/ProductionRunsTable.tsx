@@ -16,7 +16,11 @@ import {
 } from "@kokoro/shared";
 import { useMemo } from "react";
 
-import { EventTable, type EventTableColumn } from "@/components/data-table/EventTable";
+import {
+  EventTable,
+  type EventTableColumn,
+  type EventTableSortState,
+} from "@/components/data-table/EventTable";
 import { productionLabels } from "@/lib/i18n-production";
 
 export interface ProductionRunsTableProps {
@@ -24,6 +28,8 @@ export interface ProductionRunsTableProps {
   recipes: RecipeDto[];
   loading?: boolean;
   onRowClick?: (productionRun: ProductionRunDto) => void;
+  sortState: EventTableSortState | null;
+  onSortChange: (sortState: EventTableSortState | null) => void;
 }
 
 /** `batches` is a plain REAL JS number (not milli-scaled, see production-runs.ts's `batchesSchema`)
@@ -48,6 +54,8 @@ export function ProductionRunsTable({
   recipes,
   loading,
   onRowClick,
+  sortState,
+  onSortChange,
 }: ProductionRunsTableProps) {
   const recipesById = useMemo(() => {
     const map = new Map<string, RecipeDto>();
@@ -60,18 +68,24 @@ export function ProductionRunsTable({
       id: "date",
       header: productionLabels.columnDate,
       cell: (row) => row.businessDate,
+      sortable: true,
+      sortValue: (row) => row.businessDate,
     },
     {
       id: "recipe",
       header: productionLabels.columnRecipe,
       isRowIdentifier: true,
       cell: (row) => recipesById.get(row.recipeId)?.name ?? row.recipeId,
+      sortable: true,
+      sortValue: (row) => recipesById.get(row.recipeId)?.name ?? row.recipeId,
     },
     {
       id: "batches",
       header: productionLabels.columnBatches,
       numeric: true,
       cell: (row) => formatBatches(row.batches),
+      sortable: true,
+      sortValue: (row) => row.batches,
     },
     {
       id: "yield",
@@ -84,6 +98,8 @@ export function ProductionRunsTable({
       header: productionLabels.columnTotalCost,
       numeric: true,
       cell: (row) => formatMoney(toCentavos(row.totalCost)),
+      sortable: true,
+      sortValue: (row) => row.totalCost,
     },
     {
       id: "unitCost",
@@ -93,6 +109,8 @@ export function ProductionRunsTable({
         formatMoney(
           totalCentavos(toMilliCentavosPerUnit(row.outputUnitCostMc), WHOLE_UNIT_MILLI_UNITS),
         ),
+      sortable: true,
+      sortValue: (row) => row.outputUnitCostMc,
     },
     {
       id: "session",
@@ -115,6 +133,8 @@ export function ProductionRunsTable({
       emptyMessage={productionLabels.noProductionRuns}
       loading={loading}
       loadingMessage={productionLabels.loading}
+      sortState={sortState}
+      onSortChange={onSortChange}
     />
   );
 }

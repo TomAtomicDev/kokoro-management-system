@@ -19,7 +19,11 @@ import {
   totalCentavos,
 } from "@kokoro/shared";
 import { useMemo, useState } from "react";
-import { EventTable, type EventTableColumn } from "@/components/data-table/EventTable";
+import {
+  EventTable,
+  type EventTableColumn,
+  type EventTableSortState,
+} from "@/components/data-table/EventTable";
 import { CollectPaymentDialog } from "@/components/sales/CollectPaymentDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -35,6 +39,8 @@ export interface SalesTableProps {
   /** `daysOutstanding` keyed by sale id, from `v_receivables` — present only while the "Por
    * cobrar" filter preset is active (routes/sales.tsx). */
   daysOutstandingBySaleId?: Map<string, number>;
+  sortState: EventTableSortState | null;
+  onSortChange: (sortState: EventTableSortState | null) => void;
 }
 
 function summarizeLines(lines: SaleLineDto[], itemNameById: Map<string, string>): string {
@@ -71,6 +77,8 @@ export function SalesTable({
   loading,
   onRowClick,
   daysOutstandingBySaleId,
+  sortState,
+  onSortChange,
 }: SalesTableProps) {
   const itemsQuery = useItemsQuery({ isActive: true });
   const itemNameById = useMemo(() => {
@@ -94,16 +102,25 @@ export function SalesTable({
       id: "date",
       header: salesLabels.columnDate,
       cell: (row) => row.businessDate,
+      sortable: true,
+      sortValue: (row) => row.businessDate,
     },
     {
       id: "channel",
       header: salesLabels.columnChannel,
       cell: (row) => salesLabels.channelLabels[row.channel],
+      sortable: true,
+      sortValue: (row) => salesLabels.channelLabels[row.channel],
     },
     {
       id: "customer",
       header: salesLabels.columnCustomer,
       cell: (row) =>
+        row.customerId
+          ? (customerNameById.get(row.customerId) ?? row.customerId)
+          : salesLabels.noCustomer,
+      sortable: true,
+      sortValue: (row) =>
         row.customerId
           ? (customerNameById.get(row.customerId) ?? row.customerId)
           : salesLabels.noCustomer,
@@ -113,12 +130,16 @@ export function SalesTable({
       header: salesLabels.columnItems,
       isRowIdentifier: true,
       cell: (row) => summarizeLines(row.lines, itemNameById),
+      sortable: true,
+      sortValue: (row) => summarizeLines(row.lines, itemNameById),
     },
     {
       id: "total",
       header: salesLabels.columnTotal,
       numeric: true,
       cell: (row) => formatMoney(toCentavos(row.total)),
+      sortable: true,
+      sortValue: (row) => row.total,
     },
     {
       id: "margin",
@@ -135,6 +156,8 @@ export function SalesTable({
           </span>
         );
       },
+      sortable: true,
+      sortValue: (row) => computeMargin(row).margin,
     },
     {
       id: "status",
@@ -144,11 +167,18 @@ export function SalesTable({
           {salesLabels.paymentStatusLabels[row.paymentStatus]}
         </Badge>
       ),
+      sortable: true,
+      sortValue: (row) => salesLabels.paymentStatusLabels[row.paymentStatus],
     },
     {
       id: "method",
       header: salesLabels.columnMethod,
       cell: (row) => (row.paymentMethod ? salesLabels.paymentMethodLabels[row.paymentMethod] : "—"),
+      sortable: true,
+      sortValue: (row) =>
+        row.paymentMethod
+          ? salesLabels.paymentMethodLabels[row.paymentMethod]
+          : salesLabels.noCustomer,
     },
     ...(daysOutstandingBySaleId
       ? [
@@ -160,6 +190,8 @@ export function SalesTable({
               const days = daysOutstandingBySaleId.get(row.id);
               return days === undefined ? "—" : salesLabels.daysOutstandingValue(days);
             },
+            sortable: true,
+            sortValue: (row) => daysOutstandingBySaleId.get(row.id),
           } satisfies EventTableColumn<SaleDto>,
         ]
       : []),
@@ -193,6 +225,8 @@ export function SalesTable({
         emptyMessage={salesLabels.noSales}
         loading={loading}
         loadingMessage={salesLabels.loading}
+        sortState={sortState}
+        onSortChange={onSortChange}
       />
       <CollectPaymentDialog
         sale={collectingSale}

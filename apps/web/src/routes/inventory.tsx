@@ -13,6 +13,7 @@ import {
   DateRangeFilter,
   getDefaultDateRange,
 } from "@/components/common/DateRangeFilter";
+import type { EventTableSortState } from "@/components/data-table/EventTable";
 import { CountDetailView } from "@/components/inventory/CountDetailView";
 import { CountForm } from "@/components/inventory/CountForm";
 import { CountsTable } from "@/components/inventory/CountsTable";
@@ -87,6 +88,10 @@ export function InventoryRoute() {
   const kind = search.kind ?? "";
   const lowStockOnly = search.lowStockOnly ?? false;
   const negativeOnly = search.negativeOnly ?? false;
+  const sortState: EventTableSortState | null =
+    search.sort && search.sortDirection
+      ? { columnId: search.sort, direction: search.sortDirection }
+      : null;
   const [selected, setSelected] = useState<StockRowDto | null>(null);
   const [exitFormOpen, setExitFormOpen] = useState(false);
   const [selectedExitId, setSelectedExitId] = useState<string | null>(null);
@@ -136,6 +141,16 @@ export function InventoryRoute() {
     negativeOnly?: boolean;
   }): void {
     void navigate({ search: (previous) => ({ ...previous, ...filters }) });
+  }
+
+  function updateSort(next: EventTableSortState | null): void {
+    void navigate({
+      search: (previous) => ({
+        ...previous,
+        sort: next?.columnId,
+        sortDirection: next?.direction,
+      }),
+    });
   }
 
   const itemLookup = useMemo(() => {
@@ -209,6 +224,8 @@ export function InventoryRoute() {
             rows={stockQuery.data?.stock ?? []}
             loading={stockQuery.isLoading}
             onRowClick={setSelected}
+            sortState={sortState}
+            onSortChange={updateSort}
           />
 
           <KardexView
@@ -235,6 +252,8 @@ export function InventoryRoute() {
             items={itemLookup}
             loading={exitsQuery.isLoading}
             onRowClick={(row) => setSelectedExitId(row.id)}
+            sortState={sortState}
+            onSortChange={updateSort}
           />
 
           <ExitForm open={exitFormOpen} onOpenChange={setExitFormOpen} />
@@ -259,6 +278,8 @@ export function InventoryRoute() {
             rows={countsQuery.data?.counts ?? []}
             loading={countsQuery.isLoading}
             onRowClick={(row) => setSelectedCountId(row.id)}
+            sortState={sortState}
+            onSortChange={updateSort}
           />
 
           <CountForm

@@ -11,7 +11,12 @@ import { commonLabels } from "@/lib/i18n-common";
 import { cn } from "@/lib/utils";
 
 type EventTableSortValue = string | number | null | undefined;
-type SortDirection = "ascending" | "descending";
+export type EventTableSortDirection = "ascending" | "descending";
+
+export interface EventTableSortState {
+  columnId: string;
+  direction: EventTableSortDirection;
+}
 
 const spanishCollator = new Intl.Collator("es-BO", {
   numeric: true,
@@ -22,7 +27,7 @@ function compareSortValues(
   left: EventTableSortValue,
   right: EventTableSortValue,
   numeric: boolean,
-  direction: SortDirection,
+  direction: EventTableSortDirection,
 ): number {
   // Missing values stay at the bottom in both directions so their position is predictable.
   if (left === null || left === undefined || right === null || right === undefined) {
@@ -60,6 +65,10 @@ export interface EventTableProps<T> {
   emptyMessage: string;
   loading?: boolean;
   loadingMessage?: string;
+  /** Controlled sort state for routes that persist the active column in the URL. */
+  sortState?: EventTableSortState | null;
+  /** Called when the active sort changes; omit for the component-local fallback. */
+  onSortChange?: (sortState: EventTableSortState | null) => void;
 }
 
 export function EventTable<T>({
@@ -70,15 +79,16 @@ export function EventTable<T>({
   emptyMessage,
   loading,
   loadingMessage,
+  sortState,
+  onSortChange,
 }: EventTableProps<T>) {
-  const [sortState, setSortState] = useState<{ columnId: string; direction: SortDirection } | null>(
-    null,
-  );
+  const [localSortState, setLocalSortState] = useState<EventTableSortState | null>(null);
+  const activeSortState = onSortChange === undefined ? localSortState : (sortState ?? null);
 
   const sortedRows = useMemo(() => {
-    if (!sortState) return rows;
+    if (!activeSortState) return rows;
 
-    const sortColumn = columns.find((column) => column.id === sortState.columnId);
+    const sortColumn = columns.find((column) => column.id === activeSortState.columnId);
     if (!sortColumn?.sortable || !sortColumn.sortValue) return rows;
 
     const sortValue = sortColumn.sortValue;
@@ -89,150 +99,165 @@ export function EventTable<T>({
           left.value,
           right.value,
           sortColumn.numeric === true,
-          sortState.direction,
+          activeSortState.direction,
         );
         return comparison === 0 ? left.index - right.index : comparison;
       })
       .map(({ row }) => row);
-  }, [columns, rows, sortState]);
+  }, [activeSortState, columns, rows]);
 
   const rowIdentifierColumnId = columns.find((column) => column.isRowIdentifier)?.id;
 
   function handleSort(column: EventTableColumn<T>): void {
     if (!column.sortable || !column.sortValue) return;
 
-    setSortState((current) => {
-      if (!current || current.columnId !== column.id) {
-        return { columnId: column.id, direction: "ascending" };
-      }
+    const current = activeSortState;
+    const nextSortState =
+      !current || current.columnId !== column.id
+        ? { columnId: column.id, direction: "ascending" as const }
+        : current.direction === "ascending"
+          ? { columnId: column.id, direction: "descending" as const }
+          : null;
 
-      return current.direction === "ascending"
-        ? { columnId: column.id, direction: "descending" }
-        : null;
-    });
+    if (onSortChange !== undefined) {
+      onSortChange(nextSortState);
+    } else {
+      setLocalSortState(nextSortState);
+    }
   }
 
-  return (
-    <div className="max-h-[32rem] overflow-auto rounded-lg border border-border bg-card">
-      <table className="w-full min-w-max border-collapse text-sm">
-        <thead>
-          <tr className="text-left text-xs font-medium text-muted-foreground">
-            {columns.map((col) => {
-              const sortable = col.sortable === true && col.sortValue !== undefined;
-              const direction =
-                sortable && sortState?.columnId === col.id ? sortState.direction : null;
+  const hasSortableColumns = columns.some(
+    (column) => column.sortable === true && column.sortValue !== undefined,
+  );
 
-              return (
-                <th
-                  key={col.id}
-                  scope="col"
-                  aria-sort={sortable ? (direction ?? "none") : undefined}
+  return (
+    <div className="flex flex-col gap-1">
+      {hasSortableColumns ? (
+        <p className="text-muted-foreground text-xs">{commonLabels.eventTableSortScope}</p>
+      ) : null}
+      <div className="max-h-[32rem] overflow-auto rounded-lg border border-border bg-card">
+        <table className="w-full min-w-max border-collapse text-sm">
+          <thead>
+            <tr className="text-left text-xs font-medium text-muted-foreground">
+              {columns.map((col) => {
+                const sortable = col.sortable === true && col.sortValue !== undefined;
+                const direction =
+                  sortable && activeSortState?.columnId === col.id
+                    ? activeSortState.direction
+                    : null;
+
+                return (
+                  <th
+                    key={col.id}
+                    scope="col"
+                    aria-sort={sortable ? (direction ?? "none") : undefined}
+                    className={cn(
+                      "sticky top-0 z-10 border-b border-border bg-card px-4 py-2.5",
+                      col.numeric && "text-right",
+                      col.className,
+                    )}
+                  >
+                    {sortable ? (
+                      <button
+                        type="button"
+                        aria-label={col.header}
+                        onClick={() => handleSort(col)}
+                        className={cn(
+                          "inline-flex items-center gap-1 rounded-sm p-0 text-left transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                          col.numeric && "justify-end",
+                        )}
+                      >
+                        <span>{col.header}</span>
+                        {direction === "ascending" ? (
+                          <ArrowUp aria-hidden="true" className="size-3.5" />
+                        ) : direction === "descending" ? (
+                          <ArrowDown aria-hidden="true" className="size-3.5" />
+                        ) : (
+                          <ArrowUpDown aria-hidden="true" className="size-3.5" />
+                        )}
+                      </button>
+                    ) : (
+                      col.header
+                    )}
+                  </th>
+                );
+              })}
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              <tr>
+                <td
+                  colSpan={columns.length}
+                  className="px-4 py-6 text-center text-sm text-muted-foreground"
+                >
+                  {loadingMessage}
+                </td>
+              </tr>
+            ) : rows.length === 0 ? (
+              <tr>
+                <td
+                  colSpan={columns.length}
+                  className="px-4 py-6 text-center text-sm text-muted-foreground"
+                >
+                  {emptyMessage}
+                </td>
+              </tr>
+            ) : (
+              sortedRows.map((row) => (
+                <tr
+                  key={getRowId(row)}
+                  onClick={onRowClick ? () => onRowClick(row) : undefined}
+                  onKeyDown={
+                    onRowClick
+                      ? (event) => {
+                          if (event.key === "Enter") onRowClick(row);
+                        }
+                      : undefined
+                  }
+                  tabIndex={onRowClick ? 0 : undefined}
                   className={cn(
-                    "sticky top-0 z-10 border-b border-border bg-card px-4 py-2.5",
-                    col.numeric && "text-right",
-                    col.className,
+                    "border-b border-border last:border-0",
+                    onRowClick &&
+                      "group cursor-pointer hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
                   )}
                 >
-                  {sortable ? (
-                    <button
-                      type="button"
-                      aria-label={col.header}
-                      onClick={() => handleSort(col)}
-                      className={cn(
-                        "inline-flex items-center gap-1 rounded-sm p-0 text-left transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-                        col.numeric && "justify-end",
-                      )}
-                    >
-                      <span>{col.header}</span>
-                      {direction === "ascending" ? (
-                        <ArrowUp aria-hidden="true" className="size-3.5" />
-                      ) : direction === "descending" ? (
-                        <ArrowDown aria-hidden="true" className="size-3.5" />
-                      ) : (
-                        <ArrowUpDown aria-hidden="true" className="size-3.5" />
-                      )}
-                    </button>
-                  ) : (
-                    col.header
-                  )}
-                </th>
-              );
-            })}
-          </tr>
-        </thead>
-        <tbody>
-          {loading ? (
-            <tr>
-              <td
-                colSpan={columns.length}
-                className="px-4 py-6 text-center text-sm text-muted-foreground"
-              >
-                {loadingMessage}
-              </td>
-            </tr>
-          ) : rows.length === 0 ? (
-            <tr>
-              <td
-                colSpan={columns.length}
-                className="px-4 py-6 text-center text-sm text-muted-foreground"
-              >
-                {emptyMessage}
-              </td>
-            </tr>
-          ) : (
-            sortedRows.map((row) => (
-              <tr
-                key={getRowId(row)}
-                onClick={onRowClick ? () => onRowClick(row) : undefined}
-                onKeyDown={
-                  onRowClick
-                    ? (event) => {
-                        if (event.key === "Enter") onRowClick(row);
-                      }
-                    : undefined
-                }
-                tabIndex={onRowClick ? 0 : undefined}
-                className={cn(
-                  "border-b border-border last:border-0",
-                  onRowClick &&
-                    "group cursor-pointer hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
-                )}
-              >
-                {columns.map((col) => {
-                  const isRowIdentifier =
-                    onRowClick !== undefined && col.id === rowIdentifierColumnId;
+                  {columns.map((col) => {
+                    const isRowIdentifier =
+                      onRowClick !== undefined && col.id === rowIdentifierColumnId;
 
-                  return (
-                    <td
-                      key={col.id}
-                      className={cn(
-                        "px-4 py-2.5 align-middle",
-                        col.numeric && "numeric-cell text-right",
-                        col.className,
-                      )}
-                    >
-                      {isRowIdentifier ? (
-                        <div className="inline-flex max-w-full items-center gap-1.5 border-current border-b pb-0.5">
-                          <div className="min-w-0">{col.cell(row)}</div>
-                          <span
-                            aria-hidden="true"
-                            title={commonLabels.eventTableOpenRow}
-                            className="shrink-0 text-muted-foreground"
-                          >
-                            <Pencil className="size-3.5 opacity-100 transition-opacity sm:opacity-0 sm:group-focus-within:opacity-100 sm:group-hover:opacity-100" />
-                          </span>
-                        </div>
-                      ) : (
-                        col.cell(row)
-                      )}
-                    </td>
-                  );
-                })}
-              </tr>
-            ))
-          )}
-        </tbody>
-      </table>
+                    return (
+                      <td
+                        key={col.id}
+                        className={cn(
+                          "px-4 py-2.5 align-middle",
+                          col.numeric && "numeric-cell text-right",
+                          col.className,
+                        )}
+                      >
+                        {isRowIdentifier ? (
+                          <div className="inline-flex max-w-full items-center gap-1.5 border-current border-b pb-0.5">
+                            <div className="min-w-0">{col.cell(row)}</div>
+                            <span
+                              aria-hidden="true"
+                              title={commonLabels.eventTableOpenRow}
+                              className="shrink-0 text-muted-foreground"
+                            >
+                              <Pencil className="size-3.5 opacity-100 transition-opacity sm:opacity-0 sm:group-focus-within:opacity-100 sm:group-hover:opacity-100" />
+                            </span>
+                          </div>
+                        ) : (
+                          col.cell(row)
+                        )}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

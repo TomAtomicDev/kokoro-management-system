@@ -9,7 +9,11 @@ import type { FinancialAccountDto, FinancialTransactionDto } from "@kokoro/share
 import { formatMoney, toCentavos } from "@kokoro/shared";
 import { useMemo } from "react";
 
-import { EventTable, type EventTableColumn } from "@/components/data-table/EventTable";
+import {
+  EventTable,
+  type EventTableColumn,
+  type EventTableSortState,
+} from "@/components/data-table/EventTable";
 import { Badge } from "@/components/ui/badge";
 import {
   signedTransactionAmount,
@@ -22,9 +26,17 @@ export interface TransactionsTableProps {
   transactions: FinancialTransactionDto[];
   accounts: FinancialAccountDto[];
   loading?: boolean;
+  sortState: EventTableSortState | null;
+  onSortChange: (sortState: EventTableSortState | null) => void;
 }
 
-export function TransactionsTable({ transactions, accounts, loading }: TransactionsTableProps) {
+export function TransactionsTable({
+  transactions,
+  accounts,
+  loading,
+  sortState,
+  onSortChange,
+}: TransactionsTableProps) {
   const accountNameById = useMemo(() => {
     const map = new Map<string, string>();
     for (const account of accounts) map.set(account.id, account.name);
@@ -36,21 +48,29 @@ export function TransactionsTable({ transactions, accounts, loading }: Transacti
       id: "date",
       header: financeLabels.columnDate,
       cell: (row) => row.businessDate,
+      sortable: true,
+      sortValue: (row) => row.businessDate,
     },
     {
       id: "account",
       header: financeLabels.columnAccount,
       cell: (row) => accountNameById.get(row.accountId) ?? row.accountId,
+      sortable: true,
+      sortValue: (row) => accountNameById.get(row.accountId) ?? row.accountId,
     },
     {
       id: "type",
       header: financeLabels.columnType,
       cell: (row) => financeLabels.typeLabels[row.type],
+      sortable: true,
+      sortValue: (row) => financeLabels.typeLabels[row.type],
     },
     {
       id: "category",
       header: financeLabels.columnCategory,
       cell: (row) => financeLabels.categoryLabels[row.category],
+      sortable: true,
+      sortValue: (row) => financeLabels.categoryLabels[row.category],
     },
     {
       id: "amount",
@@ -61,11 +81,15 @@ export function TransactionsTable({ transactions, accounts, loading }: Transacti
           {formatMoney(toCentavos(signedTransactionAmount(row.type, row.amount)), { signed: true })}
         </span>
       ),
+      sortable: true,
+      sortValue: (row) => signedTransactionAmount(row.type, row.amount),
     },
     {
       id: "description",
       header: financeLabels.columnDescription,
       cell: (row) => row.description ?? "—",
+      sortable: true,
+      sortValue: (row) => row.description ?? "—",
     },
     {
       id: "source",
@@ -78,6 +102,8 @@ export function TransactionsTable({ transactions, accounts, loading }: Transacti
         ) : (
           <span className="text-subtle-foreground">—</span>
         ),
+      sortable: true,
+      sortValue: (row) => row.sourceEventId ?? "—",
     },
   ];
 
@@ -89,6 +115,8 @@ export function TransactionsTable({ transactions, accounts, loading }: Transacti
       emptyMessage={financeLabels.noTransactions}
       loading={loading}
       loadingMessage={financeLabels.loading}
+      sortState={sortState}
+      onSortChange={onSortChange}
     />
   );
 }
