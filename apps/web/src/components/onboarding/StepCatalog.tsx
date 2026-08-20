@@ -16,15 +16,20 @@ import {
   type Unit,
 } from "@kokoro/shared";
 import { ChevronRight } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 import { CreateItemDialog } from "@/components/catalog/CreateItemDialog";
 import { ItemDetailDrawer } from "@/components/catalog/ItemDetailDrawer";
 import {
   emptyItemFormValues,
+  ITEM_FORM_FIELD_ORDER,
+  type ItemFormErrorCode,
+  type ItemFormFieldErrors,
+  type ItemFormFieldName,
   type ItemFormParsed,
   type ItemFormValues,
   parseItemFormValues,
+  validateItemFormFields,
 } from "@/components/catalog/ItemForm";
 import { StepGuidance } from "@/components/onboarding/StepGuidance";
 import { Button } from "@/components/ui/button";
@@ -34,11 +39,34 @@ import { Switch } from "@/components/ui/switch";
 import { useItemsQuery } from "@/features/catalog/api";
 import { useBulkCreateItems } from "@/features/onboarding/api";
 import { useSessionDraft } from "@/features/onboarding/use-session-draft";
+import { useFieldValidation } from "@/hooks/useFieldValidation";
 import { ApiError } from "@/lib/api";
 import { formatCostRateInput } from "@/lib/cost-rate";
-import { formatIntAsDecimalInput } from "@/lib/decimal";
+import { formatIntAsDecimalInput, parseDecimalToInt } from "@/lib/decimal";
 import { catalogLabels } from "@/lib/i18n-catalog";
 import { onboardingLabels } from "@/lib/i18n-onboarding";
+
+/** KOK-143 live validation for a catalog row, layering StepCatalog's own KOK-111 rule (a FINISHED
+ * item's price must be a deliberate positive number, not just present) on top of ItemForm's
+ * generic field rules. */
+function catalogRowFieldErrors(row: ItemFormValues): ItemFormFieldErrors {
+  const errors: ItemFormFieldErrors = { ...validateItemFormFields(row) };
+  if (!errors.salePrice && row.kind === "FINISHED") {
+    const parsed = parseDecimalToInt(row.salePrice, 2);
+    if (parsed === null || parsed <= 0) {
+      errors.salePrice = "salePriceRequired";
+    }
+  }
+  return errors;
+}
+
+function rowFieldName(rowId: string, field: ItemFormFieldName): string {
+  return `${rowId}-${field}`;
+}
+
+function rowErrorMessage(code: ItemFormErrorCode | undefined): string | undefined {
+  return code ? onboardingLabels.errors[code] : undefined;
+}
 
 interface FixtureItem {
   name: string;
@@ -149,17 +177,24 @@ export function StepCatalog({ onDone, onSkip, readOnly = false }: StepCatalogPro
     FIXTURE_ITEMS.map(fixtureToRow),
   );
   const [error, setError] = useState<string | null>(null);
-  const [rowError, setRowError] = useState<{
-    rowId: string;
-    field: "name" | "salePrice" | "minStockQty" | "replacementCostMc";
-    message: string;
-  } | null>(null);
+  const validation = useFieldValidation();
   const [createOpen, setCreateOpen] = useState(false);
   const [detailItemId, setDetailItemId] = useState<string | null>(null);
 
   const itemsQuery = useItemsQuery();
   const mutation = useBulkCreateItems();
   const disabled = mutation.isPending;
+
+  /** Live per-row field errors (KOK-143), keyed by row id — reused by both inline display and
+   * `handleSubmit`'s validity check. Computed above the `readOnly` early return (rules of hooks). */
+  const rowFieldErrorsById = useMemo(() => {
+    const map = new Map<string, ItemFormFieldErrors>();
+    for (const row of rows) {
+      const errors = catalogRowFieldErrors(row);
+      if (Object.keys(errors).length > 0) map.set(row.id, errors);
+    }
+    return map;
+  }, [rows]);
 
   if (readOnly) {
     const items = itemsQuery.data?.items ?? [];
@@ -244,7 +279,6 @@ export function StepCatalog({ onDone, onSkip, readOnly = false }: StepCatalogPro
 
   function updateRow<K extends keyof ItemFormValues>(id: string, key: K, value: ItemFormValues[K]) {
     setRows((prev) => prev.map((row) => (row.id === id ? { ...row, [key]: value } : row)));
-    setRowError((current) => (current?.rowId === id ? null : current));
   }
 
   function updateRowKind(id: string, kind: ItemKind) {
@@ -262,7 +296,6 @@ export function StepCatalog({ onDone, onSkip, readOnly = false }: StepCatalogPro
           : row,
       ),
     );
-    setRowError((current) => (current?.rowId === id ? null : current));
   }
 
   function updateRowIsUnmetered(id: string, isUnmetered: boolean) {
@@ -277,45 +310,45 @@ export function StepCatalog({ onDone, onSkip, readOnly = false }: StepCatalogPro
           : row,
       ),
     );
-    setRowError((current) => (current?.rowId === id ? null : current));
   }
 
   function removeRow(id: string) {
     setRows((prev) => prev.filter((row) => row.id !== id));
-    setRowError((current) => (current?.rowId === id ? null : current));
   }
 
   function addRow() {
     setRows((prev) => [...prev, createBlankRow()]);
   }
 
+  function rowFieldError(rowId: string, field: ItemFormFieldName): ItemFormErrorCode | undefined {
+    return rowFieldErrorsById.get(rowId)?.[field];
+  }
+
   async function handleSubmit() {
     setError(null);
-    setRowError(null);
 
+    const flatErrors: Record<string, string> = {};
+    for (const [rowId, fieldErrors] of rowFieldErrorsById) {
+      for (const field of ITEM_FORM_FIELD_ORDER) {
+        const code = fieldErrors[field];
+        if (code) flatErrors[rowFieldName(rowId, field)] = onboardingLabels.errors[code];
+      }
+    }
+    const fieldOrder = rows.flatMap((row) =>
+      ITEM_FORM_FIELD_ORDER.map((field) => rowFieldName(row.id, field)),
+    );
+    const canSubmit = validation.attemptSubmit(flatErrors, fieldOrder);
+    if (!canSubmit) {
+      const firstMessage = fieldOrder.map((name) => flatErrors[name]).find(Boolean);
+      setError(firstMessage ?? onboardingLabels.errors.generic);
+      return;
+    }
+
+    // Guaranteed valid — `rowFieldErrorsById` above already validated every row.
     const parsedItems: ItemFormParsed[] = [];
     for (const row of rows) {
       const parsed = parseItemFormValues(row);
-      if (!parsed.ok) {
-        setRowError({
-          rowId: row.id,
-          field: parsed.field,
-          message: onboardingLabels.errors[parsed.code],
-        });
-        return;
-      }
-      if (
-        parsed.value.kind === "FINISHED" &&
-        (parsed.value.salePriceMc === null || parsed.value.salePriceMc <= 0)
-      ) {
-        setRowError({
-          rowId: row.id,
-          field: "salePrice",
-          message: onboardingLabels.errors.salePriceRequired,
-        });
-        return;
-      }
-      parsedItems.push(parsed.value);
+      if (parsed.ok) parsedItems.push(parsed.value);
     }
 
     try {
@@ -345,7 +378,13 @@ export function StepCatalog({ onDone, onSkip, readOnly = false }: StepCatalogPro
       <div className="rounded-lg border border-border md:max-h-[32rem] md:overflow-auto">
         <div className="md:min-w-[860px]">
           <div className="sticky top-0 z-10 grid grid-cols-[2fr_1.2fr_1.2fr_0.8fr_1fr_1fr_1fr_1fr_4rem] gap-2 border-b border-border bg-card px-3 py-2 text-xs font-medium text-muted-foreground max-md:hidden">
-            <span>{onboardingLabels.columnName}</span>
+            <span>
+              {onboardingLabels.columnName}
+              <span className="text-negative" aria-hidden="true">
+                {" "}
+                *
+              </span>
+            </span>
             <span>{onboardingLabels.columnKind}</span>
             <span>{onboardingLabels.columnCategory}</span>
             <span>{onboardingLabels.columnUnit}</span>
@@ -366,12 +405,23 @@ export function StepCatalog({ onDone, onSkip, readOnly = false }: StepCatalogPro
               >
                 <span className="hidden font-medium text-muted-foreground text-xs max-md:block">
                   {onboardingLabels.columnName}
+                  <span className="text-negative" aria-hidden="true">
+                    {" "}
+                    *
+                  </span>
                 </span>
                 <Input
+                  ref={validation.registerRef(rowFieldName(row.id, "name"))}
                   id={`catalog-${row.id}-name`}
                   value={row.name}
                   onChange={(e) => updateRow(row.id, "name", e.target.value)}
+                  onBlur={() => validation.handleBlur(rowFieldName(row.id, "name"))}
+                  invalid={
+                    validation.isVisible(rowFieldName(row.id, "name")) &&
+                    Boolean(rowFieldError(row.id, "name"))
+                  }
                   disabled={disabled}
+                  required
                 />
               </label>
               <label
@@ -441,14 +491,25 @@ export function StepCatalog({ onDone, onSkip, readOnly = false }: StepCatalogPro
                 >
                   <span className="hidden font-medium text-muted-foreground text-xs max-md:block">
                     {onboardingLabels.columnSalePrice}
+                    <span className="text-negative" aria-hidden="true">
+                      {" "}
+                      *
+                    </span>
                   </span>
                   <Input
+                    ref={validation.registerRef(rowFieldName(row.id, "salePrice"))}
                     id={`catalog-${row.id}-sale-price`}
                     inputMode="decimal"
                     placeholder="0.00"
                     value={row.salePrice}
                     onChange={(e) => updateRow(row.id, "salePrice", e.target.value)}
+                    onBlur={() => validation.handleBlur(rowFieldName(row.id, "salePrice"))}
+                    invalid={
+                      validation.isVisible(rowFieldName(row.id, "salePrice")) &&
+                      Boolean(rowFieldError(row.id, "salePrice"))
+                    }
                     disabled={disabled}
+                    required
                   />
                 </label>
               ) : (
@@ -461,13 +522,25 @@ export function StepCatalog({ onDone, onSkip, readOnly = false }: StepCatalogPro
                 >
                   <span className="hidden font-medium text-muted-foreground text-xs max-md:block">
                     {onboardingLabels.columnMinStock}
+                    {row.kind === "RAW_MATERIAL" || row.kind === "PACKAGING" ? (
+                      <span className="text-negative" aria-hidden="true">
+                        {" "}
+                        *
+                      </span>
+                    ) : null}
                   </span>
                   <Input
+                    ref={validation.registerRef(rowFieldName(row.id, "minStockQty"))}
                     id={`catalog-${row.id}-min-stock`}
                     inputMode="decimal"
                     placeholder="0"
                     value={row.minStockQty}
                     onChange={(e) => updateRow(row.id, "minStockQty", e.target.value)}
+                    onBlur={() => validation.handleBlur(rowFieldName(row.id, "minStockQty"))}
+                    invalid={
+                      validation.isVisible(rowFieldName(row.id, "minStockQty")) &&
+                      Boolean(rowFieldError(row.id, "minStockQty"))
+                    }
                     disabled={disabled || row.isUnmetered}
                     required={row.kind === "RAW_MATERIAL" || row.kind === "PACKAGING"}
                   />
@@ -499,11 +572,17 @@ export function StepCatalog({ onDone, onSkip, readOnly = false }: StepCatalogPro
                     {onboardingLabels.columnReplacementCost}
                   </span>
                   <Input
+                    ref={validation.registerRef(rowFieldName(row.id, "replacementCostMc"))}
                     id={`catalog-${row.id}-replacement-cost`}
                     inputMode="decimal"
                     placeholder="0.00000"
                     value={row.replacementCostMc}
                     onChange={(e) => updateRow(row.id, "replacementCostMc", e.target.value)}
+                    onBlur={() => validation.handleBlur(rowFieldName(row.id, "replacementCostMc"))}
+                    invalid={
+                      validation.isVisible(rowFieldName(row.id, "replacementCostMc")) &&
+                      Boolean(rowFieldError(row.id, "replacementCostMc"))
+                    }
                     disabled={disabled}
                     aria-describedby="catalog-cost-rate-help"
                   />
@@ -522,18 +601,28 @@ export function StepCatalog({ onDone, onSkip, readOnly = false }: StepCatalogPro
                   {onboardingLabels.removeRow}
                 </Button>
               </div>
-              {rowError?.rowId === row.id ? (
-                <p className="col-span-full text-negative text-xs max-md:w-full" role="alert">
-                  {rowError.field === "name"
-                    ? onboardingLabels.columnName
-                    : rowError.field === "salePrice"
-                      ? onboardingLabels.columnSalePrice
-                      : rowError.field === "minStockQty"
-                        ? onboardingLabels.columnMinStock
-                        : onboardingLabels.columnReplacementCost}
-                  : {rowError.message}
-                </p>
-              ) : null}
+              {(() => {
+                const fieldLabels: Record<ItemFormFieldName, string> = {
+                  name: onboardingLabels.columnName,
+                  salePrice: onboardingLabels.columnSalePrice,
+                  minStockQty: onboardingLabels.columnMinStock,
+                  replacementCostMc: onboardingLabels.columnReplacementCost,
+                };
+                const visibleMessages = ITEM_FORM_FIELD_ORDER.filter((field) =>
+                  validation.isVisible(rowFieldName(row.id, field)),
+                )
+                  .map((field) => {
+                    const message = rowErrorMessage(rowFieldError(row.id, field));
+                    return message ? `${fieldLabels[field]}: ${message}` : null;
+                  })
+                  .filter((message): message is string => message !== null);
+                if (visibleMessages.length === 0) return null;
+                return (
+                  <p className="col-span-full text-negative text-xs max-md:w-full" role="alert">
+                    {visibleMessages.join(" · ")}
+                  </p>
+                );
+              })()}
             </div>
           ))}
         </div>

@@ -37,6 +37,7 @@ import { PinnedSummaryFooter } from "@/components/common/PinnedSummaryFooter";
 import { LineEditor, type LineEditorLine } from "@/components/line-editor/LineEditor";
 import { parseLineQuantityToMilliUnits } from "@/components/line-editor/line-editor-quantity";
 import { Button } from "@/components/ui/button";
+import { Field } from "@/components/ui/field";
 import { ImpactConfirmDialog } from "@/components/ui/ImpactConfirmDialog";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -46,6 +47,7 @@ import {
   useRecordPurchase,
   useUpdatePurchase,
 } from "@/features/purchases/api";
+import { useFieldValidation } from "@/hooks/useFieldValidation";
 import {
   clearPersistentDraft,
   readPersistentDraft,
@@ -57,6 +59,13 @@ import { ApiError } from "@/lib/api";
 import { formatIntAsDecimalInput, parseDecimalToInt } from "@/lib/decimal";
 import { purchasesLabels } from "@/lib/i18n-purchases";
 import { cn } from "@/lib/utils";
+
+type PurchaseLineFieldName = "itemId" | "qty" | "amount";
+type PurchaseLineFieldErrors = Partial<Record<PurchaseLineFieldName, string>>;
+
+function lineFieldName(index: number, field: PurchaseLineFieldName): string {
+  return `line-${index}-${field}`;
+}
 
 export interface PurchaseFormProps {
   accounts: FinancialAccountDto[];
@@ -137,6 +146,7 @@ export function PurchaseForm({ accounts, purchase, preselectedSessionId }: Purch
   const [photoUploading, setPhotoUploading] = useState(false);
   const [photoError, setPhotoError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const validation = useFieldValidation();
 
   const initialFormStateRef = useRef<PurchaseFormState | null>(null);
   const currentFormState: PurchaseFormState = {
@@ -194,6 +204,7 @@ export function PurchaseForm({ accounts, purchase, preselectedSessionId }: Purch
   const initializedRef = useRef<string | null>(null);
 
   // Route-mounted forms initialize once per record, so refetches cannot clobber in-progress edits.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `validation.reset` is stable (useCallback) but the wrapping object is new every render; including it would re-run this effect every render, defeating the initializedRef guard.
   useEffect(() => {
     const initializationKey = draftKey;
     if (initializedRef.current === initializationKey) {
@@ -234,6 +245,7 @@ export function PurchaseForm({ accounts, purchase, preselectedSessionId }: Purch
     setPhotoUploading(false);
     setPhotoError(null);
     setError(null);
+    validation.reset();
     initializedRef.current = initializationKey;
   }, [accountId, accounts, draftKey, purchase]);
 
@@ -250,6 +262,63 @@ export function PurchaseForm({ accounts, purchase, preselectedSessionId }: Purch
   }, [accountId, businessDate, draftKey, lines, notes, photoKey, supplierName]);
 
   const disabled = (isEditMode ? editReplay.isPending : createReplay.isPending) || photoUploading;
+
+  // A trailing untouched row is the editor's affordance for adding another line, not an invalid
+  // purchase line (KOK-187). Empty rows in the middle still identify the missing item below.
+  const lastEnteredLineIndex = lines.reduce(
+    (lastIndex, line, index) =>
+      !line.itemId && line.qty.trim() === "" && line.amount.trim() === "" ? lastIndex : index,
+    -1,
+  );
+
+  /** Live per-row field errors (KOK-143) — every entered line, independent of submit. Reused both
+   * for LineEditor's inline display and for `handleSubmit`'s validity check, so the two can never
+   * disagree about what counts as a valid line. */
+  const lineFieldErrors = useMemo(() => {
+    const map = new Map<number, PurchaseLineFieldErrors>();
+    for (const [index, line] of lines.entries()) {
+      if (index > lastEnteredLineIndex) continue;
+      const lineNumber = index + 1;
+      const rowErrors: PurchaseLineFieldErrors = {};
+
+      if (!line.itemId) {
+        rowErrors.itemId = purchasesLabels.errors.lineIncomplete(
+          lineNumber,
+          purchasesLabels.lineItem,
+        );
+      }
+
+      const qtyText = line.qty.trim();
+      if (qtyText === "") {
+        rowErrors.qty = purchasesLabels.errors.lineIncomplete(lineNumber, purchasesLabels.lineQty);
+      } else {
+        const item = line.itemId ? itemsById.get(line.itemId) : undefined;
+        const qty = item ? parseLineQuantityToMilliUnits(line.qty, line.unit, item.unit) : null;
+        if (item && (qty === null || qty <= 0)) {
+          rowErrors.qty = purchasesLabels.errors.lineInvalidValue(
+            lineNumber,
+            purchasesLabels.lineQty,
+          );
+        }
+      }
+
+      const lineTotalText = line.amount.trim();
+      if (lineTotalText === "") {
+        rowErrors.amount = purchasesLabels.errors.lineIncomplete(
+          lineNumber,
+          purchasesLabels.lineTotal,
+        );
+      } else if (parseDecimalToInt(line.amount, 2) === null) {
+        rowErrors.amount = purchasesLabels.errors.lineInvalidValue(
+          lineNumber,
+          purchasesLabels.lineTotal,
+        );
+      }
+
+      if (Object.keys(rowErrors).length > 0) map.set(index, rowErrors);
+    }
+    return map;
+  }, [lastEnteredLineIndex, lines, itemsById]);
 
   async function handlePhotoChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -272,51 +341,43 @@ export function PurchaseForm({ accounts, purchase, preselectedSessionId }: Purch
 
   async function handleSubmit() {
     setError(null);
-    if (!accountId) {
-      setError(purchasesLabels.errors.accountRequired);
+
+    const flatErrors: Record<string, string> = {};
+    if (!accountId) flatErrors.accountId = purchasesLabels.errors.accountRequired;
+    for (const [index, rowErrors] of lineFieldErrors) {
+      for (const field of Object.keys(rowErrors) as PurchaseLineFieldName[]) {
+        const message = rowErrors[field];
+        if (message) flatErrors[lineFieldName(index, field)] = message;
+      }
+    }
+    const fieldOrder = [
+      "accountId",
+      ...lines.flatMap((_, index) => [
+        lineFieldName(index, "itemId"),
+        lineFieldName(index, "qty"),
+        lineFieldName(index, "amount"),
+      ]),
+    ];
+    const canSubmit = validation.attemptSubmit(flatErrors, fieldOrder);
+    if (!canSubmit) {
+      const firstMessage = fieldOrder.map((name) => flatErrors[name]).find(Boolean);
+      setError(firstMessage ?? purchasesLabels.errors.generic);
       return;
     }
 
     const parsedLines: { itemId: string; qty: number; lineTotal: number }[] = [];
-    const lastEnteredLineIndex = lines.reduce(
-      (lastIndex, line, index) =>
-        !line.itemId && line.qty.trim() === "" && line.amount.trim() === "" ? lastIndex : index,
-      -1,
-    );
-
     for (const [index, line] of lines.entries()) {
-      // A trailing untouched row is the editor's affordance for adding another line, not an
-      // invalid purchase line. Empty rows in the middle still identify the missing item below.
       if (index > lastEnteredLineIndex) continue;
-
-      const lineNumber = index + 1;
-      const qtyText = line.qty.trim();
-      const lineTotalText = line.amount.trim();
-      if (!line.itemId) {
-        setError(purchasesLabels.errors.lineIncomplete(lineNumber, purchasesLabels.lineItem));
-        return;
-      }
-      if (qtyText === "") {
-        setError(purchasesLabels.errors.lineIncomplete(lineNumber, purchasesLabels.lineQty));
-        return;
-      }
-      if (lineTotalText === "") {
-        setError(purchasesLabels.errors.lineIncomplete(lineNumber, purchasesLabels.lineTotal));
-        return;
-      }
-
-      const item = line.itemId ? itemsById.get(line.itemId) : undefined;
+      // Guaranteed parseable — `lineFieldErrors` above already validated every included row and
+      // `canSubmit` would have been false otherwise.
+      const item = itemsById.get(line.itemId as string);
       const qty = item ? parseLineQuantityToMilliUnits(line.qty, line.unit, item.unit) : null;
       const lineTotal = parseDecimalToInt(line.amount, 2);
-      if (qty === null || qty <= 0) {
-        setError(purchasesLabels.errors.lineInvalidValue(lineNumber, purchasesLabels.lineQty));
-        return;
-      }
-      if (lineTotal === null) {
-        setError(purchasesLabels.errors.lineInvalidValue(lineNumber, purchasesLabels.lineTotal));
-        return;
-      }
-      parsedLines.push({ itemId: line.itemId, qty, lineTotal });
+      parsedLines.push({
+        itemId: line.itemId as string,
+        qty: qty as number,
+        lineTotal: lineTotal as number,
+      });
     }
 
     const parsed = recordPurchaseCommandSchema.safeParse({
@@ -474,15 +535,25 @@ export function PurchaseForm({ accounts, purchase, preselectedSessionId }: Purch
               autoFocus
             />
           </div>
-          <div className="flex flex-col gap-1.5">
-            <label className="font-medium text-foreground" htmlFor="pf-account">
-              {purchasesLabels.fieldAccount}
-            </label>
+          <Field
+            label={purchasesLabels.fieldAccount}
+            htmlFor="pf-account"
+            required
+            error={
+              validation.isVisible("accountId") && !accountId
+                ? purchasesLabels.errors.accountRequired
+                : undefined
+            }
+          >
             <Select
+              ref={validation.registerRef("accountId")}
               id="pf-account"
               value={accountId}
               onChange={(e) => setAccountId(e.target.value)}
+              onBlur={() => validation.handleBlur("accountId")}
+              invalid={validation.isVisible("accountId") && !accountId}
               disabled={disabled}
+              required
             >
               {accounts.map((account) => (
                 <option key={account.id} value={account.id}>
@@ -490,7 +561,7 @@ export function PurchaseForm({ accounts, purchase, preselectedSessionId }: Purch
                 </option>
               ))}
             </Select>
-          </div>
+          </Field>
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2">
@@ -582,6 +653,13 @@ export function PurchaseForm({ accounts, purchase, preselectedSessionId }: Purch
               amountPlaceholder: "0.00",
               qtyPlaceholder: "0",
             }}
+            getLineError={(index, field) => {
+              const name = lineFieldName(index, field);
+              if (!validation.isVisible(name)) return undefined;
+              return lineFieldErrors.get(index)?.[field];
+            }}
+            onLineFieldBlur={(index, field) => validation.handleBlur(lineFieldName(index, field))}
+            lineFieldRef={(index, field) => validation.registerRef(lineFieldName(index, field))}
             renderExtraColumns={renderLineExtra}
           />
         </div>

@@ -7,14 +7,17 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { useCreateItemMutation } from "@/features/catalog/api";
+import { useFieldValidation } from "@/hooks/useFieldValidation";
 import { ApiError } from "@/lib/api";
 import { catalogLabels } from "@/lib/i18n-catalog";
 
 import {
   emptyItemFormValues,
+  ITEM_FORM_FIELD_ORDER,
   ItemForm,
   type ItemFormValues,
   parseItemFormValues,
+  validateItemFormFields,
 } from "./ItemForm";
 
 export interface CreateItemDialogProps {
@@ -37,6 +40,7 @@ export function CreateItemDialog({
   );
   const [error, setError] = useState<string | null>(null);
   const createMutation = useCreateItemMutation();
+  const validation = useFieldValidation();
 
   // Re-seeds only on the open transition (not on every initialName keystroke while it's open) —
   // the user should be able to keep editing the pre-filled name once the dialog is up.
@@ -45,10 +49,17 @@ export function CreateItemDialog({
     if (open) {
       setValues({ ...emptyItemFormValues({ kind: kindFilter }), name: initialName });
       setError(null);
+      validation.reset();
     }
   }, [open]);
 
   async function handleCreate() {
+    const canSubmit = validation.attemptSubmit(
+      validateItemFormFields(values),
+      ITEM_FORM_FIELD_ORDER,
+    );
+    if (!canSubmit) return;
+
     const parsed = parseItemFormValues(values);
     if (!parsed.ok) {
       setError(catalogLabels.errors[parsed.code]);
@@ -69,7 +80,12 @@ export function CreateItemDialog({
         <h2 className="font-medium text-foreground text-md">{catalogLabels.createTitle}</h2>
       </div>
       <div className="flex-1 overflow-y-auto px-5 py-4">
-        <ItemForm values={values} onChange={setValues} disabled={createMutation.isPending} />
+        <ItemForm
+          values={values}
+          onChange={setValues}
+          disabled={createMutation.isPending}
+          validation={validation}
+        />
         {error ? <p className="mt-2 text-negative text-sm">{error}</p> : null}
       </div>
       <div className="flex justify-end gap-2 border-border border-t px-5 py-3">
