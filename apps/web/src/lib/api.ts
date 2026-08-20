@@ -1,4 +1,4 @@
-import { showGlobalToast } from "@/components/ui/toast";
+import { showGlobalErrorDialog } from "@/components/ui/global-error-dialog";
 
 // Thin fetch wrapper for /api/* (KOK-011). Reads the CSRF cookie the auth middleware expects
 // (apps/worker/src/auth/csrf.ts: cookie "kokoro_csrf", header "X-CSRF-Token") and surfaces
@@ -27,10 +27,11 @@ export class ApiError extends Error {
   }
 }
 
-/** Converts browser fetch network failures into the app's user-facing API error and toast. */
+/** Converts browser fetch network failures into the app's user-facing API error, shown as an
+ * explicit dialog per agreement A-9 (connectivity loss must not be a silently-dismissable toast). */
 export function asNetworkApiError(error: unknown): ApiError | null {
   if (!(error instanceof TypeError)) return null;
-  showGlobalToast({ message: NETWORK_ERROR_MESSAGE });
+  showGlobalErrorDialog(NETWORK_ERROR_MESSAGE);
   return new ApiError("NETWORK_ERROR", NETWORK_ERROR_MESSAGE, error);
 }
 

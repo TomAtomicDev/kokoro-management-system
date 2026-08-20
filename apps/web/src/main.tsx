@@ -3,6 +3,7 @@ import { RouterProvider } from "@tanstack/react-router";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
+import { GlobalErrorDialogProvider } from "@/components/ui/global-error-dialog";
 import { ToastProvider } from "@/components/ui/toast";
 import { initializeTheme } from "@/features/theme/use-theme";
 import { queryClient } from "@/lib/query-client";
@@ -22,7 +23,9 @@ createRoot(rootElement).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <ToastProvider>
-        <RouterProvider router={router} />
+        <GlobalErrorDialogProvider>
+          <RouterProvider router={router} />
+        </GlobalErrorDialogProvider>
       </ToastProvider>
     </QueryClientProvider>
   </StrictMode>,
