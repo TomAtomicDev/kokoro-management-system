@@ -160,6 +160,24 @@ export const listSessionsFiltersSchema = z.object({
 });
 export type ListSessionsFilters = z.infer<typeof listSessionsFiltersSchema>;
 
+/** GET /sessions/hours query filters (KOK-135, Doc 03 S-5). Both boundaries are required because
+ * the monthly wall-clock denominator must always be explicit in reports and links. */
+export const sessionHoursFiltersSchema = z
+  .object({
+    fromDate: calendarDateSchema,
+    toDate: calendarDateSchema,
+  })
+  .superRefine((filters, ctx) => {
+    if (filters.fromDate > filters.toDate) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["toDate"],
+        message: "La fecha final debe ser igual o posterior a la fecha inicial.",
+      });
+    }
+  });
+export type SessionHoursFilters = z.infer<typeof sessionHoursFiltersSchema>;
+
 export interface SessionCostLineDto {
   id: string;
   label: string;
@@ -262,4 +280,19 @@ export interface SessionListItemDto {
 
 export interface ListSessionsResult {
   sessions: SessionListItemDto[];
+}
+
+/** KOK-135 / Doc 03 S-5: both hour totals are returned so the owner can reconcile the
+ * per-session view with the wall-clock denominator used by monthly G3. Minutes are integers. */
+export interface SessionHoursSummaryDto {
+  /** Sum of each session's own duration, without deduplicating overlaps. */
+  naiveSummedMinutes: number;
+  /** Union of all resolvable session intervals in the requested business-date range. */
+  dedupedMinutes: number;
+  /** Sessions in range with no resolvable duration; excluded from both totals. */
+  excludedSessionCount: number;
+}
+
+export interface GetSessionHoursResult {
+  hours: SessionHoursSummaryDto;
 }

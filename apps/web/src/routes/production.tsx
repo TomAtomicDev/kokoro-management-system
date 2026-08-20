@@ -11,7 +11,7 @@
 // routes/sales.tsx's SaleRecordRoute/SaleEditRoute split.
 
 import { getRouteApi, Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import type { EventTableSortState } from "@/components/data-table/EventTable";
 import { ProductionRunDetailDrawer } from "@/components/production/ProductionRunDetailDrawer";
@@ -50,6 +50,10 @@ export function ProductionRoute() {
   const recipesQuery = useRecipesQuery({ isActive: true });
 
   const [selectedProductionRunId, setSelectedProductionRunId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (search.open) setSelectedProductionRunId(search.open);
+  }, [search.open]);
 
   const recipes = recipesQuery.data?.recipes ?? [];
   const sortState: EventTableSortState | null =

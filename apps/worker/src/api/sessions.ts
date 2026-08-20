@@ -10,6 +10,7 @@ import {
   deleteSessionCommandSchema,
   listSessionsFiltersSchema,
   recordSessionCommandSchema,
+  sessionHoursFiltersSchema,
   updateSessionCommandSchema,
 } from "@kokoro/shared";
 import { Hono } from "hono";
@@ -17,6 +18,7 @@ import { Hono } from "hono";
 import {
   closeAndStartSession,
   deleteSession,
+  getDeduplicatedSessionHours,
   getSession,
   listSessions,
   recordSession,
@@ -37,6 +39,12 @@ export const sessionsRoute = new Hono<{ Bindings: Env; Variables: Variables }>()
     const query = Object.fromEntries(new URL(c.req.url).searchParams);
     const filters = listSessionsFiltersSchema.parse(query);
     return c.json(await listSessions(db, filters));
+  })
+  .get("/sessions/hours", async (c) => {
+    const db = createDb(c.env.DB);
+    const query = Object.fromEntries(new URL(c.req.url).searchParams);
+    const filters = sessionHoursFiltersSchema.parse(query);
+    return c.json({ hours: await getDeduplicatedSessionHours(db, filters) });
   })
   .post("/sessions", async (c) => {
     const db = createDb(c.env.DB);

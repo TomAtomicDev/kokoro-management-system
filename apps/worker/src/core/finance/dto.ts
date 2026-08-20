@@ -1,7 +1,11 @@
 // Row -> DTO mapping shared by accounts.ts, transactions.ts and transfer.ts. Kept separate so
 // none of those files needs to duplicate the shape of FinancialAccountDto/FinancialTransactionDto.
 
-import type { FinancialAccountDto, FinancialTransactionDto } from "@kokoro/shared";
+import type {
+  FinancialAccountDto,
+  FinancialTransactionDto,
+  FinancialTransactionSourceEventDto,
+} from "@kokoro/shared";
 
 import type { financialAccounts, financialTransactions } from "../../db/schema.js";
 
@@ -19,8 +23,11 @@ export function toAccountDto(row: FinancialAccountRow): FinancialAccountDto {
   };
 }
 
-export function toTransactionDto(row: FinancialTransactionRow): FinancialTransactionDto {
-  return {
+export function toTransactionDto(
+  row: FinancialTransactionRow,
+  sourceEvent?: FinancialTransactionSourceEventDto,
+): FinancialTransactionDto {
+  const dto: FinancialTransactionDto = {
     id: row.id,
     occurredAt: row.occurredAt,
     businessDate: row.businessDate,
@@ -36,4 +43,6 @@ export function toTransactionDto(row: FinancialTransactionRow): FinancialTransac
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
+
+  return sourceEvent === undefined ? dto : { ...dto, sourceEvent };
 }

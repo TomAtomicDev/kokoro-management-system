@@ -49,6 +49,13 @@ export const financeLabels = {
   columnDescription: "Descripción",
   columnSource: "Origen",
 
+  sourceEventTypeLabels: {
+    purchase: "Compra",
+    sale: "Venta",
+    custom_order: "Pedido",
+    session: "Sesión",
+  },
+
   typeLabels: {
     INCOME: "Ingreso",
     EXPENSE: "Gasto",
@@ -71,7 +78,7 @@ export const financeLabels = {
   } satisfies Record<FinancialTransactionCategory, string>,
 
   systemOwnedBadge: "Sistema",
-  systemOwnedHint: "Editar el evento origen (aún no disponible)",
+  systemOwnedHint: "Edita el evento origen desde su pantalla.",
 
   noTransactions: "No hay movimientos registrados.",
   loading: "Cargando…",

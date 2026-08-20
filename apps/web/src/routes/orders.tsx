@@ -6,7 +6,7 @@
 // §5: only guarded lifecycle transitions), so there is no OrderEditRoute counterpart.
 
 import { getRouteApi, Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import {
   type DateRange,
@@ -34,6 +34,10 @@ export function OrdersRoute() {
   const toDate = search.toDate ?? defaults.toDate;
   const ordersQuery = useOrders({ fromDate, toDate });
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (search.open) setSelectedOrderId(search.open);
+  }, [search.open]);
 
   function updateDateRange(range: DateRange): void {
     void navigate({ search: (previous) => ({ ...previous, ...range }) });

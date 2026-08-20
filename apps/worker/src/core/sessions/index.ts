@@ -58,6 +58,8 @@ import type {
   RestoreSessionResult,
   SessionCostLineDto,
   SessionDto,
+  SessionHoursFilters,
+  SessionHoursSummaryDto,
   SessionLinkedEventsDto,
   SessionStatus,
   SessionType,
@@ -1079,18 +1081,7 @@ export function unionIntervalMinutes(intervals: readonly SessionInterval[]): num
   return Math.round(totalMs / 60_000);
 }
 
-export interface DeduplicatedSessionHoursResult {
-  /** Naive sum of each included session's own `duration_min` (S-4's existing per-session figure,
-   * summed with no dedup — what a naive monthly total would have been before S-5). */
-  naiveSummedMinutes: number;
-  /** S-5: union of session intervals in the range, overlapped time counted once. Always
-   * <= naiveSummedMinutes. */
-  dedupedMinutes: number;
-  /** Sessions whose business_date falls in [fromDate, toDate] but have no resolvable duration
-   * (`v_session_hours.duration_min IS NULL` — still OPEN with no end/duration recorded yet).
-   * Excluded from BOTH totals above, never imputed. */
-  excludedSessionCount: number;
-}
+export type DeduplicatedSessionHoursResult = SessionHoursSummaryDto;
 
 type DeduplicatedSessionHoursViewRow = Pick<
   SessionHoursViewRow,
@@ -1101,7 +1092,7 @@ type DeduplicatedSessionHoursViewRow = Pick<
  * `ListSessionsFilters.fromDate/toDate`. */
 export async function getDeduplicatedSessionHours(
   db: Db,
-  range: { fromDate: string; toDate: string },
+  range: SessionHoursFilters,
 ): Promise<DeduplicatedSessionHoursResult> {
   const conditions: SQL[] = [];
   if (range.fromDate) conditions.push(sql`business_date >= ${range.fromDate}`);

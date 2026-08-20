@@ -2,9 +2,14 @@ name: CI
 
 # Runs on every push and PR (Doc 02 §9's "typecheck, lint, unit + integration tests" gate) — the
 # fast feedback loop for everyday development, independent of the deploy pipeline in deploy.yml.
+# `push` is scoped to develop only: it exists to cover commits landing without an open PR (a
+# merge into develop is a push, not a pull_request event). Feature branches get their coverage
+# from `pull_request` below (also the only trigger that runs for fork PRs) — widening `push` to
+# branches-ignore: [main] double-runs this workflow on every commit to a branch with an open PR,
+# since push and pull_request:synchronize both fire for the same commit.
 on:
   push:
-    branches-ignore: [main]
+    branches: [develop]
   pull_request:
 
 concurrency:

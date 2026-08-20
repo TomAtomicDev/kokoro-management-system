@@ -1,6 +1,9 @@
 import { useNavigate } from "@tanstack/react-router";
-import { Bell, LogOut, Search } from "lucide-react";
+import { Bell, Calculator as CalculatorIcon, LogOut, Search } from "lucide-react";
+import { useState } from "react";
 
+import { Calculator } from "@/components/layout/Calculator";
+import { RecipeTimerChip } from "@/components/layout/RecipeTimerChip";
 import { SessionChip } from "@/components/sessions/SessionChip";
 import { Button } from "@/components/ui/button";
 import { useLogout } from "@/features/auth/api";
@@ -13,6 +16,7 @@ import { topbarLabels } from "@/lib/i18n-nav";
 // (Doc 06 §2 / design brief). Repeating it in the topbar would make "Kokoro" a daily-flow fixture
 // instead of a quiet nod, which the brief explicitly avoids.
 export function Topbar({ onOpenQuickAdd }: { onOpenQuickAdd: () => void }) {
+  const [calculatorOpen, setCalculatorOpen] = useState(false);
   const navigate = useNavigate();
   const logoutMutation = useLogout();
 
@@ -43,6 +47,20 @@ export function Topbar({ onOpenQuickAdd }: { onOpenQuickAdd: () => void }) {
           {topbarLabels.quickAdd}
         </Button>
 
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-11 w-11 shrink-0"
+          aria-label={topbarLabels.calculator.open}
+          title={topbarLabels.calculator.open}
+          onClick={() => setCalculatorOpen(true)}
+        >
+          <CalculatorIcon className="size-5" />
+        </Button>
+
+        <RecipeTimerChip />
+
         {/* Alerts stay hidden until KOK-046 restores this as a real, non-placeholder control. */}
         <button
           type="button"
@@ -66,6 +84,7 @@ export function Topbar({ onOpenQuickAdd }: { onOpenQuickAdd: () => void }) {
           <LogOut className="size-4" />
         </button>
       </div>
+      <Calculator open={calculatorOpen} onOpenChange={setCalculatorOpen} />
     </header>
   );
 }
