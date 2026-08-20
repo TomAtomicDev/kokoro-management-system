@@ -655,6 +655,10 @@ error is invisible. Views stay for row-shaping and joins; they do no margin arit
 
 ## 5. Integrity beyond DDL (service-enforced, tested)
 
+- **Recipe-less production (KOK-144):** `production_runs.recipe_id` is nullable because a recipe is
+  only a prefill. When it is NULL, the command must supply a valid SEMI_FINISHED or FINISHED
+  `output_item_id` and the actual `production_consumptions` lines; the same C-4 costing, kardex,
+  replay (R-2/R-5), and `custom_order_id` profitability aggregation apply without a recipe.
 - Sale lines only reference `kind='FINISHED'` items — presentations and combos included, PACKAGING
   never (Phase 3.2, KOK-126; §3.3's column comment now agrees with this rule instead of
   contradicting it). Recipe output must not be RAW_MATERIAL; production consumption items must not

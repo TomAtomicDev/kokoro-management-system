@@ -82,9 +82,13 @@ export function ProductionRunsTable({
     {
       id: "recipe",
       header: productionLabels.columnRecipe,
-      cell: (row) => recipesById.get(row.recipeId)?.name ?? row.recipeId,
+      cell: (row) =>
+        (row.recipeId ? recipesById.get(row.recipeId)?.name : undefined) ??
+        productionLabels.unknownRecipe,
       sortable: true,
-      sortValue: (row) => recipesById.get(row.recipeId)?.name ?? row.recipeId,
+      sortValue: (row) =>
+        (row.recipeId ? recipesById.get(row.recipeId)?.name : undefined) ??
+        productionLabels.unknownRecipe,
     },
     {
       id: "batches",
@@ -98,7 +102,7 @@ export function ProductionRunsTable({
       id: "yield",
       header: productionLabels.columnYield,
       numeric: true,
-      cell: (row) => formatYieldPct(row, recipesById.get(row.recipeId)),
+      cell: (row) => formatYieldPct(row, row.recipeId ? recipesById.get(row.recipeId) : undefined),
     },
     {
       id: "totalCost",
