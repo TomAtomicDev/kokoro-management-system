@@ -11,11 +11,13 @@ import {
   createRootRouteWithContext,
   createRoute,
   createRouter,
+  Outlet,
   redirect,
 } from "@tanstack/react-router";
 import { getDefaultDateRange } from "@/components/common/DateRangeFilter";
 import type { EventTableSortDirection } from "@/components/data-table/EventTable";
 import { AppShell } from "@/components/layout/AppShell";
+import { GlobalErrorDialogProvider } from "@/components/ui/global-error-dialog";
 import { fetchSession, sessionQueryKey } from "@/features/auth/api";
 import { queryClient } from "@/lib/query-client";
 import { AssemblyEditRoute, AssemblyRecordRoute } from "@/routes/assemblies";
@@ -107,7 +109,19 @@ function dateRangeDefaults<T extends { fromDate?: string; toDate?: string }>(
   };
 }
 
-const rootRoute = createRootRouteWithContext<RouterContext>()({});
+// GlobalErrorDialogProvider renders a ConfirmDialog, which needs a RouterProvider ancestor
+// (Dialog -> useUnsavedChangesGuard -> useBlocker). Mounting it here, as the root route's own
+// component, keeps it inside the router tree and covers every route including /login — wrapping
+// <RouterProvider> itself in main.tsx crashes on mount instead (KOK-171 follow-up fix).
+function RootLayout() {
+  return (
+    <GlobalErrorDialogProvider>
+      <Outlet />
+    </GlobalErrorDialogProvider>
+  );
+}
+
+const rootRoute = createRootRouteWithContext<RouterContext>()({ component: RootLayout });
 
 const loginRoute = createRoute({
   getParentRoute: () => rootRoute,

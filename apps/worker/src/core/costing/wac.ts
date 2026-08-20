@@ -151,7 +151,7 @@ export interface ReplayMovement {
 
 /** Movement types that trigger a C-1 WAC update on replay — see the ADJUST-vs-entry reasoning in
  * this file's header comment. PRODUCTION_OUT/SALE_OUT/EXIT_OUT/ADJUST never appear here. */
-const WAC_ENTRY_TYPES: ReadonlySet<StockMovementType> = new Set([
+export const WAC_ENTRY_TYPES: ReadonlySet<StockMovementType> = new Set([
   "OPENING_IN",
   "PURCHASE_IN",
   "PRODUCTION_IN",

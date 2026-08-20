@@ -10,12 +10,12 @@ agreed with the owner), the KB (Docs 03/04/06/07/12/13) and `CLAUDE.md`'s golden
 **New inputs folded into this revision:**
 
 - **The P0 and P1 batches shipped** (PRs #31–#43, #45). All seven P0 tasks and all eleven P1 tasks
-  from the 2026-08-16 revision are merged and deployed to staging.
+from the 2026-08-16 revision are merged and deployed to staging.
 - **The owner completed §6 Sections B and C** on staging, recorded in
-  [**Issue #44**](https://github.com/TomAtomicDev/kokoro-managemnt-system/issues/44) (2026-08-18).
-  §6 is now **fully executed**: Sections A, B and C are all done.
+[**Issue #44**](https://github.com/TomAtomicDev/kokoro-managemnt-system/issues/44) (2026-08-18).
+§6 is now **fully executed**: Sections A, B and C are all done.
 - **A production release date:** the business goes live on **real data in the production
-  environment this week.** That constraint, not tidiness, is what orders §4 below.
+environment this week.** That constraint, not tidiness, is what orders §4 below.
 
 > **What this document is.** An independent verification of what the three merged blocks actually
 > deliver, against what was promised, kept current as evidence arrives. It supersedes the blocks' own
@@ -34,17 +34,17 @@ agreed with the owner), the KB (Docs 03/04/06/07/12/13) and `CLAUDE.md`'s golden
 ## 0. What changed since the 2026-08-16 revision
 
 
-| Was                                                             | Now                                                                                                                                                                        | Evidence                             |
-| --------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- |
-| 7 P0 tasks open, 11 P1 tasks open                               | ✅ **All 18 merged and on staging.** F-1…F-5, F-7…F-13, F-32…F-45 closed                                                                                                    | PRs #31–#43, #45; §3.1               |
-| §6 Sections B and C "not run"                                   | ✅ Run by the owner, surfacing **F-46…F-65** — twenty new findings, and confirming F-31                                                                                     | Issue #44                            |
-| **F-31** listed as "possible, unconfirmed"                      | ✅ **Real, and now reproduced in the source.** Production edit mode never recomputes                                                                                        | §3.2, `ProductionRunForm.tsx:116,220` |
-| **F-30** was an open product question                           | ✅ **Answered by the owner: no.** Sesiones does not need a mobile bottom tab — the header controls are enough                                                               | Issue #44 §C-8                       |
-| Go-live meant "the owner starts using staging for real"         | Go-live now means a **first deploy to the `prod` environment this week**. Nothing has ever been deployed there; the release itself is an untested path                     | `wrangler.toml` `[env.prod]`, §4.3.5 |
-| Top risk was the form layer                                     | The form layer is materially better. **The top risk is now that one whole vertical — Pedidos — is unusable, for two reasons neither review nor test-A could have predicted** | §1, F-46/F-47                        |
-| KOK-115 (sorting) recorded as "sort logic fully correct"        | Still true, and still almost entirely **unreachable**: only 2 of 10 tables opt any column in                                                                               | F-51                                 |
-| KOK-147 recorded "inventing a code system was rejected"         | The owner has now asked for exactly that, unprompted, across six event types. **The decision is reversed**                                                                 | F-57, Issue #44 §B-4                 |
-| Repo health: 989 tests green at `45a04ea`                       | **1021 tests green at `f273f54`** (worker 773/59 files, shared 158/15, web 90/15)                                                                                          | `pnpm run test`, this revision       |
+| Was                                                      | Now                                                                                                                                                                          | Evidence                              |
+| -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------- |
+| 7 P0 tasks open, 11 P1 tasks open                        | ✅ **All 18 merged and on staging.** F-1…F-5, F-7…F-13, F-32…F-45 closed                                                                                                      | PRs #31–#43, #45; §3.1                |
+| §6 Sections B and C "not run"                            | ✅ Run by the owner, surfacing **F-46…F-65** — twenty new findings, and confirming F-31                                                                                       | Issue #44                             |
+| **F-31** listed as "possible, unconfirmed"               | ✅ **Real, and now reproduced in the source.** Production edit mode never recomputes                                                                                          | §3.2, `ProductionRunForm.tsx:116,220` |
+| **F-30** was an open product question                    | ✅ **Answered by the owner: no.** Sesiones does not need a mobile bottom tab — the header controls are enough                                                                 | Issue #44 §C-8                        |
+| Go-live meant "the owner starts using staging for real"  | Go-live now means a **first deploy to the `prod` environment this week**. Nothing has ever been deployed there; the release itself is an untested path                       | `wrangler.toml` `[env.prod]`, §4.3.5  |
+| Top risk was the form layer                              | The form layer is materially better. **The top risk is now that one whole vertical — Pedidos — is unusable, for two reasons neither review nor test-A could have predicted** | §1, F-46/F-47                         |
+| KOK-115 (sorting) recorded as "sort logic fully correct" | Still true, and still almost entirely **unreachable**: only 2 of 10 tables opt any column in                                                                                 | F-51                                  |
+| KOK-147 recorded "inventing a code system was rejected"  | The owner has now asked for exactly that, unprompted, across six event types. **The decision is reversed**                                                                   | F-57, Issue #44 §B-4                  |
+| Repo health: 989 tests green at `45a04ea`                | **1021 tests green at `f273f54`** (worker 773/59 files, shared 158/15, web 90/15)                                                                                            | `pnpm run test`, this revision        |
 
 
 ---
@@ -58,29 +58,29 @@ findable without the owner sitting in front of the app.**
 Four things are true:
 
 1. **The P0/P1 batch worked.** Every one of the owner's fourteen Section-A complaints is closed, and
-   she confirms it in her own words: the stock indicator reads correctly, the batch recompute works,
-   dark mode and its calendar icons are right, the PWA survives a redeploy, and every copy check
-   passes. That is the first test session in this project's history that closed more than it opened
-   in the areas it was aimed at.
+ she confirms it in her own words: the stock indicator reads correctly, the batch recompute works,
+ dark mode and its calendar icons are right, the PWA survives a redeploy, and every copy check
+ passes. That is the first test session in this project's history that closed more than it opened
+ in the areas it was aimed at.
 2. **The two blockers she found are both invisible-by-construction bugs, and both are in Pedidos.**
-   The order form rejects future delivery dates — because §A-6's "no future dates" rule, written for
-   *transaction* dates, was applied to `deliveryDate`, a field that is future **by definition**
-   (F-46). And an order created after 20:00 La Paz vanishes from the board entirely, because
-   `listOrders` compares a UTC `created_at` against La Paz calendar-date boundaries (F-47). She
-   filed the issue at 00:01 La Paz, which is exactly why she saw it and we did not. Neither is
-   findable by reading a form; both are one-line-shaped fixes with real reasoning behind them.
+ The order form rejects future delivery dates — because §A-6's "no future dates" rule, written for
+ *transaction* dates, was applied to `deliveryDate`, a field that is future **by definition**
+ (F-46). And an order created after 20:00 La Paz vanishes from the board entirely, because
+ `listOrders` compares a UTC `created_at` against La Paz calendar-date boundaries (F-47). She
+ filed the issue at 00:01 La Paz, which is exactly why she saw it and we did not. Neither is
+ findable by reading a form; both are one-line-shaped fixes with real reasoning behind them.
 3. **F-31 is real, and it is the one finding that can put a wrong number in the database.** Editing a
-   production run and changing `batches` recomputes nothing — not the output quantity, not the
-   untouched ingredient lines — because saved lines are keyed `saved-production-line-${index}` while
-   the recipe map is keyed by `recipe.lines[].id`, so every lookup misses silently. The owner
-   changes 1 tanda to 3, sees the numbers stay put, and either fixes twelve fields by hand or saves
-   a run that claims 3 batches consumed one batch of ingredients. That is a costing-data defect
-   wearing a UI costume.
+ production run and changing `batches` recomputes nothing — not the output quantity, not the
+ untouched ingredient lines — because saved lines are keyed `saved-production-line-${index}` while
+ the recipe map is keyed by `recipe.lines[].id`, so every lookup misses silently. The owner
+ changes 1 tanda to 3, sees the numbers stay put, and either fixes twelve fields by hand or saves
+ a run that claims 3 batches consumed one batch of ingredients. That is a costing-data defect
+ wearing a UI costume.
 4. **The release itself is the least-tested path in the system.** `[env.prod]` has a database id and
-   a workflow job, and has never run. Twenty-three migrations will apply to an empty prod D1 for the
-   first time; two secrets must exist before the first login; and the owner must run the onboarding
-   wizard on her real catalog rather than inherit the dev fixture. None of that is hard — all of it
-   is unrehearsed, and it is scheduled for the same week as six code fixes.
+ a workflow job, and has never run. Twenty-three migrations will apply to an empty prod D1 for the
+ first time; two secrets must exist before the first login; and the owner must run the onboarding
+ wizard on her real catalog rather than inherit the dev fixture. None of that is hard — all of it
+ is unrehearsed, and it is scheduled for the same week as six code fixes.
 
 **Release position.** The gate is now **six tasks** (§4.1), all sized S or M, plus a rehearsed
 release procedure. That is a realistic week. **What is explicitly *not* in the gate** is the larger
@@ -183,15 +183,15 @@ Recorded so nobody spends the release week re-verifying what she already signed 
 
 - **Dark mode** and the date-field **calendar icons** in both themes (§C-6). KOK-106/151/152 close.
 - **The installed PWA survives a redeploy** — no white screen, no forced hard refresh (§C-7).
-  KOK-162's update strategy works in the field. Its only remaining gap is naming (F-61).
+KOK-162's update strategy works in the field. Its only remaining gap is naming (F-61).
 - **All copy checks pass** (§C-9): "Artículos comprados/vendidos/del pedido", "Preparación", "Costo
-  invisible del periodo", and the Ventas → *Entregar pedido* note.
+invisible del periodo", and the Ventas → *Entregar pedido* note.
 - **The per-ingredient stock indicator** renders correctly per line in the production form, and
-  **create-mode batch recompute works as designed** (§B-2). KOK-116/117 close.
+**create-mode batch recompute works as designed** (§B-2). KOK-116/117 close.
 - **Stock exits refuse Agua** (§B-5) — KOK-176's `isUnmetered` eligibility filter works against a real
-  catalog, closing the browser half of F-42.
+catalog, closing the browser half of F-42.
 - **Envasado has working column sorting**, including the "one active column at a time" rule (§B-4) —
-  the KOK-115 engine is correct; F-51 is that almost nothing else uses it.
+the KOK-115 engine is correct; F-51 is that almost nothing else uses it.
 - **The order picker appears in the production form** and resolves its selection (§B-2).
 
 ### Block A/B/C items confirmed correct by source review
@@ -221,36 +221,36 @@ their original numbers so earlier references stay valid.
 **Closed in the 2026-08-16 batch** (PRs #31–#43, #45), each verified at `f273f54`:
 
 
-| Finding                                   | Closed by | Note                                                                                                |
-| ----------------------------------------- | --------- | --------------------------------------------------------------------------------------------------- |
-| F-6 (nothing deployed)                    | KOK-154   | `origin/main` and `origin/develop` both carry the phase; staging deploys on every merge             |
-| F-1, F-45 (sticky headers)                | KOK-158   | `EventTable` now scrolls in a bounded `max-h-[32rem] overflow-auto` box with sticky `<th>` cells    |
-| F-2, F-20 (seed fixture)                  | KOK-155   | `rl_pan_caja` gone; presentations added; fixture-validation test added                              |
-| F-3, F-25, F-44 (no Envasar UI)           | KOK-156   | `/packing` + `/packing/definitions` are real nav sections with CRUD and history                     |
-| F-4, F-37 (`isDefault` double-deduction)  | KOK-157   | `ExitForm.tsx:217` now gates on **any** active definition (`hasActiveAssemblyDefinition`)           |
-| F-5 (`replacement_cost_history`)          | KOK-073   | Migration `0023_replacement_cost_history.sql` applied                                               |
-| F-7, F-43 (no unsaved-changes guard)      | KOK-142   | Dialog primitive + route blocking + `beforeunload`                                                  |
-| F-8 (no client-side caps)                 | KOK-159   | `maxLength` derived from the shared `safeText(N)` bound — see F-50 for what this does *not* cover  |
-| F-9 (purchase total line)                 | KOK-160   | Delivered inside KOK-140; both pinned footers render total + destination account                    |
-| F-10 (packaging suggestion on exits)      | KOK-161   | `packagingLinesFromDefaultDefinition` in `ExitForm.tsx:93`                                          |
-| F-11 (PWA stale shell)                    | KOK-162   | **Owner-verified in the field**: the installed PWA survived a redeploy (§C-7)                        |
-| F-12 (KOK-135 has no consumer)            | KOK-164   | Disposition recorded; KOK-135 stays a prerequisite of KOK-051                                       |
-| F-13 (`customOrderId` unlink)             | KOK-163   | Omitted vs. cleared now distinguishable                                                             |
-| F-32, F-35, F-36 (Envasado form)          | KOK-173   | Definition field, stock text, footer width                                                          |
-| F-33, F-42 (pickers offering rejects)     | KOK-176   | `ItemPicker` eligibility (kind/unit/`isUnmetered`) — **owner-verified for Agua on exits**            |
-| F-34, F-41 (`LineEditor` layout)          | KOK-172   | One shared grid template for header and rows — but see **F-54**, a regression it introduced         |
-| F-38 (session drawer clipping)            | KOK-175   | Action row wraps                                                                                    |
-| F-39 (session close arithmetic)           | KOK-174   | End defaults to now; end ↔ duration derived                                                        |
-| F-40 (forms are modals)                   | KOK-140   | Compra and Venta are full pages with their own URLs                                                 |
+| Finding                                  | Closed by | Note                                                                                              |
+| ---------------------------------------- | --------- | ------------------------------------------------------------------------------------------------- |
+| F-6 (nothing deployed)                   | KOK-154   | `origin/main` and `origin/develop` both carry the phase; staging deploys on every merge           |
+| F-1, F-45 (sticky headers)               | KOK-158   | `EventTable` now scrolls in a bounded `max-h-[32rem] overflow-auto` box with sticky `<th>` cells  |
+| F-2, F-20 (seed fixture)                 | KOK-155   | `rl_pan_caja` gone; presentations added; fixture-validation test added                            |
+| F-3, F-25, F-44 (no Envasar UI)          | KOK-156   | `/packing` + `/packing/definitions` are real nav sections with CRUD and history                   |
+| F-4, F-37 (`isDefault` double-deduction) | KOK-157   | `ExitForm.tsx:217` now gates on **any** active definition (`hasActiveAssemblyDefinition`)         |
+| F-5 (`replacement_cost_history`)         | KOK-073   | Migration `0023_replacement_cost_history.sql` applied                                             |
+| F-7, F-43 (no unsaved-changes guard)     | KOK-142   | Dialog primitive + route blocking + `beforeunload`                                                |
+| F-8 (no client-side caps)                | KOK-159   | `maxLength` derived from the shared `safeText(N)` bound — see F-50 for what this does *not* cover |
+| F-9 (purchase total line)                | KOK-160   | Delivered inside KOK-140; both pinned footers render total + destination account                  |
+| F-10 (packaging suggestion on exits)     | KOK-161   | `packagingLinesFromDefaultDefinition` in `ExitForm.tsx:93`                                        |
+| F-11 (PWA stale shell)                   | KOK-162   | **Owner-verified in the field**: the installed PWA survived a redeploy (§C-7)                     |
+| F-12 (KOK-135 has no consumer)           | KOK-164   | Disposition recorded; KOK-135 stays a prerequisite of KOK-051                                     |
+| F-13 (`customOrderId` unlink)            | KOK-163   | Omitted vs. cleared now distinguishable                                                           |
+| F-32, F-35, F-36 (Envasado form)         | KOK-173   | Definition field, stock text, footer width                                                        |
+| F-33, F-42 (pickers offering rejects)    | KOK-176   | `ItemPicker` eligibility (kind/unit/`isUnmetered`) — **owner-verified for Agua on exits**         |
+| F-34, F-41 (`LineEditor` layout)         | KOK-172   | One shared grid template for header and rows — but see **F-54**, a regression it introduced       |
+| F-38 (session drawer clipping)           | KOK-175   | Action row wraps                                                                                  |
+| F-39 (session close arithmetic)          | KOK-174   | End defaults to now; end ↔ duration derived                                                       |
+| F-40 (forms are modals)                  | KOK-140   | Compra and Venta are full pages with their own URLs                                               |
 
 
 **Answered by the owner, not by code:**
 
 - **F-30 — should Sesiones be a primary mobile tab? No.** Issue #44 §C-8: *"No es necesario que
-  sesiones sea un bottom tab, las funcionalidades de abrir y cerrar rápido desde el header son
-  suficientes."* `mobileTabs` (`nav-items.ts:104-109`) stays as it is. **Close this question.**
+sesiones sea un bottom tab, las funcionalidades de abrir y cerrar rápido desde el header son
+suficientes."* `mobileTabs` (`nav-items.ts:104-109`) stays as it is. **Close this question.**
 - **F-22 (offline notice: toast vs. dialog)** was not exercised in Sections B/C and remains the only
-  open item in KOK-171.
+open item in KOK-171.
 
 ### 3.2 Blockers — must be fixed before the production release
 
@@ -300,13 +300,13 @@ modificados no se actualizan como deberían, F-31 es real."*
 Two independent causes, both in `ProductionRunForm.tsx`:
 
 1. **The line keys never match.** Edit mode seeds saved lines with
-   `lineKey: `saved-production-line-${index}`` (`:116`), while the recompute effect looks each line up
-   in `recipeLinesById`, a map keyed by `recipe.lines[].id` (`:263`) — the key create mode uses
-   (`:255`). Every `recipeLinesById.get(line.lineKey)` returns `undefined`, the guard at `:289`
-   returns the line unchanged, and **not one ingredient is ever recomputed in edit mode.**
+ `lineKey:` saved-production-line-${index}`` (`:116`), while the recompute effect looks each line up
+ in `recipeLinesById`, a map keyed by `recipe.lines[].id` (`:263`) — the key create mode uses
+ (`:255`). Every `recipeLinesById.get(line.lineKey)` returns `undefined`, the guard at `:289`
+ returns the line unchanged, and **not one ingredient is ever recomputed in edit mode.**
 2. **Output quantity is force-marked dirty.** The edit-mode seeding branch sets
-   `actualOutputQtyDirtyRef.current = true` (`:220`), which the batches handler at `:278` reads as
-   "the owner typed this herself — never touch it". So the output quantity is frozen too.
+ `actualOutputQtyDirtyRef.current = true` (`:220`), which the batches handler at `:278` reads as
+ "the owner typed this herself — never touch it". So the output quantity is frozen too.
 
 Severity is higher than a UI annoyance: the owner changes 1 tanda to 3, sees nothing move, and either
 retypes twelve fields or saves a run whose `batches` says 3 while its consumptions say 1. That is
@@ -343,15 +343,15 @@ owner finding)*
 before the owner can log in to production:
 
 - **23 migrations** (`0001`…`0023`) apply to an empty D1 for the first time. The from-scratch path is
-  the one that *is* well tested (§2, and `db:reset:dev` runs it constantly), but it has never been
-  run against `kokoro-prod`.
+the one that *is* well tested (§2, and `db:reset:dev` runs it constantly), but it has never been
+run against `kokoro-prod`.
 - **Two secrets must exist or every request 500s**: `SESSION_SECRET` and `OWNER_PASSWORD_HASH`
-  (`apps/worker/src/env.ts:17-24`; used at `api/auth.ts:39` and `middleware/auth.ts:40`). They are
-  `wrangler secret put` values, not repo config, so nothing in CI will tell you they are missing.
+(`apps/worker/src/env.ts:17-24`; used at `api/auth.ts:39` and `middleware/auth.ts:40`). They are
+`wrangler secret put` values, not repo config, so nothing in CI will tell you they are missing.
 - **Production must NOT be seeded from `seed-fixtures.sql`.** That file is dev/staging demo data. The
-  real path is the onboarding wizard, run by the owner against her own catalog, balances and counts.
+real path is the onboarding wizard, run by the owner against her own catalog, balances and counts.
 - The `production` GitHub Environment's required reviewer must actually be configured, or the job
-  either blocks forever or does not block at all.
+either blocks forever or does not block at all.
 
 → **KOK-182**
 
@@ -406,17 +406,17 @@ caracteres, aún así se muestra el mensaje 'Cada línea necesita…'"*
 Three distinct facts behind one complaint:
 
 1. **Letters in the quantity field.** `LineEditor.tsx:181-188` renders a plain `<Input>` with
-   `inputMode="decimal"` — a keyboard hint, not a constraint. Letters are accepted into state,
-   `parseDecimalToInt` returns `null` at submit, and the line is reported invalid.
+ `inputMode="decimal"` — a keyboard hint, not a constraint. Letters are accepted into state,
+ `parseDecimalToInt` returns `null` at submit, and the line is reported invalid.
 2. **The notes cap is real but invisible, and larger than she expects.** `SaleForm.tsx:617` does carry
-   `maxLength={SALE_NOTES_MAX_LENGTH}` (KOK-159 delivered), but that constant is **2000**
-   (`packages/shared/src/sales.ts:33`), not 300 — so a long paragraph is genuinely accepted, with no
-   counter to say how much room is left. Her instinct that "something should have said something" is
-   the finding; the cap value itself is fine.
+ `maxLength={SALE_NOTES_MAX_LENGTH}` (KOK-159 delivered), but that constant is **2000**
+ (`packages/shared/src/sales.ts:33`), not 300 — so a long paragraph is genuinely accepted, with no
+ counter to say how much room is left. Her instinct that "something should have said something" is
+ the finding; the cap value itself is fine.
 3. **The error message is wrong for her case.** `SaleForm.tsx:379-383` returns
-   `salesLabels.errors.invalidLine` for *any* unparseable line and returns immediately — so a
-   left-over blank line row produces a message about "cada línea" that points at nothing she can see
-   as wrong, and the real cause (a row she never meant to fill) is never named.
+ `salesLabels.errors.invalidLine` for *any* unparseable line and returns immediately — so a
+ left-over blank line row produces a message about "cada línea" that points at nothing she can see
+ as wrong, and the real cause (a row she never meant to fill) is never named.
 
 This is the diagnosis **KOK-143** (live validation, Block D's largest task, 9–14 days) was written
 for, and it should not be started in release week. But two slices of it are small, independent and
@@ -523,14 +523,14 @@ same level as a control. It is a summary, not a filter. → **KOK-189**
 ### 3.4 Scheduled work the owner asked for — no new task needed
 
 - **"Sin receta" production mode.** Owner, §B-2: *"Aún no existe el modo 'Sin receta' donde pueda
-  especificar el ítem de salida."* Correct — it is **KOK-144**, already scoped in Block D
-  (`recipe_id` becomes optional, migration + KB amendment). No new ticket; record that it is now her
-  most-wanted Block D item, ahead of KOK-145–149.
+especificar el ítem de salida."* Correct — it is **KOK-144**, already scoped in Block D
+(`recipe_id` becomes optional, migration + KB amendment). No new ticket; record that it is now her
+most-wanted Block D item, ahead of KOK-145–149.
 - **Order picker status filtering.** Owner, §B-2: *"No puedo probar si solo aparecen los estados
-  diferentes a entregado o cancelado."* She could not test it because F-46/F-47 stopped her creating
-  orders. The code is correct — `OrderPicker.tsx:23` passes
-  `excludeStatuses: ["DELIVERED", "CANCELLED"]` — so this is **untested, not unbuilt**. It belongs to
-  §6 Section D's re-run, once KOK-177/178 land.
+diferentes a entregado o cancelado."* She could not test it because F-46/F-47 stopped her creating
+orders. The code is correct — `OrderPicker.tsx:23` passes
+`excludeStatuses: ["DELIVERED", "CANCELLED"]` — so this is **untested, not unbuilt**. It belongs to
+§6 Section D's re-run, once KOK-177/178 land.
 
 ### 3.5 Resolved by asking — the exit packaging gate is correct
 
@@ -557,38 +557,38 @@ turns a confusing control into an obvious one. **Copy only, no logic change** �
 | #    | Finding                                                                                                  | Task    |
 | ---- | -------------------------------------------------------------------------------------------------------- | ------- |
 | F-15 | `KOK-132` was flipped **back** to `📋 To Do` by the commit whose message says it marked it done          | KOK-167 |
-| F-16 | KB says "implementation pending" for two shipped rules — O-6 (order reversal) and S-5 (dedup hours)     | KOK-167 |
-| F-17 | Four modules redeclare `businessDateSchema`/`occurredAtSchema` **without** the future-date refinement   | KOK-168 |
+| F-16 | KB says "implementation pending" for two shipped rules — O-6 (order reversal) and S-5 (dedup hours)      | KOK-167 |
+| F-17 | Four modules redeclare `businessDateSchema`/`occurredAtSchema` **without** the future-date refinement    | KOK-168 |
 | F-18 | Impact-dialog copy says *"Esta sesión ya está cerrada"* even for a backdated create into an open session | KOK-169 |
 | F-19 | Native `window.confirm` in `OrderDetailDrawer.tsx:202,214,235,260` while every sibling uses `Dialog`     | KOK-170 |
 | F-21 | No UI copy says sorting covers only loaded rows (A-10) — now more visible once F-51 lands                | KOK-184 |
-| F-22 | Offline notice is a toast (`role="status"`) while A-9 says "dialog" — still unexercised                 | KOK-171 |
-| F-23 | Drizzle `meta/_journal.json` is stale — 0017…0023 unregistered. Tooling bookkeeping only                | KOK-167 |
+| F-22 | Offline notice is a toast (`role="status"`) while A-9 says "dialog" — still unexercised                  | KOK-171 |
+| F-23 | Drizzle `meta/_journal.json` is stale — 0017…0023 unregistered. Tooling bookkeeping only                 | KOK-167 |
 | F-24 | Hardcoded Spanish `"u. de "` outside i18n (D-9)                                                          | KOK-169 |
-| F-26 | Negative-stock copy reads "El stock quedaría negativo" vs the agreed "…en negativo"                     | KOK-169 |
+| F-26 | Negative-stock copy reads "El stock quedaría negativo" vs the agreed "…en negativo"                      | KOK-169 |
 | F-27 | No exhaustiveness test for `WAC_ENTRY_TYPES` (one exists for `STOCK_MOVEMENT_TYPES`)                     | KOK-169 |
 | F-28 | Both PWA icons are `"purpose": "any maskable"` on unpadded artwork; no PNG favicon fallback              | KOK-169 |
-| F-29 | Raw `+=` on Centavos instead of `addMoney` (pre-existing, D-5)                                            | KOK-169 |
+| F-29 | Raw `+=` on Centavos instead of `addMoney` (pre-existing, D-5)                                           | KOK-169 |
 | F-67 | The alerts bell (`Topbar.tsx:46-55`) is a permanently `disabled` placeholder shipping to production      | KOK-183 |
 
 
 ### 3.7 Traceability discrepancies (not defects)
 
 1. Acceptance checklist point **15** ("reports that separate offerings sold from products included")
-   is a Block B acceptance requirement in §A-1 but a **KOK-050 / Phase 5** row in the backlog. The
-   backlog should win, and §A-1 should say so. → KOK-167
+ is a Block B acceptance requirement in §A-1 but a **KOK-050 / Phase 5** row in the backlog. The
+ backlog should win, and §A-1 should say so. → KOK-167
 2. **The backlog was materially out of date — ✅ reconciled 2026-08-18.** KOK-132, KOK-140 and
-   KOK-142 were `📋 To Do` there while merged in reality; all three are now ✅, with the evidence
-   inline. Five future rows whose premises this review changed were amended in place: **KOK-138**
-   (the future-date rule covers transaction dates only — the trap that produced F-46), **KOK-141**
-   (its pattern and its Envasar surface now exist), **KOK-143** (KOK-187's two slices ship earlier —
-   build on them, don't rebuild them), **KOK-144** (owner-requested twice; now first in Block D) and
-   **KOK-147** (the code-system decision is reversed). Phase 3.2's go-live paragraph now records that
-   both prerequisites are met and points here for the release lane.
-   **Deliberately *not* done: KOK-155…190 were not added to the backlog.** They are defect fixes and
-   release work produced by two owner-led test sessions, not phases of the plan. The backlog stays
-   the big-picture plan and this document stays the pre-MVP fix list; where the two touch, the
-   backlog row says so inline. → KOK-167 is correspondingly narrowed (see §4.5)
+ KOK-142 were `📋 To Do` there while merged in reality; all three are now ✅, with the evidence
+ inline. Five future rows whose premises this review changed were amended in place: **KOK-138**
+ (the future-date rule covers transaction dates only — the trap that produced F-46), **KOK-141**
+ (its pattern and its Envasar surface now exist), **KOK-143** (KOK-187's two slices ship earlier —
+ build on them, don't rebuild them), **KOK-144** (owner-requested twice; now first in Block D) and
+ **KOK-147** (the code-system decision is reversed). Phase 3.2's go-live paragraph now records that
+ both prerequisites are met and points here for the release lane.
+ **Deliberately *not* done: KOK-155…190 were not added to the backlog.** They are defect fixes and
+ release work produced by two owner-led test sessions, not phases of the plan. The backlog stays
+ the big-picture plan and this document stays the pre-MVP fix list; where the two touch, the
+ backlog row says so inline. → KOK-167 is correspondingly narrowed (see §4.5)
 
 ---
 
@@ -621,24 +621,24 @@ escalate rather than absorbing it. The release date is the constraint; the task 
 ### 4.1 P0 — the release lane (must land before the production deploy)
 
 
-| ID      | Task                                            | Area    | Size | 🧠  | Status   | Description                                                                                                                                                                                             |
-| ------- | ----------------------------------------------- | ------- | ---- | --- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| KOK-177 | Orders may carry a future delivery date         | shared  | S    | 3   | ✅ Done | A promised delivery date is not a transaction date. §A-6's refinement was applied to `quoteOrderCommandSchema.deliveryDate` by schema reuse; lift it, with the KB amendment saying why. Closes F-46. → §4.3.1 |
-| KOK-178 | Orders board: filter by business date, not by a UTC instant | backend | S | 4 | ✅ Done | An order created after 20:00 La Paz falls outside its own board's date filter and disappears. Derive the UTC window from the business dates through Intl — never hardcode −4. Closes F-47. → §4.3.2 |
-| KOK-179 | Production edit mode must recompute             | web     | S    | 3   | ✅ Done | Saved lines are keyed `saved-production-line-${index}`; the recipe map is keyed by line id, so every lookup misses and nothing recomputes. Output qty is force-marked dirty too. Closes F-31. → §4.3.3 |
-| KOK-180 | Give the quantity input room back                | web     | S    | 2   | ✅ Done | A `w-28` unit `Select` inside a `9rem` column leaves ~20 px for the number. Widen the column where a selector is used; drop the selector from Envasado, which does not need one. Closes F-54, F-55. → §4.3.4 |
-| KOK-183 | Per-environment PWA identity + hide dead controls | web   | S    | 2   | ✅ Done | Staging and production install as the same "Kokoro" on the same phone. Template the manifest per environment ("QA-Kokoro"), and hide the permanently disabled alerts bell. Closes F-61, F-67. → §4.3.6 |
-| KOK-182 | Production release readiness and first deploy   | infra   | M    | 3   | 📋 To Do | `[env.prod]` has never run: 23 migrations, two secrets, no dev seed, a real reviewer gate, and the owner's own onboarding. Rehearse it, then run it. Closes F-66. → §4.3.5                              |
+| ID      | Task                                                        | Area    | Size | 🧠  | Status   | Description                                                                                                                                                                                                   |
+| ------- | ----------------------------------------------------------- | ------- | ---- | --- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| KOK-177 | Orders may carry a future delivery date                     | shared  | S    | 3   | ✅ Done   | A promised delivery date is not a transaction date. §A-6's refinement was applied to `quoteOrderCommandSchema.deliveryDate` by schema reuse; lift it, with the KB amendment saying why. Closes F-46. → §4.3.1 |
+| KOK-178 | Orders board: filter by business date, not by a UTC instant | backend | S    | 4   | ✅ Done   | An order created after 20:00 La Paz falls outside its own board's date filter and disappears. Derive the UTC window from the business dates through Intl — never hardcode −4. Closes F-47. → §4.3.2           |
+| KOK-179 | Production edit mode must recompute                         | web     | S    | 3   | ✅ Done   | Saved lines are keyed `saved-production-line-${index}`; the recipe map is keyed by line id, so every lookup misses and nothing recomputes. Output qty is force-marked dirty too. Closes F-31. → §4.3.3        |
+| KOK-180 | Give the quantity input room back                           | web     | S    | 2   | ✅ Done   | A `w-28` unit `Select` inside a `9rem` column leaves ~20 px for the number. Widen the column where a selector is used; drop the selector from Envasado, which does not need one. Closes F-54, F-55. → §4.3.4  |
+| KOK-183 | Per-environment PWA identity + hide dead controls           | web     | S    | 2   | ✅ Done   | Staging and production install as the same "Kokoro" on the same phone. Template the manifest per environment ("QA-Kokoro"), and hide the permanently disabled alerts bell. Closes F-61, F-67. → §4.3.6        |
+| KOK-182 | Production release readiness and first deploy               | infra   | M    | 3   | 📋 To Do | `[env.prod]` has never run: 23 migrations, two secrets, no dev seed, a real reviewer gate, and the owner's own onboarding. Rehearse it, then run it. Closes F-66. → §4.3.5                                    |
 
 
 **Ship-with-the-release if the lane clears early** — both are S, both unblock her own testing, neither
 is load-bearing:
 
 
-| ID      | Task                                    | Area | Size | 🧠  | Status   | Description                                                                                                                    |
-| ------- | --------------------------------------- | ---- | ---- | --- | -------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| KOK-186 | OrderPicker must show the description   | web  | S    | 1   | ✅ Done | The field is already fetched and already searched — it is just never rendered. Closes F-48. → §4.6.3                          |
-| KOK-181 | Envasado: ask for real output, not planned | web | S   | 3   | ✅ Done | Prefill "Salida real" from the definition and stop asking for "Salida planificada" — while still submitting it, because planned-vs-actual is C-10's breakage signal. Closes F-56. → §4.6.2 |
+| ID      | Task                                       | Area | Size | 🧠  | Status | Description                                                                                                                                                                                |
+| ------- | ------------------------------------------ | ---- | ---- | --- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| KOK-186 | OrderPicker must show the description      | web  | S    | 1   | ✅ Done | The field is already fetched and already searched — it is just never rendered. Closes F-48. → §4.6.3                                                                                       |
+| KOK-181 | Envasado: ask for real output, not planned | web  | S    | 3   | ✅ Done | Prefill "Salida real" from the definition and stop asking for "Salida planificada" — while still submitting it, because planned-vs-actual is C-10's breakage signal. Closes F-56. → §4.6.2 |
 
 
 ---
@@ -648,26 +648,26 @@ is load-bearing:
 Six tasks, one week, one hard date. The ordering that matters:
 
 
-| Day     | Work                                                              | Why                                                                                                                                            |
-| ------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **1**   | **KOK-177 + KOK-178 together, as one PR if convenient**           | They are the same blocked flow. Neither alone lets the owner create an order and see it. Merge them, deploy staging, and **ask her to re-run §6 B-1 immediately** — that re-test is the gate for everything else. |
-| **1–2** | **KOK-179**, **KOK-180** in parallel                              | Disjoint files (`ProductionRunForm.tsx` vs `LineEditor.tsx` + four call sites). KOK-179 is the data-correctness one; do not let it slip.        |
-| **2**   | **KOK-183**                                                       | Must be in the build that becomes the first production deploy, or the owner installs an unnamed twin.                                          |
-| **3**   | **KOK-182 rehearsal** — a throwaway D1, migrations, secrets, login | Find the release's problems on a database nobody cares about. This is the step people skip.                                                     |
-| **4**   | Owner re-runs §6 B-1/B-2 on staging; fix anything it surfaces      | Her re-test, not ours, closes F-46/F-47/F-31.                                                                                                  |
-| **5**   | **KOK-182 for real**: deploy, onboard, §6 Section D smoke          | Onboarding on real data is the owner's work and needs her time booked in advance.                                                              |
+| Day     | Work                                                               | Why                                                                                                                                                                                                               |
+| ------- | ------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **1**   | **KOK-177 + KOK-178 together, as one PR if convenient**            | They are the same blocked flow. Neither alone lets the owner create an order and see it. Merge them, deploy staging, and **ask her to re-run §6 B-1 immediately** — that re-test is the gate for everything else. |
+| **1–2** | **KOK-179**, **KOK-180** in parallel                               | Disjoint files (`ProductionRunForm.tsx` vs `LineEditor.tsx` + four call sites). KOK-179 is the data-correctness one; do not let it slip.                                                                          |
+| **2**   | **KOK-183**                                                        | Must be in the build that becomes the first production deploy, or the owner installs an unnamed twin.                                                                                                             |
+| **3**   | **KOK-182 rehearsal** — a throwaway D1, migrations, secrets, login | Find the release's problems on a database nobody cares about. This is the step people skip.                                                                                                                       |
+| **4**   | Owner re-runs §6 B-1/B-2 on staging; fix anything it surfaces      | Her re-test, not ours, closes F-46/F-47/F-31.                                                                                                                                                                     |
+| **5**   | **KOK-182 for real**: deploy, onboard, §6 Section D smoke          | Onboarding on real data is the owner's work and needs her time booked in advance.                                                                                                                                 |
 
 
 **Three traps worth naming before anyone picks up a task:**
 
 - **KOK-178 will tempt someone to write `T04:00:00.000Z`.** It is the correct number today and the
-  wrong code — `dates.ts` resolves the offset through Intl on purpose, and Doc 02 §5 makes the
-  timezone a setting. Add the helper there; do not inline an offset.
+wrong code — `dates.ts` resolves the offset through Intl on purpose, and Doc 02 §5 makes the
+timezone a setting. Add the helper there; do not inline an offset.
 - **KOK-179 will tempt someone to "just re-seed the form on save".** The bug is a key mismatch and a
-  ref set to the wrong value. Fix those two things; do not restructure the form's state model in
-  release week.
+ref set to the wrong value. Fix those two things; do not restructure the form's state model in
+release week.
 - **KOK-182 is not a deploy button.** Its deliverable is a written, rehearsed procedure plus the run.
-  If it is treated as "click deploy", the missing-secret 500 will be discovered by the owner.
+If it is treated as "click deploy", the missing-secret 500 will be discovered by the owner.
 
 ---
 
@@ -690,17 +690,17 @@ it was caught by schema reuse.
 **What to build.**
 
 1. Replace `businessDateSchema` on `quoteOrderCommandSchema.deliveryDate` with a date schema that
-   keeps the **format** validation and drops the **future** refinement. Export it from `dates.ts`
-   (e.g. `calendarDateSchema`) so the split is explicit and reusable, and so `businessDateSchema` can
-   be documented as "business/transaction dates only".
+ keeps the **format** validation and drops the **future** refinement. Export it from `dates.ts`
+ (e.g. `calendarDateSchema`) so the split is explicit and reusable, and so `businessDateSchema` can
+ be documented as "business/transaction dates only".
 2. Leave every other field alone. `confirmOrderCommandSchema.businessDate`,
-   `deliverOrderCommonFields.businessDate` and `cancelOrderCommandSchema.businessDate` are all real
-   transaction dates and **must keep** the refinement (`orders.ts:141,154,218`).
+ `deliverOrderCommonFields.businessDate` and `cancelOrderCommandSchema.businessDate` are all real
+ transaction dates and **must keep** the refinement (`orders.ts:141,154,218`).
 3. Check the form for a mirror of the rule: `QuoteOrderForm.tsx:195` renders a plain `type="date"`
-   input — confirm no `max` attribute or client-side guard reproduces the block.
+ input — confirm no `max` attribute or client-side guard reproduces the block.
 4. **KB amendment in the same PR (D-1/D-6).** Doc 03's order rules and `acuerdos-prueba-usuario-1.md`
-   §A-6 must state that the no-future-dates rule covers **transaction** dates and explicitly exempts
-   `custom_orders.delivery_date`. Otherwise the next person re-applies it.
+ §A-6 must state that the no-future-dates rule covers **transaction** dates and explicitly exempts
+ `custom_orders.delivery_date`. Otherwise the next person re-applies it.
 
 **Acceptance.** An order can be quoted with a delivery date weeks ahead and appears on the board with
 it. Confirming, delivering or cancelling that order with a **future** `businessDate` is still
@@ -724,7 +724,7 @@ is documented in code.
 **Why.** Owner, Issue #44 §B-1, marked blocking: *"Después de registrar el pedido, el formulario se
 cierra pero nada aparece en la columna cotizando ni en ninguna otra columna."*
 `listOrders` (`core/orders/index.ts:1305-1308`) bounds a UTC `created_at` with
-`` `${fromDate}T00:00:00.000Z` `` and `` `${toDate}T23:59:59.999Z` ``, while `fromDate`/`toDate` come from
+``${fromDate}T00:00:00.000Z`` and ``${toDate}T23:59:59.999Z``, while `fromDate`/`toDate` come from
 `getDefaultDateRange()` as **La Paz** calendar dates. From 20:00 La Paz onwards, `created_at` lands on
 the next UTC day and the order falls out of its own default filter. She reported it at 00:01 La Paz.
 
@@ -735,15 +735,15 @@ column** (it is not a kardex event, so INV-3 never gave it one).
 **What to build.**
 
 1. **A shared helper in `packages/shared/src/dates.ts`**, e.g.
-   `businessDateRangeToUtcWindow(fromDate, toDate, timezone = DEFAULT_TIMEZONE)`, returning the
-   `{ startInclusive, endExclusive }` UTC instants that bound those local days. Build it from the
-   existing `fromDatetimeLocal`/`toDatetimeLocal` Intl machinery — **no hardcoded offset**, per
-   `dates.ts`'s own docstring and Doc 02 §5's configurable timezone.
+ `businessDateRangeToUtcWindow(fromDate, toDate, timezone = DEFAULT_TIMEZONE)`, returning the
+ `{ startInclusive, endExclusive }` UTC instants that bound those local days. Build it from the
+ existing `fromDatetimeLocal`/`toDatetimeLocal` Intl machinery — **no hardcoded offset**, per
+ `dates.ts`'s own docstring and Doc 02 §5's configurable timezone.
 2. Use it in `listOrders`, with a **half-open** upper bound (`< endExclusive`) rather than
-   `23:59:59.999`, so no millisecond can fall between the two clauses.
+ `23:59:59.999`, so no millisecond can fall between the two clauses.
 3. A unit test for the helper covering the La Paz evening case explicitly (an instant at 20:30 local
-   must be inside *that* local day's window), plus a `listOrders` test that creates an order with a
-   `created_at` in the 20:00–23:59 La Paz band and asserts the default range still returns it.
+ must be inside *that* local day's window), plus a `listOrders` test that creates an order with a
+ `created_at` in the 20:00–23:59 La Paz band and asserts the default range still returns it.
 
 **Do not** add a `business_date` column to `custom_orders` for this. It would be a migration in
 release week to solve a query bug, and the derived value would then need backfilling and keeping
@@ -773,26 +773,26 @@ run records 3 batches against one batch of consumption — feeding C-4, WAC and 
 
 **The two causes, both in `ProductionRunForm.tsx`:**
 
-1. **Key mismatch.** Edit seeding builds `lineKey: `saved-production-line-${index}`` (`:116`). The
-   recompute path looks lines up in `recipeLinesById`, keyed by `recipe.lines[].id` (`:263`) — the
-   same key create mode assigns at `:255`. `recipeLinesById.get(line.lineKey)` therefore always
-   misses, the `if (!recipeLine || …) return line` guard at `:287-290` returns every line untouched,
-   and no ingredient is ever recomputed.
+1. **Key mismatch.** Edit seeding builds `lineKey:` saved-production-line-${index}`` (`:116`). The
+ recompute path looks lines up in `recipeLinesById`, keyed by `recipe.lines[].id` (`:263`) — the
+ same key create mode assigns at `:255`. `recipeLinesById.get(line.lineKey)` therefore always
+ misses, the `if (!recipeLine || …) return line` guard at `:287-290` returns every line untouched,
+ and no ingredient is ever recomputed.
 2. **Output quantity force-marked dirty.** `:220` sets `actualOutputQtyDirtyRef.current = true` during
-   edit seeding; `:278` treats that as "the owner typed this" and refuses to update it.
+ edit seeding; `:278` treats that as "the owner typed this" and refuses to update it.
 
 **What to build.**
 
 1. **Key saved lines by their recipe line id** when the saved consumption corresponds to one, falling
-   back to a synthetic key only for lines that genuinely have no recipe counterpart (an ingredient
-   she added by hand, or a line whose recipe row was since removed). The synthetic fallback must be
-   stable across renders and must never collide with a real id.
+ back to a synthetic key only for lines that genuinely have no recipe counterpart (an ingredient
+ she added by hand, or a line whose recipe row was since removed). The synthetic fallback must be
+ stable across renders and must never collide with a real id.
 2. **Seed the dirty refs from reality, not from a constant.** On edit, a line is "dirty" if the saved
-   quantity differs from what the recipe would produce at the saved `batches` — same for
-   `actualOutputQty` against `expectedYieldQty × batches`. Then a saved run that was never hand-edited
-   behaves like a fresh one, and a hand-edited value is still protected.
+ quantity differs from what the recipe would produce at the saved `batches` — same for
+ `actualOutputQty` against `expectedYieldQty × batches`. Then a saved run that was never hand-edited
+ behaves like a fresh one, and a hand-edited value is still protected.
 3. Preserve the existing create-mode contract exactly: a value the owner typed is never overwritten
-   (`actualOutputQtyAutoRef`/`lineAutoQtyRef` already encode this; reuse them, do not replace them).
+ (`actualOutputQtyAutoRef`/`lineAutoQtyRef` already encode this; reuse them, do not replace them).
 
 **Acceptance.** Open a saved production run whose quantities match its recipe, change `batches` from
 1 to 3: the output quantity and every untouched ingredient line triple. Change one ingredient by
@@ -825,16 +825,16 @@ it moved into.
 **What to build.**
 
 1. **Make the quantity column's width depend on whether a unit selector is present.** The grid
-   template is already computed per-configuration at `:109-115` — add `unitSelector` to that
-   decision rather than hardcoding a single width. Target a number field that comfortably shows five
-   significant digits plus a decimal separator at every breakpoint from 390 px up.
+ template is already computed per-configuration at `:109-115` — add `unitSelector` to that
+ decision rather than hardcoding a single width. Target a number field that comfortably shows five
+ significant digits plus a decimal separator at every breakpoint from 390 px up.
 2. **Drop `unitSelector` from the Envasado form** (`routes/assemblies.tsx:538-548`). `LineEditor`
-   already falls back to displaying the component's canonical unit as a suffix when no selector is
-   passed (`:190-197`), which is what that form needs. Keep the selector in `PurchaseForm.tsx:525`,
-   `RecipeForm.tsx:452` and `packing-definitions.tsx:292` — the owner asked for it there, in KOK-101.
+ already falls back to displaying the component's canonical unit as a suffix when no selector is
+ passed (`:190-197`), which is what that form needs. Keep the selector in `PurchaseForm.tsx:525`,
+ `RecipeForm.tsx:452` and `packing-definitions.tsx:292` — the owner asked for it there, in KOK-101.
 3. Re-check the mobile stacked layout while you are in the file: below `sm:` the row is
-   `flex flex-col` and the selector sits inline with the input on one line — confirm at 390 px that
-   the number is still readable there.
+ `flex flex-col` and the selector sits inline with the input on one line — confirm at 390 px that
+ the number is still readable there.
 
 **Acceptance.** At 1280 px and 390 px, in both themes, with a unit selector present: typing `1234,567`
 into a quantity field shows the whole value. The Envasado form shows each component's unit as text and
@@ -860,26 +860,26 @@ gap between them is where the owner's first login fails.
 **What to build — a rehearsal, then the run.**
 
 1. **Rehearse on a throwaway D1.** Create a scratch database, apply all 23 migrations with
-   `wrangler d1 migrations apply --remote`, point a scratch Worker at it, set the two secrets, and log
-   in. Record the exact command sequence and every surprise. Delete the scratch resources afterwards.
+ `wrangler d1 migrations apply --remote`, point a scratch Worker at it, set the two secrets, and log
+ in. Record the exact command sequence and every surprise. Delete the scratch resources afterwards.
 2. **Set the production secrets** (`wrangler secret put --env prod`): `SESSION_SECRET` and
-   `OWNER_PASSWORD_HASH` (`apps/worker/src/env.ts:17-24`; consumed at `api/auth.ts:39` and
-   `middleware/auth.ts:40`). Generate the hash with the project's own helper
-   (`apps/worker/src/auth/password.ts:52`), never by hand. The Phase 4 secrets
-   (`TELEGRAM_*`, `OPENAI_API_KEY`) are **not** needed for this release — confirm that no startup path
-   dereferences them, and if one does, that is a bug to fix here.
+ `OWNER_PASSWORD_HASH` (`apps/worker/src/env.ts:17-24`; consumed at `api/auth.ts:39` and
+ `middleware/auth.ts:40`). Generate the hash with the project's own helper
+ (`apps/worker/src/auth/password.ts:52`), never by hand. The Phase 4 secrets
+ (`TELEGRAM_*`, `OPENAI_API_KEY`) are **not** needed for this release — confirm that no startup path
+ dereferences them, and if one does, that is a bug to fix here.
 3. **Confirm the `production` GitHub Environment has its required reviewer configured.** The workflow
-   comment at `deploy.yml:122-124` asserts it; verify it in repo settings rather than trusting the
-   comment.
+ comment at `deploy.yml:122-124` asserts it; verify it in repo settings rather than trusting the
+ comment.
 4. **Guarantee production is never seeded from the fixture.** `seed-fixtures.sql` is dev/staging demo
-   data — including the Kéfir and Desayuno Kokoro examples. Verify no prod script or workflow step
-   can reach it, and if `db:reset:staging` can be pointed at prod by an env var, close that door.
+ data — including the Kéfir and Desayuno Kokoro examples. Verify no prod script or workflow step
+ can reach it, and if `db:reset:staging` can be pointed at prod by an env var, close that door.
 5. **Deploy**, then walk **§6 Section D** end to end with the owner: onboarding wizard on her real
-   catalog, opening balances, initial counts, then one real purchase, one real production run, one
-   real sale.
+ catalog, opening balances, initial counts, then one real purchase, one real production run, one
+ real sale.
 6. **Write the rollback down before you need it.** `wrangler rollback --env prod` reverts the Worker;
-   it does **not** revert a migration. Record what "undo" means for each of the two, and where the
-   first backup lands.
+ it does **not** revert a migration. Record what "undo" means for each of the two, and where the
+ first backup lands.
 
 **Acceptance.** The owner logs in to the production URL with her own password, completes onboarding on
 her own data, and records one purchase, one production run and one sale that appear correctly in
@@ -907,16 +907,16 @@ screen.
 **What to build.**
 
 1. **Template the manifest at build time** from the deploy environment: production stays "Kokoro
-   Management" / "Kokoro"; staging becomes "QA-Kokoro". Vite's `import.meta.env` / a define is the
-   natural mechanism and adds no dependency (D-10). Include the `<title>` and the theme colour in the
-   same treatment if it is free to do so — a visibly different chrome on staging is worth more than
-   the name alone.
+ Management" / "Kokoro"; staging becomes "QA-Kokoro". Vite's `import.meta.env` / a define is the
+ natural mechanism and adds no dependency (D-10). Include the `<title>` and the theme colour in the
+ same treatment if it is free to do so — a visibly different chrome on staging is worth more than
+ the name alone.
 2. **Confirm `sw.js`'s cache name does not collide across environments.** KOK-162 made it
-   build-derived; verify two environments cannot share a cache key, since they are served from
-   different origins but installed side by side.
+ build-derived; verify two environments cannot share a cache key, since they are served from
+ different origins but installed side by side.
 3. **Hide the alerts bell** (`Topbar.tsx:46-55`) — a permanently `disabled` button with no behaviour,
-   shipping to a real user. The search box next to it was already hidden for exactly this reason
-   (commit `78bb461`); do the same, and leave a comment pointing at KOK-046, which will bring it back.
+ shipping to a real user. The search box next to it was already hidden for exactly this reason
+ (commit `78bb461`); do the same, and leave a comment pointing at KOK-046, which will bring it back.
 
 **Acceptance.** Installing from staging yields "QA-Kokoro"; installing from production yields
 "Kokoro". Both can be installed on one device and are visually distinguishable. No disabled,
@@ -931,14 +931,14 @@ the owner confirmed in §C-7).
 ### 4.4 P1 — the week after the release, before returning to the backlog
 
 
-| ID      | Task                                                | Area   | Size | 🧠  | Status   | Description                                                                                                                                                                                                     |
-| ------- | --------------------------------------------------- | ------ | ---- | --- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| KOK-184 | Turn sorting on everywhere, and persist it in the URL | web    | M    | 2   | ✅ Done | KOK-115's engine is correct and reachable in 2 of 10 tables. Declare `sortable`/`sortValue` across the eight that lack it, move sort state into the URL like KOK-114 did for filters. Closes F-51, F-52, F-21. → §4.6.1 |
-| KOK-188 | Sessions UX pass                                    | web    | M    | 2   | ✅ Done | Five owner findings in one surface: multi-session close menu, calendar as the default view, readable time fields on mobile, a session card that isn't the same colour as the calendar, "registrar sesión pasada" as the default mode. Closes F-60, F-62, F-63, F-64, F-65. → §4.6.4 |
-| KOK-185 | Human-readable event codes                          | full   | L    | 4   | 📋 To Do | Per-type dated sequences for session, production, sale, packing, purchase and order, backfilled from `created_at`, surfaced in tables, drawers and pickers. **Reverses KOK-147's recorded decision — amend the KB in the same PR.** Closes F-57. → §4.6.5 |
-| KOK-187 | Numeric input constraints + an error that names the field | web | M | 3   | ✅ Done | The two cheap slices of KOK-143: stop numeric fields accepting letters, and make the submit error identify the line and field it is rejecting. Explicitly **not** the full live-validation task. Closes F-50. → §4.6.6 |
-| KOK-189 | Exit form kind filter + Costo invisible placement    | web    | S    | 2   | ✅ Done | Pick the item kind first, defaulting to producto final, so the picker is searchable; and stop the waste summary card expanding to fill the filter row. Closes F-58, F-59. → §4.6.7                            |
-| KOK-190 | Make it visible that a table row opens something     | web    | S    | 2   | ✅ Done | Every list wires `onRowClick` and none of them says so. Apply KOK-110's pencil/underline affordance at the `EventTable` level so every list inherits it. Closes F-53. → §4.6.8                                 |
+| ID      | Task                                                      | Area | Size | 🧠  | Status | Description                                                                                                                                                                                                                                                                         |
+| ------- | --------------------------------------------------------- | ---- | ---- | --- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| KOK-184 | Turn sorting on everywhere, and persist it in the URL     | web  | M    | 2   | ✅ Done | KOK-115's engine is correct and reachable in 2 of 10 tables. Declare `sortable`/`sortValue` across the eight that lack it, move sort state into the URL like KOK-114 did for filters. Closes F-51, F-52, F-21. → §4.6.1                                                             |
+| KOK-188 | Sessions UX pass                                          | web  | M    | 2   | ✅ Done | Five owner findings in one surface: multi-session close menu, calendar as the default view, readable time fields on mobile, a session card that isn't the same colour as the calendar, "registrar sesión pasada" as the default mode. Closes F-60, F-62, F-63, F-64, F-65. → §4.6.4 |
+| KOK-185 | Human-readable event codes                                | full | L    | 4   | ✅ Done | Per-type dated sequences for session, production, sale, packing, purchase and order, backfilled from `created_at`, surfaced in tables, drawers and pickers. **Reverses KOK-147's recorded decision — amend the KB in the same PR.** Closes F-57. → §4.6.5                           |
+| KOK-187 | Numeric input constraints + an error that names the field | web  | M    | 3   | ✅ Done | The two cheap slices of KOK-143: stop numeric fields accepting letters, and make the submit error identify the line and field it is rejecting. Explicitly **not** the full live-validation task. Closes F-50. → §4.6.6                                                              |
+| KOK-189 | Exit form kind filter + Costo invisible placement         | web  | S    | 2   | ✅ Done | Pick the item kind first, defaulting to producto final, so the picker is searchable; and stop the waste summary card expanding to fill the filter row. Closes F-58, F-59. → §4.6.7                                                                                                  |
+| KOK-190 | Make it visible that a table row opens something          | web  | S    | 2   | ✅ Done | Every list wires `onRowClick` and none of them says so. Apply KOK-110's pencil/underline affordance at the `EventTable` level so every list inherits it. Closes F-53. → §4.6.8                                                                                                      |
 
 
 ---
@@ -950,15 +950,15 @@ team returns to `10-implementation-backlog.md` straight after this batch, and th
 disagrees with reality about eighteen delivered tasks.
 
 
-| ID      | Task                                        | Area   | Size | 🧠  | Status   | Description                                                                                                                                                                                                                                     |
-| ------- | ------------------------------------------- | ------ | ---- | --- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| KOK-167 | Reconcile status records — **partly done, now narrowed** | docs | S | 2 | 📋 To Do | ✅ **Already done (2026-08-18):** KOK-132 restored to ✅ and KOK-140/142 corrected in the backlog; KOK-138/141/143/144/147 amended in place; Phase 3.2's go-live paragraph updated. **Remaining:** drop "implementation pending" from O-6 and S-5 in Doc 03; regenerate Drizzle `_journal.json` for 0017–0023; correct §A-1 point 15 to KOK-050/Phase 5. **Explicitly out of scope:** adding KOK-155…190 to the backlog — that file is the plan, this one is the pre-MVP fix list. Closes F-15, F-16, F-23, §3.7. |
-| KOK-165 | e2e for the three new verticals + PR gate   | web    | M    | 3   | 📋 To Do | Session start/close from the header, record an Envasado, order confirm → deliver → undo. **Run Playwright in the PR gate**, not only post-deploy. Add F-46, F-47 and F-31 as regression specs — all three were reachable by a browser test and none existed. Closes F-14. |
-| KOK-166 | Close the service/UI test gap               | full   | M    | 3   | 📋 To Do | Route tests for `api/assemblies.ts` and `api/assembly-definitions.ts`; a test driving `assertOrderLinkable` through the production/assembly commands; pure-logic tests for `OrderPicker`, `WeeklyCalendar` and the assembly cost math. Closes F-14. |
-| KOK-168 | Make `dates.ts` genuinely the single source | shared | S    | 3   | 📋 To Do | `finance.ts`, `sessions.ts`, `counts.ts` and `inventory-views.ts` redeclare the date schemas **without** the future-date refinement. **Fold KOK-177's `calendarDateSchema` split into this** so the module ends with one documented vocabulary. Closes F-17. |
-| KOK-169 | Copy and consistency batch                  | full   | M    | 2   | 📋 To Do | F-18, F-24, F-26, F-27, F-28, F-29 — one PR, no behaviour change. **Plus (§3.5):** one line above the exit form's packaging section explaining why it appeared — this item leaves unpackaged, so add the packaging actually used. The gate is correct; only its silence confused the owner. |
-| KOK-170 | `window.confirm` → app `Dialog`             | web    | S    | 2   | 📋 To Do | Three native pop-ups in `OrderDetailDrawer.tsx:202,214,235,260`. Closes F-19.                                                                                                                                                                  |
-| KOK-171 | One product call to make with the owner — **narrowed** | — | S | 1  | 📋 To Do | Only F-22 remains: offline notice as toast vs. dialog (A-9 says dialog). **F-30 is answered — she does not want Sesiones as a mobile tab.**                                                                                                     |
+| ID      | Task                                                     | Area   | Size | 🧠  | Status   | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| ------- | -------------------------------------------------------- | ------ | ---- | --- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| KOK-167 | Reconcile status records — **partly done, now narrowed** | docs   | S    | 2   | 📋 To Do | ✅ **Already done (2026-08-18):** KOK-132 restored to ✅ and KOK-140/142 corrected in the backlog; KOK-138/141/143/144/147 amended in place; Phase 3.2's go-live paragraph updated. **Remaining:** drop "implementation pending" from O-6 and S-5 in Doc 03; regenerate Drizzle `_journal.json` for 0017–0023; correct §A-1 point 15 to KOK-050/Phase 5. **Explicitly out of scope:** adding KOK-155…190 to the backlog — that file is the plan, this one is the pre-MVP fix list. Closes F-15, F-16, F-23, §3.7. |
+| KOK-165 | e2e for the three new verticals + PR gate                | web    | M    | 3   | 📋 To Do | Session start/close from the header, record an Envasado, order confirm → deliver → undo. **Run Playwright in the PR gate**, not only post-deploy. Add F-46, F-47 and F-31 as regression specs — all three were reachable by a browser test and none existed. Closes F-14.                                                                                                                                                                                                                                       |
+| KOK-166 | Close the service/UI test gap                            | full   | M    | 3   | 📋 To Do | Route tests for `api/assemblies.ts` and `api/assembly-definitions.ts`; a test driving `assertOrderLinkable` through the production/assembly commands; pure-logic tests for `OrderPicker`, `WeeklyCalendar` and the assembly cost math. Closes F-14.                                                                                                                                                                                                                                                             |
+| KOK-168 | Make `dates.ts` genuinely the single source              | shared | S    | 3   | 📋 To Do | `finance.ts`, `sessions.ts`, `counts.ts` and `inventory-views.ts` redeclare the date schemas **without** the future-date refinement. **Fold KOK-177's `calendarDateSchema` split into this** so the module ends with one documented vocabulary. Closes F-17.                                                                                                                                                                                                                                                    |
+| KOK-169 | Copy and consistency batch                               | full   | M    | 2   | 📋 To Do | F-18, F-24, F-26, F-27, F-28, F-29 — one PR, no behaviour change. **Plus (§3.5):** one line above the exit form's packaging section explaining why it appeared — this item leaves unpackaged, so add the packaging actually used. The gate is correct; only its silence confused the owner.                                                                                                                                                                                                                     |
+| KOK-170 | `window.confirm` → app `Dialog`                          | web    | S    | 2   | 📋 To Do | Three native pop-ups in `OrderDetailDrawer.tsx:202,214,235,260`. Closes F-19.                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| KOK-171 | One product call to make with the owner — **narrowed**   | —      | S    | 1   | 📋 To Do | Only F-22 remains: offline notice as toast vs. dialog (A-9 says dialog). **F-30 is answered — she does not want Sesiones as a mobile tab.**                                                                                                                                                                                                                                                                                                                                                                     |
 
 
 ---
@@ -980,15 +980,15 @@ active tab in the URL.
 **What to build.**
 
 1. **Declare `sortable` + `sortValue` on the columns that deserve them** in every list: Ventas,
-   Producción, Compras, Salidas, Conteos, Finanzas, Catálogo and the Inventario stock table. Sort on
-   the underlying value, never the formatted string — dates as ISO strings, money and quantities as
-   their integer scale, so `numeric: true` compares numbers rather than "Bs 1.234,50".
-   **Pedidos is deliberately excluded**: it is a status board, and the owner said so herself.
+ Producción, Compras, Salidas, Conteos, Finanzas, Catálogo and the Inventario stock table. Sort on
+ the underlying value, never the formatted string — dates as ISO strings, money and quantities as
+ their integer scale, so `numeric: true` compares numbers rather than "Bs 1.234,50".
+ **Pedidos is deliberately excluded**: it is a status board, and the owner said so herself.
 2. **Lift sort state into the URL**, alongside KOK-114's existing search params, so a reload or a
-   shared link restores it. Keep the agreed cycle (asc → desc → natural) and the one-active-column
-   rule; this is where they live, not a new behaviour.
+ shared link restores it. Keep the agreed cycle (asc → desc → natural) and the one-active-column
+ rule; this is where they live, not a new behaviour.
 3. **Add the sorting-scope copy A-10 asked for** (F-21): sorting orders the rows already loaded
-   (200–500), not the whole table. One short line near the table, not a tooltip on every header.
+ (200–500), not the whole table. One short line near the table, not a tooltip on every header.
 
 **Acceptance.** Every list except Pedidos sorts on at least its date, its main text column and its
 principal numeric column. Sorting Ventas by total puts Bs 1.234,50 above Bs 999,00. Reloading the page
@@ -1062,22 +1062,22 @@ individually and coherent together: sessions are what she touches first every da
 **What to build.**
 
 1. **Close any open session from the chip** (F-60). `SessionChip` already has the right popover for
-   the single-session case (`:103-136`); the multi-session branch (`:84-96`) just navigates. Extend
-   the existing popover to list every open session — type, elapsed time, close action — instead of
-   adding a second control. Keep the single-session behaviour identical.
+ the single-session case (`:103-136`); the multi-session branch (`:84-96`) just navigates. Extend
+ the existing popover to list every open session — type, elapsed time, close action — instead of
+ adding a second control. Keep the single-session behaviour identical.
 2. **Default `/sessions` to the calendar** (F-62). `routes/sessions.tsx:50` — change the fallback, not
-   the mechanism; the toggle and the `view` search param already exist and must keep working.
+ the mechanism; the toggle and the `view` search param already exist and must keep working.
 3. **Differentiate the session card** (F-63). `WeeklyCalendar.tsx:145` is `bg-card` on `bg-card` cells
-   (`:262`). Give the card its own surface — a filled tint, ideally keyed to session type so the week
-   is readable at a glance — and verify contrast in **both** themes against KOK-151's tokens rather
-   than picking a colour by eye. Do not reintroduce shadow as the depth cue in dark mode; KOK-151
-   established that it cannot carry it.
+ (`:262`). Give the card its own surface — a filled tint, ideally keyed to session type so the week
+ is readable at a glance — and verify contrast in **both** themes against KOK-151's tokens rather
+ than picking a colour by eye. Do not reintroduce shadow as the depth cue in dark mode; KOK-151
+ established that it cannot carry it.
 4. **Default the create form to "registrar sesión pasada"** (F-64). `SessionForm.tsx:185`. Starting a
-   session is now a header action, so the full form is mostly used for the past. Edit mode is
-   unaffected.
+ session is now a header action, so the full form is mostly used for the past. Edit mode is
+ unaffected.
 5. **Stack the time fields on mobile** (F-65). `SessionForm.tsx:429` is an unconditional
-   `grid grid-cols-2 gap-3` around two `datetime-local` inputs; make it stack below `sm:` and stay
-   side by side above, matching the pattern already used at `:531` and `:548`.
+ `grid grid-cols-2 gap-3` around two `datetime-local` inputs; make it stack below `sm:` and stay
+ side by side above, matching the pattern already used at `:531` and `:548`.
 
 **Acceptance.** With two sessions open, tapping the chip lists both and closes either in one further
 tap. `/sessions` opens on the week. A session card is clearly distinguishable from the calendar in
@@ -1112,21 +1112,21 @@ every week, so it should be the first substantial task after the release.
 **What to build.**
 
 1. **Decide the format once and write it into the KB** (D-1/D-6): a short type prefix plus a
-   year-scoped sequence — `VTA-2026-0912`, `PRD-2026-0184`, `CMP-`, `ENV-`, `PED-`, `SES-`. Spanish
-   prefixes, because the code is user-facing (D-9), while column and type names stay English.
+ year-scoped sequence — `VTA-2026-0912`, `PRD-2026-0184`, `CMP-`, `ENV-`, `PED-`, `SES-`. Spanish
+ prefixes, because the code is user-facing (D-9), while column and type names stay English.
 2. **Migration + generation.** A `code` column per event table, unique per type, assigned **inside the
-   existing atomic batch** (D-3) so an event can never exist without one. Sequence allocation must be
-   safe under D1's execution model — settle this explicitly rather than assuming, and write the
-   reasoning into the migration's header comment.
+ existing atomic batch** (D-3) so an event can never exist without one. Sequence allocation must be
+ safe under D1's execution model — settle this explicitly rather than assuming, and write the
+ reasoning into the migration's header comment.
 3. **Backfill** existing rows deterministically ordered by `created_at`, so dev, staging and
-   production all produce the same codes from the same data.
+ production all produce the same codes from the same data.
 4. **Surface it**: the code column in every `EventTable`, the code in every detail drawer's header,
-   the code in `OrderPicker` and the session pickers, and the code as a search term wherever a picker
-   already searches. Fix `routes/packing.tsx:101-106`'s session cell as part of this — a session shows
-   its code and its type, not the type alone.
+ the code in `OrderPicker` and the session pickers, and the code as a search term wherever a picker
+ already searches. Fix `routes/packing.tsx:101-106`'s session cell as part of this — a session shows
+ its code and its type, not the type alone.
 5. **Amend KOK-147 and Doc 07** in the same PR. KOK-147's premise ("no short human code exists") stops
-   being true; its own deliverable — a readable source-event label in Finanzas — gets easier, and its
-   row must say so instead of contradicting this one.
+ being true; its own deliverable — a readable source-event label in Finanzas — gets easier, and its
+ row must say so instead of contradicting this one.
 
 **Acceptance.** Every session, production run, sale, packing, purchase and order created after this
 task carries a unique, stable, human-pronounceable code, visible in its list and its drawer.
@@ -1158,17 +1158,17 @@ its place in Block D. This task takes the two slices that are small, independent
 **What to build.**
 
 1. **Constrain numeric entry at the source.** In `LineEditor` and the other decimal inputs
-   (quantities, amounts, batches, output quantities), reject characters that cannot form a decimal as
-   they are typed — accepting both comma and point as the separator, per the app's existing
-   convention. Do this in one shared input primitive, not per form, so KOK-143 inherits it rather than
-   redoing it.
+ (quantities, amounts, batches, output quantities), reject characters that cannot form a decimal as
+ they are typed — accepting both comma and point as the separator, per the app's existing
+ convention. Do this in one shared input primitive, not per form, so KOK-143 inherits it rather than
+ redoing it.
 2. **Make the submit error identify its target.** Report which line number and which field failed, and
-   distinguish "this row is incomplete" from "this row has an invalid value". Where a trailing row is
-   entirely empty, treat it as absent rather than invalid — it is the row the owner never intended to
-   fill, and rejecting the whole form over it is the behaviour she called *"un horror"* in the
-   previous test.
+ distinguish "this row is incomplete" from "this row has an invalid value". Where a trailing row is
+ entirely empty, treat it as absent rather than invalid — it is the row the owner never intended to
+ fill, and rejecting the whole form over it is the behaviour she called *"un horror"* in the
+ previous test.
 3. **Show remaining characters on capped free-text fields** once they approach the limit. KOK-159
-   already derives `maxLength` from the shared `safeText(N)` bound; this only surfaces it.
+ already derives `maxLength` from the shared `safeText(N)` bound; this only surfaces it.
 
 **Acceptance.** Typing letters into any quantity or amount field produces nothing in the field.
 Submitting a sale with a valid line and a stray blank row succeeds. Submitting with a genuinely bad
@@ -1198,11 +1198,11 @@ level.
 **What to build.**
 
 1. A kind selector in front of the exit item picker, defaulting to `FINISHED`, passed through as
-   `kindFilter` alongside the existing eligibility. Keep the "todos" option — she gifts raw materials
-   too. Do **not** touch the server guards (D-2): this is a search aid.
+ `kindFilter` alongside the existing eligibility. Keep the "todos" option — she gifts raw materials
+ too. Do **not** touch the server guards (D-2): this is a search aid.
 2. Move the waste summary out of the filter row and give it its own width. Drop `flex-1`, place it
-   where a summary belongs relative to the table, and check the other `flex-1` cards in the same
-   screen for the same mistake.
+ where a summary belongs relative to the table, and check the other `flex-1` cards in the same
+ screen for the same mistake.
 
 **Acceptance.** Recording an exit of a finished product takes fewer keystrokes than today and Agua is
 still unselectable. The waste card no longer stretches to fill the filter row, and the Salidas tab
@@ -1244,42 +1244,42 @@ row and Enter opens it. No route declares its own version of this.
 These caused more of the findings above than any individual coding mistake.
 
 1. **Work is being marked Done without the "Done" definition being met.** ✅ **Largely answered.**
-   Definition-of-Done item 5 (deployed to staging, smoke-tested) is now routinely met — the P0/P1
-   batch shipped through staging and the owner tested it there. Keep it.
-2. **`full`-area tasks were shipping backend-only.** ✅ **Answered by KOK-156.** The guard proposed in
-   the last revision held: a `full` task is not Done until a named screen is reachable from the
-   navigation by someone who was not told the URL.
+ Definition-of-Done item 5 (deployed to staging, smoke-tested) is now routinely met — the P0/P1
+ batch shipped through staging and the owner tested it there. Keep it.
+2. `**full`-area tasks were shipping backend-only.** ✅ **Answered by KOK-156.** The guard proposed in
+ the last revision held: a `full` task is not Done until a named screen is reachable from the
+ navigation by someone who was not told the URL.
 3. **The agreements doc and the backlog have drifted — and the gap has grown.** The backlog now
-   disagrees with reality about eighteen delivered tasks and does not contain KOK-155…190 at all.
-   Because the team returns to that file immediately after this batch, KOK-167 is no longer
-   housekeeping — it is a prerequisite for the next phase being planned against true information.
+ disagrees with reality about eighteen delivered tasks and does not contain KOK-155…190 at all.
+ Because the team returns to that file immediately after this batch, KOK-167 is no longer
+ housekeeping — it is a prerequisite for the next phase being planned against true information.
 4. **Long-lived local work is a real risk.** ✅ **Answered.** Push per task, not per block.
 5. **Self-reports are optimistic in a specific, predictable way.** Still true. Ask each block report
-   to state explicitly what it **did not** verify.
+ to state explicitly what it **did not** verify.
 6. **Source review cannot substitute for the owner using the app.** ✅ **Re-confirmed, twice over.**
-   Section A found fourteen defects a thorough source review had missed. Sections B and C found
-   twenty more — including two blockers whose causes (a schema reused one field too far, and a UTC
-   instant compared against a local calendar date) are invisible in any single file and only appear
-   when a real person uses the app at 20:00 on a Tuesday. **The owner-led pass is a standing gate at
-   the end of every block, not a favour she does us.**
+ Section A found fourteen defects a thorough source review had missed. Sections B and C found
+ twenty more — including two blockers whose causes (a schema reused one field too far, and a UTC
+ instant compared against a local calendar date) are invisible in any single file and only appear
+ when a real person uses the app at 20:00 on a Tuesday. **The owner-led pass is a standing gate at
+ the end of every block, not a favour she does us.**
 7. **We specified the fix before we built the problem.** ✅ **Answered for forms** (KOK-140 landed).
-   Worth keeping as a check: when the KB already answers a design question, building the other thing
-   first is the same work done twice.
+ Worth keeping as a check: when the KB already answers a design question, building the other thing
+ first is the same work done twice.
 8. **New: a capability with no consumers is not delivered.** KOK-115 built a correct, well-tested,
-   accessible sorting engine and two of ten tables switched it on — for six weeks, while the owner
-   asked for sorting. KOK-135 shipped a correct interval-union primitive with zero call sites. The
-   pattern is the same both times: the hard part was built, the last cheap step was left to a caller
-   who never came. **A task that adds an opt-in capability must name and convert its consumers in the
-   same PR, or explicitly ticket them.**
+ accessible sorting engine and two of ten tables switched it on — for six weeks, while the owner
+ asked for sorting. KOK-135 shipped a correct interval-union primitive with zero call sites. The
+ pattern is the same both times: the hard part was built, the last cheap step was left to a caller
+ who never came. **A task that adds an opt-in capability must name and convert its consumers in the
+ same PR, or explicitly ticket them.**
 9. **New: shared refinements travel further than the rule that justified them.** F-46 is a correct
-   business rule applied to a field it was never meant for, purely because the schema was the
-   convenient one to import. When a Zod refinement encodes a *domain* rule rather than a *format*
-   rule, name it for the rule (`businessDateSchema`) and give the plain format its own export — so
-   reaching for the wrong one is visible at the call site. KOK-168 should finish this vocabulary.
+ business rule applied to a field it was never meant for, purely because the schema was the
+ convenient one to import. When a Zod refinement encodes a *domain* rule rather than a *format*
+ rule, name it for the rule (`businessDateSchema`) and give the plain format its own export — so
+ reaching for the wrong one is visible at the call site. KOK-168 should finish this vocabulary.
 10. **New: environment-dependent values must be environment-dependent from the first one.** The PWA
-    manifest was correct for as long as one environment existed, and became wrong the moment a second
-    one did — discovered by the owner, not by us. Same shape as F-47: both are "correct until the
-    world has two of something".
+  manifest was correct for as long as one environment existed, and became wrong the moment a second
+  one did — discovered by the owner, not by us. Same shape as F-47: both are "correct until the
+  world has two of something".
 
 ---
 
@@ -1292,61 +1292,61 @@ new and is the only outstanding pass.
 ### Confirmed working (do not re-test)
 
 - **By the reviewer (2026-08-14):** starting a session from the header; closing the previous session
-  and starting a new one of the same type in one step; concurrent sessions of different types.
+and starting a new one of the same type in one step; concurrent sessions of different types.
 - **By the owner (2026-08-16, Issue #30):** all of §6 Section A. Also: the close-session form and the
-  count form both **preserve** input across a drawer close; sticky headers work in the weekly calendar.
+count form both **preserve** input across a drawer close; sticky headers work in the weekly calendar.
 - **By the owner (2026-08-18, Issue #44):** dark mode and calendar icons in both themes; the installed
-  PWA surviving a redeploy; every copy check; the per-ingredient stock indicator; create-mode batch
-  recompute; Envasado's column sorting; stock exits refusing Agua; the order picker rendering and
-  resolving its selection.
+PWA surviving a redeploy; every copy check; the per-ingredient stock indicator; create-mode batch
+recompute; Envasado's column sorting; stock exits refusing Agua; the order picker rendering and
+resolving its selection.
 
 ### D. Production release verification — to run with the owner, on production
 
 Run once, on the real environment, with real data. Stop at the first failure and fix forward.
 
 1. **First login.** Reach the production URL, log in with the owner's real password. A 500 here means
-   a missing secret (KOK-182 step 2), not a code bug.
+ a missing secret (KOK-182 step 2), not a code bug.
 2. **Onboarding on real data.** Complete the wizard with her actual catalog, opening balances and
-   initial counts. Confirm no fixture item ("Desayuno Kokoro", "Kéfir natural 1 L", Agua at the demo
-   price) is present anywhere.
+ initial counts. Confirm no fixture item ("Desayuno Kokoro", "Kéfir natural 1 L", Agua at the demo
+ price) is present anywhere.
 3. **One real purchase**, in a real session, with a real supplier and real amounts. Confirm the
-   account balance moves by exactly the pinned-footer total, and the kardex shows `PURCHASE_IN`.
+ account balance moves by exactly the pinned-footer total, and the kardex shows `PURCHASE_IN`.
 4. **One real production run**, then **edit it and change the batches** — the F-31 regression check, on
-   production, once.
+ production, once.
 5. **One real order, end to end:** quote with a **future delivery date** (F-46), confirm it appears on
-   the board **the same evening** (F-47), then confirm → en producción → listo → entregar.
+ the board **the same evening** (F-47), then confirm → en producción → listo → entregar.
 6. **One real sale** and one collection. Confirm Finanzas and the receivable agree.
 7. **Install the PWA from production** alongside the staging one and confirm they are distinguishable
-   (F-61).
+ (F-61).
 8. **Backups.** Confirm the first scheduled backup lands in the prod R2 bucket, and that restoring it
-   is a procedure someone has actually read.
+ is a procedure someone has actually read.
 
 ### Deferred to the next owner session
 
 - **F-22** — offline notice as toast vs. dialog (A-9 says dialog). Not exercised in any pass. This is
-  now the **only** open item from the three owner-led passes.
+now the **only** open item from the three owner-led passes.
 
 ---
 
 ## 7. Method and coverage
 
 
-| Area                                          | How verified                                                                                | Confidence                                   |
-| --------------------------------------------- | --------------------------------------------------------------------------------------------- | -------------------------------------------- |
-| Costing, replay, WAC, cycle detection, C-3d   | Source read + test read + golden-number assertions                                          | High                                         |
-| Sessions domain (KOK-130…135)                 | Source + migration + tests                                                                  | High                                         |
-| Orders domain (KOK-136…139)                   | Source + full state-machine matrix test                                                     | High                                         |
-| Orders **list/filter** layer                  | Source read this revision — **found F-47, which no test covered**                            | High (now)                                   |
-| Block A/B/C items                             | Source read, item by item                                                                   | High                                         |
-| Repo health (2026-08-18, `f273f54`)           | `pnpm run test` — **1021/1021 passing** (worker 773/59 files, shared 158/15, web 90/15)     | High                                         |
-| Every finding F-46…F-67                       | Reproduced in the source before being written down; file and line cited on each             | High                                         |
-| Fixtures                                      | Source read + independent re-verification                                                   | High                                         |
-| Docs/KB/backlog consistency                   | Source + `git log`/`git show` — **backlog is known stale, see §3.7**                          | High                                         |
-| Pipeline state, staging                       | `git rev-list`, `gh pr list`, `deploy.yml`, PRs #31–#45                                     | High                                         |
-| Migration safety on non-empty DBs             | PR #25–#27 narratives + a real staging run                                                  | Medium — verified once, against one database |
-| **Browser behaviour, Sections A, B and C**    | **Owner-led passes, 2026-08-16 and 2026-08-18 (Issues #30, #44)**                            | **High**                                     |
-| **Production environment**                    | **Never exercised — no deploy, no migration run, no login**                                  | **None — see KOK-182 and §6 D**              |
-| Pixel-level alignment                         | Not verifiable statically                                                                   | None                                         |
+| Area                                        | How verified                                                                            | Confidence                                   |
+| ------------------------------------------- | --------------------------------------------------------------------------------------- | -------------------------------------------- |
+| Costing, replay, WAC, cycle detection, C-3d | Source read + test read + golden-number assertions                                      | High                                         |
+| Sessions domain (KOK-130…135)               | Source + migration + tests                                                              | High                                         |
+| Orders domain (KOK-136…139)                 | Source + full state-machine matrix test                                                 | High                                         |
+| Orders **list/filter** layer                | Source read this revision — **found F-47, which no test covered**                       | High (now)                                   |
+| Block A/B/C items                           | Source read, item by item                                                               | High                                         |
+| Repo health (2026-08-18, `f273f54`)         | `pnpm run test` — **1021/1021 passing** (worker 773/59 files, shared 158/15, web 90/15) | High                                         |
+| Every finding F-46…F-67                     | Reproduced in the source before being written down; file and line cited on each         | High                                         |
+| Fixtures                                    | Source read + independent re-verification                                               | High                                         |
+| Docs/KB/backlog consistency                 | Source + `git log`/`git show` — **backlog is known stale, see §3.7**                    | High                                         |
+| Pipeline state, staging                     | `git rev-list`, `gh pr list`, `deploy.yml`, PRs #31–#45                                 | High                                         |
+| Migration safety on non-empty DBs           | PR #25–#27 narratives + a real staging run                                              | Medium — verified once, against one database |
+| **Browser behaviour, Sections A, B and C**  | **Owner-led passes, 2026-08-16 and 2026-08-18 (Issues #30, #44)**                       | **High**                                     |
+| **Production environment**                  | **Never exercised — no deploy, no migration run, no login**                             | **None — see KOK-182 and §6 D**              |
+| Pixel-level alignment                       | Not verifiable statically                                                               | None                                         |
 
 
 **Commands run for this revision (read-only):** `pnpm run test` (1021/1021 green across three

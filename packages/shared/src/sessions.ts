@@ -27,6 +27,7 @@
 // `production_runs.allocated_session_cost` and no DTO in this file changed shape for it.
 
 import { z } from "zod";
+import { businessDateSchema, calendarDateSchema } from "./dates.js";
 import type { SessionStatus, SessionType } from "./enums.js";
 import { sessionStatusSchema, sessionTypeSchema } from "./enums.js";
 import { safeText } from "./text.js";
@@ -34,10 +35,6 @@ import { safeText } from "./text.js";
 export const SESSION_COST_LABEL_MAX_LENGTH = 200;
 export const SESSION_NOTES_MAX_LENGTH = 2000;
 
-/** `YYYY-MM-DD`, America/La_Paz local calendar date (Doc 04 §1, INV-3). */
-const businessDateSchema = z
-  .string()
-  .regex(/^\d{4}-\d{2}-\d{2}$/, "La fecha debe tener el formato AAAA-MM-DD.");
 /** UTC ISO-8601 instant (Doc 04 §1) — the representation `startedAt`/`endedAt` share with every
  * other event vertical's `occurredAt`. */
 const instantSchema = z
@@ -151,12 +148,14 @@ export type UpdateSessionCommand = z.input<typeof updateSessionCommandSchema>;
 export const deleteSessionCommandSchema = z.object({});
 export type DeleteSessionCommand = z.infer<typeof deleteSessionCommandSchema>;
 
-/** GET /sessions query filters — mirrors listPurchasesFiltersSchema's shape. */
+/** GET /sessions query filters — mirrors listPurchasesFiltersSchema's shape. Filter boundaries use
+ * `calendarDateSchema`, not `businessDateSchema`: a future-dated range is a legitimate (if empty)
+ * query, unlike a session's own `businessDate` above. */
 export const listSessionsFiltersSchema = z.object({
   type: sessionTypeSchema.optional(),
   status: sessionStatusSchema.optional(),
-  fromDate: businessDateSchema.optional(),
-  toDate: businessDateSchema.optional(),
+  fromDate: calendarDateSchema.optional(),
+  toDate: calendarDateSchema.optional(),
   limit: z.coerce.number().int().positive().max(500).optional(),
 });
 export type ListSessionsFilters = z.infer<typeof listSessionsFiltersSchema>;

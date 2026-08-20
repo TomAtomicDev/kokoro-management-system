@@ -64,7 +64,7 @@ import type {
   UpdateSessionCommand,
   UpdateSessionResult,
 } from "@kokoro/shared";
-import { generateUuidV7, nowIso } from "@kokoro/shared";
+import { addMoney, generateUuidV7, nowIso, toCentavos } from "@kokoro/shared";
 import { and, eq, inArray, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 
@@ -415,8 +415,7 @@ export async function recordSession(
 
   const allocationStatements: Statement[] = [];
   if (sessionRow.type === "PRODUCTION" && sessionRow.status === "CLOSED") {
-    let totalSharedCost = 0;
-    for (const row of costRows) totalSharedCost += row.amount;
+    const totalSharedCost = addMoney(...costRows.map((row) => toCentavos(row.amount)));
     // Keep the S-3 trigger uniform across every CLOSED production-session write; a new id has no
     // linked runs yet, so the planner normally returns no statements here.
     const allocation = await planSessionCostAllocation(
@@ -604,8 +603,7 @@ export async function updateSession(
   // total in this module reads.
   const allocationStatements: Statement[] = [];
   if (newRow.type === "PRODUCTION" && newRow.status === "CLOSED") {
-    let totalSharedCost = 0;
-    for (const row of newCostRows) totalSharedCost += row.amount;
+    const totalSharedCost = addMoney(...newCostRows.map((row) => toCentavos(row.amount)));
     const allocation = await planSessionCostAllocation(
       db,
       id,
@@ -732,8 +730,7 @@ export async function closeAndStartSession(
 
   const allocationStatements: Statement[] = [];
   if (closedRow.type === "PRODUCTION") {
-    let totalSharedCost = 0;
-    for (const row of existingCostRows) totalSharedCost += row.amount;
+    const totalSharedCost = addMoney(...existingCostRows.map((row) => toCentavos(row.amount)));
     const allocation = await planSessionCostAllocation(
       db,
       existing.id,

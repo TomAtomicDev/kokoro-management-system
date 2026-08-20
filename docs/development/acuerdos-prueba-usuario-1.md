@@ -255,7 +255,8 @@ price health and both margins of its own**.
 12. Edit, delete and restore with regenerated movements and soft delete (R-1, R-3, INV-10).
 13. Impact preview for backdated events (R-5), exactly as production and sales have.
 14. A web form now, and AI/Telegram capture of packing and assembly phrases later (Phase 4).
-15. Reports that separate "offerings sold" from "products included".
+15. Reports that separate "offerings sold" from "products included" (tracked as KOK-050 / Phase 5 in
+    the backlog, not this block — see `review-blocks-a-b-c.md` §3.7 point 1).
 
 Point 11 is the delicate one: a backdated bottle purchase changes a presentation's WAC and then the
 cost of a combo containing it. Current policy already requires such changes to propagate through the

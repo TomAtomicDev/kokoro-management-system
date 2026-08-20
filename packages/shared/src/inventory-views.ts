@@ -15,14 +15,10 @@
 
 import { z } from "zod";
 
+import { calendarDateSchema } from "./dates.js";
 import type { ItemCategory, ItemKind, StockMovementType, Unit } from "./enums.js";
 import { itemKindSchema } from "./enums.js";
 import type { MilliCentavosPerUnit } from "./money.js";
-
-/** `YYYY-MM-DD`, America/La_Paz local calendar date (Doc 04 Ã‚Â§1, INV-3). */
-const businessDateSchema = z
-  .string()
-  .regex(/^\d{4}-\d{2}-\d{2}$/, "La fecha debe tener el formato AAAA-MM-DD.");
 
 /** GET /inventory/stock query filters (SC-08's default "Stock" tab). Query-string values arrive
  * as strings, so the boolean flags use `z.coerce.boolean()` (matching the rest of the codebase's
@@ -39,8 +35,8 @@ export type ListStockFilters = z.infer<typeof listStockFiltersSchema>;
  * row's "row -> Kardex drawer" interaction is always scoped to one item). */
 export const listKardexFiltersSchema = z.object({
   itemId: z.string().min(1),
-  fromDate: businessDateSchema.optional(),
-  toDate: businessDateSchema.optional(),
+  fromDate: calendarDateSchema.optional(),
+  toDate: calendarDateSchema.optional(),
   limit: z.coerce.number().int().positive().max(1000).optional(),
 });
 export type ListKardexFilters = z.infer<typeof listKardexFiltersSchema>;

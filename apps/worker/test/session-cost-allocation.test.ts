@@ -788,4 +788,51 @@ describe("KOK-133: adding a production run to a CLOSED session — S-3 reallocat
       { numRuns: 15 },
     );
   });
+
+  it("property (F-29): updateSession's totalSharedCost sums MULTIPLE session_costs rows via addMoney, matching a plain-number reduce, exactly (Doc 11 §2)", async () => {
+    let iteration = 0;
+    await fc.assert(
+      fc.asyncProperty(
+        fc.array(fc.integer({ min: 0, max: 30_000 }), { minLength: 2, maxLength: 6 }),
+        async (amounts) => {
+          const db = createDb(env.DB);
+          const unique = iteration++;
+          const input = await seedItem(db, `F-29 property ${unique} — input`);
+          const output = await seedItem(db, `F-29 property ${unique} — output`, "SEMI_FINISHED");
+          await seedPurchase(db, input.id, 1000, 1);
+          const recipe = await seedRecipe(db, output.id, [{ itemId: input.id, qty: 1 }]);
+          const session = await seedOpenProductionSession(db);
+          await recordProductionRun(
+            db,
+            {
+              recipeId: recipe.id,
+              sessionId: session.id,
+              batches: 1,
+              actualOutputQty: 1000,
+              occurredAt: `${BUSINESS_DATE}T09:00:00.000Z`,
+              businessDate: BUSINESS_DATE,
+              lines: [{ itemId: input.id, qty: 1000 }],
+              confirm: true,
+            },
+            ACTOR,
+          );
+
+          // Multiple cost lines exercise updateSession's addMoney(...rows.map(toCentavos)) refactor
+          // (F-29) with N > 1 rows, which a single-line total cannot distinguish from a naive sum.
+          await closeSession(
+            db,
+            session.id,
+            amounts.map((amount, index) => ({ label: `Costo ${index}`, amount, isEstimate: true })),
+          );
+
+          const expectedTotal = amounts.reduce((sum, amount) => sum + amount, 0);
+          const rows = await db.query.productionRuns.findMany({
+            where: (t, { eq: eqOp }) => eqOp(t.sessionId, session.id),
+          });
+          expect(rows.reduce((sum, row) => sum + row.allocatedSessionCost, 0)).toBe(expectedTotal);
+        },
+      ),
+      { numRuns: 15 },
+    );
+  });
 });
