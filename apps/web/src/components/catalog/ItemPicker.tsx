@@ -54,6 +54,8 @@ export interface ItemPickerProps {
   disabled?: boolean;
   /** On by default — the inline "crear ítem" flow this component exists to provide. */
   allowCreate?: boolean;
+  /** KOK-145: opt in only for the Recipes inline-create and Catalogo create dialog. */
+  allowOpeningStock?: boolean;
   /** Red border/ring on the search input — set when this field's live error is visible (KOK-143). */
   invalid?: boolean;
   /** Fires when the search input loses focus, e.g. to mark the field "live" for validation
@@ -71,6 +73,7 @@ export const ItemPicker = forwardRef<HTMLInputElement, ItemPickerProps>(function
     emptyMessage,
     disabled,
     allowCreate = true,
+    allowOpeningStock = false,
     invalid,
     onBlur,
   },
@@ -185,6 +188,7 @@ export const ItemPicker = forwardRef<HTMLInputElement, ItemPickerProps>(function
           // CreateItemDialog only pre-selects a single ItemKind; with a multi-kind filter there's
           // no single right default, so leave it unset and let the owner pick in the form.
           kindFilter={singleKindFilter}
+          allowOpeningStock={allowOpeningStock}
           onCreated={(item) => {
             if (isItemEligible(item, effectiveEligibility)) selectItem(item);
           }}

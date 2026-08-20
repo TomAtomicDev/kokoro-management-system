@@ -365,6 +365,7 @@ export function RecipeForm({ open, onOpenChange, recipe, settings }: RecipeFormP
               setExpectedYieldUnit(item ? defaultDisplayUnitFor(item.unit) : null);
             }}
             kindFilter={["SEMI_FINISHED", "FINISHED"]}
+            allowOpeningStock
             placeholder={recipesLabels.outputItemPlaceholder}
             disabled={disabled}
           />
@@ -448,6 +449,7 @@ export function RecipeForm({ open, onOpenChange, recipe, settings }: RecipeFormP
             disabled={disabled}
             showAmount={false}
             itemKindFilter={["RAW_MATERIAL", "SEMI_FINISHED"]}
+            allowOpeningStock
             getItemUnit={(itemId) => itemsById.get(itemId)?.unit}
             unitSelector={{
               getValue: (line) => line.unit,

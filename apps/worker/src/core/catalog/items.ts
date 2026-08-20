@@ -16,10 +16,13 @@ import { eq } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 
 import type { Db } from "../../db/index.js";
-import { items, priceHistory } from "../../db/schema.js";
+import { inventoryCountLines, inventoryCounts, items, priceHistory } from "../../db/schema.js";
 import { buildAuditLogInsert } from "../audit.js";
 import { buildReplacementCostHistoryInsert } from "../costing/replacement-cost-history.js";
-import { conflict, notFound } from "../errors.js";
+import { applyWacEntry } from "../costing/wac.js";
+import { conflict, notFound, validationError } from "../errors.js";
+import { buildStockMovementStatements } from "../inventory/movements.js";
+import type { StockMovementInput } from "../inventory/types.js";
 import { fetchAliasesForItem, fetchAliasesForItems, toItemDto } from "./dto.js";
 
 type Statement = BatchItem<"sqlite">;
@@ -61,13 +64,57 @@ export async function createItem(
   }
 
   const now = nowIso();
+  const hasOpeningQty = command.openingQty !== undefined;
+  const hasOpeningUnitCostMc = command.openingUnitCostMc !== undefined;
+  if (hasOpeningQty !== hasOpeningUnitCostMc) {
+    throw validationError("El stock inicial necesita cantidad y costo unitario.", {
+      openingQty: command.openingQty,
+      openingUnitCostMc: command.openingUnitCostMc,
+    });
+  }
+  if ((hasOpeningQty || hasOpeningUnitCostMc) && command.isUnmetered) {
+    throw validationError("Los ítems no medidos no pueden tener stock inicial.", {
+      openingQty: command.openingQty,
+      openingUnitCostMc: command.openingUnitCostMc,
+    });
+  }
+  if (
+    command.openingQty !== undefined &&
+    (!Number.isSafeInteger(command.openingQty) || command.openingQty <= 0)
+  ) {
+    throw validationError(
+      "La cantidad de stock inicial debe ser un entero seguro mayor que cero.",
+      {
+        openingQty: command.openingQty,
+      },
+    );
+  }
+  if (
+    command.openingUnitCostMc !== undefined &&
+    (!Number.isSafeInteger(command.openingUnitCostMc) || command.openingUnitCostMc <= 0)
+  ) {
+    throw validationError(
+      "El costo unitario de stock inicial debe ser un entero seguro mayor que cero.",
+      { openingUnitCostMc: command.openingUnitCostMc },
+    );
+  }
+
+  const openingQty = command.openingQty;
+  const openingUnitCostMc =
+    command.openingUnitCostMc === undefined
+      ? undefined
+      : toMilliCentavosPerUnit(command.openingUnitCostMc);
+  const openingWacMc =
+    openingQty !== undefined && openingUnitCostMc !== undefined
+      ? applyWacEntry(toMilliCentavosPerUnit(0), 0, openingQty, openingUnitCostMc)
+      : toMilliCentavosPerUnit(0);
   const row = {
     id: generateUuidV7(),
     name: command.name,
     kind: command.kind,
     category: command.category,
     unit: command.unit,
-    wacMc: toMilliCentavosPerUnit(0),
+    wacMc: openingWacMc,
     replacementCostMc: command.replacementCostMc ?? 0,
     replacementCostUpdatedAt: command.replacementCostMc != null ? now : null,
     salePriceMc: command.salePriceMc ?? null,
@@ -101,6 +148,52 @@ export async function createItem(
         observedAt: now,
         businessDate: toBusinessDate(now),
         source: "MANUAL",
+      }),
+    );
+  }
+
+  if (openingQty !== undefined && openingUnitCostMc !== undefined) {
+    const countId = generateUuidV7();
+    const countRow = {
+      id: countId,
+      occurredAt: now,
+      businessDate: toBusinessDate(now),
+      status: "COMMITTED" as const,
+      code: null,
+      notes: null,
+      deletedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    const countLine = {
+      id: generateUuidV7(),
+      countId,
+      itemId: row.id,
+      expectedQty: 0,
+      countedQty: openingQty,
+    };
+    const openingMovement: StockMovementInput = {
+      itemId: row.id,
+      occurredAt: now,
+      businessDate: countRow.businessDate,
+      type: "OPENING_IN",
+      qty: openingQty,
+      unitCostMc: openingUnitCostMc,
+      sourceEventType: "inventory_count",
+      sourceEventId: countId,
+    };
+    const { statements: movementStatements } = buildStockMovementStatements(db, [openingMovement]);
+    statements.push(
+      db.insert(inventoryCounts).values(countRow),
+      db.insert(inventoryCountLines).values(countLine),
+      ...movementStatements,
+      buildAuditLogInsert(db, {
+        actor,
+        action: "commit",
+        entityType: "inventory_counts",
+        entityId: countId,
+        before: { status: "DRAFT" },
+        after: { status: "COMMITTED", adjustments: [{ itemId: row.id, delta: openingQty }] },
       }),
     );
   }

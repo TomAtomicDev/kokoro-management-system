@@ -36,6 +36,12 @@ export const catalogLabels = {
   fieldSalePrice: "Precio de venta (Bs)",
   fieldMinStock: "Stock mínimo",
   fieldIsUnmetered: "No medido",
+  fieldOpeningStock: "Tengo stock inicial",
+  fieldOpeningQty: "Cantidad inicial",
+  fieldOpeningUnitCost: "Costo unitario inicial",
+  tooltipFieldOpeningStock:
+    "Crea un conteo inicial para este ítem y usa este costo para calcular su costo promedio.",
+  openingStockUnmetered: "Los ítems no medidos no se manejan como stock.",
   fieldReplacementCost: "Costo de reposición (Bs)",
   tooltipFieldMinStock:
     "Es el umbral por debajo del cual este ítem se marca como stock bajo en la pantalla Inventario.",
@@ -95,6 +101,12 @@ export const catalogLabels = {
   },
 
   errors: {
+    openingQtyRequired: "Ingresa una cantidad inicial mayor que cero.",
+    openingQtyInvalid: "Ingresa una cantidad inicial válida (mayor que cero).",
+    openingUnitCostRequired: "Ingresa un costo unitario inicial mayor que cero.",
+    openingUnitCostNotPositive: "El costo unitario inicial debe ser mayor que cero.",
+    openingUnitCostInvalid: "Ingresa un costo unitario inicial válido.",
+    openingUnitCostTooManyDecimals: "Usa como máximo 5 decimales.",
     salePriceRequired: "El precio de venta es obligatorio para productos finales.",
     salePriceForbidden:
       "El precio de venta no aplica a materias primas, semielaborados ni empaques.",

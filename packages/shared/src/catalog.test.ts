@@ -1,3 +1,4 @@
+import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -17,6 +18,52 @@ describe("createItemCommandSchema", () => {
       minStockQty: 0,
     });
     expect(result.success).toBe(true);
+  });
+
+  it("accepts every positive integer opening quantity/cost pair (KOK-145)", () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 1, max: 1_000_000 }),
+        fc.integer({ min: 1, max: 100_000_000 }),
+        (openingQty, openingUnitCostMc) => {
+          const result = createItemCommandSchema.safeParse({
+            name: "Harina con stock inicial",
+            kind: "RAW_MATERIAL",
+            category: "INGREDIENT",
+            unit: "KG",
+            minStockQty: 0,
+            openingQty,
+            openingUnitCostMc,
+          });
+          expect(result.success).toBe(true);
+        },
+      ),
+    );
+  });
+
+  it("requires both opening fields and rejects non-positive opening values", () => {
+    const base = {
+      name: "Harina con stock inicial",
+      kind: "RAW_MATERIAL" as const,
+      category: "INGREDIENT" as const,
+      unit: "KG" as const,
+      minStockQty: 0,
+    };
+    expect(createItemCommandSchema.safeParse({ ...base, openingQty: 1 }).success).toBe(false);
+    expect(
+      createItemCommandSchema.safeParse({ ...base, openingQty: 0, openingUnitCostMc: 1 }).success,
+    ).toBe(false);
+    expect(
+      createItemCommandSchema.safeParse({ ...base, openingQty: 1, openingUnitCostMc: 0 }).success,
+    ).toBe(false);
+    expect(
+      createItemCommandSchema.safeParse({
+        ...base,
+        isUnmetered: true,
+        openingQty: 1,
+        openingUnitCostMc: 1,
+      }).success,
+    ).toBe(false);
   });
 
   it("rejects an empty name", () => {
