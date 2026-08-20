@@ -9,6 +9,7 @@
 // for that later task (Doc 04 §5: rows with `source_event_id` set are system-owned).
 
 import { z } from "zod";
+import { businessDateSchema, calendarDateSchema, occurredAtSchema } from "./dates.js";
 import type {
   FinancialAccountType,
   FinancialTransactionCategory,
@@ -20,14 +21,6 @@ import { safeText } from "./text.js";
 /** Centavos, matching money.ts's Centavos representation (INV-6). Always positive — direction
  * comes from `type`, never a signed amount (Doc 04 §3.4). */
 const amountSchema = z.number().int().positive("El monto debe ser un entero positivo (centavos).");
-/** `YYYY-MM-DD`, America/La_Paz local calendar date (Doc 04 §1, INV-3). */
-const businessDateSchema = z
-  .string()
-  .regex(/^\d{4}-\d{2}-\d{2}$/, "La fecha debe tener el formato AAAA-MM-DD.");
-/** UTC ISO-8601 instant (Doc 04 §1). */
-const occurredAtSchema = z
-  .string()
-  .datetime({ offset: true, message: "occurredAt debe ser una fecha ISO-8601." });
 const descriptionSchema = z.string().trim().pipe(safeText(2000)).optional();
 
 /**
@@ -102,12 +95,14 @@ export const withdrawCommandSchema = z.object({
 });
 export type WithdrawCommand = z.infer<typeof withdrawCommandSchema>;
 
-/** GET /finance/transactions query filters — kept simple; a later UI task can extend them. */
+/** GET /finance/transactions query filters — kept simple; a later UI task can extend them. Filter
+ * boundaries use `calendarDateSchema`, not `businessDateSchema`: a future-dated range is a
+ * legitimate (if empty) query, unlike a transaction's own `businessDate` above. */
 export const listTransactionsFiltersSchema = z.object({
   accountId: z.string().min(1).optional(),
   category: financialTransactionCategorySchema.optional(),
-  fromDate: businessDateSchema.optional(),
-  toDate: businessDateSchema.optional(),
+  fromDate: calendarDateSchema.optional(),
+  toDate: calendarDateSchema.optional(),
   limit: z.coerce.number().int().positive().max(500).optional(),
 });
 export type ListTransactionsFilters = z.infer<typeof listTransactionsFiltersSchema>;

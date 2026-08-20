@@ -24,7 +24,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { createItem, updateItem } from "../src/core/catalog/index.js";
 import { createCustomer } from "../src/core/customers/index.js";
 import { recordExit } from "../src/core/inventory/exits.js";
-import { quoteOrder } from "../src/core/orders/index.js";
+import { cancelOrder, quoteOrder } from "../src/core/orders/index.js";
 import {
   computeProductionCosts,
   deleteProductionRun,
@@ -909,6 +909,95 @@ describe("updateProductionRun (R-1)", () => {
       ACTOR,
     );
     expect(cleared.productionRun.customOrderId).toBeNull();
+  });
+
+  it("KOK-137: assertOrderLinkable rejects linking to a CANCELLED order, through the real create/update commands", async () => {
+    const db = createDb(env.DB);
+    const rawItem = await seedItem(db, "Linkable raw");
+    const output = await seedItem(db, "Linkable output", "SEMI_FINISHED");
+    const recipe = await seedRecipe(db, output.id, [{ itemId: rawItem.id, qty: 100 }]);
+    const customer = await createCustomer(db, { name: "Linkable customer" }, ACTOR);
+    const { order: cancellable } = await quoteOrder(
+      db,
+      { customerId: customer.id, description: "To be cancelled" },
+      ACTOR,
+    );
+    await cancelOrder(db, cancellable.id, { occurredAt: NOW, businessDate: BUSINESS_DATE }, ACTOR);
+
+    await expect(
+      recordProductionRun(
+        db,
+        {
+          recipeId: recipe.id,
+          customOrderId: cancellable.id,
+          batches: 1,
+          actualOutputQty: 500,
+          occurredAt: NOW,
+          businessDate: BUSINESS_DATE,
+          lines: [{ itemId: rawItem.id, qty: 100 }],
+        },
+        ACTOR,
+      ),
+    ).rejects.toMatchObject({ code: "VALIDATION" });
+
+    const { order: linkableThenCancelled } = await quoteOrder(
+      db,
+      { customerId: customer.id, description: "Linked before cancel" },
+      ACTOR,
+    );
+    const created = await recordProductionRun(
+      db,
+      {
+        recipeId: recipe.id,
+        customOrderId: linkableThenCancelled.id,
+        batches: 1,
+        actualOutputQty: 500,
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        lines: [{ itemId: rawItem.id, qty: 100 }],
+      },
+      ACTOR,
+    );
+
+    await expect(
+      updateProductionRun(
+        db,
+        created.productionRun.id,
+        {
+          recipeId: recipe.id,
+          customOrderId: cancellable.id,
+          batches: 1,
+          actualOutputQty: 500,
+          occurredAt: NOW,
+          businessDate: BUSINESS_DATE,
+          lines: [{ itemId: rawItem.id, qty: 100 }],
+        },
+        ACTOR,
+      ),
+    ).rejects.toMatchObject({ code: "VALIDATION" });
+
+    // KOK-137: the link's own order later becoming CANCELLED does not retroactively break an
+    // edit that leaves the link untouched — it is historical fact, not something being re-asserted.
+    await cancelOrder(
+      db,
+      linkableThenCancelled.id,
+      { occurredAt: NOW, businessDate: BUSINESS_DATE },
+      ACTOR,
+    );
+    const untouched = await updateProductionRun(
+      db,
+      created.productionRun.id,
+      {
+        recipeId: recipe.id,
+        batches: 1,
+        actualOutputQty: 500,
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        lines: [{ itemId: rawItem.id, qty: 100 }],
+      },
+      ACTOR,
+    );
+    expect(untouched.productionRun.customOrderId).toBe(linkableThenCancelled.id);
   });
 
   it("descriptive-only edit (notes) leaves the kardex byte-identical, writes no items UPDATE, no costing_adjustments, needs no confirmation", async () => {

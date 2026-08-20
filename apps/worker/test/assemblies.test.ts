@@ -20,7 +20,7 @@ import {
 } from "../src/core/assembly-events/index.js";
 import { createItem } from "../src/core/catalog/index.js";
 import { createCustomer } from "../src/core/customers/index.js";
-import { quoteOrder } from "../src/core/orders/index.js";
+import { cancelOrder, quoteOrder } from "../src/core/orders/index.js";
 import { recordPurchase } from "../src/core/purchasing/index.js";
 import {
   recordSession as recordSessionCore,
@@ -552,6 +552,83 @@ describe("recordAssembly", () => {
       ACTOR,
     );
     expect(cleared.assembly.customOrderId).toBeNull();
+  });
+
+  it("KOK-137: assertOrderLinkable rejects linking to a CANCELLED order, through the real create/update commands", async () => {
+    const db = createDb(env.DB);
+    const component = await createComponent(db, "Componente no vinculable", "PACKAGING", 1000);
+    const output = await createFinished(db, "Salida no vinculable");
+    const customer = await createCustomer(db, { name: "Cliente cancelado" }, ACTOR);
+    const sessionId = await createProductionSession(db);
+
+    const { order: cancellable } = await quoteOrder(
+      db,
+      { customerId: customer.id, description: "Se cancelará" },
+      ACTOR,
+    );
+    await cancelOrder(
+      db,
+      cancellable.id,
+      { occurredAt: OCCURRED_AT, businessDate: BUSINESS_DATE },
+      ACTOR,
+    );
+
+    await expect(
+      recordAssembly(
+        db,
+        {
+          occurredAt: OCCURRED_AT,
+          businessDate: BUSINESS_DATE,
+          sessionId,
+          customOrderId: cancellable.id,
+          outputItemId: output.id,
+          actualOutputQty: 1000,
+          lines: [{ itemId: component.id, qty: 1000 }],
+        },
+        ACTOR,
+      ),
+    ).rejects.toMatchObject({ code: "VALIDATION" });
+
+    const { order: linkedThenCancelled } = await quoteOrder(
+      db,
+      { customerId: customer.id, description: "Vinculado antes de cancelar" },
+      ACTOR,
+    );
+    const command = {
+      occurredAt: OCCURRED_AT,
+      businessDate: BUSINESS_DATE,
+      sessionId,
+      customOrderId: linkedThenCancelled.id,
+      outputItemId: output.id,
+      actualOutputQty: 1000,
+      lines: [{ itemId: component.id, qty: 1000 }],
+    };
+    const recorded = await recordAssembly(db, command, ACTOR);
+
+    await expect(
+      updateAssembly(
+        db,
+        recorded.assembly.id,
+        { ...command, customOrderId: cancellable.id },
+        ACTOR,
+      ),
+    ).rejects.toMatchObject({ code: "VALIDATION" });
+
+    // KOK-137: the linked order later becoming CANCELLED does not retroactively break an edit
+    // that leaves the link untouched — it is historical fact, not something being re-asserted.
+    await cancelOrder(
+      db,
+      linkedThenCancelled.id,
+      { occurredAt: OCCURRED_AT, businessDate: BUSINESS_DATE },
+      ACTOR,
+    );
+    const untouched = await updateAssembly(
+      db,
+      recorded.assembly.id,
+      { ...command, customOrderId: undefined, notes: "Sin cambios de vínculo" },
+      ACTOR,
+    );
+    expect(untouched.assembly.customOrderId).toBe(linkedThenCancelled.id);
   });
 
   it("treats a notes-only edit as kardex-unchanged", async () => {

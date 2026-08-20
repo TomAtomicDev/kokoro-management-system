@@ -1524,7 +1524,7 @@ describe("getOrder / listOrders", () => {
       ACTOR,
     );
 
-    const creationDate = first.order.createdAt.slice(0, 10);
+    const creationDate = toBusinessDate(first.order.createdAt);
     const { orders } = await listOrders(db, {
       fromDate: creationDate,
       toDate: creationDate,

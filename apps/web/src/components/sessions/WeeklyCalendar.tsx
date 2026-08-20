@@ -68,7 +68,7 @@ function formatTimeRange(session: SessionListItemDto): string {
   return session.endedAt ? `${start}–${formatTime(session.endedAt)}` : `${start}–`;
 }
 
-function toPositionedSession(session: SessionListItemDto): PositionedSession {
+export function toPositionedSession(session: SessionListItemDto): PositionedSession {
   const startMinutes = session.startedAt ? localMinutes(session.startedAt) : 0;
   const durationFromInstants =
     session.startedAt && session.endedAt
@@ -86,7 +86,10 @@ function toPositionedSession(session: SessionListItemDto): PositionedSession {
   return { session, startMinutes, endMinutes, displayDurationMinutes };
 }
 
-function groupOverlapClusters(sessions: SessionListItemDto[], dayIndex: number): OverlapCluster[] {
+export function groupOverlapClusters(
+  sessions: SessionListItemDto[],
+  dayIndex: number,
+): OverlapCluster[] {
   const positioned = sessions
     .map(toPositionedSession)
     .sort(

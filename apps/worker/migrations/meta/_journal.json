@@ -113,6 +113,62 @@
       "when": 1786395027675,
       "tag": "0016_v_stock_effective_replacement_cost",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1786481427675,
+      "tag": "0017_assembly_definitions",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1786567827675,
+      "tag": "0018_assembly_events",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1786654227675,
+      "tag": "0019_stock_exit_packaging_lines",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1786740627675,
+      "tag": "0020_assembly_movement_types",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1786827027675,
+      "tag": "0021_assembly_costing_trigger",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1786913427675,
+      "tag": "0022_mandatory_session_link",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1786999827675,
+      "tag": "0023_replacement_cost_history",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1787086227675,
+      "tag": "0024_add_event_codes",
+      "breakpoints": true
     }
   ]
 }

@@ -47,3 +47,73 @@ jobs:
       # the real file is gitignored dev-only config (KOK-007).
       - name: Unit + integration tests
         run: pnpm run test
+
+  e2e:
+    name: Playwright e2e (local wrangler dev)
+    needs: check
+    runs-on: ubuntu-latest
+    # KOK-165: e2e used to run only post-deploy against staging (deploy.yml's smoke-staging job,
+    # unchanged by this job). This runs the same suite against a local wrangler dev on every
+    # push/PR, so a regression is caught before merge instead of after deploy. `needs: check` so
+    # the browser+server stack only spins up once the cheap checks already passed.
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.10.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build SPA
+        run: pnpm --filter @kokoro/web run build
+
+      # wrangler dev has no pretest-style hook of its own — seed .dev.vars explicitly (same
+      # committed, non-secret placeholder values ci.yml's own test step relies on via pretest).
+      - name: Seed .dev.vars
+        working-directory: apps/worker
+        run: '[ -f .dev.vars ] || cp .dev.vars.example .dev.vars'
+
+      - name: Apply local D1 migrations
+        working-directory: apps/worker
+        run: pnpm run db:migrate:dev
+
+      - name: Install Playwright browsers
+        working-directory: apps/web
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Start wrangler dev
+        working-directory: apps/worker
+        run: nohup pnpm exec wrangler dev > wrangler-dev.log 2>&1 &
+
+      - name: Wait for the local Worker to be healthy
+        run: |
+          for i in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8787/api/health || echo "000")
+            if [ "$code" = "200" ]; then echo "Worker is up after ${i}s"; exit 0; fi
+            sleep 1
+          done
+          echo "::error::wrangler dev never became healthy on :8787"
+          cat apps/worker/wrangler-dev.log
+          exit 1
+
+      # test-password-123 is the committed dev password baked into .dev.vars.example's
+      # OWNER_PASSWORD_HASH (apps/worker/.claude/skills/verify-ui documents it) — not a secret.
+      - name: Run e2e suite against the local Worker
+        working-directory: apps/web
+        env:
+          E2E_LOGIN_PASSWORD: test-password-123
+        run: pnpm run test:e2e
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report-local
+          path: apps/web/playwright-report/
+          retention-days: 14

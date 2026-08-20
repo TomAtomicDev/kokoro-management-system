@@ -299,7 +299,7 @@ Rules:
 - **O-5** Unlimited concurrent orders; the Orders board sorts by `delivery_date`. `delivery_date`
   is a promised calendar date and MAY be in the future. The no-future-date rule applies only to
   transaction `business_date` values; it explicitly does not apply to `custom_orders.delivery_date`.
-- **O-6 Backward transitions** (Phase 3.2, KOK-136 — decided 2026-08-11, implementation pending).
+- **O-6 Backward transitions** (Phase 3.2, KOK-136 — decided 2026-08-11, shipped 2026-08-16).
   A mis-clicked status was previously unrecoverable. Two mechanisms, deliberately different:
   - **Free reversal** among `CONFIRMED` ↔ `IN_PRODUCTION` ↔ `READY`. No money moves in either
     direction, so a simple confirmation is enough. `QUOTING` → `CONFIRMED` is **not** reversible
@@ -371,7 +371,7 @@ Rules:
   centers). Monthly `owner Bs/h = operating profit / total logged hours` (see S-5 for what
   "total logged hours" means once sessions can overlap). Both are reported; the monthly figure is
   the headline (G3).
-- **S-5 Deduplicated hours** *(Phase 3.2, KOK-135 — decided 2026-08-11, implementation pending)*.
+- **S-5 Deduplicated hours** *(Phase 3.2, KOK-135 — decided 2026-08-11, shipped 2026-08-16)*.
   S-1b allows sessions of different types to be open at once, so naively summing `duration_min`
   across sessions can exceed the hours that actually elapsed and would silently deflate G3.
   Therefore:
