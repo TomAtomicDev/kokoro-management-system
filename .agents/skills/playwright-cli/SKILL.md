@@ -1,7 +1,7 @@
 ---
 name: playwright-cli
 description: Automate browser interactions, test web pages and work with Playwright tests.
-allowed-tools: Bash(playwright-cli:*) Bash(pnpm:*)
+allowed-tools: Bash(playwright-cli:*) Bash(npx:*) Bash(npm:*)
 ---
 
 # Browser Automation with playwright-cli
@@ -18,8 +18,7 @@ playwright-cli click e15
 playwright-cli type "page.click"
 playwright-cli press Enter
 # take a screenshot (rarely used, as snapshot is more common)
-# always pass --filename into .playwright-cli/screenshots/ to avoid littering the project root
-playwright-cli screenshot --filename=.playwright-cli/screenshots/page.png
+playwright-cli screenshot
 # close the browser
 playwright-cli close
 ```
@@ -95,15 +94,12 @@ playwright-cli mousewheel 0 100
 
 ### Save as
 
-Unlike `snapshot` (which auto-saves into `.playwright-cli/`), `screenshot` and `pdf` save to the
-current working directory by default — always pass `--filename` pointing into
-`.playwright-cli/screenshots/` so generated images don't litter the project root.
-
 ```bash
-playwright-cli screenshot --filename=.playwright-cli/screenshots/page.png
-playwright-cli screenshot e5 --filename=.playwright-cli/screenshots/element.png
-playwright-cli screenshot --filename=.playwright-cli/screenshots/page.png --hires
-playwright-cli pdf --filename=.playwright-cli/screenshots/page.pdf
+playwright-cli screenshot
+playwright-cli screenshot e5
+playwright-cli screenshot --filename=page.png
+playwright-cli screenshot --hires
+playwright-cli pdf --filename=page.pdf
 ```
 
 ### Tabs
@@ -207,13 +203,11 @@ playwright-cli --raw localstorage-get theme
 ```
 
 For structured output wrapping every reply as JSON, pass --json
-
 ```bash
 playwright-cli list --json
 ```
 
 ## Open parameters
-
 ```bash
 # Use specific browser when creating session
 playwright-cli open --browser=chrome
@@ -346,22 +340,6 @@ playwright-cli close-all
 playwright-cli kill-all
 ```
 
-## Cleanup
-
-`snapshot`, `console`, and `screenshot`/`pdf` (per the convention above) all write into `.playwright-cli/`
-— it's gitignored, but files still pile up on disk across a session and across sessions since nothing
-deletes them automatically. Once you're done with a task (after the final `close`), sweep the ephemeral
-snapshot/log/screenshot noise so it doesn't accumulate:
-
-```bash
-rm -f .playwright-cli/page-*.yml .playwright-cli/console-*.log
-rm -rf .playwright-cli/screenshots
-```
-
-Only remove these generated-and-disposable artifacts. Don't touch files someone deliberately asked to
-keep for later — `state-save` output (e.g. `auth.json`), `tracing-stop` traces, `video-stop` recordings,
-or a `pdf` the user wanted as a deliverable — those are outputs of the task, not session noise.
-
 ## Installation
 
 If global `playwright-cli` command is not available, try a local version via `npx playwright cli`:
@@ -431,12 +409,12 @@ playwright-cli show --annotate
 
 ## Specific tasks
 
-- **Running and Debugging Playwright tests** [references/playwright-tests.md](references/playwright-tests.md)
-- **Request mocking** [references/request-mocking.md](references/request-mocking.md)
-- **Running Playwright code** [references/running-code.md](references/running-code.md)
-- **Browser session management** [references/session-management.md](references/session-management.md)
-- **Storage state (cookies, localStorage)** [references/storage-state.md](references/storage-state.md)
-- **Test generation (plan / generate / heal)** [references/test-generation.md](references/test-generation.md)
-- **Tracing** [references/tracing.md](references/tracing.md)
-- **Video recording** [references/video-recording.md](references/video-recording.md)
-- **Inspecting element attributes** [references/element-attributes.md](references/element-attributes.md)
+* **Running and Debugging Playwright tests** [references/playwright-tests.md](references/playwright-tests.md)
+* **Request mocking** [references/request-mocking.md](references/request-mocking.md)
+* **Running Playwright code** [references/running-code.md](references/running-code.md)
+* **Browser session management** [references/session-management.md](references/session-management.md)
+* **Storage state (cookies, localStorage)** [references/storage-state.md](references/storage-state.md)
+* **Test generation (plan / generate / heal)** [references/test-generation.md](references/test-generation.md)
+* **Tracing** [references/tracing.md](references/tracing.md)
+* **Video recording** [references/video-recording.md](references/video-recording.md)
+* **Inspecting element attributes** [references/element-attributes.md](references/element-attributes.md)
