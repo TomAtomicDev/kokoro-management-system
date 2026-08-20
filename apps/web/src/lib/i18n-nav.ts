@@ -27,6 +27,28 @@ export const topbarLabels = {
   searchShortcutHint: "⌘K",
   quickAdd: "+ Sesión",
   alerts: "Alertas",
+  calculator: {
+    title: "Calculadora",
+    open: "Abrir calculadora",
+    close: "Cerrar calculadora",
+    expression: "Operación",
+    result: "Resultado",
+    keypad: "Teclado de calculadora",
+    copy: "Copiar resultado",
+    copied: "Resultado copiado",
+    copyError: "No se pudo copiar",
+    backspace: "Borrar último dígito",
+    decimal: "Separador decimal",
+    equals: "Calcular resultado",
+    add: "Sumar",
+    subtract: "Restar",
+    multiply: "Multiplicar",
+    divide: "Dividir",
+    errors: {
+      invalidExpression: "Ingresa una operación válida",
+      divisionByZero: "No se puede dividir por cero",
+    },
+  },
 } as const;
 
 export const mobileTabLabels = {
