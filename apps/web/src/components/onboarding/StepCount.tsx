@@ -24,6 +24,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { StepGuidance } from "@/components/onboarding/StepGuidance";
 import { Button } from "@/components/ui/button";
+import { FieldError } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import {
   useCommitCount,
@@ -33,10 +34,31 @@ import {
 } from "@/features/inventory/api";
 import { useCompleteOnboarding } from "@/features/onboarding/api";
 import { useSessionDraft } from "@/features/onboarding/use-session-draft";
+import { useFieldValidation } from "@/hooks/useFieldValidation";
 import { ApiError } from "@/lib/api";
 import { parseCostRateInput } from "@/lib/cost-rate";
 import { formatIntAsDecimalInput, parseDecimalToInt } from "@/lib/decimal";
 import { onboardingLabels } from "@/lib/i18n-onboarding";
+
+function qtyFieldName(itemId: string): string {
+  return `qty-${itemId}`;
+}
+function unitCostFieldName(itemId: string): string {
+  return `unit-cost-${itemId}`;
+}
+
+/** Live unit-cost error for a count line (KOK-143) — same rules `handleConfirm` enforces at
+ * submit, extracted so both can agree. */
+function unitCostFieldError(raw: string): string | undefined {
+  const parsed = parseCostRateInput(raw);
+  if (parsed.ok) return undefined;
+  return {
+    empty: onboardingLabels.countUnitCostRequired,
+    invalid: onboardingLabels.countUnitCostInvalid,
+    notPositive: onboardingLabels.countUnitCostNotPositive,
+    tooManyDecimals: onboardingLabels.countUnitCostTooManyDecimals,
+  }[parsed.reason];
+}
 
 const COUNT_GRID_COLUMNS = "grid-cols-[minmax(0,1fr)_9rem_12rem]";
 
@@ -61,6 +83,7 @@ export function StepCount({ items, catalogCommitted }: StepCountProps) {
   );
   const [error, setError] = useState<string | null>(null);
   const [finishing, setFinishing] = useState(false);
+  const validation = useFieldValidation();
 
   const startMutation = useStartCount();
   const countQuery = useCount(countId);
@@ -123,18 +146,25 @@ export function StepCount({ items, catalogCommitted }: StepCountProps) {
     return !line.hasPriorMovements && effectiveCountedQty(line) > 0;
   }
 
+  /** Live qty error for a count line (KOK-143). Blank means "keep the last saved value" (not an
+   * error, mirrors `effectiveCountedQty`'s own fallback) — only a non-blank unparseable value
+   * (e.g. more than 3 decimals; letters can no longer reach here at all post-KOK-187's input
+   * sanitization) is flagged. */
+  function qtyFieldError(raw: string | undefined): string | undefined {
+    if (raw === undefined || raw.trim() === "") return undefined;
+    return parseDecimalToInt(raw, 3) === null ? onboardingLabels.countQtyInvalid : undefined;
+  }
+
   function handleBlur(line: InventoryCountLineDto) {
+    validation.handleBlur(qtyFieldName(line.itemId));
     if (!count) return;
     const raw = lineInputs[line.itemId];
     if (raw === undefined) return;
     const parsed = parseDecimalToInt(raw, 3);
-    if (parsed === null) {
-      setLineInputs((prev) => ({
-        ...prev,
-        [line.itemId]: formatIntAsDecimalInput(line.countedQty, 3),
-      }));
-      return;
-    }
+    // KOK-143: an invalid value stays on screen with its inline error instead of silently
+    // reverting — the owner types 6 decimals, blurs, and used to see it snap back with no
+    // explanation (the exact complaint this task closes).
+    if (parsed === null) return;
     if (parsed === line.countedQty) return;
     updateLineMutation.mutate(
       { countId: count.id, itemId: line.itemId, countedQty: parsed },
@@ -153,6 +183,29 @@ export function StepCount({ items, catalogCommitted }: StepCountProps) {
   async function handleConfirm() {
     if (!count) return;
     setError(null);
+
+    const flatErrors: Record<string, string> = {};
+    const fieldOrder: string[] = [];
+    for (const line of count.lines) {
+      const name = qtyFieldName(line.itemId);
+      fieldOrder.push(name);
+      const qtyError = qtyFieldError(lineInputs[line.itemId]);
+      if (qtyError) flatErrors[name] = qtyError;
+    }
+    for (const line of count.lines) {
+      if (!needsOpeningCost(line)) continue;
+      const name = unitCostFieldName(line.itemId);
+      fieldOrder.push(name);
+      const costError = unitCostFieldError(unitCostInputs[line.itemId] ?? "");
+      if (costError) flatErrors[name] = costError;
+    }
+    const canSubmit = validation.attemptSubmit(flatErrors, fieldOrder);
+    if (!canSubmit) {
+      const firstMessage = fieldOrder.map((name) => flatErrors[name]).find(Boolean);
+      setError(firstMessage ?? onboardingLabels.errors.generic);
+      return;
+    }
+
     setFinishing(true);
     try {
       const dirty = count.lines.filter((line) => {
@@ -172,26 +225,11 @@ export function StepCount({ items, catalogCommitted }: StepCountProps) {
         }),
       );
 
-      const openingLines = [];
-      for (const line of count.lines) {
-        if (!needsOpeningCost(line)) continue;
+      // Guaranteed valid — `flatErrors` above already validated every opening-cost line.
+      const openingLines = count.lines.filter(needsOpeningCost).flatMap((line) => {
         const parsedCost = parseCostRateInput(unitCostInputs[line.itemId] ?? "");
-        if (!parsedCost.ok) {
-          const message = {
-            empty: onboardingLabels.countUnitCostRequired,
-            invalid: onboardingLabels.countUnitCostInvalid,
-            notPositive: onboardingLabels.countUnitCostNotPositive,
-            tooManyDecimals: onboardingLabels.countUnitCostTooManyDecimals,
-          }[parsedCost.reason];
-          setError(message);
-          setFinishing(false);
-          return;
-        }
-        openingLines.push({
-          itemId: line.itemId,
-          unitCostMc: parsedCost.value,
-        });
-      }
+        return parsedCost.ok ? [{ itemId: line.itemId, unitCostMc: parsedCost.value }] : [];
+      });
 
       await commitMutation.mutateAsync({ countId: count.id, lines: openingLines });
       await completeMutation.mutateAsync();
@@ -274,25 +312,41 @@ export function StepCount({ items, catalogCommitted }: StepCountProps) {
                       className={`grid ${COUNT_GRID_COLUMNS} items-center gap-3 border-b border-border px-3 py-2 text-sm last:border-0`}
                     >
                       <span className="min-w-0 text-foreground">{info?.name ?? "—"}</span>
-                      <div className="flex items-center justify-end gap-1">
-                        <Input
-                          className="w-24"
-                          inputMode="decimal"
-                          value={lineInputs[line.itemId] ?? ""}
-                          onChange={(e) =>
-                            setLineInputs((prev) => ({ ...prev, [line.itemId]: e.target.value }))
+                      <div className="flex flex-col items-end gap-1">
+                        <div className="flex items-center gap-1">
+                          <Input
+                            ref={validation.registerRef(qtyFieldName(line.itemId))}
+                            className="w-24"
+                            inputMode="decimal"
+                            value={lineInputs[line.itemId] ?? ""}
+                            onChange={(e) =>
+                              setLineInputs((prev) => ({ ...prev, [line.itemId]: e.target.value }))
+                            }
+                            onBlur={() => handleBlur(line)}
+                            invalid={
+                              validation.isVisible(qtyFieldName(line.itemId)) &&
+                              Boolean(qtyFieldError(lineInputs[line.itemId]))
+                            }
+                            disabled={disabled}
+                          />
+                          <span className="text-muted-foreground text-xs">
+                            {onboardingLabels.unitAbbrev[unit]}
+                          </span>
+                        </div>
+                        <FieldError
+                          id={`count-${line.itemId}-qty-error`}
+                          message={
+                            validation.isVisible(qtyFieldName(line.itemId))
+                              ? qtyFieldError(lineInputs[line.itemId])
+                              : undefined
                           }
-                          onBlur={() => handleBlur(line)}
-                          disabled={disabled}
                         />
-                        <span className="text-muted-foreground text-xs">
-                          {onboardingLabels.unitAbbrev[unit]}
-                        </span>
                       </div>
                       {openingCostNeeded ? (
                         <div className="flex flex-col gap-1">
                           <div className="flex items-center gap-1">
                             <Input
+                              ref={validation.registerRef(unitCostFieldName(line.itemId))}
                               className="w-24"
                               inputMode="decimal"
                               placeholder="0,00000"
@@ -305,6 +359,11 @@ export function StepCount({ items, catalogCommitted }: StepCountProps) {
                                   [line.itemId]: e.target.value,
                                 }))
                               }
+                              onBlur={() => validation.handleBlur(unitCostFieldName(line.itemId))}
+                              invalid={
+                                validation.isVisible(unitCostFieldName(line.itemId)) &&
+                                Boolean(unitCostFieldError(unitCostInputs[line.itemId] ?? ""))
+                              }
                               disabled={disabled}
                               aria-label={`${onboardingLabels.countColumnUnitCost} ${info?.name ?? line.itemId}`}
                               aria-describedby="count-cost-rate-help"
@@ -313,6 +372,14 @@ export function StepCount({ items, catalogCommitted }: StepCountProps) {
                               Bs/{onboardingLabels.unitAbbrev[unit]}
                             </span>
                           </div>
+                          <FieldError
+                            id={`count-${line.itemId}-unit-cost-error`}
+                            message={
+                              validation.isVisible(unitCostFieldName(line.itemId))
+                                ? unitCostFieldError(unitCostInputs[line.itemId] ?? "")
+                                : undefined
+                            }
+                          />
                         </div>
                       ) : (
                         <span className="text-right text-muted-foreground">—</span>

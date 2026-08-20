@@ -145,6 +145,9 @@ export const onboardingLabels = {
   countUnitCostInvalid: "Ingresa un costo unitario válido.",
   countUnitCostNotPositive: "El costo unitario debe ser mayor que cero.",
   countUnitCostTooManyDecimals: "Usa como máximo 5 decimales.",
+  /** KOK-143: shown live under a count line's quantity field instead of silently reverting the
+   * value the owner just typed (e.g. more than 3 decimals). */
+  countQtyInvalid: "Ingresa una cantidad válida (0 o mayor, máx. 3 decimales).",
   unitAbbrev: {
     KG: "kg",
     L: "L",

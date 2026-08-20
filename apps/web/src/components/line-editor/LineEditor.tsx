@@ -18,10 +18,11 @@ import {
   type Unit,
 } from "@kokoro/shared";
 import { X } from "lucide-react";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useId, useState } from "react";
 
 import { ItemPicker, type ItemPickerEligibility } from "@/components/catalog/ItemPicker";
 import { Button } from "@/components/ui/button";
+import { FieldError } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 
@@ -86,6 +87,21 @@ export interface LineEditorProps<T extends LineEditorLine> {
   /** Show the amount input column. Defaults to `true` (purchases' original, unchanged behavior);
    * recipes pass `false` since a recipe line has no per-line money. */
   showAmount?: boolean;
+  /**
+   * Live per-row field errors (KOK-143). Omit entirely for callers that keep the original
+   * submit-only behavior (recipes, production, etc.) — every prop in this group is optional and
+   * additive. The callback owns visibility (touched/submitted, via `useFieldValidation`'s
+   * `isVisible`) — return `undefined` for a field that shouldn't show its error yet.
+   */
+  getLineError?: (index: number, field: "itemId" | "qty" | "amount") => string | undefined;
+  /** Marks a row's field "live" once blurred (KOK-143) — pairs with `getLineError`. */
+  onLineFieldBlur?: (index: number, field: "itemId" | "qty" | "amount") => void;
+  /** Registers each row's field DOM node so a caller's `useFieldValidation().attemptSubmit` can
+   * focus the first invalid one (KOK-143). */
+  lineFieldRef?: (
+    index: number,
+    field: "itemId" | "qty" | "amount",
+  ) => (node: HTMLElement | null) => void;
 }
 
 export function LineEditor<T extends LineEditorLine>({
@@ -102,8 +118,12 @@ export function LineEditor<T extends LineEditorLine>({
   getItemUnit,
   unitSelector,
   showAmount = true,
+  getLineError,
+  onLineFieldBlur,
+  lineFieldRef,
 }: LineEditorProps<T>) {
   const amountLabel = labels.amount ?? "Aporte al costo";
+  const errorIdBase = useId();
   const [selectedItemUnits, setSelectedItemUnits] = useState<Map<string, Unit>>(() => new Map());
 
   // A display-unit selector shares this column with the quantity input. Give the pair enough
@@ -166,6 +186,7 @@ export function LineEditor<T extends LineEditorLine>({
           >
             <div className="min-w-0">
               <ItemPicker
+                ref={lineFieldRef?.(index, "itemId")}
                 value={line.itemId}
                 onChange={(itemId, item) => {
                   if (item) {
@@ -184,6 +205,12 @@ export function LineEditor<T extends LineEditorLine>({
                 emptyMessage={itemEmptyMessage}
                 disabled={disabled}
                 placeholder={labels.item}
+                invalid={Boolean(getLineError?.(index, "itemId"))}
+                onBlur={() => onLineFieldBlur?.(index, "itemId")}
+              />
+              <FieldError
+                id={`${errorIdBase}-${index}-itemId-error`}
+                message={getLineError?.(index, "itemId")}
               />
             </div>
             <div className="min-w-0">
@@ -192,13 +219,16 @@ export function LineEditor<T extends LineEditorLine>({
               </span>
               <div className="flex min-w-0 items-center gap-1.5">
                 <Input
+                  ref={lineFieldRef?.(index, "qty")}
                   className="min-w-0 flex-1"
                   inputMode="decimal"
                   aria-label={labels.qty}
                   placeholder={labels.qtyPlaceholder ?? "0"}
                   value={line.qty}
                   onChange={(event) => updateLine(index, { qty: event.target.value } as Partial<T>)}
+                  onBlur={() => onLineFieldBlur?.(index, "qty")}
                   disabled={disabled}
+                  invalid={Boolean(getLineError?.(index, "qty"))}
                 />
                 {(() => {
                   const canonicalUnit = itemUnitFor(line);
@@ -230,6 +260,10 @@ export function LineEditor<T extends LineEditorLine>({
                   );
                 })()}
               </div>
+              <FieldError
+                id={`${errorIdBase}-${index}-qty-error`}
+                message={getLineError?.(index, "qty")}
+              />
             </div>
             {showAmount ? (
               <div className="min-w-0">
@@ -237,15 +271,22 @@ export function LineEditor<T extends LineEditorLine>({
                   {amountLabel}
                 </span>
                 <Input
+                  ref={lineFieldRef?.(index, "amount")}
                   className="min-w-0"
                   inputMode="decimal"
                   aria-label={amountLabel}
                   placeholder={labels.amountPlaceholder ?? "0.00"}
                   value={line.amount ?? ""}
+                  invalid={Boolean(getLineError?.(index, "amount"))}
+                  onBlur={() => onLineFieldBlur?.(index, "amount")}
                   onChange={(event) =>
                     updateLine(index, { amount: event.target.value } as Partial<T>)
                   }
                   disabled={disabled}
+                />
+                <FieldError
+                  id={`${errorIdBase}-${index}-amount-error`}
+                  message={getLineError?.(index, "amount")}
                 />
               </div>
             ) : null}

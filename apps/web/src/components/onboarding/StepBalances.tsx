@@ -10,12 +10,24 @@ import { useState } from "react";
 
 import { StepGuidance } from "@/components/onboarding/StepGuidance";
 import { Button } from "@/components/ui/button";
+import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { useSetOpeningBalances } from "@/features/onboarding/api";
 import { useSessionDraft } from "@/features/onboarding/use-session-draft";
+import { useFieldValidation } from "@/hooks/useFieldValidation";
 import { ApiError } from "@/lib/api";
 import { exceedsScale, parseDecimalToInt } from "@/lib/decimal";
 import { onboardingLabels } from "@/lib/i18n-onboarding";
+
+/** Returns a field-specific error for a balance input, or undefined when it's blank (blank means
+ * "0", not an error — KOK-143 live validation mirrors `parseAmount`'s own rules below.) */
+function balanceFieldError(raw: string): string | undefined {
+  if (raw.trim() === "") return undefined;
+  if (parseDecimalToInt(raw, 2) !== null) return undefined;
+  return exceedsScale(raw, 2)
+    ? onboardingLabels.errors.tooManyDecimals
+    : onboardingLabels.errors.invalidAmount;
+}
 
 export interface StepBalancesProps {
   onDone: () => void;
@@ -27,9 +39,12 @@ export function StepBalances({ onDone, onSkip, readOnly = false }: StepBalancesP
   const [bankInput, setBankInput] = useSessionDraft("balances-bank", "");
   const [cashInput, setCashInput] = useSessionDraft("balances-cash", "");
   const [error, setError] = useState<string | null>(null);
+  const validation = useFieldValidation();
 
   const mutation = useSetOpeningBalances();
   const disabled = mutation.isPending;
+  const bankError = balanceFieldError(bankInput);
+  const cashError = balanceFieldError(cashInput);
 
   if (readOnly) {
     return (
@@ -63,19 +78,18 @@ export function StepBalances({ onDone, onSkip, readOnly = false }: StepBalancesP
 
   async function handleSubmit() {
     setError(null);
-    const bankOpening = parseAmount(bankInput);
-    const cashOpening = parseAmount(cashInput);
-    if (bankOpening === null || cashOpening === null) {
-      const hasTooManyDecimals =
-        (bankOpening === null && exceedsScale(bankInput, 2)) ||
-        (cashOpening === null && exceedsScale(cashInput, 2));
-      setError(
-        hasTooManyDecimals
-          ? onboardingLabels.errors.tooManyDecimals
-          : onboardingLabels.errors.invalidAmount,
-      );
+    const errors: Record<string, string> = {};
+    if (bankError) errors.bank = bankError;
+    if (cashError) errors.cash = cashError;
+    const canSubmit = validation.attemptSubmit(errors, ["bank", "cash"]);
+    if (!canSubmit) {
+      setError(bankError ?? cashError ?? onboardingLabels.errors.invalidAmount);
       return;
     }
+
+    // Guaranteed parseable — `bankError`/`cashError` above already validated both fields.
+    const bankOpening = parseAmount(bankInput) as number;
+    const cashOpening = parseAmount(cashInput) as number;
 
     try {
       await mutation.mutateAsync({ bankOpening, cashOpening });
@@ -99,33 +113,41 @@ export function StepBalances({ onDone, onSkip, readOnly = false }: StepBalancesP
       />
 
       <div className="grid grid-cols-2 gap-3">
-        <div className="flex flex-col gap-1.5">
-          <label className="font-medium text-foreground text-sm" htmlFor="ob-bank">
-            {onboardingLabels.fieldBank}
-          </label>
+        <Field
+          label={onboardingLabels.fieldBank}
+          htmlFor="ob-bank"
+          error={validation.isVisible("bank") ? bankError : undefined}
+        >
           <Input
+            ref={validation.registerRef("bank")}
             id="ob-bank"
             inputMode="decimal"
             placeholder="0.00"
             value={bankInput}
             onChange={(e) => setBankInput(e.target.value)}
+            onBlur={() => validation.handleBlur("bank")}
+            invalid={validation.isVisible("bank") && Boolean(bankError)}
             disabled={disabled}
           />
           <p className="text-muted-foreground text-xs">{onboardingLabels.decimalHelp}</p>
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <label className="font-medium text-foreground text-sm" htmlFor="ob-cash">
-            {onboardingLabels.fieldCash}
-          </label>
+        </Field>
+        <Field
+          label={onboardingLabels.fieldCash}
+          htmlFor="ob-cash"
+          error={validation.isVisible("cash") ? cashError : undefined}
+        >
           <Input
+            ref={validation.registerRef("cash")}
             id="ob-cash"
             inputMode="decimal"
             placeholder="0.00"
             value={cashInput}
             onChange={(e) => setCashInput(e.target.value)}
+            onBlur={() => validation.handleBlur("cash")}
+            invalid={validation.isVisible("cash") && Boolean(cashError)}
             disabled={disabled}
           />
-        </div>
+        </Field>
       </div>
 
       {error ? <p className="text-negative text-sm">{error}</p> : null}

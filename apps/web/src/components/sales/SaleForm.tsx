@@ -56,6 +56,7 @@ import { useItemsQuery } from "@/features/catalog/api";
 import { useStock } from "@/features/inventory/api";
 import { usePricingSettings } from "@/features/pricing/api";
 import { useRecordSale, useUpdateSale } from "@/features/sales/api";
+import { useFieldValidation } from "@/hooks/useFieldValidation";
 import {
   clearPersistentDraft,
   readPersistentDraft,
@@ -67,6 +68,13 @@ import { ApiError } from "@/lib/api";
 import { formatIntAsDecimalInput, parseDecimalToInt } from "@/lib/decimal";
 import { pricingLabels } from "@/lib/i18n-pricing";
 import { salesLabels } from "@/lib/i18n-sales";
+
+type SaleLineFieldName = "itemId" | "qty" | "amount";
+type SaleLineFieldErrors = Partial<Record<SaleLineFieldName, string>>;
+
+function lineFieldName(index: number, field: SaleLineFieldName): string {
+  return `line-${index}-${field}`;
+}
 
 export interface SaleFormProps {
   accounts: FinancialAccountDto[];
@@ -146,6 +154,7 @@ export function SaleForm({ accounts, sale }: SaleFormProps) {
   const [notes, setNotes] = useState("");
   const [lines, setLines] = useState<SaleLineValue[]>([emptyLine()]);
   const [error, setError] = useState<string | null>(null);
+  const validation = useFieldValidation();
   const initialFormStateRef = useRef<SaleFormState | null>(null);
   const initializedRef = useRef<string | null>(null);
 
@@ -227,6 +236,7 @@ export function SaleForm({ accounts, sale }: SaleFormProps) {
   // Reset only on the open transition (or a switch to a different sale while open) â€” `sale?.id`
   // stands in for `sale` itself so a background refetch of the SAME sale never clobbers
   // in-progress edits, mirroring PurchaseForm's identical precedent.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `validation.reset` is stable (useCallback) but the wrapping object is new every render; including it would re-run this effect every render, defeating the initializedRef guard.
   useEffect(() => {
     const initializationKey = draftKey;
     if (initializedRef.current === initializationKey) {
@@ -277,6 +287,7 @@ export function SaleForm({ accounts, sale }: SaleFormProps) {
     setLines(initialFormState.lines);
     initialFormStateRef.current = initialFormState;
     setError(null);
+    validation.reset();
     initializedRef.current = initializationKey;
   }, [accountId, accounts, draftKey, finishedItemsQuery.isLoading, sale]);
 
@@ -368,53 +379,87 @@ export function SaleForm({ accounts, sale }: SaleFormProps) {
     return sum;
   }, [lines]);
 
+  // A trailing untouched row is the editor's affordance for adding another line, not an invalid
+  // sale line (KOK-187). Empty rows in the middle still identify the missing item below.
+  const lastEnteredLineIndex = lines.reduce(
+    (lastIndex, line, index) =>
+      !line.itemId && line.qty.trim() === "" && line.amount.trim() === "" ? lastIndex : index,
+    -1,
+  );
+
+  /** Live per-row field errors (KOK-143) — reused by both LineEditor's inline display and
+   * `handleSubmit`'s validity check, so the two can never disagree about what a valid line is. */
+  const lineFieldErrors = useMemo(() => {
+    const map = new Map<number, SaleLineFieldErrors>();
+    for (const [index, line] of lines.entries()) {
+      if (index > lastEnteredLineIndex) continue;
+      const lineNumber = index + 1;
+      const rowErrors: SaleLineFieldErrors = {};
+
+      if (!line.itemId) {
+        rowErrors.itemId = salesLabels.errors.lineIncomplete(lineNumber, salesLabels.lineItem);
+      }
+
+      const qtyText = line.qty.trim();
+      if (qtyText === "") {
+        rowErrors.qty = salesLabels.errors.lineIncomplete(lineNumber, salesLabels.lineQty);
+      } else if (
+        parseDecimalToInt(line.qty, 3) === null ||
+        (parseDecimalToInt(line.qty, 3) ?? 0) <= 0
+      ) {
+        rowErrors.qty = salesLabels.errors.lineInvalidValue(lineNumber, salesLabels.lineQty);
+      }
+
+      const unitPriceText = line.amount.trim();
+      if (unitPriceText === "") {
+        rowErrors.amount = salesLabels.errors.lineIncomplete(lineNumber, salesLabels.lineUnitPrice);
+      } else if (parseDecimalToInt(line.amount, 2) === null) {
+        rowErrors.amount = salesLabels.errors.lineInvalidValue(
+          lineNumber,
+          salesLabels.lineUnitPrice,
+        );
+      }
+
+      if (Object.keys(rowErrors).length > 0) map.set(index, rowErrors);
+    }
+    return map;
+  }, [lastEnteredLineIndex, lines]);
+
   async function handleSubmit() {
     setError(null);
-    if (isPaid && !accountId) {
-      setError(salesLabels.errors.accountRequired);
+
+    const flatErrors: Record<string, string> = {};
+    if (isPaid && !accountId) flatErrors.accountId = salesLabels.errors.accountRequired;
+    for (const [index, rowErrors] of lineFieldErrors) {
+      for (const field of Object.keys(rowErrors) as SaleLineFieldName[]) {
+        const message = rowErrors[field];
+        if (message) flatErrors[lineFieldName(index, field)] = message;
+      }
+    }
+    const fieldOrder = [
+      "accountId",
+      ...lines.flatMap((_, index) => [
+        lineFieldName(index, "itemId"),
+        lineFieldName(index, "qty"),
+        lineFieldName(index, "amount"),
+      ]),
+    ];
+    const canSubmit = validation.attemptSubmit(flatErrors, fieldOrder);
+    if (!canSubmit) {
+      const firstMessage = fieldOrder.map((name) => flatErrors[name]).find(Boolean);
+      setError(firstMessage ?? salesLabels.errors.generic);
       return;
     }
 
     const parsedLines: { itemId: string; qty: number; unitPriceMc: number }[] = [];
-    const lastEnteredLineIndex = lines.reduce(
-      (lastIndex, line, index) =>
-        !line.itemId && line.qty.trim() === "" && line.amount.trim() === "" ? lastIndex : index,
-      -1,
-    );
-
     for (const [index, line] of lines.entries()) {
-      // A trailing untouched row is the editor's affordance for adding another line, not an
-      // invalid sale line. Empty rows in the middle still identify the missing item below.
       if (index > lastEnteredLineIndex) continue;
-
-      const lineNumber = index + 1;
-      const qtyText = line.qty.trim();
-      const unitPriceText = line.amount.trim();
-      if (!line.itemId) {
-        setError(salesLabels.errors.lineIncomplete(lineNumber, salesLabels.lineItem));
-        return;
-      }
-      if (qtyText === "") {
-        setError(salesLabels.errors.lineIncomplete(lineNumber, salesLabels.lineQty));
-        return;
-      }
-      if (unitPriceText === "") {
-        setError(salesLabels.errors.lineIncomplete(lineNumber, salesLabels.lineUnitPrice));
-        return;
-      }
-
-      const qty = parseDecimalToInt(line.qty, 3);
-      const unitPrice = parseDecimalToInt(line.amount, 2);
-      if (qty === null || qty <= 0) {
-        setError(salesLabels.errors.lineInvalidValue(lineNumber, salesLabels.lineQty));
-        return;
-      }
-      if (unitPrice === null) {
-        setError(salesLabels.errors.lineInvalidValue(lineNumber, salesLabels.lineUnitPrice));
-        return;
-      }
+      // Guaranteed parseable — `lineFieldErrors` above already validated every included row and
+      // `canSubmit` would have been false otherwise.
+      const qty = parseDecimalToInt(line.qty, 3) as number;
+      const unitPrice = parseDecimalToInt(line.amount, 2) as number;
       parsedLines.push({
-        itemId: line.itemId,
+        itemId: line.itemId as string,
         qty,
         unitPriceMc: rateFromTotal(toCentavos(unitPrice), WHOLE_UNIT_MILLI_UNITS),
       });
@@ -527,6 +572,7 @@ export function SaleForm({ accounts, sale }: SaleFormProps) {
               isPaid ? (
                 <div className="flex min-w-0 flex-col gap-1.5">
                   <PaymentAccountSelect
+                    ref={validation.registerRef("accountId")}
                     id="sf-payment-account"
                     accounts={accounts}
                     accountId={accountId}
@@ -536,8 +582,15 @@ export function SaleForm({ accounts, sale }: SaleFormProps) {
                       setAccountId(nextAccountId);
                       setPaymentMethod(nextPaymentMethod);
                     }}
+                    onBlur={() => validation.handleBlur("accountId")}
+                    invalid={validation.isVisible("accountId") && !accountId}
                     disabled={disabled}
                   />
+                  {validation.isVisible("accountId") && !accountId ? (
+                    <p className="text-negative text-xs" role="alert">
+                      {salesLabels.errors.accountRequired}
+                    </p>
+                  ) : null}
                   <span className="text-muted-foreground text-xs">
                     {salesLabels.deductedFromAccount(
                       formatMoney(toCentavos(totalPreview)),
@@ -671,6 +724,13 @@ export function SaleForm({ accounts, sale }: SaleFormProps) {
               amountPlaceholder: salesLabels.lineUnitPricePlaceholder,
               qtyPlaceholder: salesLabels.lineQtyPlaceholder,
             }}
+            getLineError={(index, field) => {
+              const name = lineFieldName(index, field);
+              if (!validation.isVisible(name)) return undefined;
+              return lineFieldErrors.get(index)?.[field];
+            }}
+            onLineFieldBlur={(index, field) => validation.handleBlur(lineFieldName(index, field))}
+            lineFieldRef={(index, field) => validation.registerRef(lineFieldName(index, field))}
             renderExtraColumns={renderLineExtra}
           />
         </div>

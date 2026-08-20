@@ -17,12 +17,14 @@ import {
   UNITS,
   WHOLE_UNIT_MILLI_UNITS,
 } from "@kokoro/shared";
-import { type ReactNode, useId, useRef } from "react";
+import { useId, useRef } from "react";
 
+import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { InfoTooltip } from "@/components/ui/tooltip";
+import type { UseFieldValidationResult } from "@/hooks/useFieldValidation";
 import { formatCostRateInput, parseCostRateInput } from "@/lib/cost-rate";
 import { formatIntAsDecimalInput, parseDecimalToInt } from "@/lib/decimal";
 import { catalogLabels } from "@/lib/i18n-catalog";
@@ -97,21 +99,34 @@ export interface ItemFormParsed {
   notes: string | null;
 }
 
+export type ItemFormFieldName = "name" | "salePrice" | "minStockQty" | "replacementCostMc";
+
+export type ItemFormErrorCode =
+  | "nameRequired"
+  | "salePriceInvalid"
+  | "salePriceRequired"
+  | "salePriceForbidden"
+  | "minStockQtyInvalid"
+  | "minStockQtyRequired"
+  | "minStockQtyForbidden"
+  | "replacementCostMcInvalid"
+  | "replacementCostMcTooManyDecimals";
+
+/** Field display/tab order — used for both the submit-time first-error field and KOK-143's
+ * focus-first-bad-field on submit. */
+export const ITEM_FORM_FIELD_ORDER: readonly ItemFormFieldName[] = [
+  "name",
+  "salePrice",
+  "minStockQty",
+  "replacementCostMc",
+];
+
 export type ItemFormParseResult =
   | { ok: true; value: ItemFormParsed }
   | {
       ok: false;
-      field: "name" | "salePrice" | "minStockQty" | "replacementCostMc";
-      code:
-        | "nameRequired"
-        | "salePriceInvalid"
-        | "salePriceRequired"
-        | "salePriceForbidden"
-        | "minStockQtyInvalid"
-        | "minStockQtyRequired"
-        | "minStockQtyForbidden"
-        | "replacementCostMcInvalid"
-        | "replacementCostMcTooManyDecimals";
+      field: ItemFormFieldName;
+      code: ItemFormErrorCode;
     };
 
 /** Returns a field-specific error when a value is missing or doesn't parse as a valid decimal. */
@@ -189,28 +204,59 @@ export function parseItemFormValues(values: ItemFormValues): ItemFormParseResult
   };
 }
 
-function Field({
-  label,
-  htmlFor,
-  tooltip,
-  children,
-}: {
-  label: string;
-  htmlFor: string;
-  tooltip?: string;
-  children: ReactNode;
-}) {
-  return (
-    <div className="flex flex-col gap-1.5 text-sm">
-      <div className="flex items-center gap-1">
-        <label htmlFor={htmlFor} className="font-medium text-foreground">
-          {label}
-        </label>
-        {tooltip ? <InfoTooltip content={tooltip} label={`Más información: ${label}`} /> : null}
-      </div>
-      {children}
-    </div>
-  );
+export type ItemFormFieldErrors = Partial<Record<ItemFormFieldName, ItemFormErrorCode>>;
+
+/**
+ * KOK-143 live-validation counterpart to `parseItemFormValues`: instead of stopping at the first
+ * invalid field, computes every field's error independently so a caller can show several at once
+ * (e.g. an empty name AND an invalid price typed together). Mirrors `parseItemFormValues`'s exact
+ * rules field-by-field — keep the two in sync if either changes. Returns error CODES, not
+ * messages: callers map through their own label set (`catalogLabels.errors` here, but StepCatalog's
+ * inline grid uses `onboardingLabels.errors` for the identical codes).
+ */
+export function validateItemFormFields(values: ItemFormValues): ItemFormFieldErrors {
+  const errors: ItemFormFieldErrors = {};
+
+  if (values.name.trim() === "") {
+    errors.name = "nameRequired";
+  }
+
+  const salePriceTrimmed = values.salePrice.trim();
+  if (salePriceTrimmed !== "" && parseDecimalToInt(salePriceTrimmed, 2) === null) {
+    errors.salePrice = "salePriceInvalid";
+  } else if (values.kind === "FINISHED") {
+    if (salePriceTrimmed === "") errors.salePrice = "salePriceRequired";
+  } else if (salePriceTrimmed !== "") {
+    errors.salePrice = "salePriceForbidden";
+  }
+
+  const minStockTrimmed = values.minStockQty.trim();
+  if (minStockTrimmed !== "" && parseDecimalToInt(minStockTrimmed, 3) === null) {
+    errors.minStockQty = "minStockQtyInvalid";
+  } else if (values.kind === "FINISHED") {
+    if (minStockTrimmed !== "") errors.minStockQty = "minStockQtyForbidden";
+  } else if (
+    (values.kind === "RAW_MATERIAL" || values.kind === "PACKAGING") &&
+    minStockTrimmed === ""
+  ) {
+    errors.minStockQty = "minStockQtyRequired";
+  }
+
+  if (
+    values.kind === "RAW_MATERIAL" &&
+    values.isUnmetered &&
+    values.replacementCostMc.trim() !== ""
+  ) {
+    const parsed = parseCostRateInput(values.replacementCostMc, { allowZero: true });
+    if (!parsed.ok) {
+      errors.replacementCostMc =
+        parsed.reason === "tooManyDecimals"
+          ? "replacementCostMcTooManyDecimals"
+          : "replacementCostMcInvalid";
+    }
+  }
+
+  return errors;
 }
 
 /** Abbreviation for the "/ kg" style suffix on the derived cost figures below. */
@@ -232,6 +278,9 @@ export interface ItemFormProps {
    */
   derived?: { wacMc: number; replacementCostMc: number; replacementCostUpdatedAt: string | null };
   disabled?: boolean;
+  /** KOK-143 live validation — the caller owns the hook instance (`useFieldValidation()`) so it
+   * can also drive `attemptSubmit` on its own save/create action. */
+  validation: UseFieldValidationResult;
 }
 
 export function ItemForm({
@@ -240,9 +289,16 @@ export function ItemForm({
   derived,
   disabled,
   isEditMode = false,
+  validation,
 }: ItemFormProps) {
   const formId = useId();
   const userSetRef = useRef({ category: false, unit: false });
+  const fieldErrors = validateItemFormFields(values);
+  function fieldError(field: ItemFormFieldName): string | undefined {
+    const code = fieldErrors[field];
+    if (!code || !validation.isVisible(field)) return undefined;
+    return catalogLabels.errors[code];
+  }
   function set<K extends keyof ItemFormValues>(key: K, value: ItemFormValues[K]) {
     if (!isEditMode && key === "category") userSetRef.current.category = true;
     if (!isEditMode && key === "unit") userSetRef.current.unit = true;
@@ -281,12 +337,20 @@ export function ItemForm({
 
   return (
     <div className="flex flex-col gap-4">
-      <Field label={catalogLabels.fieldName} htmlFor={`${formId}-name`}>
+      <Field
+        label={catalogLabels.fieldName}
+        htmlFor={`${formId}-name`}
+        required
+        error={fieldError("name")}
+      >
         <div className="flex flex-col gap-1">
           <Input
+            ref={validation.registerRef("name")}
             id={`${formId}-name`}
             value={values.name}
             onChange={(e) => set("name", e.target.value)}
+            onBlur={() => validation.handleBlur("name")}
+            invalid={Boolean(fieldError("name"))}
             disabled={disabled}
             autoFocus
             required
@@ -363,14 +427,23 @@ export function ItemForm({
 
       <div className="grid grid-cols-2 gap-3">
         {values.kind === "FINISHED" ? (
-          <Field label={catalogLabels.fieldSalePrice} htmlFor={`${formId}-sale-price`}>
+          <Field
+            label={catalogLabels.fieldSalePrice}
+            htmlFor={`${formId}-sale-price`}
+            required
+            error={fieldError("salePrice")}
+          >
             <Input
+              ref={validation.registerRef("salePrice")}
               id={`${formId}-sale-price`}
               inputMode="decimal"
               placeholder="0.00"
               value={values.salePrice}
               onChange={(e) => set("salePrice", e.target.value)}
+              onBlur={() => validation.handleBlur("salePrice")}
+              invalid={Boolean(fieldError("salePrice"))}
               disabled={disabled}
+              required
             />
           </Field>
         ) : null}
@@ -380,14 +453,18 @@ export function ItemForm({
             label={catalogLabels.fieldReplacementCost}
             htmlFor={`${formId}-replacement-cost`}
             tooltip={catalogLabels.tooltipFieldReplacementCost}
+            error={fieldError("replacementCostMc")}
           >
             <div className="flex flex-col gap-1">
               <Input
+                ref={validation.registerRef("replacementCostMc")}
                 id={`${formId}-replacement-cost`}
                 inputMode="decimal"
                 placeholder="0.00000"
                 value={values.replacementCostMc}
                 onChange={(e) => set("replacementCostMc", e.target.value)}
+                onBlur={() => validation.handleBlur("replacementCostMc")}
+                invalid={Boolean(fieldError("replacementCostMc"))}
                 disabled={disabled}
                 aria-describedby={`${formId}-replacement-cost-help`}
               />
@@ -406,13 +483,18 @@ export function ItemForm({
             label={catalogLabels.fieldMinStock}
             htmlFor={`${formId}-min-stock`}
             tooltip={catalogLabels.tooltipFieldMinStock}
+            required={values.kind === "RAW_MATERIAL" || values.kind === "PACKAGING"}
+            error={fieldError("minStockQty")}
           >
             <Input
+              ref={validation.registerRef("minStockQty")}
               id={`${formId}-min-stock`}
               inputMode="decimal"
               placeholder="0"
               value={values.minStockQty}
               onChange={(e) => set("minStockQty", e.target.value)}
+              onBlur={() => validation.handleBlur("minStockQty")}
+              invalid={Boolean(fieldError("minStockQty"))}
               disabled={disabled || values.isUnmetered}
               required={values.kind === "RAW_MATERIAL" || values.kind === "PACKAGING"}
             />

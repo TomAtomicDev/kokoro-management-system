@@ -6,7 +6,7 @@
 
 import type { ItemDto, ItemKind, Unit } from "@kokoro/shared";
 import { Plus } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { forwardRef, useEffect, useRef, useState } from "react";
 
 import { Input } from "@/components/ui/input";
 import { useItemQuery, useItemsQuery } from "@/features/catalog/api";
@@ -54,18 +54,28 @@ export interface ItemPickerProps {
   disabled?: boolean;
   /** On by default — the inline "crear ítem" flow this component exists to provide. */
   allowCreate?: boolean;
+  /** Red border/ring on the search input — set when this field's live error is visible (KOK-143). */
+  invalid?: boolean;
+  /** Fires when the search input loses focus, e.g. to mark the field "live" for validation
+   * (KOK-143) — distinct from item selection, which never blurs the input. */
+  onBlur?: () => void;
 }
 
-export function ItemPicker({
-  value,
-  onChange,
-  kindFilter,
-  eligibility,
-  placeholder,
-  emptyMessage,
-  disabled,
-  allowCreate = true,
-}: ItemPickerProps) {
+export const ItemPicker = forwardRef<HTMLInputElement, ItemPickerProps>(function ItemPicker(
+  {
+    value,
+    onChange,
+    kindFilter,
+    eligibility,
+    placeholder,
+    emptyMessage,
+    disabled,
+    allowCreate = true,
+    invalid,
+    onBlur,
+  },
+  ref,
+) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
@@ -114,14 +124,17 @@ export function ItemPicker({
   return (
     <div ref={containerRef} className="relative">
       <Input
+        ref={ref}
         value={displayValue}
         placeholder={placeholder ?? catalogLabels.itemPickerPlaceholder}
         disabled={disabled}
+        invalid={invalid}
         onFocus={() => {
           setOpen(true);
           setQuery("");
         }}
         onChange={(event) => setQuery(event.target.value)}
+        onBlur={onBlur}
       />
 
       {open ? (
@@ -179,4 +192,4 @@ export function ItemPicker({
       ) : null}
     </div>
   );
-}
+});
