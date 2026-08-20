@@ -18,6 +18,7 @@ import { useMemo, useState } from "react";
 import { CalcTrace, type CalcTraceInput } from "@/components/common/CalcTrace";
 import { DetailDrawer } from "@/components/data-table/DetailDrawer";
 import { MarginBadge } from "@/components/pricing/MarginBadge";
+import { RecipeTimerControl } from "@/components/recipes/RecipeTimerControl";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { useItemsQuery } from "@/features/catalog/api";
@@ -115,6 +116,12 @@ export function RecipeDetailDrawer({ recipeId, open, onOpenChange }: RecipeDetai
                 {recipesLabels.edit}
               </Button>
             </div>
+
+            <RecipeTimerControl
+              recipeId={recipe.id}
+              recipeName={recipe.name}
+              estLaborMin={recipe.estLaborMin}
+            />
 
             <div className="flex flex-col gap-1 rounded-md border border-border bg-muted px-3 py-2.5">
               <div className="flex items-center justify-between">

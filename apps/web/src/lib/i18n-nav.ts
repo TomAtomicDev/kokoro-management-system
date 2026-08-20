@@ -27,6 +27,14 @@ export const topbarLabels = {
   searchShortcutHint: "⌘K",
   quickAdd: "+ Sesión",
   alerts: "Alertas",
+  recipeTimer: {
+    title: "Temporizador",
+    close: "Cerrar menú del temporizador",
+    running: "En curso",
+    finished: "Terminó",
+    stop: "Detener temporizador",
+    dismiss: "Cerrar aviso",
+  },
   calculator: {
     title: "Calculadora",
     open: "Abrir calculadora",

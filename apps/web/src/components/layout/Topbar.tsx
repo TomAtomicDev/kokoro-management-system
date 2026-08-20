@@ -3,6 +3,7 @@ import { Bell, Calculator as CalculatorIcon, LogOut, Search } from "lucide-react
 import { useState } from "react";
 
 import { Calculator } from "@/components/layout/Calculator";
+import { RecipeTimerChip } from "@/components/layout/RecipeTimerChip";
 import { SessionChip } from "@/components/sessions/SessionChip";
 import { Button } from "@/components/ui/button";
 import { useLogout } from "@/features/auth/api";
@@ -57,6 +58,8 @@ export function Topbar({ onOpenQuickAdd }: { onOpenQuickAdd: () => void }) {
         >
           <CalculatorIcon className="size-5" />
         </Button>
+
+        <RecipeTimerChip />
 
         {/* Alerts stay hidden until KOK-046 restores this as a real, non-placeholder control. */}
         <button
