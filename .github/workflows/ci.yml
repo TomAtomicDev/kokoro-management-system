@@ -95,7 +95,7 @@ jobs:
       - name: Wait for the local Worker to be healthy
         run: |
           for i in $(seq 1 30); do
-            code=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8787/api/health)
+            code=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8787/api/health || echo "000")
             if [ "$code" = "200" ]; then echo "Worker is up after ${i}s"; exit 0; fi
             sleep 1
           done
