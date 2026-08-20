@@ -70,22 +70,25 @@ test("editing a production run's batches recomputes output and untouched lines",
   await page.getByText(recipeName, { exact: true }).click();
   await page.getByRole("button", { name: productionLabels.edit, exact: true }).click();
 
-  // Scoped to the edit dialog: "Tandas" is also a sortable EventTable column header (KOK-184)
-  // elsewhere on the page, and getByLabel alone matches both the header button and this input.
-  const editDialog = page.getByRole("dialog", { name: productionLabels.editTitle });
+  // KOK-141 moved this from a dialog to its own full page (/production/$id/edit). Scoped to
+  // <main> anyway: "Tandas" is also a sortable EventTable column header (KOK-184) on the
+  // production list, and getByLabel alone would match both if that header were ever hoisted
+  // into shared chrome.
+  const editForm = page.getByRole("main");
+  await expect(page.getByRole("heading", { name: productionLabels.editTitle })).toBeVisible();
 
-  const batches = editDialog.getByLabel(productionLabels.fieldBatches, { exact: true });
+  const batches = editForm.getByLabel(productionLabels.fieldBatches, { exact: true });
   await expect(batches).toHaveValue("1");
   await batches.fill("3");
 
-  const actualOutputQty = editDialog.getByLabel(productionLabels.fieldActualOutputQty, {
+  const actualOutputQty = editForm.getByLabel(productionLabels.fieldActualOutputQty, {
     exact: true,
   });
   await expect(actualOutputQty).toHaveValue("3");
 
-  const lineQty = editDialog.getByLabel("Cantidad", { exact: true });
+  const lineQty = editForm.getByLabel("Cantidad", { exact: true });
   await expect(lineQty).toHaveValue("1.5");
 
-  await editDialog.getByRole("button", { name: productionLabels.save, exact: true }).click();
-  await expect(editDialog).toBeHidden();
+  await editForm.getByRole("button", { name: productionLabels.save, exact: true }).click();
+  await expect(page).toHaveURL(/\/production$/);
 });
