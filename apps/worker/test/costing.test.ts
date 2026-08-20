@@ -12,7 +12,11 @@
 // (`roundHalfUpToInt`), so the engine is exactly reproducible but does not conserve centavos
 // bit-for-bit. The bounded-rounding-error property below is what describes it.
 
-import { toMilliCentavosPerUnit } from "@kokoro/shared";
+import {
+  STOCK_MOVEMENT_TYPES,
+  type StockMovementType,
+  toMilliCentavosPerUnit,
+} from "@kokoro/shared";
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import type { ReplayMovement } from "../src/core/costing/index.js";
@@ -25,7 +29,7 @@ import {
 // KOK-024 Phase B additions are imported from the module directly rather than through the barrel:
 // core/costing/index.ts is being edited concurrently by the service half of this task, so this
 // phase deliberately does not touch it. Re-export them from the barrel when the halves merge.
-import { replayWacFrom, replayWacWithTrace } from "../src/core/costing/wac.js";
+import { replayWacFrom, replayWacWithTrace, WAC_ENTRY_TYPES } from "../src/core/costing/wac.js";
 
 const mc = toMilliCentavosPerUnit;
 
@@ -121,6 +125,30 @@ describe("snapshotUnitCost", () => {
 
   it("rejects a negative wac", () => {
     expectDomainValidationError(() => snapshotUnitCost(mc(-1)));
+  });
+});
+
+describe("WAC_ENTRY_TYPES (F-27 exhaustiveness)", () => {
+  // Every StockMovementType must be consciously classified as either WAC-entry (updates WAC on
+  // replay) or a known non-entry type. Keeping this list independent of WAC_ENTRY_TYPES (rather
+  // than deriving it from STOCK_MOVEMENT_TYPES minus WAC_ENTRY_TYPES) means a newly added movement
+  // type fails this test until someone decides which side it belongs on, instead of silently
+  // falling through unclassified.
+  const KNOWN_NON_ENTRY_TYPES: ReadonlySet<StockMovementType> = new Set([
+    "PRODUCTION_OUT",
+    "SALE_OUT",
+    "EXIT_OUT",
+    "ADJUST",
+    "ASSEMBLY_OUT",
+  ]);
+
+  it("classifies every StockMovementType as exactly one of WAC-entry or known-non-entry", () => {
+    for (const type of STOCK_MOVEMENT_TYPES) {
+      const isEntry = WAC_ENTRY_TYPES.has(type);
+      const isKnownNonEntry = KNOWN_NON_ENTRY_TYPES.has(type);
+      expect(isEntry !== isKnownNonEntry).toBe(true);
+    }
+    expect(WAC_ENTRY_TYPES.size + KNOWN_NON_ENTRY_TYPES.size).toBe(STOCK_MOVEMENT_TYPES.length);
   });
 });
 

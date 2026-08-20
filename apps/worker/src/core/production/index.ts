@@ -475,8 +475,7 @@ async function planProductionRunCreateCostingImpact(
   const costLineRows = await db.query.sessionCosts.findMany({
     where: (t, { eq: eqOp }) => eqOp(t.sessionId, sessionId),
   });
-  let totalSharedCost = 0;
-  for (const row of costLineRows) totalSharedCost += row.amount;
+  const totalSharedCost = addMoney(...costLineRows.map((row) => toCentavos(row.amount)));
 
   const allocation = await planSessionCostAllocation(
     db,

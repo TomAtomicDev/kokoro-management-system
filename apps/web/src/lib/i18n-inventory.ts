@@ -128,7 +128,8 @@ export const inventoryLabels = {
   fieldNotes: "Notas",
   notesPlaceholder: "Opcional",
   packagingLinesTitle: "Empaque adicional",
-  packagingLinesDescription: "Agrégalo solo si este ítem sale sin una presentación ya armada.",
+  packagingLinesDescription:
+    "Este ítem sale sin una presentación ya armada, así que agrega aquí el empaque que realmente uses (bolsa, etiqueta, caja, etc.).",
   packagingLineItem: "Ítem de empaque",
   packagingLineQty: "Cantidad",
   addPackagingLine: "Agregar empaque",

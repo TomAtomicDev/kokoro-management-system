@@ -76,7 +76,7 @@ export const salesLabels = {
 
   warnings: {
     /** INV-8: this line's (aggregated-by-item) qty would take the item's on-hand stock negative. */
-    negativeStock: "El stock quedaría negativo.",
+    negativeStock: "El stock quedaría en negativo.",
   },
 
   save: "Guardar",

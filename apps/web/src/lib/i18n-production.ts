@@ -105,7 +105,7 @@ export const productionLabels = {
    * REPLAY_CONFIRMATION_REQUIRED (a backdated edit/delete that moves already-booked cost). */
   impactCreateTitle: "¿Registrar la producción?",
   impactCreateDescription:
-    "Esta sesión ya está cerrada. Registrar esta producción redistribuye el costo compartido entre las producciones existentes y puede cambiar costos ya calculados. Revisa el impacto y confirma para guardarla.",
+    "Registrar esta producción puede redistribuir el costo compartido entre otras producciones de la sesión o recalcular costos ya registrados. Revisa el impacto y confirma para guardarla.",
   impactEditTitle: "¿Guardar los cambios?",
   impactEditDescription:
     "Esta producción tiene una fecha anterior a movimientos ya registrados de sus insumos o su ítem de salida. Guardar los cambios recalculará el costo de esos movimientos.",
