@@ -131,6 +131,14 @@ export interface CommitCountResult {
   adjustments: CountAdjustmentDto[];
 }
 
+/** "Cancel a draft count" (KOK-141, Doc 03 §3 InventoryCount) = soft-delete it (D-8). No request
+ * body: a DRAFT count has committed zero movements, so unlike `deleteStockExitCommandSchema` there
+ * is nothing an R-5 replay could ever need to confirm — the id (path param) is the whole command. */
+export interface DeleteCountResult {
+  count: InventoryCountDto;
+  deletedAt: string;
+}
+
 export interface ListCountsResult {
   counts: InventoryCountDto[];
 }

@@ -29,6 +29,7 @@ export const productionLabels = {
 
   recordTitle: "Nueva producción",
   editTitle: "Editar producción",
+  backToProduction: "Volver a producción",
   fieldRecipe: "Receta",
   recipePlaceholder: "Selecciona una receta",
   fieldBatches: "Tandas",

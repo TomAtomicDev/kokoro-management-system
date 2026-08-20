@@ -28,6 +28,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { createItem, listItems, setItemActive, updateItem } from "../src/core/catalog/index.js";
 import {
   commitCount,
+  deleteCount,
   getCount,
   listCounts,
   startCount,
@@ -546,6 +547,76 @@ describe("commitCount (UC-10 step 3)", () => {
     expect(stock1?.qtyOnHand).toBe(25);
     expect(stock2?.qtyOnHand).toBe(22);
     expect(stock3?.qtyOnHand).toBe(40); // untouched
+  });
+});
+
+describe("deleteCount (KOK-141 'cancel a draft count' = soft delete, D-8)", () => {
+  it("soft-deletes a DRAFT count: deletedAt is set, an audit row is written, and it drops out of getCount/listCounts", async () => {
+    const db = createDb(env.DB);
+    await seedItem(db, "Delete draft count item", "RAW_MATERIAL", "NOT_EATABLE");
+    const started = await startCount(
+      db,
+      { category: "NOT_EATABLE", occurredAt: NOW, businessDate: BUSINESS_DATE },
+      ACTOR,
+    );
+
+    const result = await deleteCount(db, started.count.id, ACTOR);
+    expect(result.count.id).toBe(started.count.id);
+    expect(result.deletedAt).toBeTruthy();
+
+    await expect(getCount(db, started.count.id)).rejects.toMatchObject({ code: "NOT_FOUND" });
+
+    const { counts } = await listCounts(db, {});
+    expect(counts.map((c) => c.id)).not.toContain(started.count.id);
+
+    const auditRow = await db.query.auditLog.findFirst({
+      where: (t, { and, eq: eqOp }) =>
+        and(eqOp(t.entityId, started.count.id), eqOp(t.action, "delete")),
+    });
+    expect(auditRow).toMatchObject({ actor: ACTOR, entityType: "inventory_counts" });
+
+    const storedRow = await env.DB.prepare("SELECT deleted_at FROM inventory_counts WHERE id = ?")
+      .bind(started.count.id)
+      .first<{ deleted_at: string | null }>();
+    expect(storedRow?.deleted_at).toBeTruthy();
+  });
+
+  it("rejects deleting an already-COMMITTED count with CONFLICT — it already wrote real movements", async () => {
+    const db = createDb(env.DB);
+    await seedItem(db, "Delete committed count item", "RAW_MATERIAL", "NOT_EATABLE");
+    const started = await startCount(
+      db,
+      { category: "NOT_EATABLE", occurredAt: NOW, businessDate: BUSINESS_DATE },
+      ACTOR,
+    );
+    await commitCount(db, { countId: started.count.id }, ACTOR);
+
+    await expect(deleteCount(db, started.count.id, ACTOR)).rejects.toMatchObject({
+      code: "CONFLICT",
+    });
+
+    // Never soft-deleted by the refused attempt — still resolvable.
+    const stillThere = await getCount(db, started.count.id);
+    expect(stillThere.id).toBe(started.count.id);
+  });
+
+  it("rejects deleting an unknown or already-deleted count with NOT_FOUND", async () => {
+    const db = createDb(env.DB);
+    await expect(deleteCount(db, "does_not_exist", ACTOR)).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+
+    await seedItem(db, "Double delete count item", "RAW_MATERIAL", "NOT_EATABLE");
+    const started = await startCount(
+      db,
+      { category: "NOT_EATABLE", occurredAt: NOW, businessDate: BUSINESS_DATE },
+      ACTOR,
+    );
+    await deleteCount(db, started.count.id, ACTOR);
+
+    await expect(deleteCount(db, started.count.id, ACTOR)).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
   });
 });
 

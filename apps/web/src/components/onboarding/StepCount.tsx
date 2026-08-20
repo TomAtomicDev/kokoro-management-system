@@ -3,8 +3,8 @@
 // domain logic). On mount, auto-starts a DRAFT count with no kind/category filter (scopes to
 // every active item, including whatever step 3 just created — `expectedQty` freezes at 0 for
 // items with no stock movements yet, per core/inventory/counts.ts's `onHandByItem.get(itemId) ?? 0`
-// fallback). Renders an INLINE checklist rather than the `DetailDrawer`-based `CountDetailView`
-// (that's a slide-over triggered from the Inventory screen — awkward embedded inside a linear
+// fallback). Renders an INLINE checklist rather than the full-page `CountDetailView` (KOK-141;
+// that page owns its own route, `/inventory/counts/$countId` — awkward to reuse inside a linear
 // wizard page), but follows the exact same data pattern: local `lineInputs` state seeded from the
 // count's lines, `parseDecimalToInt`/`formatIntAsDecimalInput` scale 3, blur-triggered
 // `useUpdateCountLine` calls, and item-kind grouping.
