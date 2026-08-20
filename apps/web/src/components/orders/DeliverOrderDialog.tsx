@@ -22,7 +22,7 @@ import {
   toBusinessDate,
   toCentavos,
 } from "@kokoro/shared";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { PaymentAccountSelect } from "@/components/common/PaymentAccountSelect";
 import { Button } from "@/components/ui/button";
@@ -58,21 +58,41 @@ export function DeliverOrderDialog({ order, open, onOpenChange }: DeliverOrderDi
   );
   const [accountId, setAccountId] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const stateSeededRef = useRef(false);
+  const accountSeededRef = useRef(false);
 
+  // isPaid/businessDate don't depend on `accounts` — seed them immediately, once per open, same
+  // reasoning as ConfirmOrderDialog's split (a combined effect gated on `accounts` delayed these
+  // too, so a fast fill/click could still race a late-settling accounts fetch).
   useEffect(() => {
-    if (open) {
-      setIsPaid(true);
-      setBusinessDate(toBusinessDate(nowIso()));
-      const firstAccount = accounts[0];
-      setPaymentMethod(
-        firstAccount
-          ? paymentMethodForAccountType(firstAccount.type)
-          : (PAYMENT_METHODS[0] as PaymentMethod),
-      );
-      setAccountId(firstAccount?.id ?? "");
-      setError(null);
+    if (!open) {
+      stateSeededRef.current = false;
+      return;
     }
-  }, [open, accounts]);
+    if (stateSeededRef.current) return;
+    stateSeededRef.current = true;
+    setIsPaid(true);
+    setBusinessDate(toBusinessDate(nowIso()));
+    setError(null);
+  }, [open]);
+
+  // Account/payment-method default does depend on `accounts` — kept separate so a late-settling
+  // fetch can never again switch the owner's already-chosen account back to the default.
+  useEffect(() => {
+    if (!open) {
+      accountSeededRef.current = false;
+      return;
+    }
+    if (accountSeededRef.current || accountsQuery.isLoading) return;
+    accountSeededRef.current = true;
+    const firstAccount = accounts[0];
+    setPaymentMethod(
+      firstAccount
+        ? paymentMethodForAccountType(firstAccount.type)
+        : (PAYMENT_METHODS[0] as PaymentMethod),
+    );
+    setAccountId(firstAccount?.id ?? "");
+  }, [open, accountsQuery.isLoading, accounts]);
 
   const disabled = replay.isPending;
 
