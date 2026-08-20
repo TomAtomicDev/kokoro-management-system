@@ -70,11 +70,13 @@ interface SalesSearch extends TableSortSearch {
   fromDate?: string;
   toDate?: string;
   paymentStatus?: "PAID" | "ON_CREDIT";
+  open?: string;
 }
 
 interface OrdersSearch {
   fromDate?: string;
   toDate?: string;
+  open?: string;
 }
 
 interface PackingSearch {
@@ -93,8 +95,12 @@ interface InventorySearch extends TableSortSearch {
   negativeOnly?: boolean;
 }
 
-type ProductionSearch = TableSortSearch;
-type PurchasesSearch = TableSortSearch;
+interface ProductionSearch extends TableSortSearch {
+  open?: string;
+}
+interface PurchasesSearch extends TableSortSearch {
+  open?: string;
+}
 type FinanceSearch = TableSortSearch;
 type CatalogSearch = TableSortSearch;
 
@@ -169,6 +175,7 @@ const salesRoute = createRoute({
       fromDate: range.fromDate,
       toDate: range.toDate,
       paymentStatus: parsed.paymentStatus,
+      open: typeof search.open === "string" ? search.open : undefined,
       ...parseTableSortSearch(search),
     };
   },
@@ -193,7 +200,11 @@ const ordersRoute = createRoute({
   validateSearch: (search: Record<string, unknown>): OrdersSearch => {
     const parsed = listOrdersFiltersSchema.parse(search);
     const range = dateRangeDefaults(parsed);
-    return { fromDate: range.fromDate, toDate: range.toDate };
+    return {
+      fromDate: range.fromDate,
+      toDate: range.toDate,
+      open: typeof search.open === "string" ? search.open : undefined,
+    };
   },
   component: OrdersRoute,
 });
@@ -207,8 +218,10 @@ const ordersRecordRoute = createRoute({
 const productionRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: "/production",
-  validateSearch: (search: Record<string, unknown>): ProductionSearch =>
-    parseTableSortSearch(search),
+  validateSearch: (search: Record<string, unknown>): ProductionSearch => ({
+    ...parseTableSortSearch(search),
+    open: typeof search.open === "string" ? search.open : undefined,
+  }),
   component: ProductionRoute,
 });
 
@@ -230,8 +243,10 @@ const productionEditRoute = createRoute({
 const purchasesRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: "/purchases",
-  validateSearch: (search: Record<string, unknown>): PurchasesSearch =>
-    parseTableSortSearch(search),
+  validateSearch: (search: Record<string, unknown>): PurchasesSearch => ({
+    ...parseTableSortSearch(search),
+    open: typeof search.open === "string" ? search.open : undefined,
+  }),
   component: PurchasesRoute,
 });
 

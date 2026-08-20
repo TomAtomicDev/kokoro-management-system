@@ -40,6 +40,7 @@ import { buildAuditLogInsert } from "../audit.js";
 import { conflict, notFound, validationError } from "../errors.js";
 import { buildAccountBalanceDelta, findActiveAccountRowOrThrow } from "./accounts.js";
 import { toAccountDto, toTransactionDto } from "./dto.js";
+import { loadTransactionSourceEvents } from "./source-events.js";
 
 type Statement = BatchItem<"sqlite">;
 type FinancialTransactionRow = typeof financialTransactions.$inferSelect;
@@ -231,7 +232,17 @@ export async function listTransactions(
     orderBy: (t, { desc }) => [desc(t.businessDate), desc(t.createdAt)],
     limit: filters.limit ?? 200,
   });
-  return { transactions: rows.map(toTransactionDto) };
+  const sourceEvents = await loadTransactionSourceEvents(db, rows);
+  return {
+    transactions: rows.map((row) =>
+      toTransactionDto(
+        row,
+        row.sourceEventType !== null && row.sourceEventId !== null
+          ? sourceEvents.get(`${row.sourceEventType}\u0000${row.sourceEventId}`)
+          : undefined,
+      ),
+    ),
+  };
 }
 
 type TransactionMutationRows = {
@@ -518,7 +529,7 @@ export async function updateTransaction(
 
   await commitTransactionMutation(db, previous.rows, nextRows, "update", actor);
   return {
-    transactions: nextRows.map(toTransactionDto),
+    transactions: nextRows.map((row) => toTransactionDto(row)),
     accounts: await readAccountsForRows(db, nextRows),
   };
 }
@@ -535,7 +546,7 @@ export async function deleteTransaction(
   const nextRows = previous.rows.map((row) => ({ ...row, deletedAt: now, updatedAt: now }));
   await commitTransactionMutation(db, previous.rows, nextRows, "delete", actor);
   return {
-    transactions: nextRows.map(toTransactionDto),
+    transactions: nextRows.map((row) => toTransactionDto(row)),
     accounts: await readAccountsForRows(db, nextRows),
     deletedAt: now,
   };
@@ -553,7 +564,7 @@ export async function restoreTransaction(
   const nextRows = previous.rows.map((row) => ({ ...row, deletedAt: null, updatedAt: now }));
   await commitTransactionMutation(db, previous.rows, nextRows, "restore", actor);
   return {
-    transactions: nextRows.map(toTransactionDto),
+    transactions: nextRows.map((row) => toTransactionDto(row)),
     accounts: await readAccountsForRows(db, nextRows),
   };
 }

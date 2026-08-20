@@ -9,7 +9,7 @@
 // itself remains KOK-064's scope.
 
 import { getRouteApi, Link } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import {
   type DateRange,
@@ -67,6 +67,10 @@ export function SalesRoute() {
   const receivablesQuery = useReceivables(receivableOnly);
 
   const [selectedSaleId, setSelectedSaleId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (search.open) setSelectedSaleId(search.open);
+  }, [search.open]);
 
   const accounts = accountsQuery.data?.accounts ?? [];
 

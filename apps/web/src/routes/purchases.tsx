@@ -2,7 +2,7 @@
 // purchases; detail drawer on row click. Mirrors routes/finance.tsx's composition.
 
 import { getRouteApi, Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { EventTableSortState } from "@/components/data-table/EventTable";
 import { PurchaseDetailDrawer } from "@/components/purchases/PurchaseDetailDrawer";
 import { PurchaseForm } from "@/components/purchases/PurchaseForm";
@@ -44,6 +44,10 @@ export function PurchasesRoute() {
   const purchasesQuery = usePurchases();
 
   const [selectedPurchaseId, setSelectedPurchaseId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (search.open) setSelectedPurchaseId(search.open);
+  }, [search.open]);
 
   const accounts = accountsQuery.data?.accounts ?? [];
   const sortState: EventTableSortState | null =
