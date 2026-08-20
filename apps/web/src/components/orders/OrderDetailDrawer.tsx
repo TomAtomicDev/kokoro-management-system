@@ -24,6 +24,7 @@ import { ItemPicker } from "@/components/catalog/ItemPicker";
 import { DetailDrawer } from "@/components/data-table/DetailDrawer";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { ImpactConfirmDialog } from "@/components/ui/ImpactConfirmDialog";
 import { useAssemblies } from "@/features/assemblies/api";
 import { useItemsQuery } from "@/features/catalog/api";
@@ -126,6 +127,10 @@ export function OrderDetailDrawer({ orderId, open, onOpenChange }: OrderDetailDr
   const [deliverOpen, setDeliverOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
   const [transitionError, setTransitionError] = useState<string | null>(null);
+  const [undoStartConfirmOpen, setUndoStartConfirmOpen] = useState(false);
+  const [readyNoProductionConfirmOpen, setReadyNoProductionConfirmOpen] = useState(false);
+  const [undoReadyConfirmOpen, setUndoReadyConfirmOpen] = useState(false);
+  const [undoDeliverConfirmOpen, setUndoDeliverConfirmOpen] = useState(false);
 
   const itemById = useMemo(() => {
     const map = new Map<string, ItemDto>();
@@ -200,10 +205,7 @@ export function OrderDetailDrawer({ orderId, open, onOpenChange }: OrderDetailDr
                   type="button"
                   variant="outline"
                   size="sm"
-                  onClick={() => {
-                    if (window.confirm(ordersLabels.confirmUndoStart))
-                      runTransition(undoStartMutation);
-                  }}
+                  onClick={() => setUndoStartConfirmOpen(true)}
                   disabled={undoStartMutation.isPending}
                 >
                   {ordersLabels.actionUndoStart}
@@ -214,11 +216,8 @@ export function OrderDetailDrawer({ orderId, open, onOpenChange }: OrderDetailDr
                   type="button"
                   size="sm"
                   onClick={() => {
-                    if (
-                      runs.length === 0 &&
-                      assemblies.length === 0 &&
-                      !window.confirm(ordersLabels.confirmReadyNoProduction)
-                    ) {
+                    if (runs.length === 0 && assemblies.length === 0) {
+                      setReadyNoProductionConfirmOpen(true);
                       return;
                     }
                     runTransition(readyMutation);
@@ -233,10 +232,7 @@ export function OrderDetailDrawer({ orderId, open, onOpenChange }: OrderDetailDr
                   type="button"
                   variant="outline"
                   size="sm"
-                  onClick={() => {
-                    if (window.confirm(ordersLabels.confirmUndoReady))
-                      runTransition(undoReadyMutation);
-                  }}
+                  onClick={() => setUndoReadyConfirmOpen(true)}
                   disabled={undoReadyMutation.isPending}
                 >
                   {ordersLabels.actionUndoReady}
@@ -258,10 +254,7 @@ export function OrderDetailDrawer({ orderId, open, onOpenChange }: OrderDetailDr
                   type="button"
                   variant="outline"
                   size="sm"
-                  onClick={() => {
-                    if (window.confirm(ordersLabels.confirmUndoDeliver))
-                      undoDeliverReplay.execute({});
-                  }}
+                  onClick={() => setUndoDeliverConfirmOpen(true)}
                   disabled={undoDeliverReplay.isPending}
                 >
                   {ordersLabels.actionUndoDeliver}
@@ -439,6 +432,52 @@ export function OrderDetailDrawer({ orderId, open, onOpenChange }: OrderDetailDr
           description={ordersLabels.impactUndoDeliverDescription}
         />
       ) : null}
+
+      <ConfirmDialog
+        open={undoStartConfirmOpen}
+        title={ordersLabels.actionUndoStart}
+        description={ordersLabels.confirmUndoStart}
+        onCancel={() => setUndoStartConfirmOpen(false)}
+        confirmLoading={undoStartMutation.isPending}
+        onConfirm={() => {
+          setUndoStartConfirmOpen(false);
+          runTransition(undoStartMutation);
+        }}
+      />
+      <ConfirmDialog
+        open={readyNoProductionConfirmOpen}
+        title={ordersLabels.actionMarkReady}
+        description={ordersLabels.confirmReadyNoProduction}
+        onCancel={() => setReadyNoProductionConfirmOpen(false)}
+        confirmLoading={readyMutation.isPending}
+        onConfirm={() => {
+          setReadyNoProductionConfirmOpen(false);
+          runTransition(readyMutation);
+        }}
+      />
+      <ConfirmDialog
+        open={undoReadyConfirmOpen}
+        title={ordersLabels.actionUndoReady}
+        description={ordersLabels.confirmUndoReady}
+        onCancel={() => setUndoReadyConfirmOpen(false)}
+        confirmLoading={undoReadyMutation.isPending}
+        onConfirm={() => {
+          setUndoReadyConfirmOpen(false);
+          runTransition(undoReadyMutation);
+        }}
+      />
+      <ConfirmDialog
+        open={undoDeliverConfirmOpen}
+        title={ordersLabels.actionUndoDeliver}
+        description={ordersLabels.confirmUndoDeliver}
+        destructive
+        onCancel={() => setUndoDeliverConfirmOpen(false)}
+        confirmLoading={undoDeliverReplay.isPending}
+        onConfirm={() => {
+          setUndoDeliverConfirmOpen(false);
+          undoDeliverReplay.execute({});
+        }}
+      />
     </>
   );
 }
