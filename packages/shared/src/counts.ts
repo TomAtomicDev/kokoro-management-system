@@ -14,18 +14,11 @@
 // hand-written DTOs).
 
 import { z } from "zod";
+import { businessDateSchema, calendarDateSchema, occurredAtSchema } from "./dates.js";
 import type { InventoryCountStatus } from "./enums.js";
 import { inventoryCountStatusSchema, itemCategorySchema, itemKindSchema } from "./enums.js";
 import { safeText } from "./text.js";
 
-/** `YYYY-MM-DD`, America/La_Paz local calendar date (Doc 04 §1, INV-3). */
-const businessDateSchema = z
-  .string()
-  .regex(/^\d{4}-\d{2}-\d{2}$/, "La fecha debe tener el formato AAAA-MM-DD.");
-/** UTC ISO-8601 instant (Doc 04 §1). */
-const occurredAtSchema = z
-  .string()
-  .datetime({ offset: true, message: "occurredAt debe ser una fecha ISO-8601." });
 /** Milli-units of the item's own stored unit (Doc 04 §2), matching qty.ts's representation. A
  * physical count can never be negative (there is no such thing as -3 units on a shelf), but zero
  * is legitimate — a fully-depleted item legitimately counts to zero. */
@@ -73,11 +66,13 @@ export const commitCountCommandSchema = z.object({
 });
 export type CommitCountCommand = z.infer<typeof commitCountCommandSchema>;
 
-/** GET /inventory/counts query filters — mirrors listPurchasesFiltersSchema's shape. */
+/** GET /inventory/counts query filters — mirrors listPurchasesFiltersSchema's shape. Filter
+ * boundaries use `calendarDateSchema`, not `businessDateSchema`: a future-dated range is a
+ * legitimate (if empty) query, unlike a count's own `businessDate` above. */
 export const listCountsFiltersSchema = z.object({
   status: inventoryCountStatusSchema.optional(),
-  fromDate: businessDateSchema.optional(),
-  toDate: businessDateSchema.optional(),
+  fromDate: calendarDateSchema.optional(),
+  toDate: calendarDateSchema.optional(),
   limit: z.coerce.number().int().positive().max(500).optional(),
 });
 export type ListCountsFilters = z.infer<typeof listCountsFiltersSchema>;
