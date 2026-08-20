@@ -44,6 +44,24 @@ export const sessionsLabels = {
     weekRangeLabel: (start: string, end: string) => `${start}–${end}`,
   },
 
+  hours: {
+    title: "Horas del periodo",
+    subtitle:
+      "Compara la suma de tus sesiones con las horas reales de reloj que alimentan el Bs/hora mensual.",
+    summedLabel: "Suma de duraciones",
+    summedDescription: "La duración propia de cada sesión, sin quitar solapamientos.",
+    deduplicatedLabel: "Horas de reloj",
+    deduplicatedDescription: "La base del Bs/hora mensual: cada minuto se cuenta una sola vez.",
+    overlapExplanation:
+      "Las sesiones superpuestas cuentan una sola vez en las horas de reloj, porque transcurrieron al mismo tiempo.",
+    noOverlapExplanation: "No hay solapamiento entre las sesiones con duración de este periodo.",
+    excludedSessions: (count: number) =>
+      `${count} ${count === 1 ? "sesión queda" : "sesiones quedan"} fuera hasta registrar su duración.`,
+    loading: "Calculando…",
+    error: "No se pudieron cargar las horas de este periodo.",
+    empty: "Aún no hay sesiones cerradas con duración en este periodo.",
+  },
+
   statusLabels: {
     OPEN: "Abierta",
     CLOSED: "Cerrada",

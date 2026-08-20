@@ -5,6 +5,7 @@ import {
   listSalesFiltersSchema,
   listStockExitsFiltersSchema,
   listStockFiltersSchema,
+  sessionHoursFiltersSchema,
 } from "@kokoro/shared";
 import type { QueryClient } from "@tanstack/react-query";
 import {
@@ -80,6 +81,13 @@ interface OrdersSearch {
 }
 
 interface PackingSearch {
+  fromDate?: string;
+  toDate?: string;
+}
+
+interface SessionsSearch {
+  open?: string;
+  view?: "list" | "calendar";
   fromDate?: string;
   toDate?: string;
 }
@@ -347,12 +355,19 @@ const sessionsRoute = createRoute({
   // mirroring loginRoute's `redirect` search param as the only other precedent for a validated
   // search param in this router. Loosely typed on purpose, same as loginRoute (no zod dependency
   // here, D-10).
-  validateSearch: (
-    search: Record<string, unknown>,
-  ): { open?: string; view?: "list" | "calendar" } => ({
-    open: typeof search.open === "string" ? search.open : undefined,
-    view: search.view === "list" || search.view === "calendar" ? search.view : undefined,
-  }),
+  validateSearch: (search: Record<string, unknown>): SessionsSearch => {
+    const parsedHoursRange = sessionHoursFiltersSchema.safeParse({
+      fromDate: search.fromDate,
+      toDate: search.toDate,
+    });
+    const range = parsedHoursRange.success ? parsedHoursRange.data : getDefaultDateRange();
+    return {
+      fromDate: range.fromDate,
+      toDate: range.toDate,
+      open: typeof search.open === "string" ? search.open : undefined,
+      view: search.view === "list" || search.view === "calendar" ? search.view : undefined,
+    };
+  },
   component: SessionsRoute,
 });
 

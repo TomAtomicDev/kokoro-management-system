@@ -197,6 +197,48 @@ describe("GET /api/sessions and /api/sessions/:id", () => {
     expect(rows[0]?.type).toBe("PRODUCTION");
   });
 
+  it("returns both raw and deduplicated hours for an ordered date range (KOK-135)", async () => {
+    const auth = await login();
+    await createSession(auth, {
+      type: "PRODUCTION",
+      businessDate: BUSINESS_DATE,
+      startedAt: `${BUSINESS_DATE}T09:00:00.000Z`,
+      endedAt: `${BUSINESS_DATE}T11:00:00.000Z`,
+    });
+    await createSession(auth, {
+      type: "ADMIN",
+      businessDate: BUSINESS_DATE,
+      startedAt: `${BUSINESS_DATE}T10:00:00.000Z`,
+      endedAt: `${BUSINESS_DATE}T12:00:00.000Z`,
+    });
+    await createSession(auth, {
+      type: "OTHER",
+      businessDate: BUSINESS_DATE,
+    });
+
+    const res = await SELF.fetch(
+      `https://example.com/api/sessions/hours?fromDate=${BUSINESS_DATE}&toDate=${BUSINESS_DATE}`,
+      { headers: { cookie: auth.cookie } },
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      hours: {
+        naiveSummedMinutes: 240,
+        dedupedMinutes: 180,
+        excludedSessionCount: 1,
+      },
+    });
+  });
+
+  it("rejects an hours range whose end precedes its start", async () => {
+    const auth = await login();
+    const res = await SELF.fetch(
+      "https://example.com/api/sessions/hours?fromDate=2026-08-31&toDate=2026-08-01",
+      { headers: { cookie: auth.cookie } },
+    );
+    expect(res.status).toBe(400);
+  });
+
   it("gets a session by id with its linked-events viewer shape, and 404s for a missing one", async () => {
     const auth = await login();
     const { json: created } = await createSession(auth, {

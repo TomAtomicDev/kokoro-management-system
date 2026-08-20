@@ -6,8 +6,14 @@
 import { getRouteApi } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 
+import {
+  type DateRange,
+  DateRangeFilter,
+  getDefaultDateRange,
+} from "@/components/common/DateRangeFilter";
 import { SessionDetailDrawer } from "@/components/sessions/SessionDetailDrawer";
 import { SessionForm } from "@/components/sessions/SessionForm";
+import { SessionHoursSummary } from "@/components/sessions/SessionHoursSummary";
 import { SessionsTable } from "@/components/sessions/SessionsTable";
 import { getWeekRange, WeeklyCalendar } from "@/components/sessions/WeeklyCalendar";
 import { Button } from "@/components/ui/button";
@@ -45,7 +51,11 @@ function formatWeekBound(date: string): string {
 }
 
 export function SessionsRoute() {
-  const { open, view: searchView } = routeApi.useSearch();
+  const search = routeApi.useSearch();
+  const defaultHoursRange = getDefaultDateRange();
+  const fromDate = search.fromDate ?? defaultHoursRange.fromDate;
+  const toDate = search.toDate ?? defaultHoursRange.toDate;
+  const { open, view: searchView } = search;
   const navigate = routeApi.useNavigate();
   const view = searchView ?? "calendar";
   const accountsQuery = useAccounts();
@@ -68,6 +78,10 @@ export function SessionsRoute() {
 
   function updateView(nextView: "list" | "calendar"): void {
     void navigate({ search: (previous) => ({ ...previous, view: nextView }) });
+  }
+
+  function updateHoursRange(range: DateRange): void {
+    void navigate({ search: (previous) => ({ ...previous, ...range }) });
   }
 
   return (
@@ -101,6 +115,29 @@ export function SessionsRoute() {
           </Button>
         </div>
       </div>
+
+      <section
+        aria-labelledby="session-hours-title"
+        className="flex flex-col gap-4 rounded-lg border border-border bg-card p-4 shadow-sm"
+      >
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 id="session-hours-title" className="font-semibold text-foreground text-sm">
+              {sessionsLabels.hours.title}
+            </h2>
+            <p className="max-w-2xl text-muted-foreground text-xs">
+              {sessionsLabels.hours.subtitle}
+            </p>
+          </div>
+          <DateRangeFilter
+            fromDate={fromDate}
+            toDate={toDate}
+            onChange={updateHoursRange}
+            className="shrink-0"
+          />
+        </div>
+        <SessionHoursSummary dateRange={{ fromDate, toDate }} />
+      </section>
 
       {view === "calendar" ? (
         <>

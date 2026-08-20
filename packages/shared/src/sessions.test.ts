@@ -4,6 +4,7 @@ import { toBusinessDate } from "./dates.js";
 import {
   listSessionsFiltersSchema,
   recordSessionCommandSchema,
+  sessionHoursFiltersSchema,
   updateSessionCommandSchema,
 } from "./sessions.js";
 
@@ -93,6 +94,30 @@ describe("listSessionsFiltersSchema date range (KOK-168 / F-17)", () => {
   it("accepts a future fromDate/toDate — a filter boundary is not a transaction date", () => {
     const future = shiftedDate(14);
     expect(listSessionsFiltersSchema.safeParse({ fromDate: future, toDate: future }).success).toBe(
+      true,
+    );
+  });
+});
+
+describe("sessionHoursFiltersSchema (KOK-135)", () => {
+  it("requires an ordered inclusive business-date range", () => {
+    expect(
+      sessionHoursFiltersSchema.safeParse({
+        fromDate: "2026-08-01",
+        toDate: "2026-08-31",
+      }).success,
+    ).toBe(true);
+    expect(
+      sessionHoursFiltersSchema.safeParse({
+        fromDate: "2026-08-31",
+        toDate: "2026-08-01",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("accepts future ranges because they are read filters", () => {
+    const future = shiftedDate(14);
+    expect(sessionHoursFiltersSchema.safeParse({ fromDate: future, toDate: future }).success).toBe(
       true,
     );
   });
