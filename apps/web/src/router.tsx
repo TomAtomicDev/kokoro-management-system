@@ -23,15 +23,15 @@ import { queryClient } from "@/lib/query-client";
 import { AssemblyEditRoute, AssemblyRecordRoute } from "@/routes/assemblies";
 import { AssistantRoute } from "@/routes/assistant";
 import { FinanceRoute } from "@/routes/finance";
-import { InventoryRoute } from "@/routes/inventory";
+import { InventoryCountDetailRoute, InventoryRoute } from "@/routes/inventory";
 import { LoginRoute } from "@/routes/login";
 import { OnboardingRoute } from "@/routes/onboarding";
-import { OrdersRoute } from "@/routes/orders";
+import { OrderRecordRoute, OrdersRoute } from "@/routes/orders";
 import { PackingRoute } from "@/routes/packing";
 import { PackingDefinitionsRoute } from "@/routes/packing-definitions";
 import { PanelRoute } from "@/routes/panel";
 import { PriceHealthRoute } from "@/routes/price-health";
-import { ProductionRoute } from "@/routes/production";
+import { ProductionEditRoute, ProductionRecordRoute, ProductionRoute } from "@/routes/production";
 import { PurchaseEditRoute, PurchaseRecordRoute, PurchasesRoute } from "@/routes/purchases";
 import { RecipesRoute } from "@/routes/recipes";
 import { ReportsRoute } from "@/routes/reports";
@@ -198,12 +198,33 @@ const ordersRoute = createRoute({
   component: OrdersRoute,
 });
 
+const ordersRecordRoute = createRoute({
+  getParentRoute: () => authenticatedRoute,
+  path: "/orders/new",
+  component: OrderRecordRoute,
+});
+
 const productionRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: "/production",
   validateSearch: (search: Record<string, unknown>): ProductionSearch =>
     parseTableSortSearch(search),
   component: ProductionRoute,
+});
+
+const productionRecordRoute = createRoute({
+  getParentRoute: () => authenticatedRoute,
+  path: "/production/new",
+  validateSearch: (search: Record<string, unknown>): { sessionId?: string } => ({
+    sessionId: typeof search.sessionId === "string" ? search.sessionId : undefined,
+  }),
+  component: ProductionRecordRoute,
+});
+
+const productionEditRoute = createRoute({
+  getParentRoute: () => authenticatedRoute,
+  path: "/production/$productionRunId/edit",
+  component: ProductionEditRoute,
 });
 
 const purchasesRoute = createRoute({
@@ -294,6 +315,14 @@ const inventoryRoute = createRoute({
   component: InventoryRoute,
 });
 
+// Sibling of inventoryRoute, not a nested child — the Conteos tab links here for a single count's
+// checklist (KOK-141: full page for legibility on a long checklist, not the tab-switcher body).
+const inventoryCountDetailRoute = createRoute({
+  getParentRoute: () => authenticatedRoute,
+  path: "/inventory/counts/$countId",
+  component: InventoryCountDetailRoute,
+});
+
 const sessionsRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: "/sessions",
@@ -375,7 +404,10 @@ const routeTree = rootRoute.addChildren([
     salesRecordRoute,
     salesEditRoute,
     ordersRoute,
+    ordersRecordRoute,
     productionRoute,
+    productionRecordRoute,
+    productionEditRoute,
     productionRecipesRoute,
     packingRoute,
     packingRecordRoute,
@@ -385,6 +417,7 @@ const routeTree = rootRoute.addChildren([
     purchasesRecordRoute,
     purchasesEditRoute,
     inventoryRoute,
+    inventoryCountDetailRoute,
     sessionsRoute,
     financeRoute,
     priceHealthRoute,

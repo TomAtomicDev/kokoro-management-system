@@ -1,11 +1,14 @@
-// Dialog for UC-02 "recordProductionRun" (Doc 07 SC-05). Mirrors PurchaseForm.tsx's structure
-// (Dialog wrapper, local form state, reset-on-open, useReplayConfirmableMutation for edit mode)
-// crossed with RecipeForm.tsx's "recipe-as-template" line prefill and theoretical-cost panel
-// (here rendered live from client-side arithmetic, not gated on a saved server response, since the
-// whole point of this preview is to update as the owner types â€” no round-trip needed for a sum of
-// numbers already on the client). Validated with the exact same `recordProductionRunCommandSchema`
-// the API route parses with (D-4). Create mode threads `sessionId` from `preselectedSessionId`;
-// optional order linkage is captured with the shared OrderPicker.
+// Full-page form for UC-02 "recordProductionRun" (Doc 07 SC-05, KOK-141). Mirrors SaleForm.tsx's
+// structure (FormPage shell, local form state, route-mounted draft, edit-mode prefill, both
+// branches wrapped in useReplayConfirmableMutation) crossed with RecipeForm.tsx's
+// "recipe-as-template" line prefill and theoretical-cost panel (here rendered live from
+// client-side arithmetic, not gated on a saved server response, since the whole point of this
+// preview is to update as the owner types — no round-trip needed for a sum of numbers already on
+// the client). Validated with the exact same `recordProductionRunCommandSchema` the API route
+// parses with (D-4). Create mode threads `sessionId` from `preselectedSessionId` (the route's
+// `?sessionId=` search param, mirroring PurchaseForm/AssemblyForm's identical precedent — see
+// SessionDetailDrawer's "add a linked event" affordance); optional order linkage is captured with
+// the shared OrderPicker.
 
 import type {
   ItemDto,
@@ -30,14 +33,16 @@ import {
   totalCentavos,
   WHOLE_UNIT_MILLI_UNITS,
 } from "@kokoro/shared";
+import { useNavigate } from "@tanstack/react-router";
 import { AlertTriangle, Check, Minus } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { CalcTrace, type CalcTraceInput } from "@/components/common/CalcTrace";
+import { FormPage } from "@/components/common/FormPage";
+import { PinnedSummaryFooter } from "@/components/common/PinnedSummaryFooter";
 import { LineEditor, type LineEditorLine } from "@/components/line-editor/LineEditor";
 import { OrderPicker } from "@/components/orders/OrderPicker";
 import { Button } from "@/components/ui/button";
-import { Dialog } from "@/components/ui/dialog";
 import { ImpactConfirmDialog } from "@/components/ui/ImpactConfirmDialog";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -46,7 +51,13 @@ import { useItemsQuery } from "@/features/catalog/api";
 import { useStock } from "@/features/inventory/api";
 import { useRecordProductionRun, useUpdateProductionRun } from "@/features/production-runs/api";
 import { useRecipesQuery } from "@/features/recipes/api";
+import {
+  clearPersistentDraft,
+  readPersistentDraft,
+  writePersistentDraft,
+} from "@/hooks/usePersistentDraft";
 import { useReplayConfirmableMutation } from "@/hooks/useReplayConfirmableMutation";
+import { hasUnsavedChanges, useUnsavedChangesGuard } from "@/hooks/useUnsavedChangesGuard";
 import { ApiError } from "@/lib/api";
 import { formatIntAsDecimalInput, parseDecimalToInt } from "@/lib/decimal";
 import { catalogLabels } from "@/lib/i18n-catalog";
@@ -54,8 +65,6 @@ import { ordersLabels } from "@/lib/i18n-orders";
 import { productionLabels } from "@/lib/i18n-production";
 
 export interface ProductionRunFormProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
   /** Present -> edit mode: prefill from this run and submit via `useUpdateProductionRun` (wrapped
    * in `useReplayConfirmableMutation` for the R-5 confirmation dance). Absent -> create mode,
    * submits via `useRecordProductionRun`. */
@@ -85,6 +94,7 @@ function emptyLine(): ProductionLineValue {
 
 interface ProductionRunFormState {
   recipeId: string;
+  outputItemId: string;
   customOrderId: string | null;
   /** REAL decimal string (e.g. "2.5") â€” `batches` is not milli-scaled (production-runs.ts's
    * `batchesSchema`: `z.number().positive()`, no `.int()`), so `parseBatches` below is used
@@ -173,7 +183,8 @@ export function productionRunToFormState(
   });
 
   return {
-    recipeId: productionRun.recipeId,
+    recipeId: productionRun.recipeId ?? "",
+    outputItemId: productionRun.outputItemId,
     customOrderId: productionRun.customOrderId,
     batches: String(productionRun.batches),
     actualOutputQty: formatIntAsDecimalInput(productionRun.actualOutputQty, 3),
@@ -271,15 +282,13 @@ export function recomputeProductionRunForBatches(
   return { actualOutputQty, actualOutputQtyAuto, lines, lineAutoQty, dirtyLineKeys };
 }
 
-export function ProductionRunForm({
-  open,
-  onOpenChange,
-  productionRun,
-  preselectedSessionId,
-}: ProductionRunFormProps) {
+export function ProductionRunForm({ productionRun, preselectedSessionId }: ProductionRunFormProps) {
+  const navigate = useNavigate();
   const isEditMode = Boolean(productionRun);
+  const draftKey = productionRun ? `production:${productionRun.id}` : "production:new";
 
   const [recipeId, setRecipeId] = useState("");
+  const [outputItemId, setOutputItemId] = useState("");
   const [customOrderId, setCustomOrderId] = useState<string | null>(null);
   const [batches, setBatches] = useState("1");
   const [actualOutputQty, setActualOutputQty] = useState("");
@@ -292,20 +301,51 @@ export function ProductionRunForm({
   const actualOutputQtyDirtyRef = useRef(false);
   const lineAutoQtyRef = useRef(new Map<string, string>());
   const dirtyLineKeysRef = useRef(new Set<string>());
-  const formResetKeyRef = useRef<string | null>(null);
+  const initialFormStateRef = useRef<ProductionRunFormState | null>(null);
+  const initializedRef = useRef<string | null>(null);
+
+  const currentFormState: ProductionRunFormState = {
+    recipeId,
+    outputItemId,
+    customOrderId,
+    batches,
+    actualOutputQty,
+    indirectCost,
+    businessDate,
+    notes,
+    lines,
+  };
+  const unsavedChangesGuard = useUnsavedChangesGuard({
+    isDirty:
+      initialFormStateRef.current !== null &&
+      hasUnsavedChanges(initialFormStateRef.current, currentFormState),
+    blockNavigation: true,
+  });
 
   const createMutation = useRecordProductionRun();
   const createReplay = useReplayConfirmableMutation<
     RecordProductionRunCommand,
     RecordProductionRunResult
-  >((command) => createMutation.mutateAsync(command), { onSuccess: () => onOpenChange(false) });
+  >((command) => createMutation.mutateAsync(command), {
+    onSuccess: () => {
+      clearPersistentDraft(draftKey);
+      unsavedChangesGuard.markClean();
+      void navigate({ to: "/production" });
+    },
+  });
   // Called unconditionally (rules of hooks) even in create mode â€” `productionRun?.id` is only ""
   // then, and the mutation is never actually invoked unless `isEditMode` is true (see handleSubmit).
   const updateMutation = useUpdateProductionRun(productionRun?.id ?? "");
   const editReplay = useReplayConfirmableMutation<
     UpdateProductionRunCommand,
     UpdateProductionRunResult
-  >((command) => updateMutation.mutateAsync(command), { onSuccess: () => onOpenChange(false) });
+  >((command) => updateMutation.mutateAsync(command), {
+    onSuccess: () => {
+      clearPersistentDraft(draftKey);
+      unsavedChangesGuard.markClean();
+      void navigate({ to: "/production" });
+    },
+  });
 
   const recipesQuery = useRecipesQuery({ isActive: true });
   const recipes = recipesQuery.data?.recipes ?? [];
@@ -335,60 +375,95 @@ export function ProductionRunForm({
 
   const selectedRecipe = recipeId ? (recipesById.get(recipeId) ?? null) : null;
   const productionRunRecipe = productionRun
-    ? (recipesById.get(productionRun.recipeId) ?? null)
+    ? productionRun.recipeId
+      ? (recipesById.get(productionRun.recipeId) ?? null)
+      : null
     : null;
   const editSeedRecipe = productionRunRecipe ?? selectedRecipe;
-  const outputItem = selectedRecipe ? (itemsById.get(selectedRecipe.outputItemId) ?? null) : null;
+  const selectedOutputItemId = selectedRecipe?.outputItemId ?? outputItemId;
+  const outputItem = selectedOutputItemId ? (itemsById.get(selectedOutputItemId) ?? null) : null;
 
+  // Runs once per mount (route-owned state, KOK-141 — there is no `open` transition anymore).
+  // Recipe data can arrive after the run: wait for it before seeding edit tracking so a clean
+  // saved value is not mistaken for a hand edit just because the query was still loading.
   useEffect(() => {
-    if (!open) {
-      formResetKeyRef.current = null;
-      return;
-    }
-
-    // Recipe data can arrive after the run. Wait for it before seeding edit tracking so a clean
-    // saved value is not mistaken for a hand edit just because the query was still loading.
+    if (initializedRef.current === draftKey) return;
     if (productionRun && recipesQuery.isLoading && !productionRunRecipe) return;
 
-    const resetKey = productionRun?.id ?? "create";
-    if (formResetKeyRef.current === resetKey) return;
-    formResetKeyRef.current = resetKey;
-
-    if (productionRun) {
-      const initial = productionRunToFormState(productionRun, editSeedRecipe ?? undefined);
-      const tracking = productionRunEditTracking(
+    const savedDraft = readPersistentDraft<ProductionRunFormState>(draftKey);
+    let initialFormState: ProductionRunFormState;
+    // A restored draft carries no recipe-auto-qty provenance (it was serialized as plain form
+    // values), so it seeds every line as a hand edit — same treatment a recipe-less production run
+    // already gets below. Only a freshly loaded saved `productionRun` gets real tracking.
+    let tracking: ProductionRunEditTracking | null = null;
+    if (savedDraft) {
+      initialFormState = { ...savedDraft, outputItemId: savedDraft.outputItemId ?? "" };
+    } else if (productionRun) {
+      initialFormState = productionRunToFormState(productionRun, editSeedRecipe ?? undefined);
+      tracking = productionRunEditTracking(
         productionRun,
         editSeedRecipe ?? undefined,
-        initial.lines,
+        initialFormState.lines,
       );
-      setRecipeId(initial.recipeId);
-      setCustomOrderId(initial.customOrderId);
-      setBatches(initial.batches);
-      setActualOutputQty(initial.actualOutputQty);
-      setIndirectCost(initial.indirectCost);
-      setBusinessDate(initial.businessDate);
-      setNotes(initial.notes);
-      setLines(initial.lines);
-      actualOutputQtyAutoRef.current = tracking.actualOutputQtyAuto;
-      actualOutputQtyDirtyRef.current = tracking.actualOutputQtyDirty;
-      lineAutoQtyRef.current = new Map(tracking.lineAutoQty);
-      dirtyLineKeysRef.current = new Set(tracking.dirtyLineKeys);
     } else {
-      setRecipeId("");
-      setCustomOrderId(null);
-      setBatches("1");
-      setActualOutputQty("");
-      setIndirectCost("");
-      setBusinessDate(toBusinessDate(nowIso()));
-      setNotes("");
-      setLines([emptyLine()]);
-      actualOutputQtyAutoRef.current = null;
-      actualOutputQtyDirtyRef.current = false;
-      lineAutoQtyRef.current.clear();
-      dirtyLineKeysRef.current.clear();
+      initialFormState = {
+        recipeId: "",
+        outputItemId: "",
+        customOrderId: null,
+        batches: "1",
+        actualOutputQty: "",
+        indirectCost: "",
+        businessDate: toBusinessDate(nowIso()),
+        notes: "",
+        lines: [emptyLine()],
+      };
     }
+
+    setRecipeId(initialFormState.recipeId);
+    setOutputItemId(initialFormState.outputItemId);
+    setCustomOrderId(initialFormState.customOrderId);
+    setBatches(initialFormState.batches);
+    setActualOutputQty(initialFormState.actualOutputQty);
+    setIndirectCost(initialFormState.indirectCost);
+    setBusinessDate(initialFormState.businessDate);
+    setNotes(initialFormState.notes);
+    setLines(initialFormState.lines);
+    actualOutputQtyAutoRef.current = tracking?.actualOutputQtyAuto ?? null;
+    actualOutputQtyDirtyRef.current = tracking?.actualOutputQtyDirty ?? true;
+    lineAutoQtyRef.current = tracking ? new Map(tracking.lineAutoQty) : new Map();
+    dirtyLineKeysRef.current = tracking
+      ? new Set(tracking.dirtyLineKeys)
+      : new Set(initialFormState.lines.map((line) => line.lineKey));
+    initialFormStateRef.current = initialFormState;
     setError(null);
-  }, [editSeedRecipe, open, productionRun, productionRunRecipe, recipesQuery.isLoading]);
+    initializedRef.current = draftKey;
+  }, [draftKey, editSeedRecipe, productionRun, productionRunRecipe, recipesQuery.isLoading]);
+
+  useEffect(() => {
+    if (initializedRef.current !== draftKey) return;
+    writePersistentDraft<ProductionRunFormState>(draftKey, {
+      recipeId,
+      outputItemId,
+      customOrderId,
+      batches,
+      actualOutputQty,
+      indirectCost,
+      businessDate,
+      notes,
+      lines,
+    });
+  }, [
+    actualOutputQty,
+    batches,
+    businessDate,
+    customOrderId,
+    draftKey,
+    indirectCost,
+    lines,
+    notes,
+    recipeId,
+    outputItemId,
+  ]);
 
   const disabled = isEditMode ? editReplay.isPending : createReplay.isPending;
 
@@ -398,7 +473,18 @@ export function ProductionRunForm({
   function handleRecipeChange(newRecipeId: string) {
     setRecipeId(newRecipeId);
     const recipe = recipesById.get(newRecipeId);
-    if (!recipe) return;
+    if (!recipe) {
+      setOutputItemId("");
+      setBatches("1");
+      setLines([emptyLine()]);
+      lineAutoQtyRef.current.clear();
+      dirtyLineKeysRef.current = new Set();
+      setActualOutputQty("");
+      actualOutputQtyAutoRef.current = null;
+      actualOutputQtyDirtyRef.current = true;
+      return;
+    }
+    setOutputItemId(recipe.outputItemId);
     const batchesValue = parseBatches(batches) ?? 1;
     const nextLines =
       recipe.lines.length > 0
@@ -471,8 +557,8 @@ export function ProductionRunForm({
 
   async function handleSubmit() {
     setError(null);
-    if (!recipeId) {
-      setError(productionLabels.errors.recipeRequired);
+    if (!recipeId && !outputItemId) {
+      setError(productionLabels.errors.outputItemRequired);
       return;
     }
 
@@ -509,7 +595,8 @@ export function ProductionRunForm({
     }
 
     const parsed = recordProductionRunCommandSchema.safeParse({
-      recipeId,
+      recipeId: recipeId || null,
+      outputItemId: recipeId ? undefined : outputItemId,
       customOrderId,
       sessionId: productionRun ? undefined : preselectedSessionId,
       batches: batchesValue,
@@ -667,221 +754,265 @@ export function ProductionRunForm({
     },
   ];
 
-  const dialogTitle = isEditMode ? productionLabels.editTitle : productionLabels.recordTitle;
+  const pageTitle = isEditMode ? productionLabels.editTitle : productionLabels.recordTitle;
 
   return (
     <>
-      <Dialog
-        open={open}
-        onOpenChange={onOpenChange}
-        aria-label={dialogTitle}
-        className="max-w-4xl"
+      <FormPage
+        title={pageTitle}
+        backTo="/production"
+        backLabel={productionLabels.backToProduction}
+        footer={
+          <PinnedSummaryFooter
+            contentClassName="max-w-3xl px-0"
+            total={
+              <div className="flex flex-col items-end gap-0.5">
+                <span className="flex items-center gap-1.5 text-muted-foreground text-xs">
+                  {productionLabels.costUnitLabel}
+                  <CalcTrace
+                    formula={productionLabels.costUnitFormula}
+                    inputs={unitCostTraceInputs}
+                  />
+                </span>
+                <span className="numeric-cell font-semibold text-foreground text-lg">
+                  {outputUnitCostPreviewLabel}
+                </span>
+              </div>
+            }
+            warnings={
+              displayError ? <p className="text-negative text-sm">{displayError}</p> : undefined
+            }
+            actions={
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    clearPersistentDraft(draftKey);
+                    unsavedChangesGuard.markClean();
+                    void navigate({ to: "/production" });
+                  }}
+                  disabled={disabled}
+                >
+                  {productionLabels.cancel}
+                </Button>
+                <Button
+                  type="button"
+                  onClick={handleSubmit}
+                  disabled={disabled || (!recipeId && !outputItemId)}
+                >
+                  {isEditMode ? productionLabels.save : productionLabels.submit}
+                </Button>
+              </>
+            }
+          />
+        }
       >
-        <div className="border-border border-b px-5 py-4">
-          <h2 className="font-medium text-foreground text-md">{dialogTitle}</h2>
+        <div className="flex flex-col gap-1.5">
+          <label className="font-medium text-foreground" htmlFor="prf-recipe">
+            {productionLabels.fieldRecipe}
+          </label>
+          <Select
+            id="prf-recipe"
+            value={recipeId}
+            onChange={(e) => handleRecipeChange(e.target.value)}
+            disabled={disabled}
+          >
+            <option value="">{productionLabels.recipeLessOption}</option>
+            {recipes.map((recipe) => (
+              <option key={recipe.id} value={recipe.id}>
+                {recipe.name}
+              </option>
+            ))}
+          </Select>
         </div>
-        <div className="flex flex-1 flex-col gap-4 overflow-y-auto px-5 py-4 text-sm">
+
+        {!selectedRecipe ? (
           <div className="flex flex-col gap-1.5">
-            <label className="font-medium text-foreground" htmlFor="prf-recipe">
-              {productionLabels.fieldRecipe}
+            <label className="font-medium text-foreground" htmlFor="prf-output-item">
+              {productionLabels.fieldOutputItem}
             </label>
             <Select
-              id="prf-recipe"
-              value={recipeId}
-              onChange={(e) => handleRecipeChange(e.target.value)}
+              id="prf-output-item"
+              value={outputItemId}
+              onChange={(e) => setOutputItemId(e.target.value)}
               disabled={disabled}
             >
               <option value="" disabled>
-                {productionLabels.recipePlaceholder}
+                {productionLabels.outputItemPlaceholder}
               </option>
-              {recipes.map((recipe) => (
-                <option key={recipe.id} value={recipe.id}>
-                  {recipe.name}
-                </option>
-              ))}
+              {(itemsQuery.data?.items ?? [])
+                .filter((item) => item.kind === "SEMI_FINISHED" || item.kind === "FINISHED")
+                .map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
+                ))}
             </Select>
           </div>
+        ) : null}
 
+        <div className="flex flex-col gap-1.5">
+          <label className="font-medium text-foreground" htmlFor="linked-order-picker">
+            {ordersLabels.orderPickerFieldLabel}
+          </label>
+          <OrderPicker
+            value={customOrderId}
+            onChange={(id) => setCustomOrderId(id)}
+            disabled={disabled}
+          />
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
           <div className="flex flex-col gap-1.5">
-            <label className="font-medium text-foreground" htmlFor="linked-order-picker">
-              {ordersLabels.orderPickerFieldLabel}
-            </label>
-            <OrderPicker
-              value={customOrderId}
-              onChange={(id) => setCustomOrderId(id)}
-              disabled={disabled}
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="flex flex-col gap-1.5">
-              <label className="font-medium text-foreground" htmlFor="prf-batches">
-                {productionLabels.fieldBatches}
-              </label>
-              <Input
-                id="prf-batches"
-                inputMode="decimal"
-                placeholder="1"
-                value={batches}
-                onChange={(e) => handleBatchesChange(e.target.value)}
-                disabled={disabled}
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <label className="font-medium text-foreground" htmlFor="prf-date">
-                {productionLabels.fieldDate}
-              </label>
-              <Input
-                id="prf-date"
-                type="date"
-                value={businessDate}
-                onChange={(e) => setBusinessDate(e.target.value)}
-                disabled={disabled}
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="flex flex-col gap-1.5">
-              <label className="font-medium text-foreground" htmlFor="prf-output-qty">
-                {productionLabels.fieldActualOutputQty}
-              </label>
-              <Input
-                id="prf-output-qty"
-                inputMode="decimal"
-                placeholder="0"
-                value={actualOutputQty}
-                onChange={(e) => handleActualOutputQtyChange(e.target.value)}
-                disabled={disabled}
-              />
-              {outputItem ? (
-                <span className="text-muted-foreground text-xs">
-                  {productionLabels.unitAbbrev[outputItem.unit]} de {outputItem.name}
-                </span>
-              ) : null}
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <div className="flex items-center gap-1">
-                <label className="font-medium text-foreground" htmlFor="prf-indirect-cost">
-                  {productionLabels.fieldIndirectCost}
-                </label>
-                <InfoTooltip
-                  content={productionLabels.tooltipIndirectCost}
-                  label={`Más información: ${productionLabels.fieldIndirectCost}`}
-                />
-              </div>
-              <Input
-                id="prf-indirect-cost"
-                inputMode="decimal"
-                placeholder="0.00"
-                value={indirectCost}
-                onChange={(e) => setIndirectCost(e.target.value)}
-                disabled={disabled}
-              />
-            </div>
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <label className="font-medium text-foreground" htmlFor="prf-notes">
-              {productionLabels.fieldNotes}
+            <label className="font-medium text-foreground" htmlFor="prf-batches">
+              {productionLabels.fieldBatches}
             </label>
             <Input
-              id="prf-notes"
-              placeholder={productionLabels.notesPlaceholder}
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
+              id="prf-batches"
+              inputMode="decimal"
+              placeholder="1"
+              value={batches}
+              onChange={(e) => handleBatchesChange(e.target.value)}
               disabled={disabled}
-              maxLength={PRODUCTION_RUN_NOTES_MAX_LENGTH}
             />
           </div>
-
           <div className="flex flex-col gap-1.5">
-            <span className="font-medium text-foreground">{productionLabels.linesTitle}</span>
-            <LineEditor
-              lines={lines}
-              onChange={handleLinesChange}
-              createLine={emptyLine}
+            <label className="font-medium text-foreground" htmlFor="prf-date">
+              {productionLabels.fieldDate}
+            </label>
+            <Input
+              id="prf-date"
+              type="date"
+              value={businessDate}
+              onChange={(e) => setBusinessDate(e.target.value)}
               disabled={disabled}
-              showAmount={false}
-              itemKindFilter={["RAW_MATERIAL", "SEMI_FINISHED"]}
-              getItemUnit={(itemId) => itemsById.get(itemId)?.unit}
-              labels={{
-                item: productionLabels.lineItem,
-                qty: productionLabels.lineQty,
-                addLine: productionLabels.addLine,
-                removeLine: productionLabels.removeLine,
-                qtyPlaceholder: "0",
-              }}
-              renderExtraColumns={renderLineExtra}
             />
           </div>
+        </div>
 
-          <div className="flex flex-col gap-2 rounded-md border border-border bg-muted px-4 py-3">
-            <span className="font-medium text-foreground text-sm">
-              {productionLabels.costPanelTitle}
-            </span>
-            <div className="flex items-center justify-between">
-              <span className="flex items-center gap-1.5 text-muted-foreground text-xs">
-                {productionLabels.costDirectLabel}
-                <CalcTrace
-                  formula={productionLabels.costDirectFormula}
-                  inputs={directCostTraceInputs}
-                />
-              </span>
-              <span className="numeric-cell text-foreground text-sm">
-                {formatMoney(directCostPreview)}
-              </span>
-            </div>
-            <div className="flex items-center justify-between">
+        <div className="grid grid-cols-2 gap-3">
+          <div className="flex flex-col gap-1.5">
+            <label className="font-medium text-foreground" htmlFor="prf-output-qty">
+              {productionLabels.fieldActualOutputQty}
+            </label>
+            <Input
+              id="prf-output-qty"
+              inputMode="decimal"
+              placeholder="0"
+              value={actualOutputQty}
+              onChange={(e) => handleActualOutputQtyChange(e.target.value)}
+              disabled={disabled}
+            />
+            {outputItem ? (
               <span className="text-muted-foreground text-xs">
-                {productionLabels.costIndirectLabel}
+                {productionLabels.unitAbbrev[outputItem.unit]} de {outputItem.name}
               </span>
-              <span className="numeric-cell text-foreground text-sm">
-                {formatMoney(toCentavos(indirectCostPreview))}
-              </span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="flex items-center gap-1.5 font-medium text-foreground text-sm">
-                {productionLabels.costTotalLabel}
-                <CalcTrace
-                  formula={productionLabels.costTotalFormula}
-                  inputs={totalCostTraceInputs}
-                />
-              </span>
-              <span className="numeric-cell font-semibold text-foreground text-lg">
-                {formatMoney(toCentavos(totalCostPreview))}
-              </span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="flex items-center gap-1.5 text-muted-foreground text-xs">
-                {productionLabels.costUnitLabel}
-                <CalcTrace
-                  formula={productionLabels.costUnitFormula}
-                  inputs={unitCostTraceInputs}
-                />
-              </span>
-              <span className="numeric-cell text-foreground text-sm">
-                {outputUnitCostPreviewLabel}
-              </span>
-            </div>
+            ) : null}
           </div>
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-center gap-1">
+              <label className="font-medium text-foreground" htmlFor="prf-indirect-cost">
+                {productionLabels.fieldIndirectCost}
+              </label>
+              <InfoTooltip
+                content={productionLabels.tooltipIndirectCost}
+                label={`Más información: ${productionLabels.fieldIndirectCost}`}
+              />
+            </div>
+            <Input
+              id="prf-indirect-cost"
+              inputMode="decimal"
+              placeholder="0.00"
+              value={indirectCost}
+              onChange={(e) => setIndirectCost(e.target.value)}
+              disabled={disabled}
+            />
+          </div>
+        </div>
 
-          {displayError ? <p className="text-negative text-sm">{displayError}</p> : null}
-        </div>
-        <div className="flex justify-end gap-2 border-border border-t px-5 py-3">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => onOpenChange(false)}
+        <div className="flex flex-col gap-1.5">
+          <label className="font-medium text-foreground" htmlFor="prf-notes">
+            {productionLabels.fieldNotes}
+          </label>
+          <Input
+            id="prf-notes"
+            placeholder={productionLabels.notesPlaceholder}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
             disabled={disabled}
-          >
-            {productionLabels.cancel}
-          </Button>
-          <Button type="button" onClick={handleSubmit} disabled={disabled || !recipeId}>
-            {isEditMode ? productionLabels.save : productionLabels.submit}
-          </Button>
+            maxLength={PRODUCTION_RUN_NOTES_MAX_LENGTH}
+          />
         </div>
-      </Dialog>
+
+        <div className="flex flex-col gap-1.5">
+          <span className="font-medium text-foreground">{productionLabels.linesTitle}</span>
+          <LineEditor
+            lines={lines}
+            onChange={handleLinesChange}
+            createLine={emptyLine}
+            disabled={disabled}
+            showAmount={false}
+            itemKindFilter={["RAW_MATERIAL", "SEMI_FINISHED"]}
+            getItemUnit={(itemId) => itemsById.get(itemId)?.unit}
+            labels={{
+              item: productionLabels.lineItem,
+              qty: productionLabels.lineQty,
+              addLine: productionLabels.addLine,
+              removeLine: productionLabels.removeLine,
+              qtyPlaceholder: "0",
+            }}
+            renderExtraColumns={renderLineExtra}
+          />
+        </div>
+
+        <div className="flex flex-col gap-2 rounded-md border border-border bg-muted px-4 py-3">
+          <span className="font-medium text-foreground text-sm">
+            {productionLabels.costPanelTitle}
+          </span>
+          <div className="flex items-center justify-between">
+            <span className="flex items-center gap-1.5 text-muted-foreground text-xs">
+              {productionLabels.costDirectLabel}
+              <CalcTrace
+                formula={productionLabels.costDirectFormula}
+                inputs={directCostTraceInputs}
+              />
+            </span>
+            <span className="numeric-cell text-foreground text-sm">
+              {formatMoney(directCostPreview)}
+            </span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="text-muted-foreground text-xs">
+              {productionLabels.costIndirectLabel}
+            </span>
+            <span className="numeric-cell text-foreground text-sm">
+              {formatMoney(toCentavos(indirectCostPreview))}
+            </span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="flex items-center gap-1.5 font-medium text-foreground text-sm">
+              {productionLabels.costTotalLabel}
+              <CalcTrace
+                formula={productionLabels.costTotalFormula}
+                inputs={totalCostTraceInputs}
+              />
+            </span>
+            <span className="numeric-cell font-semibold text-foreground text-lg">
+              {formatMoney(toCentavos(totalCostPreview))}
+            </span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="flex items-center gap-1.5 text-muted-foreground text-xs">
+              {productionLabels.costUnitLabel}
+              <CalcTrace formula={productionLabels.costUnitFormula} inputs={unitCostTraceInputs} />
+            </span>
+            <span className="numeric-cell text-foreground text-sm">
+              {outputUnitCostPreviewLabel}
+            </span>
+          </div>
+        </div>
+      </FormPage>
       {isEditMode && editReplay.pendingConfirmation ? (
         <ImpactConfirmDialog
           open

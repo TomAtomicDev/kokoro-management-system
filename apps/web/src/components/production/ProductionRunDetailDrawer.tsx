@@ -1,7 +1,8 @@
 // Detail drawer for a single production run (Doc 06 §4 DetailDrawer contract, SC-05). Mirrors
-// PurchaseDetailDrawer.tsx's edit/delete/undo/restore composition exactly: edit opens
-// `ProductionRunForm` in edit mode as a sibling dialog, delete is a soft-delete + undo toast (Doc
-// 06 principle 6) with the ImpactConfirmDialog exception for an R-5 replay-affecting delete/restore.
+// PurchaseDetailDrawer.tsx's edit/delete/undo/restore composition exactly: edit navigates to
+// `ProductionRunForm`'s own full page (KOK-141, `/production/$productionRunId/edit`) and closes
+// the drawer, delete is a soft-delete + undo toast (Doc 06 principle 6) with the ImpactConfirmDialog
+// exception for an R-5 replay-affecting delete/restore.
 
 import type {
   DeleteProductionRunCommand,
@@ -18,6 +19,7 @@ import {
   totalCentavos,
   WHOLE_UNIT_MILLI_UNITS,
 } from "@kokoro/shared";
+import { useNavigate } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 
 import { DetailDrawer } from "@/components/data-table/DetailDrawer";
@@ -34,8 +36,6 @@ import { useRecipesQuery } from "@/features/recipes/api";
 import { useReplayConfirmableMutation } from "@/hooks/useReplayConfirmableMutation";
 import { productionLabels } from "@/lib/i18n-production";
 
-import { ProductionRunForm } from "./ProductionRunForm";
-
 export interface ProductionRunDetailDrawerProps {
   productionRunId: string | null;
   open: boolean;
@@ -47,12 +47,12 @@ export function ProductionRunDetailDrawer({
   open,
   onOpenChange,
 }: ProductionRunDetailDrawerProps) {
+  const navigate = useNavigate();
   const productionRunQuery = useProductionRun(productionRunId ?? undefined);
   const itemsQuery = useItemsQuery({ isActive: true });
   const recipesQuery = useRecipesQuery({ isActive: true });
   const { showUndo } = useToast();
 
-  const [editOpen, setEditOpen] = useState(false);
   // Frozen at the moment delete succeeds — see deleteReplay's onSuccess below. The restore mutation
   // is deliberately built from THIS, never from the live `productionRunId` prop: `onOpenChange(false)`
   // closes the drawer as part of that same onSuccess, which flips `productionRunId` to `null` on the
@@ -103,7 +103,7 @@ export function ProductionRunDetailDrawer({
 
   if (!productionRunId) return null;
   const productionRun = productionRunQuery.data;
-  const recipe = productionRun ? recipesById.get(productionRun.recipeId) : undefined;
+  const recipe = productionRun?.recipeId ? recipesById.get(productionRun.recipeId) : undefined;
   const outputItem = productionRun ? itemById.get(productionRun.outputItemId) : undefined;
 
   return (
@@ -134,7 +134,18 @@ export function ProductionRunDetailDrawer({
         ) : (
           <div className="flex flex-col gap-5 text-sm">
             <div className="flex items-center justify-end gap-2">
-              <Button type="button" variant="outline" size="sm" onClick={() => setEditOpen(true)}>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  void navigate({
+                    to: "/production/$productionRunId/edit",
+                    params: { productionRunId: productionRun.id },
+                  });
+                  onOpenChange(false);
+                }}
+              >
                 {productionLabels.edit}
               </Button>
               <Button
@@ -152,7 +163,7 @@ export function ProductionRunDetailDrawer({
               <div className="flex items-center justify-between">
                 <span className="text-muted-foreground">{productionLabels.detailRecipe}</span>
                 <span className="font-medium text-foreground">
-                  {recipe?.name ?? productionRun.recipeId}
+                  {recipe?.name ?? productionLabels.detailNoRecipe}
                 </span>
               </div>
               <div className="flex items-center justify-between">
@@ -270,14 +281,6 @@ export function ProductionRunDetailDrawer({
           </div>
         )}
       </DetailDrawer>
-
-      {productionRun ? (
-        <ProductionRunForm
-          open={editOpen}
-          onOpenChange={setEditOpen}
-          productionRun={productionRun}
-        />
-      ) : null}
 
       {deleteReplay.pendingConfirmation ? (
         <ImpactConfirmDialog

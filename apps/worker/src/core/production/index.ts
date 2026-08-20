@@ -41,13 +41,13 @@
 //   outputUnitCostMc is exposed on the DTO at the same rate scale, recomputed with
 //            `rateFromTotal` so it cannot drift from total_cost and actual_output_qty.
 //
-// RECIPE RESOLUTION, NOT ACCOUNT RESOLUTION: `command.recipeId` must name an ACTIVE recipe
+// RECIPE/OUTPUT RESOLUTION: when present, `command.recipeId` must name an ACTIVE recipe
 // (`findActiveRecipeRowOrThrow`, mirroring `core/finance/accounts.ts`'s `findActiveAccountRowOrThrow`
-// pattern exactly). `production_runs.output_item_id` is denormalized from `recipe.outputItemId` at
-// commit time — the command schema deliberately has no `outputItemId` field, so this is the only
-// place it is ever produced. `command.lines` is trusted as the run's ACTUAL, already-edited
-// consumption (Doc 03 §3: "editable before commit") — this service never re-derives lines from the
-// recipe's own lines.
+// pattern exactly) and `production_runs.output_item_id` is denormalized from its output. A
+// recipe-less command instead supplies `outputItemId`, which this service validates with the same
+// output-kind rule used by core/recipes. `command.lines` is trusted as the run's ACTUAL,
+// already-edited consumption (Doc 03 §3: "editable before commit") — this service never re-derives
+// lines from a recipe's own lines.
 //
 // FINISHED-ITEM GUARD (Doc 04 §5, mirrors recipes.ts's `validateRecipeItemKinds`): every consumed
 // item must be RAW_MATERIAL or SEMI_FINISHED, never FINISHED — re-checked here defensively (D-2)
@@ -167,6 +167,27 @@ async function findActiveRecipeRowOrThrow(db: Db, recipeId: string): Promise<Rec
     throw validationError("La receta no está activa.", { recipeId });
   }
   return row;
+}
+
+/** Doc 04 §5 output integrity rule, also applied to recipe-less runs (KOK-144): only a
+ * SEMI_FINISHED or FINISHED item can be produced. */
+async function findProductionOutputItemRowOrThrow(
+  db: Db,
+  outputItemId: string,
+): Promise<typeof items.$inferSelect> {
+  const outputItem = await db.query.items.findFirst({
+    where: (t, { eq: eqOp }) => eqOp(t.id, outputItemId),
+  });
+  if (!outputItem) {
+    throw notFound("No se encontró el ítem de salida.", { id: outputItemId });
+  }
+  if (outputItem.kind !== "SEMI_FINISHED" && outputItem.kind !== "FINISHED") {
+    throw validationError("El ítem de salida debe ser un semielaborado o un producto terminado.", {
+      outputItemId,
+      kind: outputItem.kind,
+    });
+  }
+  return outputItem;
 }
 
 /** Doc 04 §5 integrity rule, the consumption-side analogue of recipes.ts's
@@ -314,7 +335,12 @@ async function buildProductionRunCreateInputs(
     throw validationError("Se requiere al menos un insumo consumido.", {});
   }
 
-  const recipe = await findActiveRecipeRowOrThrow(db, command.recipeId);
+  const outputItemId = command.recipeId
+    ? (await findActiveRecipeRowOrThrow(db, command.recipeId)).outputItemId
+    : command.outputItemId;
+  if (!outputItemId) {
+    throw validationError("Selecciona el ítem de salida cuando la producción no tiene receta.", {});
+  }
   const resolvedSession = await resolveSessionForEvent(db, {
     type: "PRODUCTION",
     occurredAt: command.occurredAt,
@@ -363,14 +389,9 @@ async function buildProductionRunCreateInputs(
   // Seed the OUTPUT item's C-1 threading state from its currently-stored wac_mc/on-hand
   // (defaulting on-hand to 0 when no item_stock row exists yet), exactly as purchasing seeds
   // ItemPurchaseState.
-  const outputItemRow = await db.query.items.findFirst({
-    where: (t, { eq: eqOp }) => eqOp(t.id, recipe.outputItemId),
-  });
-  if (!outputItemRow) {
-    throw notFound("No se encontró el ítem de salida de la receta.", { id: recipe.outputItemId });
-  }
+  const outputItemRow = await findProductionOutputItemRowOrThrow(db, outputItemId);
   const outputStockRow = await db.query.itemStock.findFirst({
-    where: (t, { eq: eqOp }) => eqOp(t.itemId, recipe.outputItemId),
+    where: (t, { eq: eqOp }) => eqOp(t.itemId, outputItemId),
   });
   const newOutputWacMc = applyWacEntry(
     toMilliCentavosPerUnit(outputItemRow.wacMc),
@@ -383,7 +404,7 @@ async function buildProductionRunCreateInputs(
     db,
     runId,
     consumptionRows,
-    recipe.outputItemId,
+    outputItemId,
     command.actualOutputQty,
     outputUnitCostMc,
     command.occurredAt,
@@ -394,11 +415,11 @@ async function buildProductionRunCreateInputs(
     id: runId,
     occurredAt: command.occurredAt,
     businessDate: command.businessDate,
-    recipeId: command.recipeId,
+    recipeId: command.recipeId ?? null,
     sessionId: resolvedSession.sessionId,
     customOrderId: command.customOrderId ?? null,
     batches: command.batches,
-    outputItemId: recipe.outputItemId,
+    outputItemId,
     actualOutputQty: command.actualOutputQty,
     indirectCost,
     allocatedSessionCost: 0,
@@ -918,7 +939,13 @@ async function buildProductionRunUpdateInputs(
   ) {
     await assertOrderLinkable(db, command.customOrderId);
   }
-  const recipe = await findActiveRecipeRowOrThrow(db, command.recipeId);
+  const outputItemId = command.recipeId
+    ? (await findActiveRecipeRowOrThrow(db, command.recipeId)).outputItemId
+    : command.outputItemId;
+  if (!outputItemId) {
+    throw validationError("Selecciona el ítem de salida cuando la producción no tiene receta.", {});
+  }
+  await findProductionOutputItemRowOrThrow(db, outputItemId);
   const resolvedSession = await resolveSessionForEvent(db, {
     type: "PRODUCTION",
     occurredAt: command.occurredAt,
@@ -984,12 +1011,12 @@ async function buildProductionRunUpdateInputs(
     ...existing,
     occurredAt: command.occurredAt,
     businessDate: command.businessDate,
-    recipeId: command.recipeId,
+    recipeId: command.recipeId ?? null,
     sessionId: resolvedSession.sessionId,
     customOrderId:
       command.customOrderId === undefined ? existing.customOrderId : command.customOrderId,
     batches: command.batches,
-    outputItemId: recipe.outputItemId,
+    outputItemId,
     actualOutputQty: command.actualOutputQty,
     indirectCost,
     directCost,

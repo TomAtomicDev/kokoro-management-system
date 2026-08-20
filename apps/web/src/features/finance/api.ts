@@ -4,14 +4,19 @@
 // features/catalog/api.ts.
 
 import type {
+  DeleteTransactionCommand,
+  DeleteTransactionResult,
   FinanceSummaryDto,
   ListAccountsResult,
   ListTransactionsFilters,
   ListTransactionsResult,
   RecordTransactionCommand,
   RecordTransactionResult,
+  RestoreTransactionResult,
   TransferCommand,
   TransferResult,
+  UpdateTransactionCommand,
+  UpdateTransactionResult,
   WithdrawCommand,
   WithdrawResult,
 } from "@kokoro/shared";
@@ -75,6 +80,33 @@ export function useRecordTransaction() {
   return useMutation({
     mutationFn: (command: RecordTransactionCommand) =>
       api.post<RecordTransactionResult>("/finance/transactions", command),
+    onSuccess: invalidate,
+  });
+}
+
+export function useUpdateTransaction(id: string) {
+  const invalidate = useInvalidateFinance();
+  return useMutation({
+    mutationFn: (command: UpdateTransactionCommand) =>
+      api.patch<UpdateTransactionResult>(`/finance/transactions/${id}`, command),
+    onSuccess: invalidate,
+  });
+}
+
+export function useDeleteTransaction() {
+  const invalidate = useInvalidateFinance();
+  return useMutation({
+    mutationFn: ({ id, command }: { id: string; command: DeleteTransactionCommand }) =>
+      api.delete<DeleteTransactionResult>(`/finance/transactions/${id}`, command),
+    onSuccess: invalidate,
+  });
+}
+
+export function useRestoreTransaction() {
+  const invalidate = useInvalidateFinance();
+  return useMutation({
+    mutationFn: ({ id, command }: { id: string; command: DeleteTransactionCommand }) =>
+      api.post<RestoreTransactionResult>(`/finance/transactions/${id}/restore`, command),
     onSuccess: invalidate,
   });
 }

@@ -23,6 +23,25 @@ and the `/api/*` routes on the **same origin**, `http://localhost:8787` — this
 session cookies and the CSRF flow work. The Vite dev server alone (`pnpm --filter @kokoro/web dev`)
 has no API proxy and will 404 on every `/api/*` call; don't use it for this.
 
+**`wrangler dev` never exits — run it backgrounded, then poll for readiness before moving on.**
+It's a long-running server process, not a one-shot command. If it's run as an ordinary blocking
+shell call, the call just hangs until the shell tool's timeout — which looks identical to "the
+browser step is stuck" even though the browser hasn't been touched yet. Start it in the
+background, then poll the port instead of guessing a fixed sleep (first build/boot can take a
+while, and a fixed sleep is either too short and racy or too long and wasteful):
+
+```bash
+pnpm --filter @kokoro/worker dev &   # or your tool's background-run mechanism
+for i in $(seq 1 60); do
+  curl -s -o /dev/null http://localhost:8787/ && break
+  sleep 2
+done
+```
+
+Only proceed to step 2 once that loop confirms the port is answering. Before starting a fresh
+instance, check whether one is already running on :8787 (e.g. `curl -s -o /dev/null -w '%{http_code}' http://localhost:8787/`) — a prior session's server left running is a normal way to skip
+steps 1 and end up already ready.
+
 If `apps/worker/.dev.vars` doesn't exist yet on this machine, copy
 `apps/worker/.dev.vars.example` to `apps/worker/.dev.vars` before starting — that's a plain copy
 (exactly what the worker's own `pretest` script does automatically for `pnpm test`), not an edit
@@ -49,7 +68,19 @@ In order of preference:
 
 **(a) `playwright-cli` skill** (Claude Code) — if it's available, invoke it via the Skill tool by
 name and drive the flow with its commands (`open`, `goto`, `fill --submit`, `snapshot`,
-`screenshot`, ...). See that skill's own SKILL.md for the full command reference.
+`screenshot`, ...). See that skill's own SKILL.md for the full command reference. `screenshot` and
+`pdf` save to the current working directory by default — pass `--filename` pointing into
+`.playwright-cli/screenshots/` so they don't litter the repo root, and sweep that directory (and
+`.playwright-cli/page-*.yml` / `console-*.log`) once verification is done.
+
+Run each `playwright-cli` command as its own standalone shell call, one per line — the same way
+this file's and that skill's own examples do it. Wrapping it inside a subshell/pipe (e.g.
+`time (playwright-cli open ... | tail)`, or chaining it with `&&`/`;` into one compound command)
+has been observed to hang indefinitely on Windows even though the browser itself opens in 2-3s:
+the command's own stdout pipe never signals EOF back to the wrapping shell. If a call ever does
+seem to hang, don't keep waiting — run `playwright-cli list` from a separate call; the browser is
+very likely already open, so recover by continuing (not by re-running `open`, which is safe to
+retry but unnecessary) rather than waiting out a long timeout.
 
 **(b) Fallback: a throwaway Playwright script** (any agent with Node + shell) — `@playwright/test`
 is already an installed dependency. Launch Chromium, authenticate via a direct API request rather

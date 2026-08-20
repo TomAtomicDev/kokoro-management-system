@@ -23,6 +23,7 @@ import {
 import { Hono } from "hono";
 import {
   commitCount,
+  deleteCount,
   deleteStockExit,
   getCount,
   getStockExit,
@@ -135,4 +136,8 @@ export const inventoryRoute = new Hono<{ Bindings: Env; Variables: Variables }>(
       countId: c.req.param("id"),
     });
     return c.json(await commitCount(db, body, ACTOR));
+  })
+  .delete("/inventory/counts/:id", async (c) => {
+    const db = createDb(c.env.DB);
+    return c.json(await deleteCount(db, c.req.param("id"), ACTOR));
   });

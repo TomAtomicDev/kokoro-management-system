@@ -1,5 +1,6 @@
 export {
   commitCount,
+  deleteCount,
   getCount,
   listCounts,
   startCount,

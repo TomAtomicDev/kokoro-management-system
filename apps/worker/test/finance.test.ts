@@ -13,17 +13,22 @@
 import { env } from "cloudflare:test";
 import { eq, inArray } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
+import fc from "fast-check";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import type { FinancialTransactionInput } from "../src/core/finance/accounts.js";
 import { buildReplaceTransactionsForSourceStatements } from "../src/core/finance/accounts.js";
 import {
+  deleteTransaction,
   getAccount,
   getBalanceConsistencyMismatches,
   listAccounts,
   listTransactions,
   recordTransaction,
+  restoreTransaction,
+  signedTransactionBalanceEffect,
   transfer,
+  updateTransaction,
   withdraw,
 } from "../src/core/finance/index.js";
 import { createDb } from "../src/db/index.js";
@@ -52,6 +57,32 @@ const NOW = "2026-07-16T10:00:00.000Z";
 const BUSINESS_DATE = "2026-07-16";
 
 type TestDb = ReturnType<typeof createDb>;
+
+async function seedSystemOwnedTransaction(db: TestDb): Promise<string> {
+  const { statements } = await buildReplaceTransactionsForSourceStatements(
+    db,
+    "purchase",
+    "kok146-source",
+    [
+      {
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        accountId: "acc_bank",
+        type: "EXPENSE",
+        category: "SUPPLY_PURCHASE",
+        amount: 1200,
+        sourceEventType: "purchase",
+        sourceEventId: "kok146-source",
+      },
+    ],
+  );
+  await db.batch(statements as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]);
+  const row = await db.query.financialTransactions.findFirst({
+    where: (t, { eq: eqOp }) => eqOp(t.sourceEventId, "kok146-source"),
+  });
+  if (!row) throw new Error("system-owned fixture was not created");
+  return row.id;
+}
 
 /** Test-only fixture: an inactive account. No command in this task's scope creates
  * financial_accounts (they're seed-only, Doc 04 §7), so unlike business-event fixtures elsewhere
@@ -281,6 +312,233 @@ describe("withdraw (UC-13)", () => {
         ACTOR,
       ),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+});
+
+describe("manual transaction edit/delete/restore (KOK-146)", () => {
+  it("edits a standalone row and nets account changes in the same balance ledger", async () => {
+    const db = createDb(env.DB);
+    const created = await recordTransaction(
+      db,
+      {
+        accountId: "acc_cash",
+        type: "INCOME",
+        category: "OTHER_INCOME",
+        amount: 5000,
+        businessDate: BUSINESS_DATE,
+        occurredAt: NOW,
+        description: "Antes",
+      },
+      ACTOR,
+    );
+
+    const updated = await updateTransaction(
+      db,
+      created.transaction.id,
+      {
+        accountId: "acc_bank",
+        type: "EXPENSE",
+        category: "OPERATING_EXPENSE",
+        amount: 1200,
+        businessDate: BUSINESS_DATE,
+        occurredAt: NOW,
+        description: "Después",
+      },
+      ACTOR,
+    );
+
+    expect(updated.transactions).toHaveLength(1);
+    expect(updated.transactions[0]).toMatchObject({
+      id: created.transaction.id,
+      accountId: "acc_bank",
+      type: "EXPENSE",
+      category: "OPERATING_EXPENSE",
+      amount: 1200,
+      description: "Después",
+    });
+    expect(await getAccount(db, "acc_cash")).toMatchObject({ balance: 0 });
+    expect(await getAccount(db, "acc_bank")).toMatchObject({ balance: -1200 });
+    expect(await getBalanceConsistencyMismatches(db)).toHaveLength(0);
+
+    const auditRows = await db.query.auditLog.findMany({
+      where: (t, { and, eq: eqOp }) =>
+        and(eqOp(t.entityId, created.transaction.id), eqOp(t.entityType, "financial_transactions")),
+    });
+    expect(auditRows.some((row) => row.action === "update")).toBe(true);
+  });
+
+  it("soft-deletes and restores a standalone row with its balance effect", async () => {
+    const db = createDb(env.DB);
+    const created = await recordTransaction(
+      db,
+      {
+        accountId: "acc_bank",
+        type: "INCOME",
+        category: "OTHER_INCOME",
+        amount: 2500,
+        businessDate: BUSINESS_DATE,
+        occurredAt: NOW,
+      },
+      ACTOR,
+    );
+
+    const deleted = await deleteTransaction(db, created.transaction.id, {}, ACTOR);
+    expect(deleted.deletedAt).toBeTruthy();
+    const deletedRow = await db.query.financialTransactions.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.id, created.transaction.id),
+    });
+    expect(deletedRow?.deletedAt).toBe(deleted.deletedAt);
+    expect(await listTransactions(db)).toMatchObject({ transactions: [] });
+    expect(await getAccount(db, "acc_bank")).toMatchObject({ balance: 0 });
+
+    const restored = await restoreTransaction(db, created.transaction.id, {}, ACTOR);
+    expect(restored.transactions[0]?.id).toBe(created.transaction.id);
+    expect(await listTransactions(db)).toMatchObject({
+      transactions: [{ id: created.transaction.id }],
+    });
+    expect(await getAccount(db, "acc_bank")).toMatchObject({ balance: 2500 });
+    expect(await getBalanceConsistencyMismatches(db)).toHaveLength(0);
+  });
+
+  it("edits an owner withdrawal without turning it into a generic expense", async () => {
+    const db = createDb(env.DB);
+    const created = await withdraw(
+      db,
+      {
+        accountId: "acc_cash",
+        amount: 1800,
+        businessDate: BUSINESS_DATE,
+        occurredAt: NOW,
+      },
+      ACTOR,
+    );
+
+    const updated = await updateTransaction(
+      db,
+      created.transaction.id,
+      {
+        accountId: "acc_bank",
+        amount: 2200,
+        businessDate: BUSINESS_DATE,
+        occurredAt: NOW,
+        description: "Retiro corregido",
+      },
+      ACTOR,
+    );
+    expect(updated.transactions[0]).toMatchObject({
+      category: "OWNER_WITHDRAWAL",
+      type: "EXPENSE",
+      accountId: "acc_bank",
+      amount: 2200,
+    });
+    expect(await getAccount(db, "acc_cash")).toMatchObject({ balance: 0 });
+    expect(await getAccount(db, "acc_bank")).toMatchObject({ balance: -2200 });
+  });
+
+  it("refuses direct mutations of system-owned rows", async () => {
+    const db = createDb(env.DB);
+    const id = await seedSystemOwnedTransaction(db);
+    const command = {
+      accountId: "acc_bank",
+      type: "EXPENSE" as const,
+      category: "OPERATING_EXPENSE" as const,
+      amount: 1200,
+      businessDate: BUSINESS_DATE,
+      occurredAt: NOW,
+    };
+
+    await expect(updateTransaction(db, id, command, ACTOR)).rejects.toMatchObject({
+      code: "CONFLICT",
+      message_es:
+        "Esta transacción proviene de otro evento; edita el evento de origen en lugar de la transacción.",
+    });
+    await expect(deleteTransaction(db, id, {}, ACTOR)).rejects.toMatchObject({ code: "CONFLICT" });
+    await expect(restoreTransaction(db, id, {}, ACTOR)).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(await getAccount(db, "acc_bank")).toMatchObject({ balance: -1200 });
+  });
+
+  it("edits, deletes, and restores both transfer legs atomically from either leg", async () => {
+    const db = createDb(env.DB);
+    const created = await transfer(
+      db,
+      {
+        fromAccountId: "acc_bank",
+        toAccountId: "acc_cash",
+        amount: 3000,
+        businessDate: BUSINESS_DATE,
+        occurredAt: NOW,
+      },
+      ACTOR,
+    );
+
+    const updated = await updateTransaction(
+      db,
+      created.inTransaction.id,
+      {
+        fromAccountId: "acc_cash",
+        toAccountId: "acc_bank",
+        amount: 4500,
+        businessDate: BUSINESS_DATE,
+        occurredAt: NOW,
+        description: "Transferencia corregida",
+      },
+      ACTOR,
+    );
+    expect(updated.transactions).toHaveLength(2);
+    expect(updated.transactions.map((row) => row.accountId).sort()).toEqual([
+      "acc_bank",
+      "acc_cash",
+    ]);
+    expect(updated.transactions.every((row) => row.amount === 4500)).toBe(true);
+    expect(updated.transactions.every((row) => row.description === "Transferencia corregida")).toBe(
+      true,
+    );
+    expect(await getAccount(db, "acc_bank")).toMatchObject({ balance: 4500 });
+    expect(await getAccount(db, "acc_cash")).toMatchObject({ balance: -4500 });
+
+    await deleteTransaction(db, created.outTransaction.id, {}, ACTOR);
+    const deletedRows = await db.query.financialTransactions.findMany();
+    expect(deletedRows).toHaveLength(2);
+    expect(deletedRows.every((row) => row.deletedAt !== null)).toBe(true);
+    expect(await getAccount(db, "acc_bank")).toMatchObject({ balance: 0 });
+    expect(await getAccount(db, "acc_cash")).toMatchObject({ balance: 0 });
+
+    await restoreTransaction(db, created.inTransaction.id, {}, ACTOR);
+    const restoredRows = await db.query.financialTransactions.findMany();
+    expect(restoredRows.every((row) => row.deletedAt === null)).toBe(true);
+    expect(await getAccount(db, "acc_bank")).toMatchObject({ balance: 4500 });
+    expect(await getAccount(db, "acc_cash")).toMatchObject({ balance: -4500 });
+    expect(await getBalanceConsistencyMismatches(db)).toHaveLength(0);
+  });
+});
+
+describe("property: manual balance netting (KOK-146 / INV-5)", () => {
+  const transactionArb = fc.record({
+    type: fc.constantFrom("INCOME", "EXPENSE", "TRANSFER_IN", "TRANSFER_OUT"),
+    amount: fc.integer({ min: 1, max: 1_000_000_000 }),
+  }) as fc.Arbitrary<{
+    type: "INCOME" | "EXPENSE" | "TRANSFER_IN" | "TRANSFER_OUT";
+    amount: number;
+  }>;
+
+  it("reversing any old integer ledger and applying any new ledger equals the new ledger", () => {
+    fc.assert(
+      fc.property(
+        fc.array(transactionArb, { maxLength: 40 }),
+        fc.array(transactionArb, { maxLength: 40 }),
+        (oldRows, newRows) => {
+          const effect = (rows: typeof oldRows): number =>
+            rows.reduce(
+              (sum, row) => sum + signedTransactionBalanceEffect(row.type, row.amount),
+              0,
+            );
+          const oldEffect = effect(oldRows);
+          const newEffect = effect(newRows);
+          const netDelta = -oldEffect + newEffect;
+          expect(oldEffect + netDelta).toBe(newEffect);
+        },
+      ),
+    );
   });
 });
 

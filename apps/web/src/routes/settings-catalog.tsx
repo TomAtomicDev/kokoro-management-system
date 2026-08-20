@@ -222,7 +222,7 @@ export function SettingsCatalogRoute() {
         onSortChange={updateSort}
       />
 
-      <CreateItemDialog open={createOpen} onOpenChange={setCreateOpen} />
+      <CreateItemDialog open={createOpen} onOpenChange={setCreateOpen} allowOpeningStock />
       <MergeItemsDialog open={mergeOpen} onOpenChange={setMergeOpen} />
       <ItemDetailDrawer
         itemId={detailItemId}

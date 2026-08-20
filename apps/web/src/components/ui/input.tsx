@@ -1,8 +1,11 @@
-import type * as React from "react";
+import * as React from "react";
 
 import { cn } from "@/lib/utils";
 
-export type InputProps = React.InputHTMLAttributes<HTMLInputElement>;
+export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
+  /** Red border/ring + `aria-invalid` — set when this field's live error is visible (KOK-143). */
+  invalid?: boolean;
+}
 
 /** Removes characters that cannot be part of the app's non-negative decimal input convention. */
 export function sanitizeDecimalInput(value: string): string {
@@ -32,7 +35,10 @@ function sanitizeInputValue(value: string, inputMode: InputProps["inputMode"]): 
   return inputMode === "numeric" ? sanitizeNumericInput(value) : sanitizeDecimalInput(value);
 }
 
-export function Input({ className, inputMode, onChange, type, ...props }: InputProps) {
+export const Input = React.forwardRef<HTMLInputElement, InputProps>(function Input(
+  { className, inputMode, onChange, type, invalid, ...props },
+  ref,
+) {
   const isNumeric = inputMode === "decimal" || inputMode === "numeric" || type === "number";
   const handleChange = isNumeric
     ? (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -48,17 +54,20 @@ export function Input({ className, inputMode, onChange, type, ...props }: InputP
 
   return (
     <input
+      ref={ref}
       className={cn(
         "flex h-9 w-full rounded-md border border-input bg-card px-3 py-1 text-sm text-foreground shadow-sm " +
           "transition-colors placeholder:text-subtle-foreground focus-visible:outline-none " +
           "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 " +
           "disabled:cursor-not-allowed disabled:opacity-50",
+        invalid && "border-negative focus-visible:ring-negative",
         className,
       )}
       inputMode={inputMode}
       onChange={handleChange}
       type={type}
+      aria-invalid={invalid || undefined}
       {...props}
     />
   );
-}
+});

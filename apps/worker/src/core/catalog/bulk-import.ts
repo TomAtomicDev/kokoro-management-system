@@ -13,7 +13,7 @@ import type { Db } from "../../db/index.js";
 import { items } from "../../db/schema.js";
 import { buildAuditLogInsert } from "../audit.js";
 import { buildReplacementCostHistoryInsert } from "../costing/replacement-cost-history.js";
-import { conflict } from "../errors.js";
+import { conflict, validationError } from "../errors.js";
 import { toItemDto } from "./dto.js";
 import { findItemRowByName } from "./items.js";
 
@@ -30,6 +30,12 @@ export async function bulkCreateItems(
 ): Promise<BulkCreateItemsResult> {
   const seenNames = new Set<string>();
   for (const item of command.items) {
+    if (item.openingQty !== undefined || item.openingUnitCostMc !== undefined) {
+      throw validationError(
+        "El stock inicial se registra al crear un ítem individual, no en el catálogo inicial.",
+        { field: "openingQty" },
+      );
+    }
     if (seenNames.has(item.name)) {
       throw conflict(`El nombre "${item.name}" aparece más de una vez en el lote.`, {
         field: "name",

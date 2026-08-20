@@ -3,7 +3,12 @@ import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 
 import { formatCostRateInput } from "@/lib/cost-rate";
-import { type ItemFormValues, itemFormValuesFromDto, parseItemFormValues } from "./ItemForm";
+import {
+  type ItemFormValues,
+  itemFormValuesFromDto,
+  parseItemFormValues,
+  validateItemFormFields,
+} from "./ItemForm";
 
 describe("parseItemFormValues semi-finished stock threshold", () => {
   const baseValues: ItemFormValues = {
@@ -94,5 +99,84 @@ describe("parseItemFormValues replacement cost", () => {
 
     expect(values.salePrice).toBe("12.5");
     expect(values.replacementCostMc).toBe("0.00231");
+  });
+});
+
+describe("validateItemFormFields (KOK-143 live validation)", () => {
+  const baseValues: ItemFormValues = {
+    name: "Masa madre activada",
+    kind: "SEMI_FINISHED",
+    category: "BAKERY",
+    unit: "KG",
+    salePrice: "",
+    minStockQty: "",
+    replacementCostMc: "",
+    isUnmetered: false,
+    notes: "",
+  };
+
+  it("returns no errors for a valid semi-finished item", () => {
+    expect(validateItemFormFields(baseValues)).toEqual({});
+  });
+
+  it("reports several simultaneous field errors, not just the first", () => {
+    const errors = validateItemFormFields({
+      ...baseValues,
+      name: "",
+      kind: "RAW_MATERIAL",
+      minStockQty: "",
+    });
+
+    expect(errors).toEqual({
+      name: "nameRequired",
+      minStockQty: "minStockQtyRequired",
+    });
+  });
+
+  it("requires a sale price for FINISHED items", () => {
+    const errors = validateItemFormFields({ ...baseValues, kind: "FINISHED" });
+    expect(errors.salePrice).toBe("salePriceRequired");
+  });
+
+  it("forbids a sale price outside FINISHED", () => {
+    const errors = validateItemFormFields({
+      ...baseValues,
+      kind: "RAW_MATERIAL",
+      salePrice: "12.50",
+      minStockQty: "0",
+    });
+    expect(errors.salePrice).toBe("salePriceForbidden");
+  });
+
+  it("flags an unparseable value over the required/forbidden rule", () => {
+    const errors = validateItemFormFields({ ...baseValues, kind: "FINISHED", salePrice: "abc" });
+    expect(errors.salePrice).toBe("salePriceInvalid");
+  });
+
+  it("agrees with parseItemFormValues on the first error it would report", () => {
+    fc.assert(
+      fc.property(
+        fc.record({
+          name: fc.constantFrom("", "Harina"),
+          kind: fc.constantFrom("RAW_MATERIAL", "SEMI_FINISHED", "FINISHED", "PACKAGING"),
+          salePrice: fc.constantFrom("", "abc", "5.00"),
+          minStockQty: fc.constantFrom("", "abc", "1"),
+        }),
+        ({ name, kind, salePrice, minStockQty }) => {
+          const values: ItemFormValues = {
+            ...baseValues,
+            name,
+            kind,
+            salePrice,
+            minStockQty,
+          };
+          const parsed = parseItemFormValues(values);
+          const fieldErrors = validateItemFormFields(values);
+          if (!parsed.ok) {
+            expect(fieldErrors[parsed.field]).toBe(parsed.code);
+          }
+        },
+      ),
+    );
   });
 });

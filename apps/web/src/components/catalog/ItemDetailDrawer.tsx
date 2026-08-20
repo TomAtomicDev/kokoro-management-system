@@ -18,14 +18,17 @@ import {
   useSetItemActiveMutation,
   useUpdateItemMutation,
 } from "@/features/catalog/api";
+import { useFieldValidation } from "@/hooks/useFieldValidation";
 import { ApiError } from "@/lib/api";
 import { catalogLabels } from "@/lib/i18n-catalog";
 
 import {
+  ITEM_FORM_FIELD_ORDER,
   ItemForm,
   type ItemFormValues,
   itemFormValuesFromDto,
   parseItemFormValues,
+  validateItemFormFields,
 } from "./ItemForm";
 
 export interface ItemDetailDrawerProps {
@@ -45,6 +48,7 @@ export function ItemDetailDrawer({ itemId, open, onOpenChange }: ItemDetailDrawe
   const [error, setError] = useState<string | null>(null);
   const [aliasInput, setAliasInput] = useState("");
   const [aliasError, setAliasError] = useState<string | null>(null);
+  const validation = useFieldValidation();
 
   // Reset local edit state whenever the drawer targets a different item. itemId is used only as
   // a trigger here (the body doesn't read it), so it's an intentional exception to
@@ -55,6 +59,7 @@ export function ItemDetailDrawer({ itemId, open, onOpenChange }: ItemDetailDrawe
     setError(null);
     setAliasInput("");
     setAliasError(null);
+    validation.reset();
   }, [itemId]);
 
   // ...then seed it once from the fetched item, but only the first time Ã¢â‚¬â€ a later refetch
@@ -71,6 +76,12 @@ export function ItemDetailDrawer({ itemId, open, onOpenChange }: ItemDetailDrawe
 
   async function handleSave() {
     if (!values || !itemId) return;
+    const canSubmit = validation.attemptSubmit(
+      validateItemFormFields(values),
+      ITEM_FORM_FIELD_ORDER,
+    );
+    if (!canSubmit) return;
+
     const parsed = parseItemFormValues(values);
     if (!parsed.ok) {
       setError(catalogLabels.errors[parsed.code]);
@@ -147,6 +158,7 @@ export function ItemDetailDrawer({ itemId, open, onOpenChange }: ItemDetailDrawe
               replacementCostMc: item.replacementCostMc,
               replacementCostUpdatedAt: item.replacementCostUpdatedAt,
             }}
+            validation={validation}
           />
           {error ? <p className="text-negative text-sm">{error}</p> : null}
           <Button type="button" onClick={handleSave} disabled={updateMutation.isPending}>

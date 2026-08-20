@@ -8,6 +8,7 @@
 import type {
   CommitCountCommand,
   CommitCountResult,
+  DeleteCountResult,
   DeleteStockExitCommand,
   DeleteStockExitResult,
   InventoryCountDto,
@@ -264,6 +265,14 @@ export function useCommitCount() {
       const command = typeof input === "string" ? { countId: input } : input;
       return api.post<CommitCountResult>(`/inventory/counts/${command.countId}/commit`, command);
     },
+    onSuccess: invalidate,
+  });
+}
+
+export function useDeleteCount(countId: string) {
+  const invalidate = useInvalidateInventory();
+  return useMutation({
+    mutationFn: () => api.delete<DeleteCountResult>(`/inventory/counts/${countId}`),
     onSuccess: invalidate,
   });
 }
