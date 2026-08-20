@@ -849,6 +849,139 @@ describe("reads: getProductionRun / listProductionRuns", () => {
   });
 });
 
+describe("recordProductionRun without a recipe (KOK-144)", () => {
+  it("uses the manually selected output and actual lines for C-4 and order-linked costing", async () => {
+    const db = createDb(env.DB);
+    const rawItem = await seedItem(db, "Recipe-less raw");
+    const output = await seedItem(db, "Recipe-less output", "SEMI_FINISHED");
+    await recordPurchase(
+      db,
+      {
+        accountId: "acc_bank",
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        lines: [{ itemId: rawItem.id, qty: 1_000, lineTotal: 500_000 }],
+      },
+      ACTOR,
+    );
+    const customer = await createCustomer(db, { name: "Recipe-less customer" }, ACTOR);
+    const { order } = await quoteOrder(
+      db,
+      { customerId: customer.id, description: "Recipe-less order", agreedTotal: 200_000 },
+      ACTOR,
+    );
+
+    const result = await recordProductionRun(
+      db,
+      {
+        recipeId: null,
+        outputItemId: output.id,
+        customOrderId: order.id,
+        batches: 1,
+        actualOutputQty: 1_000,
+        indirectCost: 150,
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        lines: [{ itemId: rawItem.id, qty: 200 }],
+      },
+      ACTOR,
+    );
+
+    expect(result.productionRun.recipeId).toBeNull();
+    expect(result.productionRun.outputItemId).toBe(output.id);
+    expect(result.productionRun.directCost).toBe(100_000);
+    expect(result.productionRun.totalCost).toBe(100_150);
+    expect(result.productionRun.outputUnitCostMc).toBe(100_150_000);
+
+    const linked = await listProductionRuns(db, { customOrderId: order.id });
+    expect(linked.productionRuns).toHaveLength(1);
+    expect(linked.productionRuns[0]).toMatchObject({
+      id: result.productionRun.id,
+      recipeId: null,
+      totalCost: 100_150,
+    });
+  });
+
+  it("replays a recipe-less run through the same R-2/R-5 guard", async () => {
+    const db = createDb(env.DB);
+    const rawItem = await seedItem(db, "Recipe-less replay raw");
+    const output = await seedItem(db, "Recipe-less replay output", "SEMI_FINISHED");
+    const baseCommand = {
+      recipeId: null,
+      outputItemId: output.id,
+      batches: 1,
+      actualOutputQty: 10_000,
+      occurredAt: "2026-07-10T10:00:00.000Z",
+      businessDate: "2026-07-10",
+      lines: [{ itemId: rawItem.id, qty: 1 }],
+    };
+    await recordProductionRun(db, { ...baseCommand, indirectCost: 20_000 }, ACTOR);
+    const exit = await recordExit(
+      db,
+      {
+        itemId: output.id,
+        qty: 8_000,
+        reason: "WASTE",
+        occurredAt: "2026-07-11T10:00:00.000Z",
+        businessDate: "2026-07-11",
+      },
+      ACTOR,
+    );
+    await recordProductionRun(
+      db,
+      {
+        ...baseCommand,
+        indirectCost: 40_000,
+        occurredAt: "2026-07-12T10:00:00.000Z",
+        businessDate: "2026-07-12",
+      },
+      ACTOR,
+    );
+    const command = {
+      ...baseCommand,
+      indirectCost: 100_000,
+      occurredAt: "2026-07-10T12:00:00.000Z",
+    };
+
+    const preview = await previewProductionRunImpact(db, { op: "create", command });
+    expect(preview.requiresConfirmation).toBe(true);
+    expect(preview.affectedStockExitIds).toEqual([exit.exit.id]);
+    await expect(recordProductionRun(db, command, ACTOR)).rejects.toMatchObject({
+      code: "CONFLICT",
+      details: { reason: "REPLAY_CONFIRMATION_REQUIRED" },
+    });
+
+    const confirmed = await recordProductionRun(db, { ...command, confirm: true }, ACTOR);
+    expect(confirmed.productionRun.recipeId).toBeNull();
+    expect(confirmed.productionRun.totalCost).toBe(100_000);
+  });
+
+  it("keeps recipe-less C-4 arithmetic integer-safe across arbitrary actual lines", () => {
+    fc.assert(
+      fc.property(
+        fc.array(
+          fc.record({
+            qty: fc.integer({ min: 1, max: 1_000_000 }),
+            unitCostSnapshotMc: fc.integer({ min: 0, max: 10_000_000 }),
+          }),
+          { minLength: 1, maxLength: 20 },
+        ),
+        fc.integer({ min: 1, max: 1_000_000 }),
+        (lines, actualOutputQty) => {
+          const consumptions = lines.map((line) => ({
+            qty: line.qty,
+            unitCostSnapshotMc: toMilliCentavosPerUnit(line.unitCostSnapshotMc),
+          }));
+          const costs = computeProductionCosts(consumptions, 0, 0, actualOutputQty);
+          expect(Number.isSafeInteger(costs.directCost)).toBe(true);
+          expect(Number.isSafeInteger(costs.totalCost)).toBe(true);
+          expect(Number.isSafeInteger(costs.outputUnitCostMc)).toBe(true);
+        },
+      ),
+    );
+  });
+});
+
 // ---------------------------------------------------------------------------
 // updateProductionRun / deleteProductionRun / restoreProductionRun (R-1/R-3/R-5, INV-8/9/10, D-8).
 // Mirrors purchasing.test.ts's identical section, minus the cash-side assertions.

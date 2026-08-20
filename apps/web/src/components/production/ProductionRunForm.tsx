@@ -94,6 +94,7 @@ function emptyLine(): ProductionLineValue {
 
 interface ProductionRunFormState {
   recipeId: string;
+  outputItemId: string;
   customOrderId: string | null;
   /** REAL decimal string (e.g. "2.5") â€” `batches` is not milli-scaled (production-runs.ts's
    * `batchesSchema`: `z.number().positive()`, no `.int()`), so `parseBatches` below is used
@@ -182,7 +183,8 @@ export function productionRunToFormState(
   });
 
   return {
-    recipeId: productionRun.recipeId,
+    recipeId: productionRun.recipeId ?? "",
+    outputItemId: productionRun.outputItemId,
     customOrderId: productionRun.customOrderId,
     batches: String(productionRun.batches),
     actualOutputQty: formatIntAsDecimalInput(productionRun.actualOutputQty, 3),
@@ -286,6 +288,7 @@ export function ProductionRunForm({ productionRun, preselectedSessionId }: Produ
   const draftKey = productionRun ? `production:${productionRun.id}` : "production:new";
 
   const [recipeId, setRecipeId] = useState("");
+  const [outputItemId, setOutputItemId] = useState("");
   const [customOrderId, setCustomOrderId] = useState<string | null>(null);
   const [batches, setBatches] = useState("1");
   const [actualOutputQty, setActualOutputQty] = useState("");
@@ -303,6 +306,7 @@ export function ProductionRunForm({ productionRun, preselectedSessionId }: Produ
 
   const currentFormState: ProductionRunFormState = {
     recipeId,
+    outputItemId,
     customOrderId,
     batches,
     actualOutputQty,
@@ -371,10 +375,13 @@ export function ProductionRunForm({ productionRun, preselectedSessionId }: Produ
 
   const selectedRecipe = recipeId ? (recipesById.get(recipeId) ?? null) : null;
   const productionRunRecipe = productionRun
-    ? (recipesById.get(productionRun.recipeId) ?? null)
+    ? productionRun.recipeId
+      ? (recipesById.get(productionRun.recipeId) ?? null)
+      : null
     : null;
   const editSeedRecipe = productionRunRecipe ?? selectedRecipe;
-  const outputItem = selectedRecipe ? (itemsById.get(selectedRecipe.outputItemId) ?? null) : null;
+  const selectedOutputItemId = selectedRecipe?.outputItemId ?? outputItemId;
+  const outputItem = selectedOutputItemId ? (itemsById.get(selectedOutputItemId) ?? null) : null;
 
   // Runs once per mount (route-owned state, KOK-141 — there is no `open` transition anymore).
   // Recipe data can arrive after the run: wait for it before seeding edit tracking so a clean
@@ -390,7 +397,7 @@ export function ProductionRunForm({ productionRun, preselectedSessionId }: Produ
     // already gets below. Only a freshly loaded saved `productionRun` gets real tracking.
     let tracking: ProductionRunEditTracking | null = null;
     if (savedDraft) {
-      initialFormState = savedDraft;
+      initialFormState = { ...savedDraft, outputItemId: savedDraft.outputItemId ?? "" };
     } else if (productionRun) {
       initialFormState = productionRunToFormState(productionRun, editSeedRecipe ?? undefined);
       tracking = productionRunEditTracking(
@@ -401,6 +408,7 @@ export function ProductionRunForm({ productionRun, preselectedSessionId }: Produ
     } else {
       initialFormState = {
         recipeId: "",
+        outputItemId: "",
         customOrderId: null,
         batches: "1",
         actualOutputQty: "",
@@ -412,6 +420,7 @@ export function ProductionRunForm({ productionRun, preselectedSessionId }: Produ
     }
 
     setRecipeId(initialFormState.recipeId);
+    setOutputItemId(initialFormState.outputItemId);
     setCustomOrderId(initialFormState.customOrderId);
     setBatches(initialFormState.batches);
     setActualOutputQty(initialFormState.actualOutputQty);
@@ -434,6 +443,7 @@ export function ProductionRunForm({ productionRun, preselectedSessionId }: Produ
     if (initializedRef.current !== draftKey) return;
     writePersistentDraft<ProductionRunFormState>(draftKey, {
       recipeId,
+      outputItemId,
       customOrderId,
       batches,
       actualOutputQty,
@@ -452,6 +462,7 @@ export function ProductionRunForm({ productionRun, preselectedSessionId }: Produ
     lines,
     notes,
     recipeId,
+    outputItemId,
   ]);
 
   const disabled = isEditMode ? editReplay.isPending : createReplay.isPending;
@@ -462,7 +473,18 @@ export function ProductionRunForm({ productionRun, preselectedSessionId }: Produ
   function handleRecipeChange(newRecipeId: string) {
     setRecipeId(newRecipeId);
     const recipe = recipesById.get(newRecipeId);
-    if (!recipe) return;
+    if (!recipe) {
+      setOutputItemId("");
+      setBatches("1");
+      setLines([emptyLine()]);
+      lineAutoQtyRef.current.clear();
+      dirtyLineKeysRef.current = new Set();
+      setActualOutputQty("");
+      actualOutputQtyAutoRef.current = null;
+      actualOutputQtyDirtyRef.current = true;
+      return;
+    }
+    setOutputItemId(recipe.outputItemId);
     const batchesValue = parseBatches(batches) ?? 1;
     const nextLines =
       recipe.lines.length > 0
@@ -535,8 +557,8 @@ export function ProductionRunForm({ productionRun, preselectedSessionId }: Produ
 
   async function handleSubmit() {
     setError(null);
-    if (!recipeId) {
-      setError(productionLabels.errors.recipeRequired);
+    if (!recipeId && !outputItemId) {
+      setError(productionLabels.errors.outputItemRequired);
       return;
     }
 
@@ -573,7 +595,8 @@ export function ProductionRunForm({ productionRun, preselectedSessionId }: Produ
     }
 
     const parsed = recordProductionRunCommandSchema.safeParse({
-      recipeId,
+      recipeId: recipeId || null,
+      outputItemId: recipeId ? undefined : outputItemId,
       customOrderId,
       sessionId: productionRun ? undefined : preselectedSessionId,
       batches: batchesValue,
@@ -773,7 +796,11 @@ export function ProductionRunForm({ productionRun, preselectedSessionId }: Produ
                 >
                   {productionLabels.cancel}
                 </Button>
-                <Button type="button" onClick={handleSubmit} disabled={disabled || !recipeId}>
+                <Button
+                  type="button"
+                  onClick={handleSubmit}
+                  disabled={disabled || (!recipeId && !outputItemId)}
+                >
                   {isEditMode ? productionLabels.save : productionLabels.submit}
                 </Button>
               </>
@@ -791,9 +818,7 @@ export function ProductionRunForm({ productionRun, preselectedSessionId }: Produ
             onChange={(e) => handleRecipeChange(e.target.value)}
             disabled={disabled}
           >
-            <option value="" disabled>
-              {productionLabels.recipePlaceholder}
-            </option>
+            <option value="">{productionLabels.recipeLessOption}</option>
             {recipes.map((recipe) => (
               <option key={recipe.id} value={recipe.id}>
                 {recipe.name}
@@ -801,6 +826,31 @@ export function ProductionRunForm({ productionRun, preselectedSessionId }: Produ
             ))}
           </Select>
         </div>
+
+        {!selectedRecipe ? (
+          <div className="flex flex-col gap-1.5">
+            <label className="font-medium text-foreground" htmlFor="prf-output-item">
+              {productionLabels.fieldOutputItem}
+            </label>
+            <Select
+              id="prf-output-item"
+              value={outputItemId}
+              onChange={(e) => setOutputItemId(e.target.value)}
+              disabled={disabled}
+            >
+              <option value="" disabled>
+                {productionLabels.outputItemPlaceholder}
+              </option>
+              {(itemsQuery.data?.items ?? [])
+                .filter((item) => item.kind === "SEMI_FINISHED" || item.kind === "FINISHED")
+                .map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
+                ))}
+            </Select>
+          </div>
+        ) : null}
 
         <div className="flex flex-col gap-1.5">
           <label className="font-medium text-foreground" htmlFor="linked-order-picker">

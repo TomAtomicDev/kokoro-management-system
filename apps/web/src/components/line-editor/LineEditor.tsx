@@ -78,6 +78,8 @@ export interface LineEditorProps<T extends LineEditorLine> {
   itemKindFilter?: ItemKind | ItemKind[];
   /** Additional constraints passed through to each row's ItemPicker. */
   itemEligibility?: ItemPickerEligibility;
+  /** KOK-145: opt in to opening-stock fields in inline item creation. */
+  allowOpeningStock?: boolean;
   /** Explains why no item matches itemEligibility. */
   itemEmptyMessage?: string;
   /** Resolves an item's canonical unit for the unit suffix or opt-in display-unit selector. */
@@ -114,6 +116,7 @@ export function LineEditor<T extends LineEditorLine>({
   disabled,
   itemKindFilter,
   itemEligibility,
+  allowOpeningStock = false,
   itemEmptyMessage,
   getItemUnit,
   unitSelector,
@@ -202,6 +205,7 @@ export function LineEditor<T extends LineEditorLine>({
                 }}
                 kindFilter={itemKindFilter}
                 eligibility={itemEligibility}
+                allowOpeningStock={allowOpeningStock}
                 emptyMessage={itemEmptyMessage}
                 disabled={disabled}
                 placeholder={labels.item}

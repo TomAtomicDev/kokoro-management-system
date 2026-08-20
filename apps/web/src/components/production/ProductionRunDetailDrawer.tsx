@@ -103,7 +103,7 @@ export function ProductionRunDetailDrawer({
 
   if (!productionRunId) return null;
   const productionRun = productionRunQuery.data;
-  const recipe = productionRun ? recipesById.get(productionRun.recipeId) : undefined;
+  const recipe = productionRun?.recipeId ? recipesById.get(productionRun.recipeId) : undefined;
   const outputItem = productionRun ? itemById.get(productionRun.outputItemId) : undefined;
 
   return (
@@ -163,7 +163,7 @@ export function ProductionRunDetailDrawer({
               <div className="flex items-center justify-between">
                 <span className="text-muted-foreground">{productionLabels.detailRecipe}</span>
                 <span className="font-medium text-foreground">
-                  {recipe?.name ?? productionRun.recipeId}
+                  {recipe?.name ?? productionLabels.detailNoRecipe}
                 </span>
               </div>
               <div className="flex items-center justify-between">

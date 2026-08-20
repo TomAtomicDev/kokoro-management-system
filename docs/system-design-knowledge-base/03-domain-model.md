@@ -154,7 +154,11 @@ non-food-raw-material bucket `LABEL` used to occupy. A PACKAGING item is purchas
   `direct = Σ(consumed qty × consumed item's WAC at commit time)`;
   `total = direct + indirect_cost + allocated session shared cost (§6)`;
   `output unit cost = total / actual_output_qty`. Actual output absorbs shrinkage/merma
-  automatically. Output entry updates the output item's WAC per C-1.
+  automatically. Output entry updates the output item's WAC per C-1. **KOK-144 amendment:**
+  `recipe_id` may be NULL for a one-off run; in that mode the owner selects the output item and
+  enters the actual consumption lines directly. The recipe remains a prefill only, so C-4, R-2/R-5
+  replay, and order-linked profitability use the same stored consumption/output data regardless of
+  whether a recipe was selected.
 - **C-5 Margins** (per finished item):
   `margin_wac = price − wac`; `margin_replacement = price − effective replacement cost (C-3c)`;
   percentages over price. **Price-health alert** when

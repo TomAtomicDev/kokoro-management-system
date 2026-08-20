@@ -12,10 +12,11 @@
 //
 // Recipe-as-template (Doc 03 §3 aggregate note): consumption lines default from `recipe.lines ×
 // batches` but are freely editable before commit, so `lines` here is the run's ACTUAL post-edit
-// consumption, never re-derived from the recipe server-side. `outputItemId` is likewise NOT part
-// of any command — it is denormalized from `recipes.outputItemId` at commit time (Doc 04 §3.3's
-// own comment: "denormalized from recipe at commit"), so accepting it from the caller would let a
-// client claim a production run yielded a different item than its recipe actually makes.
+// consumption, never re-derived from the recipe server-side. When no recipe is selected, the
+// caller supplies `outputItemId` and enters the actual consumption directly (KOK-144). In the
+// recipe-backed case `outputItemId` remains absent from the command and is denormalized from
+// `recipes.outputItemId` at commit time, so a client cannot claim a recipe run yielded a different
+// item than its recipe actually makes.
 //
 // `allocatedSessionCost` is entirely absent from every command below: it is a stored column
 // (`production_runs.allocated_session_cost`, default 0) owned exclusively by KOK-028's
@@ -64,27 +65,48 @@ export const productionLineCommandSchema = z.object({
 });
 export type ProductionLineCommand = z.infer<typeof productionLineCommandSchema>;
 
-export const recordProductionRunCommandSchema = z.object({
-  recipeId: z.string().min(1),
-  // Sessions (KOK-027) and custom orders (KOK-033) don't exist yet — accepted and passed through,
-  // not validated against their tables here beyond the DB's own `ON DELETE restrict` FK, mirroring
-  // purchasing.ts's identical `sessionId` precedent.
-  sessionId: z.string().min(1).optional(),
-  customOrderId: customOrderIdSchema,
-  batches: batchesSchema,
-  actualOutputQty: actualOutputQtySchema,
-  indirectCost: indirectCostSchema,
-  notes: z.string().trim().pipe(safeText(PRODUCTION_RUN_NOTES_MAX_LENGTH)).optional(),
-  occurredAt: occurredAtSchema,
-  businessDate: businessDateSchema,
-  lines: z.array(productionLineCommandSchema).min(1, "Se requiere al menos un insumo consumido."),
-  // R-5 / ADR-016 (KOK-024's mechanism, KOK-026 is its first non-purchasing consumer): a run whose
-  // `business_date` lands before the latest already-processed movement of an item it touches (an
-  // input OR the output) re-weights C-1 for every later kardex entry, which can change cost already
-  // booked against a recorded sale/exit/other production run. Same shared flag as purchasing.ts /
-  // exits.ts (D-4).
-  confirm: confirmFlagSchema,
-});
+export const recordProductionRunCommandSchema = z
+  .object({
+    /** Optional template. `null`/omitted selects recipe-less production (KOK-144). */
+    recipeId: z.string().min(1).nullable().optional(),
+    /** Required only when `recipeId` is null/omitted; forbidden in the recipe-backed case. */
+    outputItemId: z.string().min(1).optional(),
+    // Sessions (KOK-027) and custom orders (KOK-033) don't exist yet — accepted and passed through,
+    // not validated against their tables here beyond the DB's own `ON DELETE restrict` FK, mirroring
+    // purchasing.ts's identical `sessionId` precedent.
+    sessionId: z.string().min(1).optional(),
+    customOrderId: customOrderIdSchema,
+    batches: batchesSchema,
+    actualOutputQty: actualOutputQtySchema,
+    indirectCost: indirectCostSchema,
+    notes: z.string().trim().pipe(safeText(PRODUCTION_RUN_NOTES_MAX_LENGTH)).optional(),
+    occurredAt: occurredAtSchema,
+    businessDate: businessDateSchema,
+    lines: z.array(productionLineCommandSchema).min(1, "Se requiere al menos un insumo consumido."),
+    // R-5 / ADR-016 (KOK-024's mechanism, KOK-026 is its first non-purchasing consumer): a run whose
+    // `business_date` lands before the latest already-processed movement of an item it touches (an
+    // input OR the output) re-weights C-1 for every later kardex entry, which can change cost already
+    // booked against a recorded sale/exit/other production run. Same shared flag as purchasing.ts /
+    // exits.ts (D-4).
+    confirm: confirmFlagSchema,
+  })
+  .superRefine((command, ctx) => {
+    if (command.recipeId === null || command.recipeId === undefined) {
+      if (!command.outputItemId) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["outputItemId"],
+          message: "Selecciona el ítem de salida cuando la producción no tiene receta.",
+        });
+      }
+    } else if (command.outputItemId !== undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["outputItemId"],
+        message: "El ítem de salida se determina por la receta seleccionada.",
+      });
+    }
+  });
 /** `z.input`, not `z.infer` — see purchasing.ts's `RecordPurchaseCommand` for why (`confirm` and
  * `indirectCost`'s `.default()`s would otherwise make both fields required on every command
  * literal, including the many call sites — web mutation hooks, tests — that legitimately omit
@@ -93,8 +115,8 @@ export type RecordProductionRunCommand = z.input<typeof recordProductionRunComma
 
 /**
  * Full replacement, same shape as create (mirrors purchasing.ts's `updatePurchaseCommandSchema`
- * precedent): the caller sends the complete edited run, not a patch — same lines, same recipe,
- * same batches/output/dates, and the same `confirm` flag.
+ * precedent): the caller sends the complete edited run, not a patch — same lines, optional recipe
+ * plus output item when recipe-less, same batches/output/dates, and the same `confirm` flag.
  */
 export const updateProductionRunCommandSchema = recordProductionRunCommandSchema;
 /** `z.input` for the same reason as `RecordProductionRunCommand`. */
@@ -158,12 +180,13 @@ export interface ProductionRunDto {
   id: string;
   occurredAt: string;
   businessDate: string;
-  recipeId: string;
+  /** Null for a one-off run recorded without a reusable recipe (KOK-144). */
+  recipeId: string | null;
   sessionId: string | null;
   customOrderId: string | null;
   /** REAL — see `batchesSchema`. */
   batches: number;
-  /** Denormalized from the recipe at commit (Doc 04 §3.3) — never independently editable. */
+  /** Denormalized from the recipe, or selected directly when recipe-less (KOK-144). */
   outputItemId: string;
   /** Milli-units (Doc 04 §2). Actual yield; absorbs merma vs. `recipe.expectedYieldQty × batches`
    * automatically (C-4) — this module has no separate "variance" field, the yield-% the UI shows

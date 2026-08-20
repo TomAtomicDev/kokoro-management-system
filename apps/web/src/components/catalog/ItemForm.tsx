@@ -99,6 +99,17 @@ export interface ItemFormParsed {
   notes: string | null;
 }
 
+export interface OpeningStockFormValues {
+  enabled: boolean;
+  qty: string;
+  unitCost: string;
+}
+
+export interface OpeningStockFormErrors {
+  qty?: string;
+  unitCost?: string;
+}
+
 export type ItemFormFieldName = "name" | "salePrice" | "minStockQty" | "replacementCostMc";
 
 export type ItemFormErrorCode =
@@ -278,6 +289,11 @@ export interface ItemFormProps {
    */
   derived?: { wacMc: number; replacementCostMc: number; replacementCostUpdatedAt: string | null };
   disabled?: boolean;
+  /** KOK-145: only Catalogo and the Recipes inline-create opt into the opening mini-count. */
+  allowOpeningStock?: boolean;
+  openingStock?: OpeningStockFormValues;
+  onOpeningStockChange?: (values: OpeningStockFormValues) => void;
+  openingStockErrors?: OpeningStockFormErrors;
   /** KOK-143 live validation — the caller owns the hook instance (`useFieldValidation()`) so it
    * can also drive `attemptSubmit` on its own save/create action. */
   validation: UseFieldValidationResult;
@@ -289,6 +305,10 @@ export function ItemForm({
   derived,
   disabled,
   isEditMode = false,
+  allowOpeningStock = false,
+  openingStock,
+  onOpeningStockChange,
+  openingStockErrors,
   validation,
 }: ItemFormProps) {
   const formId = useId();
@@ -511,6 +531,73 @@ export function ItemForm({
           disabled={disabled}
         />
       </Field>
+
+      {allowOpeningStock && !isEditMode && openingStock && onOpeningStockChange ? (
+        <div className="flex flex-col gap-3 rounded-md border border-border px-3 py-3">
+          <div className="flex items-center gap-2 text-foreground text-sm">
+            <Switch
+              checked={openingStock.enabled}
+              onCheckedChange={(enabled) => onOpeningStockChange({ ...openingStock, enabled })}
+              disabled={disabled || values.isUnmetered}
+              aria-label={catalogLabels.fieldOpeningStock}
+            />
+            <span>{catalogLabels.fieldOpeningStock}</span>
+            <InfoTooltip
+              content={catalogLabels.tooltipFieldOpeningStock}
+              label={`Más información: ${catalogLabels.fieldOpeningStock}`}
+            />
+          </div>
+          {openingStock.enabled && !values.isUnmetered ? (
+            <div className="grid grid-cols-2 gap-3">
+              <Field
+                label={`${catalogLabels.fieldOpeningQty} (${UNIT_ABBREV[values.unit]})`}
+                htmlFor={`${formId}-opening-qty`}
+                required
+                error={openingStockErrors?.qty}
+              >
+                <Input
+                  ref={validation.registerRef("openingQty")}
+                  id={`${formId}-opening-qty`}
+                  inputMode="decimal"
+                  placeholder="0"
+                  value={openingStock.qty}
+                  onChange={(event) =>
+                    onOpeningStockChange({ ...openingStock, qty: event.target.value })
+                  }
+                  onBlur={() => validation.handleBlur("openingQty")}
+                  invalid={Boolean(openingStockErrors?.qty)}
+                  disabled={disabled}
+                  required
+                />
+              </Field>
+              <Field
+                label={`${catalogLabels.fieldOpeningUnitCost} (${UNIT_ABBREV[values.unit]})`}
+                htmlFor={`${formId}-opening-unit-cost`}
+                required
+                error={openingStockErrors?.unitCost}
+              >
+                <Input
+                  ref={validation.registerRef("openingUnitCost")}
+                  id={`${formId}-opening-unit-cost`}
+                  inputMode="decimal"
+                  placeholder="0.00"
+                  value={openingStock.unitCost}
+                  onChange={(event) =>
+                    onOpeningStockChange({ ...openingStock, unitCost: event.target.value })
+                  }
+                  onBlur={() => validation.handleBlur("openingUnitCost")}
+                  invalid={Boolean(openingStockErrors?.unitCost)}
+                  disabled={disabled}
+                  required
+                />
+              </Field>
+            </div>
+          ) : null}
+          {values.isUnmetered ? (
+            <p className="text-muted-foreground text-xs">{catalogLabels.openingStockUnmetered}</p>
+          ) : null}
+        </div>
+      ) : null}
 
       {derived ? (
         <div className="flex flex-col gap-1 rounded-md border border-border bg-muted px-3 py-2.5 text-sm">

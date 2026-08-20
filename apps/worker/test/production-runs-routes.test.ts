@@ -83,7 +83,8 @@ async function createRecipe(
 }
 
 interface ProductionRunBody {
-  recipeId: string;
+  recipeId?: string | null;
+  outputItemId?: string;
   batches: number;
   actualOutputQty: number;
   indirectCost?: number;
@@ -154,6 +155,27 @@ describe("POST /api/production-runs", () => {
     expect(body.productionRun.totalCost).toBe(100);
     // ADR-017: the server derives the per-whole-unit rate through `rateFromTotal`.
     expect(body.productionRun.outputUnitCostMc).toBe(200_000);
+  });
+
+  it("records a recipe-less run with a manually selected output", async () => {
+    const auth = await login();
+    const rawItemId = await createItem(auth, "Route recipe-less raw");
+    const outputItemId = await createItem(auth, "Route recipe-less output", "SEMI_FINISHED");
+
+    const { res, json } = await createProductionRun(auth, {
+      recipeId: null,
+      outputItemId,
+      batches: 1,
+      actualOutputQty: 500,
+      indirectCost: 100,
+      occurredAt: NOW,
+      businessDate: BUSINESS_DATE,
+      lines: [{ itemId: rawItemId, qty: 100 }],
+    });
+    expect(res.status).toBe(201);
+    const body = json as ProductionRunDtoShape;
+    expect(body.productionRun.directCost).toBe(0);
+    expect(body.productionRun.totalCost).toBe(100);
   });
 
   it("rejects a FINISHED consumption item with 400 VALIDATION", async () => {

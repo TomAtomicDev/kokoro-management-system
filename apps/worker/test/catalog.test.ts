@@ -5,7 +5,6 @@ import { env } from "cloudflare:test";
 import { toMilliCentavosPerUnit } from "@kokoro/shared";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
-
 import {
   addItemAlias,
   createItem,
@@ -16,6 +15,7 @@ import {
   setItemActive,
   updateItem,
 } from "../src/core/catalog/index.js";
+import { recomputeWacFromMovements } from "../src/core/costing/wac.js";
 import { createDb } from "../src/db/index.js";
 import { items, replacementCostHistory } from "../src/db/schema.js";
 
@@ -79,6 +79,69 @@ describe("createItem", () => {
       observedAt: item.replacementCostUpdatedAt,
       source: "MANUAL",
     });
+  });
+
+  it("creates opening stock as a committed mini-count and OPENING_IN in the same batch (KOK-145)", async () => {
+    const db = createDb(env.DB);
+    const item = await createItem(
+      db,
+      {
+        name: "Avena con stock inicial",
+        kind: "RAW_MATERIAL",
+        category: "INGREDIENT",
+        unit: "KG",
+        minStockQty: 0,
+        openingQty: 2500,
+        openingUnitCostMc: mc(7),
+      },
+      ACTOR,
+    );
+
+    expect(item.wacMc).toBe(mc(7));
+    expect(item.replacementCostMc).toBe(mc(7));
+    expect(item.replacementCostUpdatedAt).toBeNull();
+
+    const movementRows = await db.query.stockMovements.findMany({
+      where: (t, { eq: eqOp }) => eqOp(t.itemId, item.id),
+    });
+    expect(movementRows).toHaveLength(1);
+    expect(movementRows[0]).toMatchObject({
+      itemId: item.id,
+      type: "OPENING_IN",
+      qty: 2500,
+      unitCostMc: mc(7),
+      sourceEventType: "inventory_count",
+    });
+    expect(
+      recomputeWacFromMovements(
+        movementRows.map((movement) => ({
+          type: movement.type,
+          qty: movement.qty,
+          unitCostMc: toMilliCentavosPerUnit(movement.unitCostMc),
+        })),
+      ),
+    ).toBe(item.wacMc);
+
+    const countRows = await db.query.inventoryCounts.findMany();
+    expect(countRows).toHaveLength(1);
+    expect(countRows[0]).toMatchObject({ status: "COMMITTED" });
+    const countLineRows = await db.query.inventoryCountLines.findMany();
+    expect(countLineRows).toEqual([
+      expect.objectContaining({
+        countId: countRows[0]?.id,
+        itemId: item.id,
+        expectedQty: 0,
+        countedQty: 2500,
+      }),
+    ]);
+
+    const stockRow = await db.query.itemStock.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.itemId, item.id),
+    });
+    expect(stockRow).toMatchObject({ itemId: item.id, qtyOnHand: 2500 });
+    expect(
+      await db.query.items.findFirst({ where: (t, { eq: eqOp }) => eqOp(t.id, item.id) }),
+    ).toMatchObject({ wacMc: mc(7), replacementCostMc: 0, replacementCostUpdatedAt: null });
   });
 
   it("projects opening-balance WAC as replacement cost until the first real purchase", async () => {

@@ -49,6 +49,22 @@ const replacementCostMcSchema = z
   .transform(toMilliCentavosPerUnit)
   .nullable()
   .optional();
+/** Milli-units of the item's own unit (Doc 04 section 2). Opening stock is a positive count, not a
+ * zero-variance placeholder, so the command never creates an empty opening movement. */
+const openingQtySchema = z
+  .number()
+  .int()
+  .positive("La cantidad de stock inicial debe ser mayor que cero.")
+  .refine(Number.isSafeInteger, "La cantidad de stock inicial debe ser un entero seguro.")
+  .optional();
+/** Milli-centavos per whole unit (ADR-017). C-8 requires a strictly positive caller-supplied
+ * valuation; unlike replacementCostMc this is already at the stored milli-centavo scale. */
+const openingUnitCostMcSchema = z
+  .number()
+  .int()
+  .positive("El costo unitario de stock inicial debe ser mayor que cero.")
+  .refine(Number.isSafeInteger, "El costo unitario de stock inicial debe ser un entero seguro.")
+  .optional();
 
 const salePriceRequiredMessage = "El precio de venta es obligatorio para productos finales.";
 const salePriceForbiddenMessage =
@@ -66,6 +82,8 @@ function addKindExclusiveIssues(
     minStockQty?: number | null;
     isUnmetered?: boolean;
     replacementCostMc?: MilliCentavosPerUnit | null;
+    openingQty?: number;
+    openingUnitCostMc?: number;
   },
   ctx: z.RefinementCtx,
 ): void {
@@ -121,6 +139,24 @@ function addKindExclusiveIssues(
       path: ["replacementCostMc"],
     });
   }
+
+  const hasOpeningQty = value.openingQty !== undefined;
+  const hasOpeningUnitCostMc = value.openingUnitCostMc !== undefined;
+  if (hasOpeningQty !== hasOpeningUnitCostMc) {
+    const missingPath = hasOpeningQty ? "openingUnitCostMc" : "openingQty";
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "El stock inicial necesita cantidad y costo unitario.",
+      path: [missingPath],
+    });
+  }
+  if ((hasOpeningQty || hasOpeningUnitCostMc) && value.isUnmetered) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Los ítems no medidos no pueden tener stock inicial.",
+      path: ["openingQty"],
+    });
+  }
 }
 
 export const createItemCommandSchema = z
@@ -133,6 +169,8 @@ export const createItemCommandSchema = z
     minStockQty: minStockQtySchema,
     isUnmetered: isUnmeteredSchema,
     replacementCostMc: replacementCostMcSchema,
+    openingQty: openingQtySchema,
+    openingUnitCostMc: openingUnitCostMcSchema,
     notes: notesSchema,
   })
   .superRefine((value, ctx) => addKindExclusiveIssues(value, ctx));

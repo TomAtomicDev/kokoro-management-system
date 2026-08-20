@@ -308,9 +308,9 @@ export const productionRuns = sqliteTable(
     id: text("id").primaryKey(),
     occurredAt: text("occurred_at").notNull(),
     businessDate: text("business_date").notNull(),
-    recipeId: text("recipe_id")
-      .notNull()
-      .references(() => recipes.id, { onDelete: "restrict" }),
+    // KOK-144: recipe is an optional prefill. Recipe-less runs choose their output item directly
+    // and persist actual consumption lines, so C-4 remains fully grounded in the event's actuals.
+    recipeId: text("recipe_id").references(() => recipes.id, { onDelete: "restrict" }),
     sessionId: text("session_id")
       .notNull()
       .references(() => sessions.id, { onDelete: "restrict" }),

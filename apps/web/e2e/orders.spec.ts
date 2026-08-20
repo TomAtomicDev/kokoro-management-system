@@ -50,7 +50,8 @@ test("quoting an order accepts a future delivery date", async ({ page }) => {
   await createCustomer(page, customerName);
 
   await page.goto("/orders");
-  await page.getByRole("button", { name: ordersLabels.actionQuote, exact: true }).click();
+  // KOK-141: "Nuevo pedido" now links to the full-page /orders/new form, not a drawer trigger.
+  await page.getByRole("link", { name: ordersLabels.actionQuote, exact: true }).click();
   await selectFromPicker(page, "Buscar cliente…", customerName);
   await page.getByLabel(ordersLabels.fieldDescription, { exact: true }).fill(description);
   await page.getByLabel(ordersLabels.fieldDeliveryDate).fill(deliveryDate);
@@ -75,7 +76,8 @@ test("an order's confirm, start production, mark ready, deliver and undo-deliver
   await createFinishedItem(page, itemName);
 
   await page.goto("/orders");
-  await page.getByRole("button", { name: ordersLabels.actionQuote, exact: true }).click();
+  // KOK-141: "Nuevo pedido" now links to the full-page /orders/new form, not a drawer trigger.
+  await page.getByRole("link", { name: ordersLabels.actionQuote, exact: true }).click();
   await selectFromPicker(page, "Buscar cliente…", customerName);
   await page.getByLabel(ordersLabels.fieldDescription, { exact: true }).fill(description);
   await page.getByLabel(ordersLabels.fieldAgreedTotal).fill("100");
