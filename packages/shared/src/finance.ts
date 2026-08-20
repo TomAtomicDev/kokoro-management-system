@@ -133,6 +133,19 @@ export interface FinancialAccountDto {
   isActive: boolean;
 }
 
+export type FinancialTransactionSourceEventType = "purchase" | "sale" | "custom_order" | "session";
+
+/**
+ * Read-only identity of the business event that owns a system-generated transaction. The id is
+ * used only for the deep link; the web UI renders the code and date, never the internal UUID.
+ */
+export interface FinancialTransactionSourceEventDto {
+  type: FinancialTransactionSourceEventType;
+  id: string;
+  code: string | null;
+  businessDate: string;
+}
+
 export interface FinancialTransactionDto {
   id: string;
   occurredAt: string;
@@ -145,6 +158,8 @@ export interface FinancialTransactionDto {
   counterpartTxId: string | null;
   sourceEventType: string | null;
   sourceEventId: string | null;
+  /** Present for known system-owned sources; omitted for standalone/manual rows. */
+  sourceEvent?: FinancialTransactionSourceEventDto;
   /** KOK-185: human-readable code (GTO-/ING-/RET-/TRF-NNNN-YYYY) — assigned ONLY for manual rows
    * (`sourceEventId === null`); a system-owned row (SALE, SUPPLY_PURCHASE, DEBT_COLLECTION,
    * ORDER_DEPOSIT, ORDER_BALANCE, DEPOSIT_REFUND) always carries `code: null` here by design — it

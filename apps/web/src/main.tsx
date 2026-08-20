@@ -2,7 +2,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider } from "@tanstack/react-router";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-
+import { RecipeTimerProvider } from "@/components/layout/recipe-timer-context";
 import { ToastProvider } from "@/components/ui/toast";
 import { initializeTheme } from "@/features/theme/use-theme";
 import { queryClient } from "@/lib/query-client";
@@ -22,7 +22,9 @@ createRoot(rootElement).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <ToastProvider>
-        <RouterProvider router={router} />
+        <RecipeTimerProvider>
+          <RouterProvider router={router} />
+        </RecipeTimerProvider>
       </ToastProvider>
     </QueryClientProvider>
   </StrictMode>,

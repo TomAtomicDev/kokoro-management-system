@@ -71,6 +71,22 @@ export const recipesLabels = {
   detailLines: "Ingredientes",
   noNotes: "Sin notas.",
 
+  timer: {
+    title: "Temporizador de receta",
+    description: "Déjalo visible en el encabezado mientras preparas la receta.",
+    durationLabel: "Duración (mm:ss)",
+    durationPlaceholder: "00:00",
+    suggestion: "Sugerencia: {duration} según el tiempo estimado.",
+    noSuggestion: "Puedes ingresar cualquier duración en minutos y segundos.",
+    start: "Iniciar",
+    stop: "Detener",
+    running: "En curso en el encabezado",
+    invalidDuration: "Ingresa una duración válida, por ejemplo 12:30.",
+    otherActive:
+      "Ya hay un temporizador activo para {recipe}. Deténlo desde el encabezado para iniciar otro.",
+    alarmMessage: "El temporizador de la receta terminó.",
+  },
+
   edit: "Editar",
   deactivate: "Desactivar",
   reactivate: "Reactivar",
