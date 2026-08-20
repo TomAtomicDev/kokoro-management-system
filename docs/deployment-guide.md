@@ -102,6 +102,10 @@ deploy-prod  ◄── PAUSED: waiting for your approval in GitHub's UI
    migrate kokoro-prod → deploy kokoro Worker
 ```
 
+The staging smoke step runs only `apps/web/e2e/smoke.spec.ts`. The full E2E suite creates business
+records and runs against an ephemeral local Worker in `.github/workflows/ci.yml`, so deployments
+do not add test data to the shared staging database.
+
 Migrations always run immediately before the Worker deploy in the *same* job, so a failed
 migration never leaves a deployed Worker pointed at a schema it doesn't expect (expand → migrate
 → contract, Doc 02 §9).

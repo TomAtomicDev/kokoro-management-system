@@ -15,7 +15,7 @@ import {
   toBusinessDate,
   toCentavos,
 } from "@kokoro/shared";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { PaymentAccountSelect } from "@/components/common/PaymentAccountSelect";
 import { Button } from "@/components/ui/button";
@@ -46,26 +46,47 @@ export function ConfirmOrderDialog({ order, open, onOpenChange }: ConfirmOrderDi
   );
   const [accountId, setAccountId] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const moneySeededRef = useRef(false);
+  const accountSeededRef = useRef(false);
 
+  // Money/date fields depend only on `order`, which the parent drawer guarantees is already
+  // loaded before this dialog can open — seed them immediately, once per open, guarded so a later
+  // `order` reference change (e.g. an unrelated background refetch) can't silently overwrite what
+  // the owner already typed.
   useEffect(() => {
-    if (open) {
-      setAgreedTotal(
-        order.agreedTotal !== null ? formatIntAsDecimalInput(order.agreedTotal, 2) : "",
-      );
-      setDepositAmount(
-        order.depositRequired !== null ? formatIntAsDecimalInput(order.depositRequired, 2) : "",
-      );
-      setBusinessDate(toBusinessDate(nowIso()));
-      const firstAccount = accounts[0];
-      setPaymentMethod(
-        firstAccount
-          ? paymentMethodForAccountType(firstAccount.type)
-          : (PAYMENT_METHODS[0] as PaymentMethod),
-      );
-      setAccountId(firstAccount?.id ?? "");
-      setError(null);
+    if (!open) {
+      moneySeededRef.current = false;
+      return;
     }
-  }, [open, order.agreedTotal, order.depositRequired, accounts]);
+    if (moneySeededRef.current) return;
+    moneySeededRef.current = true;
+    setAgreedTotal(order.agreedTotal !== null ? formatIntAsDecimalInput(order.agreedTotal, 2) : "");
+    setDepositAmount(
+      order.depositRequired !== null ? formatIntAsDecimalInput(order.depositRequired, 2) : "",
+    );
+    setBusinessDate(toBusinessDate(nowIso()));
+    setError(null);
+  }, [open, order.agreedTotal, order.depositRequired]);
+
+  // `accounts` loads independently and can still be in flight when the dialog first renders — a
+  // combined seed effect gated on it delayed the deposit amount above too, so a fast fill() (or a
+  // fast owner) could still be clobbered once accounts finally arrived. Kept separate: this only
+  // ever touches the account/payment-method default, never the money fields.
+  useEffect(() => {
+    if (!open) {
+      accountSeededRef.current = false;
+      return;
+    }
+    if (accountSeededRef.current || accountsQuery.isLoading) return;
+    accountSeededRef.current = true;
+    const firstAccount = accounts[0];
+    setPaymentMethod(
+      firstAccount
+        ? paymentMethodForAccountType(firstAccount.type)
+        : (PAYMENT_METHODS[0] as PaymentMethod),
+    );
+    setAccountId(firstAccount?.id ?? "");
+  }, [open, accountsQuery.isLoading, accounts]);
 
   const disabled = confirmMutation.isPending;
   const needsAgreedTotal = order.agreedTotal === null;

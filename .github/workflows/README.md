@@ -9,6 +9,10 @@ Two workflows, per `docs/system-design-knowledge-base/02-system-architecture.md`
   GitHub Environment has a required reviewer configured in repo Settings → Environments →
   `production`) → migrate + deploy **prod**.
 
+The staging gate runs only `apps/web/e2e/smoke.spec.ts`. The full E2E suite creates business
+records and runs against an ephemeral local Worker in `ci.yml`, so deployments do not add test
+data to the shared staging database.
+
 Migrations always run *before* the Worker version switch, in the same job, so a mid-deploy
 failure never leaves the DB ahead of the code that expects it (expand → migrate → contract,
 Doc 02 §9). Migrations must stay backward-compatible with the previous Worker version for exactly

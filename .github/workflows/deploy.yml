@@ -101,14 +101,17 @@ jobs:
         working-directory: apps/web
         run: pnpm exec playwright install --with-deps chromium
 
-      - name: Run smoke suite against staging
+      # The full E2E suite creates business records and runs against an ephemeral local Worker in
+      # ci.yml. Shared staging gets only the read-only smoke spec so deploys cannot pollute manual
+      # user testing with e2e catalog/events.
+      - name: Run read-only smoke suite against staging
         working-directory: apps/web
         env:
           PLAYWRIGHT_BASE_URL: ${{ needs.deploy-staging.outputs.staging_url }}
           # Optional (Doc 11 §6 "login works" gate) — set the STAGING_OWNER_PASSWORD secret to
           # enable the login smoke check; the test skips itself gracefully if unset.
           E2E_LOGIN_PASSWORD: ${{ secrets.STAGING_OWNER_PASSWORD }}
-        run: pnpm run test:e2e
+        run: pnpm run test:e2e:smoke
 
       - uses: actions/upload-artifact@v4
         if: failure()
