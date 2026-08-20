@@ -29,7 +29,10 @@ export type AppPath =
   | "/sales/new"
   | "/sales/$saleId/edit"
   | "/orders"
+  | "/orders/new"
   | "/production"
+  | "/production/new"
+  | "/production/$productionRunId/edit"
   // Reached only from within /production's link card (Doc 06 §2 lists a single "Producción" nav
   // entry) — deliberately NOT added to primaryNav/mobileTabs below, same precedent as /onboarding.
   | "/production/recipes"
@@ -41,6 +44,7 @@ export type AppPath =
   | "/purchases/new"
   | "/purchases/$purchaseId/edit"
   | "/inventory"
+  | "/inventory/counts/$countId"
   | "/sessions"
   | "/finance"
   | "/price-health"

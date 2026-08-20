@@ -26,6 +26,7 @@ import type {
   CommitCountCommand,
   CommitCountResult,
   CountAdjustmentDto,
+  DeleteCountResult,
   InventoryCountDto,
   InventoryCountLineDto,
   ListCountsFilters,
@@ -403,6 +404,56 @@ export async function commitCount(
     count: toCountDto(updatedCountRow, lineRows, updatedPriorMovementItemIds),
     adjustments,
   };
+}
+
+/**
+ * "Cancel a draft count" (KOK-141, Doc 03 §3 InventoryCount / Doc 04 amendment) = soft-delete it
+ * (D-8) in one atomic batch (D-3). Only a DRAFT count may be cancelled — a COMMITTED count already
+ * wrote signed ADJUST/OPENING_IN movements that a plain soft-delete here would leave dangling, so
+ * that path is refused with `conflict()` (409), mirroring `updateCountLine`'s state-machine guard.
+ * No costing replay is needed: a DRAFT count has committed zero movements, so there is nothing for
+ * R-2/R-5 to react to — unlike `deleteStockExit`, which reverses movements that already exist.
+ */
+export async function deleteCount(
+  db: Db,
+  id: string,
+  actor: AuditActor,
+): Promise<DeleteCountResult> {
+  const countRow = await findCountRowOrThrow(db, id);
+  if (countRow.status !== "DRAFT") {
+    throw conflict("Solo se puede eliminar un conteo en borrador.", {
+      id,
+      status: countRow.status,
+    });
+  }
+
+  const lineRows = await fetchLines(db, id);
+  const now = nowIso();
+  const deletedRow: InventoryCountRow = { ...countRow, deletedAt: now, updatedAt: now };
+
+  const statements: Statement[] = [
+    // Soft (D-8): never `db.delete(inventoryCounts)`. `findCountRowOrThrow`/`listCounts` already
+    // filter on `deleted_at IS NULL`.
+    db
+      .update(inventoryCounts)
+      .set({ deletedAt: now, updatedAt: now })
+      .where(eq(inventoryCounts.id, id)),
+    buildAuditLogInsert(db, {
+      actor,
+      action: "delete",
+      entityType: "inventory_counts",
+      entityId: id,
+      before: { ...countRow, lines: lineRows },
+      after: { ...deletedRow, lines: lineRows },
+    }),
+  ];
+  await db.batch(statements as [Statement, ...Statement[]]);
+
+  const priorMovementItemIds = await findItemsWithPriorMovements(
+    db,
+    lineRows.map((line) => line.itemId),
+  );
+  return { count: toCountDto(deletedRow, lineRows, priorMovementItemIds), deletedAt: now };
 }
 
 export async function getCount(db: Db, id: string): Promise<InventoryCountDto> {

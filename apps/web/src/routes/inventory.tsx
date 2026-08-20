@@ -1,11 +1,17 @@
-// SC-08 Â· Inventory â€” /inventory. Header + a hand-rolled tab switcher (Stock / Salidas / Conteos,
-// no tabs primitive exists in components/ui yet and none is added for this â€” same "hand-rolled
+// SC-08 · Inventory — /inventory. Header + a hand-rolled tab switcher (Stock / Salidas / Conteos,
+// no tabs primitive exists in components/ui yet and none is added for this — same "hand-rolled
 // now, upgrade later if a second consumer justifies a dependency" call as EventTable's header
 // comment). Stock (KOK-017 frontend), Salidas (KOK-018 frontend), and Conteos (KOK-019 frontend)
 // all have real content.
+//
+// KOK-141: a single count's checklist is its own full page (`/inventory/counts/$countId`) — see
+// `InventoryCountDetailRoute` below and `CountDetailView`'s header for why (legibility on a long
+// checklist, not data loss). Starting a new count (`CountForm`) stays a small dialog, same
+// category as "iniciar sesión"/"cobrar" (agreements §A-12) — it carries no lines, just scope
+// filters.
 
 import { ITEM_KINDS, type ItemDto, type ItemKind, type StockRowDto } from "@kokoro/shared";
-import { getRouteApi } from "@tanstack/react-router";
+import { getRouteApi, useNavigate } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 
 import {
@@ -41,6 +47,23 @@ import { cn } from "@/lib/utils";
 type InventoryTab = "stock" | "salidas" | "conteos";
 
 const routeApi = getRouteApi("/_authenticated/inventory");
+const countDetailRouteApi = getRouteApi("/_authenticated/inventory/counts/$countId");
+
+export function InventoryCountDetailRoute() {
+  const { countId } = countDetailRouteApi.useParams();
+  // Unfiltered (all kinds, including inactive) — a count can reference an item deactivated since
+  // it was started, and the checklist must still resolve its name/unit correctly.
+  const itemsQuery = useItemsQuery({});
+  const itemLookup = useMemo(() => {
+    const map = new Map<string, { name: string; unit: ItemDto["unit"] }>();
+    for (const item of itemsQuery.data?.items ?? []) {
+      map.set(item.id, { name: item.name, unit: item.unit });
+    }
+    return map;
+  }, [itemsQuery.data]);
+
+  return <CountDetailView countId={countId} items={itemLookup} />;
+}
 
 const TABS: { id: InventoryTab; label: string }[] = [
   { id: "stock", label: inventoryLabels.tabStock },
@@ -81,6 +104,7 @@ function TabSwitcher({
 export function InventoryRoute() {
   const search = routeApi.useSearch();
   const navigate = routeApi.useNavigate();
+  const navigateTo = useNavigate();
   const defaults = getDefaultDateRange();
   const fromDate = search.fromDate ?? defaults.fromDate;
   const toDate = search.toDate ?? defaults.toDate;
@@ -96,7 +120,6 @@ export function InventoryRoute() {
   const [exitFormOpen, setExitFormOpen] = useState(false);
   const [selectedExitId, setSelectedExitId] = useState<string | null>(null);
   const [countFormOpen, setCountFormOpen] = useState(false);
-  const [selectedCountId, setSelectedCountId] = useState<string | null>(null);
 
   const stockQuery = useStock({
     kind: kind || undefined,
@@ -278,7 +301,9 @@ export function InventoryRoute() {
           <CountsTable
             rows={countsQuery.data?.counts ?? []}
             loading={countsQuery.isLoading}
-            onRowClick={(row) => setSelectedCountId(row.id)}
+            onRowClick={(row) =>
+              void navigateTo({ to: "/inventory/counts/$countId", params: { countId: row.id } })
+            }
             sortState={sortState}
             onSortChange={updateSort}
           />
@@ -286,16 +311,9 @@ export function InventoryRoute() {
           <CountForm
             open={countFormOpen}
             onOpenChange={setCountFormOpen}
-            onStarted={(id) => setSelectedCountId(id)}
-          />
-
-          <CountDetailView
-            countId={selectedCountId}
-            items={itemLookup}
-            open={selectedCountId !== null}
-            onOpenChange={(open) => {
-              if (!open) setSelectedCountId(null);
-            }}
+            onStarted={(id) =>
+              void navigateTo({ to: "/inventory/counts/$countId", params: { countId: id } })
+            }
           />
         </div>
       )}

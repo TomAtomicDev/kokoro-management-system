@@ -18,7 +18,6 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 
 import { DetailDrawer } from "@/components/data-table/DetailDrawer";
-import { ProductionRunForm } from "@/components/production/ProductionRunForm";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -62,7 +61,6 @@ export function SessionDetailDrawer({
 
   const [editOpen, setEditOpen] = useState(false);
   const [closeFormOpen, setCloseFormOpen] = useState(false);
-  const [productionFormOpen, setProductionFormOpen] = useState(false);
   const [closeEndedAt, setCloseEndedAt] = useState("");
   const [closeDurationMin, setCloseDurationMin] = useState("");
   const [closeError, setCloseError] = useState<string | null>(null);
@@ -202,7 +200,10 @@ export function SessionDetailDrawer({
                     type="button"
                     variant="outline"
                     size="sm"
-                    onClick={() => setProductionFormOpen(true)}
+                    onClick={() => {
+                      void navigate({ to: "/production/new", search: { sessionId: session.id } });
+                      onOpenChange(false);
+                    }}
                   >
                     {sessionsLabels.linkedEvents.registerProductionRun}
                   </Button>
@@ -409,19 +410,12 @@ export function SessionDetailDrawer({
       </DetailDrawer>
 
       {session ? (
-        <>
-          <SessionForm
-            open={editOpen}
-            onOpenChange={setEditOpen}
-            accounts={accounts}
-            session={session}
-          />
-          <ProductionRunForm
-            open={productionFormOpen}
-            onOpenChange={setProductionFormOpen}
-            preselectedSessionId={session.id}
-          />
-        </>
+        <SessionForm
+          open={editOpen}
+          onOpenChange={setEditOpen}
+          accounts={accounts}
+          session={session}
+        />
       ) : null}
     </>
   );

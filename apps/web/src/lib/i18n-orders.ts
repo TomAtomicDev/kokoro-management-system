@@ -44,6 +44,7 @@ export const ordersLabels = {
   // --- Quote form (create) ----------------------------------------------------------------------
 
   quoteTitle: "Nuevo pedido",
+  backToOrders: "Volver a pedidos",
   fieldCustomer: "Cliente",
   fieldDescription: "Descripción",
   descriptionPlaceholder: "¿Qué se va a entregar?",

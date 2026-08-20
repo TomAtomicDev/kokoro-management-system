@@ -180,12 +180,14 @@ export const inventoryLabels = {
   countsColumnVariance: "Con variación",
   noCounts: "No hay conteos registrados.",
 
+  backToInventory: "Volver a inventario",
   countDetailTitlePrefix: "Conteo",
   countColumnItem: "Ítem",
   countColumnExpected: "Esperado",
   countColumnCounted: "Stock inicial",
   countColumnDelta: "Variación",
   noCountLines: "Este conteo no tiene ítems.",
+  countItemsSummary: (count: number) => (count === 1 ? "1 ítem" : `${count} ítems`),
 
   confirmCountButton: "Confirmar conteo",
   confirmCountDialogTitle: "Confirmar conteo",
@@ -193,6 +195,19 @@ export const inventoryLabels = {
   confirmCountNoVariance: "No hay variaciones — el conteo coincide con el stock esperado.",
   confirmCountBack: "Volver",
   confirmCountSubmit: "Confirmar y ajustar stock",
+
+  // --- Cancel a DRAFT count (KOK-141, Doc 03 §3 InventoryCount / agreements §A-7) ------------
+  // "Cancelling a draft count" = soft-deleting it; no CANCELLED status is introduced.
+
+  cancelDraftCountButton: "Cancelar conteo",
+  cancelDraftCountConfirmTitle: "¿Cancelar este conteo?",
+  cancelDraftCountConfirmBody:
+    "Se eliminará este conteo en borrador. No se registró ningún ajuste de inventario todavía, así que esto no afecta el stock.",
+  // Distinct from `cancelDraftCountButton` on purpose — the dialog's own trigger and its
+  // destructive confirm sitting side by side with identical labels reads as a UI bug (verified via
+  // Playwright while checking this task).
+  cancelDraftCountConfirmSubmit: "Eliminar conteo",
+  cancelDraftCountDeletedToast: "Conteo eliminado.",
 
   // --- Edit / delete / restore de salidas (KOK-024 Phase G) ----------------------------------
 

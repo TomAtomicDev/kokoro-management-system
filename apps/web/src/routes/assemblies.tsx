@@ -24,16 +24,17 @@ import {
   WHOLE_UNIT_MILLI_UNITS,
 } from "@kokoro/shared";
 import { getRouteApi, Link, useNavigate } from "@tanstack/react-router";
-import { AlertTriangle, Check, ChevronLeft, Minus } from "lucide-react";
+import { AlertTriangle, Check, Minus } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { ItemPicker } from "@/components/catalog/ItemPicker";
 import { CalcTrace, type CalcTraceInput } from "@/components/common/CalcTrace";
+import { FormPage } from "@/components/common/FormPage";
 import { PinnedSummaryFooter } from "@/components/common/PinnedSummaryFooter";
 import { LineEditor, type LineEditorLine } from "@/components/line-editor/LineEditor";
 import { parseLineQuantityToMilliUnits } from "@/components/line-editor/line-editor-quantity";
 import { OrderPicker } from "@/components/orders/OrderPicker";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { ImpactConfirmDialog } from "@/components/ui/ImpactConfirmDialog";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -42,7 +43,13 @@ import { useAssembly, useRecordAssembly, useUpdateAssembly } from "@/features/as
 import { useAssemblyDefinition, useAssemblyDefinitions } from "@/features/assembly-definitions/api";
 import { useItemsQuery } from "@/features/catalog/api";
 import { useStock } from "@/features/inventory/api";
+import {
+  clearPersistentDraft,
+  readPersistentDraft,
+  writePersistentDraft,
+} from "@/hooks/usePersistentDraft";
 import { useReplayConfirmableMutation } from "@/hooks/useReplayConfirmableMutation";
+import { hasUnsavedChanges, useUnsavedChangesGuard } from "@/hooks/useUnsavedChangesGuard";
 import { ApiError } from "@/lib/api";
 import { formatIntAsDecimalInput, parseDecimalToInt } from "@/lib/decimal";
 import { assembliesLabels } from "@/lib/i18n-assemblies";
@@ -80,8 +87,21 @@ export function AssemblyEditRoute() {
   return <AssemblyForm assemblyId={assemblyId} />;
 }
 
+interface AssemblyFormState {
+  definitionId: string;
+  customOrderId: string | null;
+  outputItemId: string | null;
+  plannedOutputQty: string;
+  actualOutputQty: string;
+  businessDate: string;
+  notes: string;
+  lines: AssemblyLineValue[];
+}
+
 function AssemblyForm({ sessionId, assemblyId }: { sessionId?: string; assemblyId?: string }) {
   const navigate = useNavigate();
+  const isEditMode = Boolean(assemblyId);
+  const draftKey = assemblyId ? `assembly:${assemblyId}` : "assembly:new";
 
   const [definitionId, setDefinitionId] = useState("");
   const [customOrderId, setCustomOrderId] = useState<string | null>(null);
@@ -94,21 +114,49 @@ function AssemblyForm({ sessionId, assemblyId }: { sessionId?: string; assemblyI
   const [error, setError] = useState<string | null>(null);
   const lineAutoQtyRef = useRef(new Map<string, string>());
   const dirtyLineKeysRef = useRef(new Set<string>());
+  const initialFormStateRef = useRef<AssemblyFormState | null>(null);
+  const initializedRef = useRef(false);
+
+  const currentFormState: AssemblyFormState = {
+    definitionId,
+    customOrderId,
+    outputItemId,
+    plannedOutputQty,
+    actualOutputQty,
+    businessDate,
+    notes,
+    lines,
+  };
+  const unsavedChangesGuard = useUnsavedChangesGuard({
+    isDirty:
+      initialFormStateRef.current !== null &&
+      hasUnsavedChanges(initialFormStateRef.current, currentFormState),
+    blockNavigation: true,
+  });
 
   const createMutation = useRecordAssembly();
   const updateMutation = useUpdateAssembly(assemblyId ?? "");
   const assemblyQuery = useAssembly(assemblyId);
   const assembly = assemblyQuery.data?.assembly;
-  const isEditMode = Boolean(assemblyId);
   const createReplay = useReplayConfirmableMutation<RecordAssemblyCommand, RecordAssemblyResult>(
     (command) => createMutation.mutateAsync(command),
     {
-      onSuccess: () => navigate({ to: "/packing" }),
+      onSuccess: () => {
+        clearPersistentDraft(draftKey);
+        unsavedChangesGuard.markClean();
+        void navigate({ to: "/packing" });
+      },
     },
   );
   const editReplay = useReplayConfirmableMutation<UpdateAssemblyCommand, UpdateAssemblyResult>(
     (command) => updateMutation.mutateAsync(command),
-    { onSuccess: () => navigate({ to: "/packing" }) },
+    {
+      onSuccess: () => {
+        clearPersistentDraft(draftKey);
+        unsavedChangesGuard.markClean();
+        void navigate({ to: "/packing" });
+      },
+    },
   );
 
   const definitionsQuery = useAssemblyDefinitions({ isActive: true });
@@ -147,28 +195,83 @@ function AssemblyForm({ sessionId, assemblyId }: { sessionId?: string; assemblyI
   const outputItem = outputItemId ? (itemsById.get(outputItemId) ?? null) : null;
   const disabled = createReplay.isPending || editReplay.isPending;
 
+  // Runs once per mount (route-owned state, KOK-141) — waits for the assembly to load before
+  // seeding edit mode, then prefers a restored draft over the server DTO. Guarding on
+  // `initializedRef` (rather than the old unconditional `[assembly]` effect) also stops a
+  // background refetch of the SAME assembly from clobbering in-progress edits, mirroring
+  // SaleForm/PurchaseForm's identical precedent.
   useEffect(() => {
-    if (!assembly) return;
-    setDefinitionId(assembly.definitionId ?? "");
-    setCustomOrderId(assembly.customOrderId);
-    setOutputItemId(assembly.outputItemId);
-    setPlannedOutputQty(
-      assembly.plannedOutputQty === null
-        ? ""
-        : formatIntAsDecimalInput(assembly.plannedOutputQty, 3),
-    );
-    setActualOutputQty(formatIntAsDecimalInput(assembly.actualOutputQty, 3));
-    setBusinessDate(assembly.businessDate);
-    setNotes(assembly.notes ?? "");
-    setLines(
-      assembly.lines.map((line) => ({
-        lineKey: line.id,
-        itemId: line.itemId,
-        qty: formatIntAsDecimalInput(line.qty, 3),
-        unit: null,
-      })),
-    );
-  }, [assembly]);
+    if (initializedRef.current) return;
+    if (isEditMode && !assembly) return;
+
+    const savedDraft = readPersistentDraft<AssemblyFormState>(draftKey);
+    const initialFormState: AssemblyFormState = savedDraft
+      ? savedDraft
+      : assembly
+        ? {
+            definitionId: assembly.definitionId ?? "",
+            customOrderId: assembly.customOrderId,
+            outputItemId: assembly.outputItemId,
+            plannedOutputQty:
+              assembly.plannedOutputQty === null
+                ? ""
+                : formatIntAsDecimalInput(assembly.plannedOutputQty, 3),
+            actualOutputQty: formatIntAsDecimalInput(assembly.actualOutputQty, 3),
+            businessDate: assembly.businessDate,
+            notes: assembly.notes ?? "",
+            lines: assembly.lines.map((line) => ({
+              lineKey: line.id,
+              itemId: line.itemId,
+              qty: formatIntAsDecimalInput(line.qty, 3),
+              unit: null,
+            })),
+          }
+        : {
+            definitionId: "",
+            customOrderId: null,
+            outputItemId: null,
+            plannedOutputQty: "",
+            actualOutputQty: "",
+            businessDate: toBusinessDate(nowIso()),
+            notes: "",
+            lines: [emptyLine()],
+          };
+
+    setDefinitionId(initialFormState.definitionId);
+    setCustomOrderId(initialFormState.customOrderId);
+    setOutputItemId(initialFormState.outputItemId);
+    setPlannedOutputQty(initialFormState.plannedOutputQty);
+    setActualOutputQty(initialFormState.actualOutputQty);
+    setBusinessDate(initialFormState.businessDate);
+    setNotes(initialFormState.notes);
+    setLines(initialFormState.lines);
+    initialFormStateRef.current = initialFormState;
+    initializedRef.current = true;
+  }, [assembly, draftKey, isEditMode]);
+
+  useEffect(() => {
+    if (!initializedRef.current) return;
+    writePersistentDraft<AssemblyFormState>(draftKey, {
+      definitionId,
+      customOrderId,
+      outputItemId,
+      plannedOutputQty,
+      actualOutputQty,
+      businessDate,
+      notes,
+      lines,
+    });
+  }, [
+    actualOutputQty,
+    businessDate,
+    customOrderId,
+    definitionId,
+    draftKey,
+    lines,
+    notes,
+    outputItemId,
+    plannedOutputQty,
+  ]);
 
   function handleDefinitionChange(nextDefinitionId: string) {
     setDefinitionId(nextDefinitionId);
@@ -373,237 +476,234 @@ function AssemblyForm({ sessionId, assemblyId }: { sessionId?: string; assemblyI
         ? assembliesLabels.errors.generic
         : null);
 
+  const pageTitle = isEditMode ? assembliesLabels.editTitle : assembliesLabels.recordTitle;
+
   return (
     <>
-      <div className="flex h-full min-h-0 flex-col">
-        <header className="mx-auto flex w-full max-w-3xl flex-col gap-2 border-border border-b pb-4">
-          <Link
-            to="/packing"
-            className="inline-flex w-fit items-center gap-1 text-muted-foreground text-sm hover:text-foreground"
-          >
-            <ChevronLeft className="size-4" aria-hidden="true" />
-            {assembliesLabels.backToPacking}
-          </Link>
-          <h1 className="font-semibold text-2xl text-foreground">
-            {isEditMode ? assembliesLabels.editTitle : assembliesLabels.recordTitle}
-          </h1>
-        </header>
-
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 py-5 text-sm">
-            {definitionsQuery.isLoading ? (
-              <p className="text-muted-foreground text-sm">{assembliesLabels.loading}</p>
-            ) : definitions.length > 0 ? (
-              <div className="flex flex-col gap-1.5">
-                <div className="flex items-center gap-1.5">
-                  <label className="font-medium text-foreground" htmlFor="assembly-definition">
-                    {assembliesLabels.fieldDefinition}
-                  </label>
-                  <InfoTooltip
-                    content={assembliesLabels.definitionTooltip}
-                    label={assembliesLabels.definitionTooltipLabel}
-                  />
+      <FormPage
+        title={pageTitle}
+        backTo="/packing"
+        backLabel={assembliesLabels.backToPacking}
+        footer={
+          <PinnedSummaryFooter
+            contentClassName="max-w-3xl px-0"
+            total={
+              <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted px-4 py-2">
+                <div className="flex flex-col gap-0.5">
+                  <span className="flex items-center gap-1.5 text-muted-foreground text-xs">
+                    {assembliesLabels.costUnitLabel}
+                    <CalcTrace
+                      formula={assembliesLabels.costUnitFormula}
+                      inputs={unitCostTraceInputs}
+                    />
+                  </span>
+                  <span className="numeric-cell font-semibold text-foreground text-lg">
+                    {outputUnitCostPreviewLabel}
+                  </span>
                 </div>
-                <Select
-                  id="assembly-definition"
-                  value={definitionId}
-                  onChange={(event) => handleDefinitionChange(event.target.value)}
+                <div className="flex flex-col items-end gap-0.5">
+                  <span className="flex items-center gap-1.5 text-muted-foreground text-xs">
+                    {assembliesLabels.costDirectLabel}
+                    <CalcTrace
+                      formula={assembliesLabels.costDirectFormula}
+                      inputs={directCostTraceInputs}
+                    />
+                  </span>
+                  <span className="numeric-cell text-foreground text-sm">
+                    {formatMoney(directCostPreview)}
+                  </span>
+                </div>
+              </div>
+            }
+            warnings={
+              displayError ? <p className="text-negative text-sm">{displayError}</p> : undefined
+            }
+            actions={
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    clearPersistentDraft(draftKey);
+                    unsavedChangesGuard.markClean();
+                    void navigate({ to: "/packing" });
+                  }}
                   disabled={disabled}
                 >
-                  <option value="">{assembliesLabels.definitionPlaceholder}</option>
-                  {definitions.map((definition) => (
-                    <option key={definition.id} value={definition.id}>
-                      {definition.name}
-                    </option>
-                  ))}
-                </Select>
-              </div>
-            ) : (
-              <p className="text-muted-foreground text-sm">
-                {assembliesLabels.definitionEmpty}{" "}
-                <Link
-                  to="/packing/definitions"
-                  className="font-medium text-foreground underline underline-offset-4"
-                >
-                  {assembliesLabels.definitionCreate}
-                </Link>
-              </p>
-            )}
+                  {assembliesLabels.cancel}
+                </Button>
+                <Button type="button" onClick={handleSubmit} disabled={disabled}>
+                  {isEditMode ? assembliesLabels.save : assembliesLabels.submit}
+                </Button>
+              </>
+            }
+          />
+        }
+      >
+        {definitionsQuery.isLoading ? (
+          <p className="text-muted-foreground text-sm">{assembliesLabels.loading}</p>
+        ) : definitions.length > 0 ? (
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-center gap-1.5">
+              <label className="font-medium text-foreground" htmlFor="assembly-definition">
+                {assembliesLabels.fieldDefinition}
+              </label>
+              <InfoTooltip
+                content={assembliesLabels.definitionTooltip}
+                label={assembliesLabels.definitionTooltipLabel}
+              />
+            </div>
+            <Select
+              id="assembly-definition"
+              value={definitionId}
+              onChange={(event) => handleDefinitionChange(event.target.value)}
+              disabled={disabled}
+            >
+              <option value="">{assembliesLabels.definitionPlaceholder}</option>
+              {definitions.map((definition) => (
+                <option key={definition.id} value={definition.id}>
+                  {definition.name}
+                </option>
+              ))}
+            </Select>
+          </div>
+        ) : (
+          <p className="text-muted-foreground text-sm">
+            {assembliesLabels.definitionEmpty}{" "}
+            <Link
+              to="/packing/definitions"
+              className="font-medium text-foreground underline underline-offset-4"
+            >
+              {assembliesLabels.definitionCreate}
+            </Link>
+          </p>
+        )}
 
-            <div className="flex flex-col gap-1.5">
-              <span className="font-medium text-foreground">
-                {assembliesLabels.fieldOutputItem}
+        <div className="flex flex-col gap-1.5">
+          <span className="font-medium text-foreground">{assembliesLabels.fieldOutputItem}</span>
+          {selectedDefinition ? (
+            <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted px-3 py-2 text-foreground">
+              <span className="min-w-0 truncate">
+                {outputItem?.name ?? selectedDefinition.outputItemId}
               </span>
-              {selectedDefinition ? (
-                <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted px-3 py-2 text-foreground">
-                  <span className="min-w-0 truncate">
-                    {outputItem?.name ?? selectedDefinition.outputItemId}
-                  </span>
-                  {outputItem ? (
-                    <span className="shrink-0 text-muted-foreground text-xs">
-                      {assembliesLabels.outputItemUnit(displayUnitLabel(outputItem.unit))}
-                    </span>
-                  ) : null}
-                </div>
-              ) : (
-                <div className="flex flex-col gap-1.5">
-                  <ItemPicker
-                    value={outputItemId}
-                    onChange={setOutputItemId}
-                    eligibility={{ kind: "FINISHED", unit: "UNIT" }}
-                    emptyMessage={assembliesLabels.outputItemEmpty}
-                    placeholder={assembliesLabels.outputItemPlaceholder}
-                    disabled={disabled}
-                  />
-                  {outputItem ? (
-                    <span className="text-muted-foreground text-xs">
-                      {assembliesLabels.outputItemUnit(displayUnitLabel(outputItem.unit))}
-                    </span>
-                  ) : null}
-                </div>
-              )}
+              {outputItem ? (
+                <span className="shrink-0 text-muted-foreground text-xs">
+                  {assembliesLabels.outputItemUnit(displayUnitLabel(outputItem.unit))}
+                </span>
+              ) : null}
             </div>
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="flex flex-col gap-1.5">
-                <label className="font-medium text-foreground" htmlFor="assembly-date">
-                  {assembliesLabels.fieldDate}
-                </label>
-                <Input
-                  id="assembly-date"
-                  type="date"
-                  value={businessDate}
-                  onChange={(event) => setBusinessDate(event.target.value)}
-                  disabled={disabled}
-                />
-              </div>
-
-              <div className="flex flex-col gap-1.5">
-                <div className="flex items-center justify-between gap-2">
-                  <label className="font-medium text-foreground" htmlFor="assembly-actual-output">
-                    {assembliesLabels.fieldActualOutputQty}
-                  </label>
-                  {plannedOutputQty.trim() !== "" ? (
-                    <span className="text-muted-foreground text-xs">
-                      {assembliesLabels.fieldPlannedOutputQty}: {plannedOutputQty}
-                    </span>
-                  ) : null}
-                </div>
-                <Input
-                  id="assembly-actual-output"
-                  inputMode="decimal"
-                  placeholder="0"
-                  value={actualOutputQty}
-                  onChange={(event) => setActualOutputQty(event.target.value)}
-                  disabled={disabled}
-                />
-                {outputItem ? (
-                  <span className="text-muted-foreground text-xs">
-                    {assembliesLabels.actualOutputUnit(
-                      displayUnitLabel(outputItem.unit),
-                      outputItem.name,
-                    )}
-                  </span>
-                ) : null}
-              </div>
-            </div>
-
+          ) : (
             <div className="flex flex-col gap-1.5">
-              <label className="font-medium text-foreground" htmlFor="linked-order-picker">
-                {ordersLabels.orderPickerFieldLabel}
+              <ItemPicker
+                value={outputItemId}
+                onChange={setOutputItemId}
+                eligibility={{ kind: "FINISHED", unit: "UNIT" }}
+                emptyMessage={assembliesLabels.outputItemEmpty}
+                placeholder={assembliesLabels.outputItemPlaceholder}
+                disabled={disabled}
+              />
+              {outputItem ? (
+                <span className="text-muted-foreground text-xs">
+                  {assembliesLabels.outputItemUnit(displayUnitLabel(outputItem.unit))}
+                </span>
+              ) : null}
+            </div>
+          )}
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="flex flex-col gap-1.5">
+            <label className="font-medium text-foreground" htmlFor="assembly-date">
+              {assembliesLabels.fieldDate}
+            </label>
+            <Input
+              id="assembly-date"
+              type="date"
+              value={businessDate}
+              onChange={(event) => setBusinessDate(event.target.value)}
+              disabled={disabled}
+            />
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-center justify-between gap-2">
+              <label className="font-medium text-foreground" htmlFor="assembly-actual-output">
+                {assembliesLabels.fieldActualOutputQty}
               </label>
-              <OrderPicker
-                value={customOrderId}
-                onChange={(id) => setCustomOrderId(id)}
-                disabled={disabled}
-              />
+              {plannedOutputQty.trim() !== "" ? (
+                <span className="text-muted-foreground text-xs">
+                  {assembliesLabels.fieldPlannedOutputQty}: {plannedOutputQty}
+                </span>
+              ) : null}
             </div>
-
-            <div className="flex flex-col gap-1.5">
-              <span className="font-medium text-foreground">{assembliesLabels.linesTitle}</span>
-              <LineEditor
-                lines={lines}
-                onChange={handleLinesChange}
-                createLine={emptyLine}
-                disabled={disabled}
-                showAmount={false}
-                itemKindFilter={["SEMI_FINISHED", "FINISHED", "PACKAGING"]}
-                getItemUnit={(itemId) => itemsById.get(itemId)?.unit}
-                onItemChange={(_index, itemId) => {
-                  const item = itemId ? itemsById.get(itemId) : undefined;
-                  return { qty: "", unit: item ? defaultDisplayUnitFor(item.unit) : null };
-                }}
-                labels={{
-                  item: assembliesLabels.lineItem,
-                  qty: assembliesLabels.lineQty,
-                  addLine: assembliesLabels.addLine,
-                  removeLine: assembliesLabels.removeLine,
-                  qtyPlaceholder: "0",
-                }}
-                renderExtraColumns={renderLineExtra}
-              />
-            </div>
-
-            <div className="flex flex-col gap-1.5">
-              <label className="font-medium text-foreground" htmlFor="assembly-notes">
-                {assembliesLabels.fieldNotes}
-              </label>
-              <Input
-                id="assembly-notes"
-                placeholder={assembliesLabels.notesPlaceholder}
-                value={notes}
-                onChange={(event) => setNotes(event.target.value)}
-                disabled={disabled}
-              />
-            </div>
+            <Input
+              id="assembly-actual-output"
+              inputMode="decimal"
+              placeholder="0"
+              value={actualOutputQty}
+              onChange={(event) => setActualOutputQty(event.target.value)}
+              disabled={disabled}
+            />
+            {outputItem ? (
+              <span className="text-muted-foreground text-xs">
+                {assembliesLabels.actualOutputUnit(
+                  displayUnitLabel(outputItem.unit),
+                  outputItem.name,
+                )}
+              </span>
+            ) : null}
           </div>
         </div>
 
-        <PinnedSummaryFooter
-          contentClassName="max-w-3xl px-0"
-          total={
-            <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted px-4 py-2">
-              <div className="flex flex-col gap-0.5">
-                <span className="flex items-center gap-1.5 text-muted-foreground text-xs">
-                  {assembliesLabels.costUnitLabel}
-                  <CalcTrace
-                    formula={assembliesLabels.costUnitFormula}
-                    inputs={unitCostTraceInputs}
-                  />
-                </span>
-                <span className="numeric-cell font-semibold text-foreground text-lg">
-                  {outputUnitCostPreviewLabel}
-                </span>
-              </div>
-              <div className="flex flex-col items-end gap-0.5">
-                <span className="flex items-center gap-1.5 text-muted-foreground text-xs">
-                  {assembliesLabels.costDirectLabel}
-                  <CalcTrace
-                    formula={assembliesLabels.costDirectFormula}
-                    inputs={directCostTraceInputs}
-                  />
-                </span>
-                <span className="numeric-cell text-foreground text-sm">
-                  {formatMoney(directCostPreview)}
-                </span>
-              </div>
-            </div>
-          }
-          warnings={
-            displayError ? <p className="text-negative text-sm">{displayError}</p> : undefined
-          }
-          actions={
-            <>
-              <Link to="/packing" className={buttonVariants({ variant: "outline" })}>
-                {assembliesLabels.cancel}
-              </Link>
-              <Button type="button" onClick={handleSubmit} disabled={disabled}>
-                {isEditMode ? assembliesLabels.save : assembliesLabels.submit}
-              </Button>
-            </>
-          }
-        />
-      </div>
+        <div className="flex flex-col gap-1.5">
+          <label className="font-medium text-foreground" htmlFor="linked-order-picker">
+            {ordersLabels.orderPickerFieldLabel}
+          </label>
+          <OrderPicker
+            value={customOrderId}
+            onChange={(id) => setCustomOrderId(id)}
+            disabled={disabled}
+          />
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <span className="font-medium text-foreground">{assembliesLabels.linesTitle}</span>
+          <LineEditor
+            lines={lines}
+            onChange={handleLinesChange}
+            createLine={emptyLine}
+            disabled={disabled}
+            showAmount={false}
+            itemKindFilter={["SEMI_FINISHED", "FINISHED", "PACKAGING"]}
+            getItemUnit={(itemId) => itemsById.get(itemId)?.unit}
+            onItemChange={(_index, itemId) => {
+              const item = itemId ? itemsById.get(itemId) : undefined;
+              return { qty: "", unit: item ? defaultDisplayUnitFor(item.unit) : null };
+            }}
+            labels={{
+              item: assembliesLabels.lineItem,
+              qty: assembliesLabels.lineQty,
+              addLine: assembliesLabels.addLine,
+              removeLine: assembliesLabels.removeLine,
+              qtyPlaceholder: "0",
+            }}
+            renderExtraColumns={renderLineExtra}
+          />
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <label className="font-medium text-foreground" htmlFor="assembly-notes">
+            {assembliesLabels.fieldNotes}
+          </label>
+          <Input
+            id="assembly-notes"
+            placeholder={assembliesLabels.notesPlaceholder}
+            value={notes}
+            onChange={(event) => setNotes(event.target.value)}
+            disabled={disabled}
+          />
+        </div>
+      </FormPage>
 
       {createReplay.pendingConfirmation ? (
         <ImpactConfirmDialog

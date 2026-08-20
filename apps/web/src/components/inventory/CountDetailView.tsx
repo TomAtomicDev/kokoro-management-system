@@ -1,49 +1,67 @@
-// SC-08 Conteos detail/edit drawer (KOK-019, UC-10, DetailDrawer contract per Doc 06 §4). A DRAFT
-// count's lines are editable — `countedQty` is PATCHed on blur (never per keystroke, see
-// `handleBlur`); a COMMITTED count renders the same line list read-only. `expectedQty` is always
-// read-only (it is frozen at startCount time — see core/inventory/counts.ts's header — this
-// screen never lets the owner edit it).
+// SC-08 Conteo detail page (KOK-019, UC-10 — full page since KOK-141, `/inventory/counts/$countId`;
+// legibility on a long checklist, not data loss, is the reason: `countedQty` is already PATCHed to
+// the server on blur, never per keystroke — see `handleBlur` — and "Confirmar conteo" flushes any
+// still-dirty line first). A DRAFT count's lines are editable; a COMMITTED count renders the same
+// line list read-only. `expectedQty` is always read-only (it is frozen at startCount time — see
+// core/inventory/counts.ts's header — this screen never lets the owner edit it).
 //
-// Committing goes through a two-step confirm (Dialog-in-Dialog, reusing the same Dialog primitive
-// nested inside the drawer's own Dialog — same nesting pattern as ItemPicker's CreateItemDialog
-// inside a parent form Dialog): any unsaved line edits are flushed to the server first (the owner
-// may click "Confirmar conteo" without blurring the last field they typed into), then a variance
-// summary is shown, requiring a second explicit click before `commitCount` is actually called.
+// Committing goes through a two-step confirm (a Dialog over the full-page body — same nesting
+// pattern as ItemPicker's CreateItemDialog inside a parent form Dialog): any unsaved line edits are
+// flushed to the server first (the owner may click "Confirmar conteo" without blurring the last
+// field they typed into), then a variance summary is shown, requiring a second explicit click
+// before `commitCount` is actually called.
+//
+// Cancelling a DRAFT count (KOK-141, agreements §A-7) is a plain confirm-then-delete, not the
+// undo-toast pattern the rest of this app uses for soft deletes: there is deliberately no
+// `restoreCount` counterpart (out of this task's stated scope — the KB only asks for the delete
+// command; see `core/inventory/counts.ts`'s `deleteCount`), so there is nothing for an "Deshacer"
+// action to call.
 
 import type { InventoryCountLineDto, Unit } from "@kokoro/shared";
 import { formatQty } from "@kokoro/shared";
+import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 
-import { DetailDrawer } from "@/components/data-table/DetailDrawer";
+import { FormPage } from "@/components/common/FormPage";
+import { PinnedSummaryFooter } from "@/components/common/PinnedSummaryFooter";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { useCommitCount, useCount, useUpdateCountLine } from "@/features/inventory/api";
+import { useToast } from "@/components/ui/toast";
+import {
+  useCommitCount,
+  useCount,
+  useDeleteCount,
+  useUpdateCountLine,
+} from "@/features/inventory/api";
 import { ApiError } from "@/lib/api";
 import { formatIntAsDecimalInput, parseDecimalToInt } from "@/lib/decimal";
 import { inventoryLabels } from "@/lib/i18n-inventory";
 import { cn } from "@/lib/utils";
 
 export interface CountDetailViewProps {
-  countId: string | null;
+  countId: string;
   /** itemId -> { name, unit }, built by the caller from useItemsQuery (see routes/inventory.tsx),
    * same lookup ExitsTable/KardexView reuse. */
   items: Map<string, { name: string; unit: Unit }>;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
 }
 
-export function CountDetailView({ countId, items, open, onOpenChange }: CountDetailViewProps) {
+export function CountDetailView({ countId, items }: CountDetailViewProps) {
+  const navigate = useNavigate();
+  const toast = useToast();
   const countQuery = useCount(countId);
   const count = countQuery.data;
 
   const [lineInputs, setLineInputs] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
   const [flushing, setFlushing] = useState(false);
 
   const updateLineMutation = useUpdateCountLine();
   const commitMutation = useCommitCount();
+  const deleteMutation = useDeleteCount(countId);
 
   // Seed local edit state from the server once per count (never on every background refetch that
   // follows our own line edits, which would otherwise stomp an in-progress keystroke in another
@@ -138,25 +156,74 @@ export function CountDetailView({ countId, items, open, onOpenChange }: CountDet
     }
   }
 
+  async function handleCancelDraft() {
+    setError(null);
+    try {
+      await deleteMutation.mutateAsync();
+      setCancelConfirmOpen(false);
+      toast.show({ message: inventoryLabels.cancelDraftCountDeletedToast });
+      void navigate({ to: "/inventory", search: { tab: "conteos" } });
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : inventoryLabels.errors.generic);
+    }
+  }
+
   const variantLines = count
     ? count.lines
         .map((line) => ({ line, delta: effectiveCountedQty(line) - line.expectedQty }))
         .filter(({ delta }) => delta !== 0)
     : [];
 
+  const pageTitle = count
+    ? `${inventoryLabels.countDetailTitlePrefix} · ${count.code ?? count.businessDate}`
+    : inventoryLabels.countDetailTitlePrefix;
+
   return (
-    <DetailDrawer
-      open={open}
-      onOpenChange={onOpenChange}
-      disableUnsavedChangesGuard
-      title={
-        count
-          ? `${inventoryLabels.countDetailTitlePrefix} · ${count.code ?? count.businessDate}`
-          : inventoryLabels.countDetailTitlePrefix
-      }
-      subtitle={count?.notes ?? undefined}
-    >
-      <div className="flex flex-col gap-3">
+    <>
+      <FormPage
+        title={pageTitle}
+        backTo="/inventory"
+        backSearch={{ tab: "conteos" }}
+        backLabel={inventoryLabels.backToInventory}
+        footer={
+          <PinnedSummaryFooter
+            contentClassName="max-w-3xl px-0"
+            total={
+              <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted px-4 py-2">
+                <span className="font-medium text-foreground text-sm">
+                  {inventoryLabels.countStatusLabels[count?.status ?? "DRAFT"]}
+                </span>
+                <span className="numeric-cell text-foreground text-sm">
+                  {inventoryLabels.countItemsSummary(count?.lines.length ?? 0)}
+                </span>
+              </div>
+            }
+            warnings={error ? <p className="text-negative text-sm">{error}</p> : undefined}
+            actions={
+              isDraft && count && count.lines.length > 0 ? (
+                <>
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    onClick={() => setCancelConfirmOpen(true)}
+                    disabled={flushing || commitMutation.isPending || deleteMutation.isPending}
+                  >
+                    {inventoryLabels.cancelDraftCountButton}
+                  </Button>
+                  <Button
+                    type="button"
+                    onClick={handleOpenConfirm}
+                    disabled={flushing || commitMutation.isPending || deleteMutation.isPending}
+                  >
+                    {inventoryLabels.confirmCountButton}
+                  </Button>
+                </>
+              ) : undefined
+            }
+          />
+        }
+      >
+        {count?.notes ? <p className="text-muted-foreground text-sm">{count.notes}</p> : null}
         {countQuery.isLoading ? (
           <p className="text-muted-foreground text-sm">{inventoryLabels.loading}</p>
         ) : !count || count.lines.length === 0 ? (
@@ -206,19 +273,7 @@ export function CountDetailView({ countId, items, open, onOpenChange }: CountDet
             })}
           </div>
         )}
-
-        {error ? <p className="text-negative text-sm">{error}</p> : null}
-
-        {isDraft && count && count.lines.length > 0 ? (
-          <Button
-            type="button"
-            onClick={handleOpenConfirm}
-            disabled={flushing || commitMutation.isPending}
-          >
-            {inventoryLabels.confirmCountButton}
-          </Button>
-        ) : null}
-      </div>
+      </FormPage>
 
       <Dialog
         open={confirmOpen}
@@ -267,6 +322,17 @@ export function CountDetailView({ countId, items, open, onOpenChange }: CountDet
           </Button>
         </div>
       </Dialog>
-    </DetailDrawer>
+
+      <ConfirmDialog
+        open={cancelConfirmOpen}
+        title={inventoryLabels.cancelDraftCountConfirmTitle}
+        description={inventoryLabels.cancelDraftCountConfirmBody}
+        onConfirm={handleCancelDraft}
+        onCancel={() => setCancelConfirmOpen(false)}
+        confirmLoading={deleteMutation.isPending}
+        confirmLabel={inventoryLabels.cancelDraftCountConfirmSubmit}
+        destructive
+      />
+    </>
   );
 }
