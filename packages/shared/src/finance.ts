@@ -2,11 +2,9 @@
 // the API route and any future web form (KOK-015) / AI draft tool for finance events import
 // these same schemas — never redeclare field validation elsewhere.
 //
-// Scope (Doc 10 KOK-014): CREATE + READ only for standalone (non-system-owned) financial
-// transactions. Edit/delete for financial_transactions — including the general derived-row
-// regeneration pattern — is KOK-024's job; this module does not build it. See
-// apps/worker/src/core/finance/transactions.ts's `assertTransactionEditable` for the hook left
-// for that later task (Doc 04 §5: rows with `source_event_id` set are system-owned).
+// Scope (Doc 10 KOK-014/KOK-146): standalone (non-system-owned) financial transactions and
+// transfers can be created, edited, soft-deleted, and restored here. Event-owned rows still use
+// the derived-row regeneration primitive in core/finance/accounts.ts and are never direct targets.
 
 import { z } from "zod";
 import { businessDateSchema, calendarDateSchema, occurredAtSchema } from "./dates.js";
@@ -95,6 +93,23 @@ export const withdrawCommandSchema = z.object({
 });
 export type WithdrawCommand = z.infer<typeof withdrawCommandSchema>;
 
+/**
+ * Full-replacement edit contract for a manual transaction. Standalone rows use the same fields as
+ * `recordTransaction`; transfer rows use the paired from/to account shape so the service can edit
+ * both legs from either row id without exposing counterpart ids as editable data.
+ */
+export const updateTransactionCommandSchema = z.union([
+  recordTransactionCommandSchema,
+  withdrawCommandSchema,
+  transferCommandSchema,
+]);
+export type UpdateTransactionCommand = z.infer<typeof updateTransactionCommandSchema>;
+
+/** Delete and restore receive no editable state: the target id is in the URL and the service
+ * applies the stored row (or pair) atomically. Strictness keeps accidental command fields out. */
+export const deleteTransactionCommandSchema = z.object({}).strict();
+export type DeleteTransactionCommand = z.infer<typeof deleteTransactionCommandSchema>;
+
 /** GET /finance/transactions query filters — kept simple; a later UI task can extend them. Filter
  * boundaries use `calendarDateSchema`, not `businessDateSchema`: a future-dated range is a
  * legitimate (if empty) query, unlike a transaction's own `businessDate` above. */
@@ -156,6 +171,22 @@ export interface TransferResult {
 export interface WithdrawResult {
   transaction: FinancialTransactionDto;
   account: FinancialAccountDto;
+}
+
+export interface UpdateTransactionResult {
+  transactions: FinancialTransactionDto[];
+  accounts: FinancialAccountDto[];
+}
+
+export interface DeleteTransactionResult {
+  transactions: FinancialTransactionDto[];
+  accounts: FinancialAccountDto[];
+  deletedAt: string;
+}
+
+export interface RestoreTransactionResult {
+  transactions: FinancialTransactionDto[];
+  accounts: FinancialAccountDto[];
 }
 
 export interface ListTransactionsResult {

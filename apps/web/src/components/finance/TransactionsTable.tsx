@@ -1,9 +1,8 @@
 // SC-10 transactions table: all financial_transactions, signed-colored amount (Doc 06 §3 rule —
 // see features/finance/transaction-styling.ts), system-owned rows flagged read-only.
 //
-// No row click / DetailDrawer: editing a financial_transaction has no API yet (KOK-014
-// deliberately didn't build it — that's KOK-024's job), so this table is read-only end to end,
-// not just for system-owned rows.
+// Rows open the Finance detail drawer. Manual rows expose edit/delete there; system-owned rows
+// stay read-only and explain that their source event owns them.
 
 import type { FinancialAccountDto, FinancialTransactionDto } from "@kokoro/shared";
 import { formatMoney, toCentavos } from "@kokoro/shared";
@@ -26,6 +25,7 @@ export interface TransactionsTableProps {
   transactions: FinancialTransactionDto[];
   accounts: FinancialAccountDto[];
   loading?: boolean;
+  onRowClick?: (transaction: FinancialTransactionDto) => void;
   sortState: EventTableSortState | null;
   onSortChange: (sortState: EventTableSortState | null) => void;
 }
@@ -34,6 +34,7 @@ export function TransactionsTable({
   transactions,
   accounts,
   loading,
+  onRowClick,
   sortState,
   onSortChange,
 }: TransactionsTableProps) {
@@ -54,6 +55,7 @@ export function TransactionsTable({
     {
       id: "code",
       header: financeLabels.columnCode,
+      isRowIdentifier: true,
       // KOK-185: only manual rows (gasto/ingreso/retiro/transferencia) get their own code — a
       // system-owned row already shows the "source" badge below and inherits its source event's
       // code there (Doc 07), so this column intentionally mirrors that column's em-dash for it.
@@ -122,6 +124,7 @@ export function TransactionsTable({
       columns={columns}
       rows={transactions}
       getRowId={(row) => row.id}
+      onRowClick={onRowClick}
       emptyMessage={financeLabels.noTransactions}
       loading={loading}
       loadingMessage={financeLabels.loading}

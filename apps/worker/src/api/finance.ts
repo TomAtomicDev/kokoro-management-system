@@ -3,20 +3,25 @@
 // DomainErrors thrown by the service propagate to the global errorHandler.
 
 import {
+  deleteTransactionCommandSchema,
   type FinanceSummaryDto,
   listTransactionsFiltersSchema,
   recordTransactionCommandSchema,
   transferCommandSchema,
+  updateTransactionCommandSchema,
   withdrawCommandSchema,
 } from "@kokoro/shared";
 import { Hono } from "hono";
 
 import {
+  deleteTransaction,
   getLiabilityReceivableSummary,
   listAccounts,
   listTransactions,
   recordTransaction,
+  restoreTransaction,
   transfer,
+  updateTransaction,
   withdraw,
 } from "../core/finance/index.js";
 import { createDb } from "../db/index.js";
@@ -47,6 +52,21 @@ export const financeRoute = new Hono<{ Bindings: Env; Variables: Variables }>()
     const db = createDb(c.env.DB);
     const body = recordTransactionCommandSchema.parse(await c.req.json());
     return c.json(await recordTransaction(db, body, ACTOR), 201);
+  })
+  .patch("/finance/transactions/:id", async (c) => {
+    const db = createDb(c.env.DB);
+    const body = updateTransactionCommandSchema.parse(await c.req.json());
+    return c.json(await updateTransaction(db, c.req.param("id"), body, ACTOR));
+  })
+  .delete("/finance/transactions/:id", async (c) => {
+    const db = createDb(c.env.DB);
+    const body = deleteTransactionCommandSchema.parse(await c.req.json().catch(() => ({})));
+    return c.json(await deleteTransaction(db, c.req.param("id"), body, ACTOR));
+  })
+  .post("/finance/transactions/:id/restore", async (c) => {
+    const db = createDb(c.env.DB);
+    const body = deleteTransactionCommandSchema.parse(await c.req.json().catch(() => ({})));
+    return c.json(await restoreTransaction(db, c.req.param("id"), body, ACTOR));
   })
   .post("/finance/transfers", async (c) => {
     const db = createDb(c.env.DB);

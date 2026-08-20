@@ -9,6 +9,7 @@ import type { EventTableSortState } from "@/components/data-table/EventTable";
 import { AccountCard } from "@/components/finance/AccountCard";
 import { LiabilityReceivableStrip } from "@/components/finance/LiabilityReceivableStrip";
 import { RecordTransactionDialog } from "@/components/finance/RecordTransactionDialog";
+import { TransactionDetailDrawer } from "@/components/finance/TransactionDetailDrawer";
 import { TransactionsTable } from "@/components/finance/TransactionsTable";
 import { TransferDialog } from "@/components/finance/TransferDialog";
 import { WithdrawDialog } from "@/components/finance/WithdrawDialog";
@@ -28,8 +29,16 @@ export function FinanceRoute() {
   const [incomeOpen, setIncomeOpen] = useState(false);
   const [transferOpen, setTransferOpen] = useState(false);
   const [withdrawOpen, setWithdrawOpen] = useState(false);
+  const [selectedTransactionId, setSelectedTransactionId] = useState<string | null>(null);
 
   const accounts = accountsQuery.data?.accounts ?? [];
+  const transactions = transactionsQuery.data?.transactions ?? [];
+  const selectedTransaction =
+    transactions.find((transaction) => transaction.id === selectedTransactionId) ?? null;
+  const selectedCounterpart = selectedTransaction?.counterpartTxId
+    ? (transactions.find((transaction) => transaction.id === selectedTransaction.counterpartTxId) ??
+      null)
+    : null;
   const sortState: EventTableSortState | null =
     search.sort && search.sortDirection
       ? { columnId: search.sort, direction: search.sortDirection }
@@ -81,11 +90,22 @@ export function FinanceRoute() {
       <LiabilityReceivableStrip />
 
       <TransactionsTable
-        transactions={transactionsQuery.data?.transactions ?? []}
+        transactions={transactions}
         accounts={accounts}
         loading={transactionsQuery.isLoading}
+        onRowClick={(transaction) => setSelectedTransactionId(transaction.id)}
         sortState={sortState}
         onSortChange={updateSort}
+      />
+
+      <TransactionDetailDrawer
+        transaction={selectedTransaction}
+        counterpart={selectedCounterpart}
+        accounts={accounts}
+        open={selectedTransactionId !== null}
+        onOpenChange={(open) => {
+          if (!open) setSelectedTransactionId(null);
+        }}
       />
 
       <RecordTransactionDialog

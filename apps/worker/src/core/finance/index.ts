@@ -9,8 +9,12 @@ export {
 export { getLiabilityReceivableSummary } from "./liability-receivables.js";
 export {
   assertTransactionEditable,
+  deleteTransaction,
   listTransactions,
   recordTransaction,
+  restoreTransaction,
+  signedTransactionBalanceEffect,
+  updateTransaction,
   withdraw,
 } from "./transactions.js";
 export { transfer } from "./transfer.js";
