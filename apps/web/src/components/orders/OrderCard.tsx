@@ -1,5 +1,6 @@
 // One card in the OrderBoard (Doc 07 SC-04): customer, delivery date/place, agreed total, deposit
-// paid/pending badge, balance. Click opens OrderDetailDrawer (composed by the caller).
+// paid/pending deposit or linked-sale payment badge, and the matching expected/current balance.
+// Click opens OrderDetailDrawer (composed by the caller).
 
 import type { OrderDto } from "@kokoro/shared";
 import { formatMoney, toCentavos } from "@kokoro/shared";
@@ -14,6 +15,23 @@ export interface OrderCardProps {
 
 export function OrderCard({ order, onClick }: OrderCardProps) {
   const hasDeposit = order.depositPaid > 0;
+  const isDelivered = order.status === "DELIVERED";
+  const badgeLabel = isDelivered
+    ? order.salePaymentStatus === "PAID"
+      ? ordersLabels.paymentStatusLabels.PAID
+      : ordersLabels.paymentStatusLabels.ON_CREDIT
+    : order.status === "CANCELLED"
+      ? ordersLabels.statusLabels.CANCELLED
+      : hasDeposit
+        ? ordersLabels.depositPaidBadge
+        : ordersLabels.depositPendingBadge;
+  const badgeVariant = isDelivered
+    ? order.salePaymentStatus === "ON_CREDIT"
+      ? "warning"
+      : "default"
+    : hasDeposit
+      ? "default"
+      : "muted";
 
   return (
     <button
@@ -28,9 +46,7 @@ export function OrderCard({ order, onClick }: OrderCardProps) {
           </span>
           {order.code ? <span className="text-muted-foreground text-xs">{order.code}</span> : null}
         </div>
-        <Badge variant={hasDeposit ? "default" : "muted"}>
-          {hasDeposit ? ordersLabels.depositPaidBadge : ordersLabels.depositPendingBadge}
-        </Badge>
+        <Badge variant={badgeVariant}>{badgeLabel}</Badge>
       </div>
 
       <p className="line-clamp-2 text-muted-foreground text-xs">{order.description}</p>
@@ -48,9 +64,16 @@ export function OrderCard({ order, onClick }: OrderCardProps) {
             : ordersLabels.noAgreedTotal}
         </span>
       </div>
-      {order.balanceDue !== null && order.balanceDue > 0 ? (
+      {isDelivered && order.outstandingAmount !== null ? (
         <div className="flex items-center justify-between text-xs">
-          <span className="text-muted-foreground">{ordersLabels.cardBalance}</span>
+          <span className="text-muted-foreground">{ordersLabels.cardOutstandingBalance}</span>
+          <span className="numeric-cell font-medium text-warning">
+            {formatMoney(toCentavos(order.outstandingAmount))}
+          </span>
+        </div>
+      ) : !isDelivered && order.balanceDue !== null && order.balanceDue > 0 ? (
+        <div className="flex items-center justify-between text-xs">
+          <span className="text-muted-foreground">{ordersLabels.cardExpectedBalance}</span>
           <span className="numeric-cell font-medium text-warning">
             {formatMoney(toCentavos(order.balanceDue))}
           </span>

@@ -37,7 +37,7 @@ import { ACCOUNTS_KEY } from "@/features/finance/api";
 import { api } from "@/lib/api";
 import { FORM_SAVE_ERROR_META } from "@/lib/form-save-errors";
 
-const ORDERS_ROOT_KEY = ["orders"] as const;
+export const ORDERS_ROOT_KEY = ["orders"] as const;
 
 function ordersListKey(filters: ListOrdersFilters) {
   return [...ORDERS_ROOT_KEY, "list", filters] as const;

@@ -1,6 +1,8 @@
 // KOK-165: order regressions (F-46, F-47) plus the confirm → deliver → undo lifecycle (KOK-170's
 // ConfirmDialog replaced this drawer's window.confirm popups on this same branch, so the undo step
 // drives that dialog's Confirm button, not a native `page.on('dialog')` handler).
+
+import { toBusinessDate } from "@kokoro/shared";
 import { expect, type Page, test } from "@playwright/test";
 
 import { ordersLabels } from "../src/lib/i18n-orders";
@@ -14,7 +16,12 @@ interface CreatedItem {
 }
 
 interface DeliverOrderResponse {
-  order: { status: string };
+  order: {
+    status: string;
+    salePaymentStatus: string | null;
+    outstandingAmount: number | null;
+    balanceDue: number | null;
+  };
   sale: { id: string; paymentStatus: string; total: number };
 }
 
@@ -138,10 +145,28 @@ test("an order's confirm, start production, mark ready, deliver and undo-deliver
   const paidDeliveryPayload: unknown = await paidDeliveryResponse.json();
   expect(paidDeliveryResponse.ok(), JSON.stringify(paidDeliveryPayload)).toBe(true);
   expect(paidDeliveryPayload).toMatchObject({
-    order: { status: "DELIVERED" },
+    order: {
+      status: "DELIVERED",
+      salePaymentStatus: "PAID",
+      outstandingAmount: 0,
+      balanceDue: null,
+    },
     sale: { paymentStatus: "PAID", total: 10_000 },
   });
   await expect(page.getByText(ordersLabels.statusLabels.DELIVERED, { exact: true })).toBeVisible();
+  const orderDrawer = page.getByRole("dialog", { name: ordersLabels.detailTitle });
+  await expect(
+    orderDrawer
+      .getByText(ordersLabels.columnSalePaymentStatus, { exact: true })
+      .locator("..")
+      .getByText(ordersLabels.paymentStatusLabels.PAID, { exact: true }),
+  ).toBeVisible();
+  await expect(
+    orderDrawer
+      .getByText(ordersLabels.columnOutstandingAmount, { exact: true })
+      .locator("..")
+      .getByText("Bs 0,00", { exact: true }),
+  ).toBeVisible();
 
   await page.getByRole("button", { name: ordersLabels.actionUndoDeliver, exact: true }).click();
   await page.getByRole("dialog").getByRole("button", { name: "Confirmar", exact: true }).click();
@@ -227,11 +252,28 @@ test("zero-deposit confirmation and credit delivery require separate risk acknow
   const deliveryPayload = (await deliveryResponse.json()) as DeliverOrderResponse;
   expect(deliveryResponse.ok(), JSON.stringify(deliveryPayload)).toBe(true);
   expect(deliveryPayload).toMatchObject({
-    order: { status: "DELIVERED" },
+    order: {
+      status: "DELIVERED",
+      salePaymentStatus: "ON_CREDIT",
+      outstandingAmount: 10_000,
+      balanceDue: null,
+    },
     sale: { paymentStatus: "ON_CREDIT", total: 10_000 },
   });
   await expect(
     orderDrawer.getByText(ordersLabels.statusLabels.DELIVERED, { exact: true }),
+  ).toBeVisible();
+  await expect(
+    orderDrawer
+      .getByText(ordersLabels.columnSalePaymentStatus, { exact: true })
+      .locator("..")
+      .getByText(ordersLabels.paymentStatusLabels.ON_CREDIT, { exact: true }),
+  ).toBeVisible();
+  await expect(
+    orderDrawer
+      .getByText(ordersLabels.columnOutstandingAmount, { exact: true })
+      .locator("..")
+      .getByText("Bs 100,00", { exact: true }),
   ).toBeVisible();
 
   const receivablesResponse = await page.request.get("/api/receivables", {
@@ -248,4 +290,47 @@ test("zero-deposit confirmation and credit delivery require separate risk acknow
     customOrderId: quotePayload.order.id,
     outstandingAmount: 10_000,
   });
+
+  const collectedAt = new Date(Date.now() - 60_000);
+  const collectionResponse = await page.request.post(
+    `/api/sales/${deliveryPayload.sale.id}/collect-payment`,
+    {
+      data: {
+        occurredAt: collectedAt.toISOString(),
+        businessDate: toBusinessDate(collectedAt),
+        paymentMethod: "CASH",
+        accountId: "acc_cash",
+      },
+      headers: await authenticatedHeaders(page),
+      timeout: 10_000,
+    },
+  );
+  const collectionPayload: unknown = await collectionResponse.json();
+  expect(collectionResponse.ok(), JSON.stringify(collectionPayload)).toBe(true);
+
+  await page.goto("/orders", { timeout: 15_000 });
+  const paidOrderCard = page.getByRole("button", { name: new RegExp(description) });
+  await expect(
+    paidOrderCard.getByText(ordersLabels.paymentStatusLabels.PAID, { exact: true }),
+  ).toBeVisible();
+  await expect(
+    paidOrderCard
+      .getByText(ordersLabels.cardOutstandingBalance, { exact: true })
+      .locator("..")
+      .getByText("Bs 0,00", { exact: true }),
+  ).toBeVisible();
+  await paidOrderCard.click();
+  const paidOrderDrawer = page.getByRole("dialog", { name: ordersLabels.detailTitle });
+  await expect(
+    paidOrderDrawer
+      .getByText(ordersLabels.columnSalePaymentStatus, { exact: true })
+      .locator("..")
+      .getByText(ordersLabels.paymentStatusLabels.PAID, { exact: true }),
+  ).toBeVisible();
+  await expect(
+    paidOrderDrawer
+      .getByText(ordersLabels.columnOutstandingAmount, { exact: true })
+      .locator("..")
+      .getByText("Bs 0,00", { exact: true }),
+  ).toBeVisible();
 });

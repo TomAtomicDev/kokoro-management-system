@@ -140,7 +140,9 @@ export function DeliverOrderDialog({ order, open, onOpenChange }: DeliverOrderDi
         </div>
         <div className="flex flex-1 flex-col gap-4 overflow-y-auto px-5 py-4 text-sm">
           <div className="flex items-center justify-between rounded-md border border-border bg-muted px-4 py-3">
-            <span className="font-medium text-foreground text-sm">{ordersLabels.cardBalance}</span>
+            <span className="font-medium text-foreground text-sm">
+              {ordersLabels.cardExpectedBalance}
+            </span>
             <span className="numeric-cell font-semibold text-foreground">
               {formatMoney(toCentavos(balanceDue))}
             </span>
