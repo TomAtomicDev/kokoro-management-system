@@ -78,7 +78,7 @@ delivery, the displayed balance is the expected merchandise remainder at handoff
 (`agreed_total − deposit_paid`), labelled **Saldo previsto al entregar**; it is not a receivable.
 Delivered cards instead show the linked sale's current **Pagado / Por cobrar** state and actual
 outstanding remainder, which becomes zero after collection. Cancelled orders have no balance. Within each
-  lane, sort by promised `delivery_date` descending (latest date leftmost); undated orders last,
+  lane, sort by promised `delivery_date` descending (latest date first, top to bottom); undated orders last,
   breaking ties by creation time then ID descending. Load further bounded pages when needed so
   active orders beyond the first 500 are not silently omitted. Give
 cards a status-colored
@@ -86,8 +86,11 @@ border and retain the text status chip; do not rely on color alone. On narrow sc
 wrap without nested horizontal scrolling.
 
 **Historial** contains DELIVERED and CANCELLED orders, with **Todos** and quick filters for **Por cobrar**,
-**Pagados** and **Cancelados**, plus an optional date filter labelled **Fecha de creación**. It has
-  an explicit date range that can be cleared to review all history. History uses bounded continuation
+**Pagados** and **Cancelados**. **Por cobrar** means a delivered sale whose current outstanding
+remainder is greater than zero; **Pagados** includes every delivered sale with zero outstanding,
+including one paid later through collection. An optional, initially empty date range is labelled
+**Fecha de creación** and can be cleared to review all history. Switching back to **Activos** clears
+that history-only date range. History uses bounded continuation
   too; **Todos** must not silently stop at the first 500 closed orders. History rows open the order detail
 but do not show links to the deposit, production, assembly, delivery-session or sale events. Delivered
 payment filters use the linked sale's current payment state, so a later collection moves an order

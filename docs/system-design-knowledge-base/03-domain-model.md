@@ -339,10 +339,10 @@ Rules:
   - Production and assembly forms offer orders in **every status except DELIVERED and CANCELLED**
     (KOK-137). Restricting the picker to CONFIRMED/IN_PRODUCTION hid legitimate work.
 - **O-5** Unlimited concurrent orders; the active Orders board sorts each status lane by
-  `delivery_date` **descending** (latest promised date first, leftmost; undated orders last; Phase
-  3.5/KOK-201). Tie-break by `created_at` descending and `id` descending; a bounded read must expose
-  continuation rather than silently omit active or historical orders beyond the per-request limit. `delivery_date`
-  is a promised calendar date and MAY be in the future. The
+  `delivery_date` **descending** (latest promised date first, topmost; undated orders last; Phase
+  3.5/KOK-201). Tie-break by `created_at` descending and `id` descending. A bounded keyset read must
+  expose continuation rather than silently omit active or historical orders beyond the per-request
+  limit. `delivery_date` is a promised calendar date and MAY be in the future. The
   no-future-date rule applies only to transaction `business_date` values; it explicitly does not
   apply to `custom_orders.delivery_date`.
 - **O-6 Backward transitions** (Phase 3.2, KOK-136 — decided 2026-08-11, shipped 2026-08-16).

@@ -23,6 +23,7 @@ import { AppShell } from "@/components/layout/AppShell";
 import { FormSaveErrorAlertProvider } from "@/components/ui/form-save-error-alert";
 import { GlobalErrorDialogProvider } from "@/components/ui/global-error-dialog";
 import { fetchSession, sessionQueryKey } from "@/features/auth/api";
+import type { OrdersHistoryFilter } from "@/lib/i18n-orders";
 import { queryClient } from "@/lib/query-client";
 import { AssemblyEditRoute, AssemblyRecordRoute } from "@/routes/assemblies";
 import { AssistantRoute } from "@/routes/assistant";
@@ -80,6 +81,8 @@ interface SalesSearch extends TableSortSearch {
 type ReceivablesSearch = Partial<ListReceivablesQuery>;
 
 interface OrdersSearch {
+  ordersView?: "active" | "history";
+  historyFilter?: OrdersHistoryFilter;
   fromDate?: string;
   toDate?: string;
   open?: string;
@@ -213,10 +216,16 @@ const ordersRoute = createRoute({
   path: "/orders",
   validateSearch: (search: Record<string, unknown>): OrdersSearch => {
     const parsed = listOrdersFiltersSchema.parse(search);
-    const range = dateRangeDefaults(parsed);
     return {
-      fromDate: range.fromDate,
-      toDate: range.toDate,
+      ordersView: search.ordersView === "history" ? "history" : "active",
+      historyFilter:
+        search.historyFilter === "outstanding" ||
+        search.historyFilter === "paid" ||
+        search.historyFilter === "cancelled"
+          ? search.historyFilter
+          : "all",
+      fromDate: parsed.fromDate,
+      toDate: parsed.toDate,
       open: typeof search.open === "string" ? search.open : undefined,
     };
   },

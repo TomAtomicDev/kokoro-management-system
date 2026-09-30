@@ -1846,7 +1846,7 @@ describe("getOrder / listOrders", () => {
     });
   });
 
-  it("filters by status and sorts by delivery date with undated orders last (O-5)", async () => {
+  it("filters by status and sorts latest promised dates first with undated orders last (O-5)", async () => {
     const db = createDb(env.DB);
     const customer = await seedCustomer(db);
 
@@ -1877,10 +1877,102 @@ describe("getOrder / listOrders", () => {
     );
 
     const { orders } = await listOrders(db, { status: "QUOTING" });
-    expect(orders.map((o) => o.description)).toEqual(["Pronto", "Tarde", "Sin fecha"]);
+    expect(orders.map((o) => o.description)).toEqual(["Tarde", "Pronto", "Sin fecha"]);
+    expect(orders.at(-1)?.deliveryDate).toBeNull();
     expect(orders.every((o) => o.status === "QUOTING")).toBe(true);
     expect(orders[0]?.customerName).toBe(customer.name);
   });
+
+  it("uses createdAt and id descending to break dated and undated ties", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-30T12:00:00.000Z"));
+
+    try {
+      const db = createDb(env.DB);
+      const customer = await seedCustomer(db);
+      const createdOrders: Awaited<ReturnType<typeof quoteOrder>>[] = [];
+      const deliveries = [
+        { deliveryDate: "2026-09-30", createdAt: "2026-09-30T12:00:00.000Z" },
+        { deliveryDate: "2026-09-30", createdAt: "2026-09-30T12:00:00.000Z" },
+        { deliveryDate: null, createdAt: "2026-09-30T12:00:00.000Z" },
+        { deliveryDate: null, createdAt: "2026-09-30T12:00:00.000Z" },
+        { deliveryDate: null, createdAt: "2026-09-30T11:00:00.000Z" },
+      ];
+      for (const [index, delivery] of deliveries.entries()) {
+        vi.setSystemTime(new Date(delivery.createdAt));
+        createdOrders.push(
+          await quoteOrder(
+            db,
+            {
+              customerId: customer.id,
+              description: `Empate ${index}`,
+              ...(delivery.deliveryDate === null ? {} : { deliveryDate: delivery.deliveryDate }),
+            },
+            ACTOR,
+          ),
+        );
+      }
+
+      const listedOrders = (await listOrders(db, { status: "QUOTING" })).orders;
+      const expectedIds = createdOrders
+        .map(({ order }) => order)
+        .sort((a, b) => {
+          if (a.deliveryDate === null && b.deliveryDate !== null) return 1;
+          if (a.deliveryDate !== null && b.deliveryDate === null) return -1;
+          const deliveryDateOrder = (b.deliveryDate ?? "").localeCompare(a.deliveryDate ?? "");
+          if (deliveryDateOrder !== 0) return deliveryDateOrder;
+          const createdAtOrder = b.createdAt.localeCompare(a.createdAt);
+          return createdAtOrder !== 0 ? createdAtOrder : b.id.localeCompare(a.id);
+        })
+        .map((order) => order.id);
+
+      expect(new Set(createdOrders.map(({ order }) => order.createdAt)).size).toBe(2);
+      expect(listedOrders.map((order) => order.id)).toEqual(expectedIds);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("continues past 500 active orders and retains orders created outside any date range", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2020-01-01T12:00:00.000Z"));
+
+    try {
+      const db = createDb(env.DB);
+      const customer = await seedCustomer(db);
+      const oldOrder = await quoteOrder(
+        db,
+        { customerId: customer.id, description: "Pedido activo antiguo" },
+        ACTOR,
+      );
+
+      vi.setSystemTime(new Date("2026-09-30T12:00:00.000Z"));
+      for (let index = 0; index < 504; index += 1) {
+        await quoteOrder(
+          db,
+          { customerId: customer.id, description: `Pedido activo ${index}` },
+          ACTOR,
+        );
+      }
+
+      const firstPage = await listOrders(db, { status: "QUOTING", limit: 500 });
+      expect(firstPage.orders).toHaveLength(500);
+      expect(firstPage.nextCursor).not.toBeNull();
+      const secondPage = await listOrders(db, {
+        status: "QUOTING",
+        limit: 500,
+        cursor: firstPage.nextCursor ?? undefined,
+      });
+
+      expect(secondPage.orders).toHaveLength(5);
+      expect(secondPage.nextCursor).toBeNull();
+      const allOrders = [...firstPage.orders, ...secondPage.orders];
+      expect(new Set(allOrders.map((order) => order.id)).size).toBe(505);
+      expect(allOrders.some((order) => order.id === oldOrder.order.id)).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  }, 30_000);
 
   it("filters by customer", async () => {
     const db = createDb(env.DB);
@@ -1936,7 +2028,7 @@ describe("getOrder / listOrders", () => {
       toDate: creationDate,
     });
 
-    expect(orders.map((order) => order.description)).toEqual(["Creado hoy", "También creado hoy"]);
+    expect(orders.map((order) => order.description)).toEqual(["También creado hoy", "Creado hoy"]);
   });
 
   it("keeps an evening La Paz order in the default business-date range", async () => {

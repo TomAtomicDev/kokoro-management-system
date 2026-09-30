@@ -10,12 +10,38 @@ import type {
   PaymentStatus,
 } from "@kokoro/shared";
 
+export type OrdersHistoryFilter = "all" | "outstanding" | "paid" | "cancelled";
+
 export const ordersLabels = {
   title: "Pedidos",
   subtitle: "Cotiza, confirma y entrega pedidos personalizados.",
   actionQuote: "Nuevo pedido",
   loading: "Cargando…",
   noOrders: "No hay pedidos en este estado.",
+  loadError: "No se pudieron cargar los pedidos. Intenta de nuevo.",
+  retry: "Reintentar",
+  viewActive: "Activos",
+  viewHistory: "Historial",
+  viewNavigation: "Vista de pedidos",
+  historyFilterNavigation: "Filtrar historial de pedidos",
+  activeTitle: "Pedidos activos",
+  historyTitle: "Historial de pedidos",
+  historyFilters: {
+    all: "Todos",
+    outstanding: "Por cobrar",
+    paid: "Pagados",
+    cancelled: "Cancelados",
+  } satisfies Record<OrdersHistoryFilter, string>,
+  historyEmpty: {
+    all: "No hay pedidos en el historial.",
+    outstanding: "No hay pedidos con saldo pendiente.",
+    paid: "No hay pedidos pagados.",
+    cancelled: "No hay pedidos cancelados.",
+  } satisfies Record<OrdersHistoryFilter, string>,
+  creationDate: "Fecha de creación",
+  dateFrom: "Desde",
+  dateTo: "Hasta",
+  clearCreationDate: "Limpiar fechas",
 
   statusLabels: {
     QUOTING: "Cotizando",

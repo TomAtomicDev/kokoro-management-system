@@ -22,7 +22,9 @@ import {
   confirmOrderCommandSchema,
   deliverOrderCommandSchema,
   deriveOrderOutstandingAmount,
+  listOrdersFiltersSchema,
   orderLineCommandSchema,
+  serializeOrderListCursor,
 } from "./orders.js";
 import { toMilliUnits, WHOLE_UNIT_MILLI_UNITS } from "./qty.js";
 
@@ -360,5 +362,27 @@ describe("orderLineCommandSchema", () => {
 
   it("defaults qty to one whole unit (1000 milli-units), matching the DDL", () => {
     expect(orderLineCommandSchema.parse({ itemId: "itm_1" }).qty).toBe(1000);
+  });
+});
+
+describe("listOrdersFiltersSchema cursor pagination (O-5)", () => {
+  it("parses the shared JSON cursor query representation", () => {
+    const cursor = {
+      deliveryDate: null,
+      createdAt: "2026-07-20T14:00:00.000Z",
+      id: "order-1",
+    };
+    const query = new URLSearchParams({ cursor: serializeOrderListCursor(cursor) });
+
+    expect(listOrdersFiltersSchema.parse(Object.fromEntries(query)).cursor).toEqual(cursor);
+  });
+
+  it("rejects malformed cursor values instead of restarting at the first page", () => {
+    expect(listOrdersFiltersSchema.safeParse({ cursor: "not-json" }).success).toBe(false);
+    expect(
+      listOrdersFiltersSchema.safeParse({
+        cursor: JSON.stringify({ deliveryDate: "2026-07-20", createdAt: "now" }),
+      }).success,
+    ).toBe(false);
   });
 });

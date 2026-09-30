@@ -23,6 +23,7 @@ import type {
   ListOrdersResult,
   OrderDto,
   OrderImpactRequest,
+  OrderListCursor,
   OrderTransitionResult,
   QuoteOrderCommand,
   QuoteOrderResult,
@@ -31,6 +32,7 @@ import type {
   ResolveOrderLineResult,
   UndoDeliverOrderCommand,
 } from "@kokoro/shared";
+import { serializeOrderListCursor } from "@kokoro/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { ACCOUNTS_KEY } from "@/features/finance/api";
@@ -55,6 +57,7 @@ function filtersToQueryString(filters: ListOrdersFilters): string {
   if (filters.customerId) params.set("customerId", filters.customerId);
   if (filters.fromDate) params.set("fromDate", filters.fromDate);
   if (filters.toDate) params.set("toDate", filters.toDate);
+  if (filters.cursor) params.set("cursor", serializeOrderListCursor(filters.cursor));
   if (filters.limit !== undefined) params.set("limit", String(filters.limit));
   const qs = params.toString();
   return qs ? `?${qs}` : "";
@@ -63,7 +66,26 @@ function filtersToQueryString(filters: ListOrdersFilters): string {
 export function useOrders(filters: ListOrdersFilters = {}) {
   return useQuery({
     queryKey: ordersListKey(filters),
-    queryFn: () => api.get<ListOrdersResult>(`/orders${filtersToQueryString(filters)}`),
+    queryFn: async (): Promise<ListOrdersResult> => {
+      const orders: OrderDto[] = [];
+      const seenCursors = new Set(filters.cursor ? [serializeOrderListCursor(filters.cursor)] : []);
+      let pageFilters = filters;
+
+      while (true) {
+        const page = await api.get<ListOrdersResult>(`/orders${filtersToQueryString(pageFilters)}`);
+        orders.push(...page.orders);
+
+        const nextCursor: OrderListCursor | null = page.nextCursor;
+        if (nextCursor === null) return { orders, nextCursor: null };
+
+        const serializedCursor = serializeOrderListCursor(nextCursor);
+        if (seenCursors.has(serializedCursor)) {
+          throw new Error("Orders pagination returned a repeated cursor.");
+        }
+        seenCursors.add(serializedCursor);
+        pageFilters = { ...filters, cursor: nextCursor };
+      }
+    },
   });
 }
 

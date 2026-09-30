@@ -92,10 +92,13 @@ balance (including the full total when deposit is zero). Verify zero-deposit con
 only the order transition/audit, and that no-deposit and credit-delivery acknowledgments are each
 mandatory, audited, and independent of R-5.
 
-The orders UI must show every active order regardless of creation date, keep four status lanes in the
-agreed order, and sort latest promised delivery date leftmost within each lane. History quick filters
-must separate delivered-with-balance, paid and cancelled orders; delivered payment state must follow
-the linked sale through later collection. `OrderDto.balanceDue` is only the expected merchandise
+The orders UI must show every active order regardless of creation date, fetch bounded keyset pages
+until continuation is exhausted, keep four vertical status lanes in the agreed order, and sort the
+latest promised delivery date first within each lane (undated ties by creation time and ID descending).
+History quick filters must separate delivered-with-positive-outstanding, delivered-with-zero-outstanding
+(including later collection), and cancelled orders. Its optional creation-date range defaults to no
+restriction and is cleared when switching to Activos; view, filter and date state survive URL reload.
+Delivered payment state must follow the linked sale through later collection. `OrderDto.balanceDue` is only the expected merchandise
 remainder on a nonterminal order; delivered reads expose the linked sale's current payment state and
 actual remainder, while cancelled reads have no balance. A delivered order missing its active linked
 sale is an internal data error, never a zero receivable. Verify list and detail reads, zero-deposit
