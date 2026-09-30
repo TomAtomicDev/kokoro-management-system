@@ -65,6 +65,7 @@ import type {
   OrderDto,
   OrderImpactRequest,
   OrderLineDto,
+  OrderListCursor,
   OrderTransitionResult,
   QuoteOrderCommand,
   QuoteOrderResult,
@@ -91,7 +92,7 @@ import {
   toMilliUnits,
   totalCentavos,
 } from "@kokoro/shared";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 
 import type { Db } from "../../db/index.js";
@@ -127,8 +128,16 @@ type OrderLineRow = typeof customOrderLines.$inferSelect;
 type SaleRow = typeof sales.$inferSelect;
 type SaleLineRow = typeof saleLines.$inferSelect;
 
-/** Stay below D1's bound-parameter limit when a board page contains many delivered orders. */
-const ORDER_SALE_READ_BATCH_SIZE = 90;
+/** Keep set-based follow-up reads below D1's bound-parameter limit at the maximum page size. */
+const ORDER_READ_BATCH_SIZE = 90;
+
+function chunkValues<T>(values: readonly T[], chunkSize: number): T[][] {
+  const chunks: T[][] = [];
+  for (let offset = 0; offset < values.length; offset += chunkSize) {
+    chunks.push(values.slice(offset, offset + chunkSize));
+  }
+  return chunks;
+}
 
 /** `financial_transactions.source_event_type` for every cash row an order's lifecycle owns (the
  * deposit, its refund, and the delivery balance). Free text by design (INV-9) — the same convention
@@ -348,8 +357,8 @@ async function loadActiveSalesByOrderId(
 
   const linkedSaleIds = deliveredOrders.map((order) => order.saleId as string);
   const saleById = new Map<string, SaleRow>();
-  for (let offset = 0; offset < linkedSaleIds.length; offset += ORDER_SALE_READ_BATCH_SIZE) {
-    const saleIdBatch = linkedSaleIds.slice(offset, offset + ORDER_SALE_READ_BATCH_SIZE);
+  for (let offset = 0; offset < linkedSaleIds.length; offset += ORDER_READ_BATCH_SIZE) {
+    const saleIdBatch = linkedSaleIds.slice(offset, offset + ORDER_READ_BATCH_SIZE);
     const activeSales = await db.query.sales.findMany({
       where: (t, { and, inArray: inArrayOp, isNull }) =>
         and(inArrayOp(t.id, saleIdBatch), isNull(t.deletedAt)),
@@ -1419,9 +1428,8 @@ export async function getOrder(db: Db, id: string): Promise<OrderDto> {
 }
 
 /**
- * SC-04's board read. Ordered by `delivery_date` (O-5: "the Orders board sorts by delivery_date"),
- * nulls last so undated quotes sit at the bottom rather than at the top. Lines and customer names
- * are fetched in ONE extra query each — never per order (no N+1 behind the board).
+ * SC-04's bounded board/history read. O-5 keyset pagination follows delivery_date DESC NULLS LAST,
+ * created_at DESC, id DESC. Related rows are loaded in bounded set queries, never per order.
  */
 export async function listOrders(
   db: Db,
@@ -1433,8 +1441,9 @@ export async function listOrders(
     fromDate !== undefined && toDate !== undefined
       ? businessDateRangeToUtcWindow(fromDate, toDate)
       : undefined;
+  const pageSize = filters.limit ?? 500;
 
-  const rows = await db.query.customOrders.findMany({
+  const rowsWithLookahead = await db.query.customOrders.findMany({
     where: (t, { and, eq: eqOp, gte, isNull, lt, notInArray }) => {
       const clauses = [isNull(t.deletedAt)];
       if (filters.status !== undefined) clauses.push(eqOp(t.status, filters.status));
@@ -1445,24 +1454,53 @@ export async function listOrders(
         clauses.push(gte(t.createdAt, dateWindow.startInclusive));
       if (filters.toDate !== undefined && dateWindow !== undefined)
         clauses.push(lt(t.createdAt, dateWindow.endExclusive));
+      if (filters.cursor !== undefined) {
+        const cursor = filters.cursor;
+        const cursorClause =
+          cursor.deliveryDate === null
+            ? sql`(${t.deliveryDate} IS NULL AND (${t.createdAt} < ${cursor.createdAt} OR (${t.createdAt} = ${cursor.createdAt} AND ${t.id} < ${cursor.id})))`
+            : sql`(${t.deliveryDate} < ${cursor.deliveryDate} OR ${t.deliveryDate} IS NULL OR (${t.deliveryDate} = ${cursor.deliveryDate} AND ${t.createdAt} < ${cursor.createdAt}) OR (${t.deliveryDate} = ${cursor.deliveryDate} AND ${t.createdAt} = ${cursor.createdAt} AND ${t.id} < ${cursor.id}))`;
+        clauses.push(cursorClause);
+      }
       return and(...clauses);
     },
-    orderBy: (t, { asc, sql: sqlOp }) => [sqlOp`${t.deliveryDate} IS NULL`, asc(t.deliveryDate)],
-    limit: filters.limit,
+    orderBy: (t, { asc, desc, sql: sqlOp }) => [
+      asc(sqlOp`${t.deliveryDate} IS NULL`),
+      desc(t.deliveryDate),
+      desc(t.createdAt),
+      desc(t.id),
+    ],
+    limit: pageSize + 1,
   });
 
-  if (rows.length === 0) return { orders: [] };
+  const hasMore = rowsWithLookahead.length > pageSize;
+  const rows = hasMore ? rowsWithLookahead.slice(0, pageSize) : rowsWithLookahead;
+  if (rows.length === 0) return { orders: [], nextCursor: null };
 
   const orderIds = rows.map((row) => row.id);
-  const customerIds = [...new Set(rows.map((row) => row.customerId))];
-  const [lineRows, customerRows] = await Promise.all([
-    db.query.customOrderLines.findMany({
-      where: (t, { inArray: inArrayOp }) => inArrayOp(t.customOrderId, orderIds),
-    }),
-    db.query.customers.findMany({
-      where: (t, { inArray: inArrayOp }) => inArrayOp(t.id, customerIds),
-    }),
+  const orderIdBatches = chunkValues(orderIds, ORDER_READ_BATCH_SIZE);
+  const customerIdBatches = chunkValues(
+    [...new Set(rows.map((row) => row.customerId))],
+    ORDER_READ_BATCH_SIZE,
+  );
+  const [lineRowBatches, customerRowBatches] = await Promise.all([
+    Promise.all(
+      orderIdBatches.map((batch) =>
+        db.query.customOrderLines.findMany({
+          where: (t, { inArray: inArrayOp }) => inArrayOp(t.customOrderId, batch),
+        }),
+      ),
+    ),
+    Promise.all(
+      customerIdBatches.map((batch) =>
+        db.query.customers.findMany({
+          where: (t, { inArray: inArrayOp }) => inArrayOp(t.id, batch),
+        }),
+      ),
+    ),
   ]);
+  const lineRows = lineRowBatches.flat();
+  const customerRows = customerRowBatches.flat();
 
   const linesByOrder = new Map<string, OrderLineRow[]>();
   for (const line of lineRows) {
@@ -1472,8 +1510,18 @@ export async function listOrders(
   }
   const nameById = new Map(customerRows.map((c) => [c.id, c.name]));
   const saleByOrderId = await loadActiveSalesByOrderId(db, rows);
+  const lastOrder = rows[rows.length - 1];
+  const nextCursor: OrderListCursor | null =
+    hasMore && lastOrder !== undefined
+      ? {
+          deliveryDate: lastOrder.deliveryDate,
+          createdAt: lastOrder.createdAt,
+          id: lastOrder.id,
+        }
+      : null;
 
   return {
+    nextCursor,
     orders: rows.map((row) =>
       toOrderDto(
         row,

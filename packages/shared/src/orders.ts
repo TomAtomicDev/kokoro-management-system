@@ -297,8 +297,42 @@ export const orderImpactRequestSchema = z.discriminatedUnion("op", [
 /** `z.input` — the nested command schema carries `confirm`'s default. */
 export type OrderImpactRequest = z.input<typeof orderImpactRequestSchema>;
 
-/** GET /orders query filters. `status` powers SC-04's board columns; date filters use the order's
- * `created_at` timestamp while results remain ordered by `delivery_date` (O-5). */
+/** Keyset position for the stable O-5 order: delivery date DESC NULLS LAST, then created/id DESC. */
+export interface OrderListCursor {
+  deliveryDate: string | null;
+  createdAt: string;
+  id: string;
+}
+
+const orderListCursorSchema = z
+  .object({
+    deliveryDate: calendarDateSchema.nullable(),
+    createdAt: z.string().min(1).max(40),
+    id: z.string().min(1).max(100),
+  })
+  .strict();
+
+const serializedOrderListCursorSchema = z
+  .string()
+  .max(500)
+  .transform((value, ctx) => {
+    try {
+      const parsed: unknown = JSON.parse(value);
+      const result = orderListCursorSchema.safeParse(parsed);
+      if (result.success) return result.data;
+    } catch {
+      // Report malformed cursors as a normal shared-query validation error below.
+    }
+
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "El cursor de pedidos no es válido.",
+    });
+    return z.NEVER;
+  });
+
+/** GET /orders query filters. Date filters use the order's `created_at` timestamp, while cursor
+ * pagination follows O-5's `delivery_date DESC NULLS LAST, created_at DESC, id DESC` order. */
 export const listOrdersFiltersSchema = z.object({
   status: customOrderStatusSchema.optional(),
   /** KOK-137: comma-separated on the wire ("DELIVERED,CANCELLED"), typed as an array for callers.
@@ -311,6 +345,8 @@ export const listOrdersFiltersSchema = z.object({
   customerId: z.string().min(1).optional(),
   fromDate: businessDateSchema.optional(),
   toDate: businessDateSchema.optional(),
+  /** JSON-serialized O-5 keyset position on the HTTP query string. */
+  cursor: z.union([orderListCursorSchema, serializedOrderListCursorSchema]).optional(),
   limit: z.coerce.number().int().positive().max(500).optional(),
 });
 export type ListOrdersFilters = z.infer<typeof listOrdersFiltersSchema>;
@@ -417,6 +453,13 @@ export interface ResolveOrderLineResult {
 
 export interface ListOrdersResult {
   orders: OrderDto[];
+  /** A bounded next page, or `null` when this response contains the final page. */
+  nextCursor: OrderListCursor | null;
+}
+
+/** The shared URL representation used by the Worker API and the web query hook. */
+export function serializeOrderListCursor(cursor: OrderListCursor): string {
+  return JSON.stringify(cursor);
 }
 
 /** What `deliverOrder` derives for one order line before it becomes a `sale_lines` row. */

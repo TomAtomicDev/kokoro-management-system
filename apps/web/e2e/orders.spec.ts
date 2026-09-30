@@ -2,7 +2,7 @@
 // ConfirmDialog replaced this drawer's window.confirm popups on this same branch, so the undo step
 // drives that dialog's Confirm button, not a native `page.on('dialog')` handler).
 
-import { toBusinessDate } from "@kokoro/shared";
+import { type OrderDto, toBusinessDate } from "@kokoro/shared";
 import { expect, type Page, test } from "@playwright/test";
 
 import { ordersLabels } from "../src/lib/i18n-orders";
@@ -56,6 +56,33 @@ function futureDeliveryDate(daysAhead: number): string {
   return date.toISOString().slice(0, 10);
 }
 
+function mockedActiveOrder(index: number): OrderDto {
+  const timestamp = "2026-09-30T12:00:00.000Z";
+  return {
+    id: `mock-order-${index}`,
+    status: "QUOTING",
+    customerId: "mock-customer",
+    customerName: "Cliente de prueba",
+    description: `Pedido paginado ${index}`,
+    agreedTotal: 10_000,
+    depositRequired: null,
+    depositPaid: 0,
+    depositTxId: null,
+    deliveryDate: null,
+    deliveryPlace: null,
+    saleId: null,
+    salePaymentStatus: null,
+    outstandingAmount: null,
+    cancelResolution: null,
+    code: null,
+    notes: null,
+    lines: [],
+    balanceDue: null,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+}
+
 test.beforeEach(async ({ page }) => {
   page.setDefaultTimeout(10_000);
   page.setDefaultNavigationTimeout(15_000);
@@ -93,6 +120,43 @@ test("quoting an order accepts a future delivery date", async ({ page }) => {
   await expect(card.getByText(deliveryDate, { exact: true })).toBeVisible();
 });
 
+test("the active board loads every bounded page beyond 500 orders", async ({ page }) => {
+  test.setTimeout(90_000);
+  const requestedCursors: (string | null)[] = [];
+  await page.route("**/api/orders**", async (route) => {
+    if (route.request().method() !== "GET") {
+      await route.continue();
+      return;
+    }
+
+    const cursor = new URL(route.request().url()).searchParams.get("cursor");
+    requestedCursors.push(cursor);
+    const pageResult =
+      cursor === null
+        ? {
+            orders: Array.from({ length: 500 }, (_, index) => mockedActiveOrder(index + 1)),
+            nextCursor: {
+              deliveryDate: null,
+              createdAt: "2026-09-30T12:00:00.000Z",
+              id: "mock-order-500",
+            },
+          }
+        : { orders: [mockedActiveOrder(501)], nextCursor: null };
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(pageResult),
+    });
+  });
+
+  await page.goto("/orders", { timeout: 15_000 });
+  await expect(page.getByRole("button", { name: /Pedido paginado 501/ })).toBeVisible();
+  expect(await page.getByRole("button", { name: /Pedido paginado/ }).count()).toBe(501);
+  expect(requestedCursors).toHaveLength(2);
+  expect(requestedCursors[0]).toBeNull();
+  expect(requestedCursors[1]).not.toBeNull();
+});
+
 test("an order's confirm, start production, mark ready, deliver and undo-deliver cycle", async ({
   page,
 }) => {
@@ -112,22 +176,27 @@ test("an order's confirm, start production, mark ready, deliver and undo-deliver
   await page.getByRole("button", { name: ordersLabels.submit, exact: true }).click();
 
   await page.getByText(description, { exact: true }).click();
+  const orderDrawer = page.getByRole("dialog", { name: ordersLabels.detailTitle });
 
   // Leave half of the agreed total to exercise the paid-balance delivery branch.
   await page.getByRole("button", { name: ordersLabels.actionConfirm, exact: true }).click();
   await page.getByLabel(ordersLabels.confirmFieldDepositAmount).fill("50");
   await page.getByRole("button", { name: ordersLabels.confirmSubmit, exact: true }).click();
-  await expect(page.getByText(ordersLabels.statusLabels.CONFIRMED, { exact: true })).toBeVisible();
+  await expect(
+    orderDrawer.getByText(ordersLabels.statusLabels.CONFIRMED, { exact: true }),
+  ).toBeVisible();
 
   await page.getByRole("button", { name: ordersLabels.actionStartProduction, exact: true }).click();
   await expect(
-    page.getByText(ordersLabels.statusLabels.IN_PRODUCTION, { exact: true }),
+    orderDrawer.getByText(ordersLabels.statusLabels.IN_PRODUCTION, { exact: true }),
   ).toBeVisible();
 
   // No linked production run/assembly — the "mark ready" ConfirmDialog fires first.
   await page.getByRole("button", { name: ordersLabels.actionMarkReady, exact: true }).click();
   await page.getByRole("dialog").getByRole("button", { name: "Confirmar", exact: true }).click();
-  await expect(page.getByText(ordersLabels.statusLabels.READY, { exact: true })).toBeVisible();
+  await expect(
+    orderDrawer.getByText(ordersLabels.statusLabels.READY, { exact: true }),
+  ).toBeVisible();
 
   await page.getByRole("button", { name: ordersLabels.actionDeliver, exact: true }).click();
   await expect(
@@ -153,8 +222,9 @@ test("an order's confirm, start production, mark ready, deliver and undo-deliver
     },
     sale: { paymentStatus: "PAID", total: 10_000 },
   });
-  await expect(page.getByText(ordersLabels.statusLabels.DELIVERED, { exact: true })).toBeVisible();
-  const orderDrawer = page.getByRole("dialog", { name: ordersLabels.detailTitle });
+  await expect(
+    orderDrawer.getByText(ordersLabels.statusLabels.DELIVERED, { exact: true }),
+  ).toBeVisible();
   await expect(
     orderDrawer
       .getByText(ordersLabels.columnSalePaymentStatus, { exact: true })
@@ -170,7 +240,9 @@ test("an order's confirm, start production, mark ready, deliver and undo-deliver
 
   await page.getByRole("button", { name: ordersLabels.actionUndoDeliver, exact: true }).click();
   await page.getByRole("dialog").getByRole("button", { name: "Confirmar", exact: true }).click();
-  await expect(page.getByText(ordersLabels.statusLabels.READY, { exact: true })).toBeVisible();
+  await expect(
+    orderDrawer.getByText(ordersLabels.statusLabels.READY, { exact: true }),
+  ).toBeVisible();
 });
 
 test("zero-deposit confirmation and credit delivery require separate risk acknowledgments", async ({
@@ -200,6 +272,25 @@ test("zero-deposit confirmation and credit delivery require separate risk acknow
   expect(quoteResponse.ok()).toBe(true);
   const quotePayload = (await quoteResponse.json()) as { order: { id: string } };
 
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.getByRole("heading", { level: 2 })).toHaveText([
+    ordersLabels.statusLabels.QUOTING,
+    ordersLabels.statusLabels.CONFIRMED,
+    ordersLabels.statusLabels.IN_PRODUCTION,
+    ordersLabels.statusLabels.READY,
+  ]);
+  const activeOrderCard = page.getByRole("button", { name: new RegExp(description) });
+  const statusLabel = activeOrderCard.getByText(ordersLabels.statusLabels.QUOTING, { exact: true });
+  await expect(statusLabel).toBeVisible();
+  const statusColors = await Promise.all([
+    activeOrderCard.evaluate((element) => getComputedStyle(element).borderLeftColor),
+    statusLabel.evaluate((element) => getComputedStyle(element).color),
+  ]);
+  expect(statusColors[0]).toBe(statusColors[1]);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
+
   await page.getByText(description, { exact: true }).click();
   const orderDrawer = page.getByRole("dialog", { name: "Pedido" });
   await page.getByRole("button", { name: ordersLabels.actionConfirm, exact: true }).click();
@@ -217,15 +308,19 @@ test("zero-deposit confirmation and credit delivery require separate risk acknow
   await page
     .getByRole("button", { name: ordersLabels.confirmSubmitNoDeposit, exact: true })
     .click();
-  await expect(page.getByText(ordersLabels.statusLabels.CONFIRMED, { exact: true })).toBeVisible();
+  await expect(
+    orderDrawer.getByText(ordersLabels.statusLabels.CONFIRMED, { exact: true }),
+  ).toBeVisible();
 
   await page.getByRole("button", { name: ordersLabels.actionStartProduction, exact: true }).click();
   await expect(
-    page.getByText(ordersLabels.statusLabels.IN_PRODUCTION, { exact: true }),
+    orderDrawer.getByText(ordersLabels.statusLabels.IN_PRODUCTION, { exact: true }),
   ).toBeVisible();
   await page.getByRole("button", { name: ordersLabels.actionMarkReady, exact: true }).click();
   await page.getByRole("dialog").getByRole("button", { name: "Confirmar", exact: true }).click();
-  await expect(page.getByText(ordersLabels.statusLabels.READY, { exact: true })).toBeVisible();
+  await expect(
+    orderDrawer.getByText(ordersLabels.statusLabels.READY, { exact: true }),
+  ).toBeVisible();
 
   await page.getByRole("button", { name: ordersLabels.actionDeliver, exact: true }).click();
   await page
@@ -308,17 +403,45 @@ test("zero-deposit confirmation and credit delivery require separate risk acknow
   const collectionPayload: unknown = await collectionResponse.json();
   expect(collectionResponse.ok(), JSON.stringify(collectionPayload)).toBe(true);
 
-  await page.goto("/orders", { timeout: 15_000 });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/orders?ordersView=history&historyFilter=outstanding", { timeout: 15_000 });
   const paidOrderCard = page.getByRole("button", { name: new RegExp(description) });
+  await expect(paidOrderCard).toHaveCount(0);
+  await page.getByRole("button", { name: ordersLabels.historyFilters.paid, exact: true }).click();
+  await expect(page).toHaveURL(/ordersView=history/);
+  await expect(page).toHaveURL(/historyFilter=paid/);
   await expect(
     paidOrderCard.getByText(ordersLabels.paymentStatusLabels.PAID, { exact: true }),
   ).toBeVisible();
+  await expect(paidOrderCard.locator("a")).toHaveCount(0);
   await expect(
     paidOrderCard
       .getByText(ordersLabels.cardOutstandingBalance, { exact: true })
       .locator("..")
       .getByText("Bs 0,00", { exact: true }),
   ).toBeVisible();
+
+  await page.getByLabel(ordersLabels.dateFrom).fill("2000-01-01");
+  await page.getByLabel(ordersLabels.dateTo).fill("2000-01-02");
+  await expect(page).toHaveURL(/fromDate=2000-01-01/);
+  await expect(page).toHaveURL(/toDate=2000-01-02/);
+  await expect(paidOrderCard).toHaveCount(0);
+  await page.getByRole("button", { name: ordersLabels.viewActive, exact: true }).click();
+  await expect(page).toHaveURL(/ordersView=active/);
+  await expect(page).not.toHaveURL(/fromDate|toDate/);
+  await expect(paidOrderCard).toHaveCount(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
+  await page.getByRole("button", { name: ordersLabels.viewHistory, exact: true }).click();
+  await expect(page).toHaveURL(/ordersView=history/);
+  await expect(page).toHaveURL(/historyFilter=paid/);
+  await expect(page).not.toHaveURL(/fromDate|toDate/);
+  await expect(paidOrderCard).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
+
   await paidOrderCard.click();
   const paidOrderDrawer = page.getByRole("dialog", { name: ordersLabels.detailTitle });
   await expect(
