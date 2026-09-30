@@ -10,7 +10,7 @@
 // never a caller-supplied field. `CANCELLED` is the terminal "this didn't happen" state — there is
 // no soft-delete/restore pair for orders (contrast core/sales' UC-18 verbs).
 //
-//   QUOTING --confirm(+deposit)--> CONFIRMED --start--> IN_PRODUCTION --ready--> READY
+//   QUOTING --confirm(+optional deposit)--> CONFIRMED --start--> IN_PRODUCTION --ready--> READY
 //           --deliver--> DELIVERED (final)
 //   {QUOTING, CONFIRMED, IN_PRODUCTION, READY} --cancel--> CANCELLED (final)
 //
@@ -57,12 +57,11 @@ const agreedTotalSchema = z
   .number()
   .int()
   .positive("El total acordado debe ser un entero positivo (centavos).");
-/** Centavos (INV-6), never negative — a deposit of 0 is expressed by omitting the deposit, not by
- * sending a zero. */
+/** Centavos (INV-6), never negative. O-1 allows zero only with the explicit risk acknowledgment. */
 const depositAmountSchema = z
   .number()
   .int()
-  .positive("El anticipo debe ser un entero positivo (centavos).");
+  .nonnegative("El anticipo debe ser un entero no negativo (centavos).");
 /** Milli-units of the item's own stored unit (Doc 04 §2). Defaults to 1000 (= one whole unit),
  * matching `custom_order_lines.qty`'s own DDL default — the overwhelmingly common custom order is
  * "one of this thing". */
@@ -127,26 +126,56 @@ export const quoteOrderCommandSchema = z.object({
 export type QuoteOrderCommand = z.input<typeof quoteOrderCommandSchema>;
 
 /**
- * UC-06 confirm with a deposit (O-1: "`CONFIRMED` requires a recorded deposit"). `depositAmount` is
- * therefore required and strictly positive at the SCHEMA level — a confirmation without money is
- * not a confirmation. `paymentMethod`/`accountId` mirror `recordSaleCommandSchema`'s PAID branch:
- * the cash physically arrives in a real account (ADR-012), while the matching liability is DERIVED
- * via `v_liability` and never stored (INV-7 — this money is not revenue yet).
+ * UC-06 confirm (O-1). `depositAmount` is a required integer-centavo amount and may be zero only
+ * when `acceptNoDepositRisk` is explicitly true. Zero means no payment was received, so the
+ * payment method/account fields are optional and the service writes no financial transaction or
+ * account balance change. Positive deposits require both fields and book INCOME/ORDER_DEPOSIT into
+ * a real account (ADR-012); the matching liability is DERIVED via `v_liability` (INV-7).
  *
  * `agreedTotal` is required here only when the quote didn't already carry one; the service resolves
- * `command.agreedTotal ?? order.agreedTotal` and rejects when both are absent.
+ * `command.agreedTotal ?? order.agreedTotal` and rejects when both are absent. The suggested
+ * deposit remains `default_deposit_pct`, which defaults to 50% (O-1); this is independent of the
+ * amount actually received.
  */
-export const confirmOrderCommandSchema = z.object({
-  /** When the deposit was actually received — the transaction's own cash date (INV-3). */
-  occurredAt: occurredAtSchema,
-  businessDate: businessDateSchema,
-  agreedTotal: agreedTotalSchema.optional(),
-  depositRequired: z.number().int().nonnegative().optional(),
-  depositAmount: depositAmountSchema,
-  paymentMethod: paymentMethodSchema,
-  accountId: z.string().min(1),
-});
-export type ConfirmOrderCommand = z.infer<typeof confirmOrderCommandSchema>;
+export const confirmOrderCommandSchema = z
+  .object({
+    /** When a positive deposit was actually received — the transaction's own cash date (INV-3). */
+    occurredAt: occurredAtSchema,
+    businessDate: businessDateSchema,
+    agreedTotal: agreedTotalSchema.optional(),
+    depositRequired: z.number().int().nonnegative().optional(),
+    depositAmount: depositAmountSchema,
+    paymentMethod: paymentMethodSchema.optional(),
+    accountId: z.string().min(1).optional(),
+    /** Required only when `depositAmount` is zero; it is never a replacement for R-5's `confirm`. */
+    acceptNoDepositRisk: z.boolean().optional(),
+  })
+  .superRefine((command, ctx) => {
+    if (command.depositAmount === 0 && command.acceptNoDepositRisk !== true) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Confirma que aceptas el riesgo de iniciar el pedido sin recibir un anticipo.",
+        path: ["acceptNoDepositRisk"],
+      });
+    }
+    if (command.depositAmount > 0) {
+      if (command.paymentMethod === undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Indica el medio de pago del anticipo recibido.",
+          path: ["paymentMethod"],
+        });
+      }
+      if (command.accountId === undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Indica la cuenta que recibió el anticipo.",
+          path: ["accountId"],
+        });
+      }
+    }
+  });
+export type ConfirmOrderCommand = z.input<typeof confirmOrderCommandSchema>;
 
 /** Fields both delivery branches share. */
 const deliverOrderCommonFields = {
@@ -322,8 +351,8 @@ export interface QuoteOrderResult {
 
 export interface ConfirmOrderResult {
   order: OrderDto;
-  /** The credited account carrying its post-deposit balance (the cash really did arrive, ADR-012). */
-  account: FinancialAccountDto;
+  /** The credited account carrying its post-deposit balance (ADR-012); null when no deposit was received. */
+  account: FinancialAccountDto | null;
 }
 
 /** Pure status transitions (`startOrderProduction`, `markOrderReady`) move no money and touch no

@@ -44,6 +44,8 @@ Pure logic tested exhaustively, no DB:
 - ∀ purchase sequences: `item_stock` = Σ movements (INV-5 in miniature).
 - ∀ entry sequences: WAC stays within [min, max] of entry unit costs.
 - ∀ allocations: Σ parts = whole (no lost centavos).
+- ∀ custom-order deposits: `deposit_paid + delivery balance = agreed_total` exactly, including a zero
+  deposit; the zero-deposit confirmation itself creates no financial transaction or account delta.
 - ∀ custom-order deliveries with an external provider: `sale.total = merchandise subtotal + delivery fee`,
   the fee equals the actual delivery-session expense, and product gross margin
   (`merchandise subtotal − frozen line COGS`) is invariant to the pass-through pair.
