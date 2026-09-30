@@ -12,18 +12,24 @@ import type {
   UpdateItemCommand,
 } from "@kokoro/shared";
 import { generateUuidV7, nowIso, toBusinessDate, toMilliCentavosPerUnit } from "@kokoro/shared";
-import { eq } from "drizzle-orm";
+import { and, asc, eq, exists, like, or, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 
 import type { Db } from "../../db/index.js";
-import { inventoryCountLines, inventoryCounts, items, priceHistory } from "../../db/schema.js";
+import {
+  inventoryCountLines,
+  inventoryCounts,
+  itemAliases,
+  items,
+  priceHistory,
+} from "../../db/schema.js";
 import { buildAuditLogInsert } from "../audit.js";
 import { buildReplacementCostHistoryInsert } from "../costing/replacement-cost-history.js";
 import { applyWacEntry } from "../costing/wac.js";
 import { conflict, notFound, validationError } from "../errors.js";
 import { buildStockMovementStatements } from "../inventory/movements.js";
 import type { StockMovementInput } from "../inventory/types.js";
-import { fetchAliasesForItem, fetchAliasesForItems, toItemDto } from "./dto.js";
+import { fetchAliasesForItem, toItemDto } from "./dto.js";
 
 type Statement = BatchItem<"sqlite">;
 
@@ -323,48 +329,56 @@ export async function getItem(db: Db, id: string): Promise<ItemDto> {
 }
 
 export async function listItems(db: Db, filters: ListItemsFilters): Promise<ListItemsResult> {
-  let aliasMatchItemIds: string[] = [];
+  const conditions: SQL[] = [];
+  if (filters.kind) conditions.push(eq(items.kind, filters.kind));
+  if (filters.category) conditions.push(eq(items.category, filters.category));
+  if (filters.isActive !== undefined) {
+    conditions.push(eq(items.isActive, filters.isActive ? 1 : 0));
+  }
   if (filters.search) {
     const pattern = `%${filters.search}%`;
-    const aliasMatches = await db.query.itemAliases.findMany({
-      where: (t, { like }) => like(t.alias, pattern),
-    });
-    aliasMatchItemIds = aliasMatches.map((a) => a.itemId);
+    const matchingAlias = db
+      .select({ id: itemAliases.id })
+      .from(itemAliases)
+      .where(and(eq(itemAliases.itemId, items.id), like(itemAliases.alias, pattern)));
+    const searchCondition = or(like(items.name, pattern), exists(matchingAlias));
+    if (searchCondition) conditions.push(searchCondition);
   }
 
-  const rows = await db.query.items.findMany({
-    where: (t, { and, eq: eqOp, like, or, inArray }) => {
-      const conditions = [];
-      if (filters.kind) conditions.push(eqOp(t.kind, filters.kind));
-      if (filters.category) conditions.push(eqOp(t.category, filters.category));
-      if (filters.isActive !== undefined) {
-        conditions.push(eqOp(t.isActive, filters.isActive ? 1 : 0));
-      }
-      if (filters.search) {
-        const pattern = `%${filters.search}%`;
-        conditions.push(
-          aliasMatchItemIds.length > 0
-            ? or(like(t.name, pattern), inArray(t.id, aliasMatchItemIds))
-            : like(t.name, pattern),
-        );
-      }
-      return conditions.length > 0 ? and(...conditions) : undefined;
-    },
-    orderBy: (t, { asc, sql: sqlOp }) => [
-      sqlOp`CASE ${t.kind}
+  // A left join retrieves aliases for the full result set without generating a bound `IN (...)`
+  // list. The correlated EXISTS above likewise keeps alias matches in SQL rather than expanding
+  // them into one parameter per item (D1's bound-variable limit is 100).
+  const rows = await db
+    .select({ item: items, alias: itemAliases })
+    .from(items)
+    .leftJoin(itemAliases, eq(items.id, itemAliases.itemId))
+    .where(conditions.length > 0 ? and(...conditions) : undefined)
+    .orderBy(
+      sql`CASE ${items.kind}
         WHEN 'RAW_MATERIAL' THEN 0
         WHEN 'SEMI_FINISHED' THEN 1
         WHEN 'FINISHED' THEN 2
         WHEN 'PACKAGING' THEN 3
         ELSE 4
       END`,
-      asc(t.name),
-    ],
-  });
+      asc(items.name),
+      asc(itemAliases.alias),
+    );
 
-  const aliasesByItem = await fetchAliasesForItems(
-    db,
-    rows.map((r) => r.id),
-  );
-  return { items: rows.map((row) => toItemDto(row, aliasesByItem.get(row.id) ?? [])) };
+  const itemsById = new Map<
+    string,
+    { item: typeof items.$inferSelect; aliases: (typeof itemAliases.$inferSelect)[] }
+  >();
+  for (const row of rows) {
+    let itemWithAliases = itemsById.get(row.item.id);
+    if (!itemWithAliases) {
+      itemWithAliases = { item: row.item, aliases: [] };
+      itemsById.set(row.item.id, itemWithAliases);
+    }
+    if (row.alias) itemWithAliases.aliases.push(row.alias);
+  }
+
+  return {
+    items: [...itemsById.values()].map(({ item, aliases }) => toItemDto(item, aliases)),
+  };
 }

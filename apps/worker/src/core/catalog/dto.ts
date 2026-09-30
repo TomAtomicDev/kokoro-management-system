@@ -46,26 +46,3 @@ export async function fetchAliasesForItem(db: Db, itemId: string): Promise<ItemA
     orderBy: (t, { asc }) => asc(t.alias),
   });
 }
-
-/** Batches the alias lookup for a whole listItems() page instead of one query per row. */
-export async function fetchAliasesForItems(
-  db: Db,
-  itemIds: string[],
-): Promise<Map<string, ItemAliasRow[]>> {
-  const map = new Map<string, ItemAliasRow[]>();
-  if (itemIds.length === 0) return map;
-
-  const rows = await db.query.itemAliases.findMany({
-    where: (t, { inArray }) => inArray(t.itemId, itemIds),
-    orderBy: (t, { asc }) => asc(t.alias),
-  });
-  for (const row of rows) {
-    const list = map.get(row.itemId);
-    if (list) {
-      list.push(row);
-    } else {
-      map.set(row.itemId, [row]);
-    }
-  }
-  return map;
-}
