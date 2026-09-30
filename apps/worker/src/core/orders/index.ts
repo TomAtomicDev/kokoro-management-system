@@ -847,6 +847,18 @@ export async function deliverOrder(
 ): Promise<DeliverOrderResult> {
   const plan = await buildDeliveryPlan(db, id, command);
 
+  // O-2: a credit delivery explicitly accepts leaving the balance as a receivable. This check is
+  // repeated in core/ rather than relying on the shared schema or route (D-2), and stays separate
+  // from R-5's `confirm` flag below.
+  const acceptedCreditRisk =
+    command.balancePaymentStatus === "ON_CREDIT" && command.acceptCreditRisk === true;
+  if (command.balancePaymentStatus === "ON_CREDIT" && !acceptedCreditRisk) {
+    throw validationError(
+      "Confirma que aceptas el riesgo de entregar el pedido con el saldo por cobrar.",
+      { id, acceptCreditRisk: command.acceptCreditRisk, balance: plan.balance },
+    );
+  }
+
   let account = null;
   if (command.balancePaymentStatus === "PAID") {
     // The PAID branch always carries a destination, even when the deposit covers the full
@@ -927,7 +939,7 @@ export async function deliverOrder(
       entityType: "custom_orders",
       entityId: id,
       before: { status: plan.order.status, saleId: plan.order.saleId },
-      after: updatedFields,
+      after: { ...updatedFields, acceptedCreditRisk },
     }),
     // The created sale is a first-class event of its own — it gets the same audit row recordSale
     // would have written for it.

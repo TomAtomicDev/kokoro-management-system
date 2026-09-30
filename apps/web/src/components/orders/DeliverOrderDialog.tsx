@@ -3,9 +3,9 @@
 // the R-5 confirmation dance exactly like a backdated sale (mirrors SaleForm.tsx's create path).
 //
 // `balancePaymentStatus` describes the BALANCE only (the deposit was already banked at confirm
-// time) — PAID needs method+account, ON_CREDIT needs nothing. When `balanceDue` is zero either
-// choice is accepted server-side, but the UI defaults to PAID and hides the payment fields since
-// there's nothing left to collect.
+// time) — PAID needs method+account; ON_CREDIT needs a separate risk acknowledgment. When
+// `balanceDue` is zero either choice is accepted server-side, but the UI defaults to PAID and hides
+// the payment fields since there's nothing left to collect.
 
 import type {
   DeliverOrderCommand,
@@ -52,6 +52,7 @@ export function DeliverOrderDialog({ order, open, onOpenChange }: DeliverOrderDi
 
   const balanceDue = order.balanceDue ?? 0;
   const [isPaid, setIsPaid] = useState(true);
+  const [acceptCreditRisk, setAcceptCreditRisk] = useState(false);
   const [businessDate, setBusinessDate] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(
     PAYMENT_METHODS[0] as PaymentMethod,
@@ -72,6 +73,7 @@ export function DeliverOrderDialog({ order, open, onOpenChange }: DeliverOrderDi
     if (stateSeededRef.current) return;
     stateSeededRef.current = true;
     setIsPaid(true);
+    setAcceptCreditRisk(false);
     setBusinessDate(toBusinessDate(nowIso()));
     setError(null);
   }, [open]);
@@ -113,6 +115,7 @@ export function DeliverOrderDialog({ order, open, onOpenChange }: DeliverOrderDi
         }
       : {
           balancePaymentStatus: "ON_CREDIT" as const,
+          acceptCreditRisk,
           occurredAt: nowIso(),
           businessDate,
         };
@@ -156,7 +159,11 @@ export function DeliverOrderDialog({ order, open, onOpenChange }: DeliverOrderDi
                     type="button"
                     variant={isPaid ? "default" : "outline"}
                     size="sm"
-                    onClick={() => setIsPaid(true)}
+                    onClick={() => {
+                      setIsPaid(true);
+                      setAcceptCreditRisk(false);
+                      setError(null);
+                    }}
                     disabled={disabled}
                   >
                     {ordersLabels.deliverBalancePaid}
@@ -165,13 +172,44 @@ export function DeliverOrderDialog({ order, open, onOpenChange }: DeliverOrderDi
                     type="button"
                     variant={!isPaid ? "default" : "outline"}
                     size="sm"
-                    onClick={() => setIsPaid(false)}
+                    onClick={() => {
+                      setIsPaid(false);
+                      setAcceptCreditRisk(false);
+                      setError(null);
+                    }}
                     disabled={disabled}
                   >
                     {ordersLabels.deliverBalanceOnCredit}
                   </Button>
                 </div>
               </div>
+
+              {!isPaid ? (
+                <section className="flex flex-col gap-3 rounded-md border border-warning/40 bg-warning-bg px-4 py-3">
+                  <div>
+                    <p className="font-medium text-foreground text-sm">
+                      {ordersLabels.deliverCreditRiskDescription}
+                    </p>
+                    <p className="mt-1 font-semibold text-foreground numeric-cell">
+                      {formatMoney(toCentavos(balanceDue))}
+                    </p>
+                  </div>
+                  <label className="flex items-start gap-2 text-foreground text-sm">
+                    <input
+                      id="do-credit-risk"
+                      type="checkbox"
+                      className="mt-0.5 size-4 shrink-0 accent-primary"
+                      checked={acceptCreditRisk}
+                      onChange={(event) => {
+                        setAcceptCreditRisk(event.target.checked);
+                        setError(null);
+                      }}
+                      disabled={disabled}
+                    />
+                    <span>{ordersLabels.deliverCreditRiskAcknowledgment}</span>
+                  </label>
+                </section>
+              ) : null}
 
               <div className="flex flex-col gap-1.5">
                 <label className="font-medium text-foreground" htmlFor="do-date">

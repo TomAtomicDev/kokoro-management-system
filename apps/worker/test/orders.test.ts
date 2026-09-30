@@ -668,7 +668,9 @@ describe("deliverOrder (UC-07, O-2)", () => {
     const orderAudit = await db.query.auditLog.findFirst({
       where: (t, { and, eq: eqOp }) => and(eqOp(t.entityId, orderId), eqOp(t.action, "deliver")),
     });
-    expect(orderAudit).toBeDefined();
+    expect(JSON.parse(orderAudit?.afterJson ?? "null")).toMatchObject({
+      acceptedCreditRisk: false,
+    });
     const saleAudit = await db.query.auditLog.findFirst({
       where: (t, { and, eq: eqOp }) =>
         and(eqOp(t.entityId, result.sale.id), eqOp(t.entityType, "sales")),
@@ -684,7 +686,12 @@ describe("deliverOrder (UC-07, O-2)", () => {
     const result = await deliverOrder(
       db,
       orderId,
-      { occurredAt: NOW, businessDate: BUSINESS_DATE, balancePaymentStatus: "ON_CREDIT" },
+      {
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        balancePaymentStatus: "ON_CREDIT",
+        acceptCreditRisk: true,
+      },
       ACTOR,
     );
 
@@ -701,6 +708,37 @@ describe("deliverOrder (UC-07, O-2)", () => {
     // ...and the receivable is the BALANCE (Bs 150), not the full agreed total (migration 0005) —
     // the deposit is already in the account and must not be counted as still-owed too.
     expect(await receivableFor(db, result.sale.id)).toBe(15_000);
+
+    const orderAudit = await db.query.auditLog.findFirst({
+      where: (t, { and, eq: eqOp }) => and(eqOp(t.entityId, orderId), eqOp(t.action, "deliver")),
+    });
+    expect(JSON.parse(orderAudit?.afterJson ?? "null")).toMatchObject({ acceptedCreditRisk: true });
+  });
+
+  it("refuses an ON_CREDIT delivery without risk acknowledgment and writes nothing", async () => {
+    const db = createDb(env.DB);
+    const { orderId } = await seedOrderInStatus(db, "READY");
+    const cashBefore = await accountBalance(db, "acc_cash");
+    const auditCountBefore = (await db.query.auditLog.findMany()).length;
+
+    await expect(
+      deliverOrder(
+        db,
+        orderId,
+        { occurredAt: NOW, businessDate: BUSINESS_DATE, balancePaymentStatus: "ON_CREDIT" },
+        ACTOR,
+      ),
+    ).rejects.toMatchObject({
+      code: "VALIDATION",
+      details: { acceptCreditRisk: undefined, balance: 15_000 },
+    });
+
+    expect((await getOrder(db, orderId)).status).toBe("READY");
+    expect(await db.query.sales.findMany()).toHaveLength(0);
+    expect(await db.query.auditLog.findMany()).toHaveLength(auditCountBefore);
+    expect(await txsForOrder(db, orderId)).toHaveLength(1);
+    expect(await accountBalance(db, "acc_cash")).toBe(cashBefore);
+    expect(await customerDeposits(db)).toBe(15_000);
   });
 
   it("collects that receivable for the balance only, never the full sale total", async () => {
@@ -709,7 +747,12 @@ describe("deliverOrder (UC-07, O-2)", () => {
     const { sale } = await deliverOrder(
       db,
       orderId,
-      { occurredAt: NOW, businessDate: BUSINESS_DATE, balancePaymentStatus: "ON_CREDIT" },
+      {
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        balancePaymentStatus: "ON_CREDIT",
+        acceptCreditRisk: true,
+      },
       ACTOR,
     );
     const cashBefore = await accountBalance(db, "acc_cash");
@@ -748,7 +791,12 @@ describe("deliverOrder (UC-07, O-2)", () => {
     const result = await deliverOrder(
       db,
       orderId,
-      { occurredAt: NOW, businessDate: BUSINESS_DATE, balancePaymentStatus: "ON_CREDIT" },
+      {
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        balancePaymentStatus: "ON_CREDIT",
+        acceptCreditRisk: true,
+      },
       ACTOR,
     );
 
@@ -894,7 +942,12 @@ describe("deliverOrder (UC-07, O-2)", () => {
       deliverOrder(
         db,
         order.id,
-        { occurredAt: NOW, businessDate: BUSINESS_DATE, balancePaymentStatus: "ON_CREDIT" },
+        {
+          occurredAt: NOW,
+          businessDate: BUSINESS_DATE,
+          balancePaymentStatus: "ON_CREDIT",
+          acceptCreditRisk: true,
+        },
         ACTOR,
       ),
     ).rejects.toMatchObject({ code: "CONFLICT" });
@@ -933,7 +986,12 @@ describe("deliverOrder (UC-07, O-2)", () => {
     const result = await deliverOrder(
       db,
       order.id,
-      { occurredAt: NOW, businessDate: BUSINESS_DATE, balancePaymentStatus: "ON_CREDIT" },
+      {
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        balancePaymentStatus: "ON_CREDIT",
+        acceptCreditRisk: true,
+      },
       ACTOR,
     );
     expect(result.sale.total).toBe(100);
@@ -946,7 +1004,12 @@ describe("deliverOrder (UC-07, O-2)", () => {
     const { sale } = await deliverOrder(
       db,
       orderId,
-      { occurredAt: NOW, businessDate: BUSINESS_DATE, balancePaymentStatus: "ON_CREDIT" },
+      {
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        balancePaymentStatus: "ON_CREDIT",
+        acceptCreditRisk: true,
+      },
       ACTOR,
     );
 
@@ -1083,7 +1146,12 @@ describe("undoDeliverOrder (UC-07-undo, O-6)", () => {
     const { sale } = await deliverOrder(
       db,
       orderId,
-      { occurredAt: NOW, businessDate: BUSINESS_DATE, balancePaymentStatus: "ON_CREDIT" },
+      {
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        balancePaymentStatus: "ON_CREDIT",
+        acceptCreditRisk: true,
+      },
       ACTOR,
     );
     await collectPayment(
@@ -1129,6 +1197,7 @@ describe("undoDeliverOrder (UC-07-undo, O-6)", () => {
         occurredAt: "2026-07-20T15:00:00.000Z",
         businessDate: BUSINESS_DATE,
         balancePaymentStatus: "ON_CREDIT",
+        acceptCreditRisk: true,
       },
       ACTOR,
     );
@@ -1165,6 +1234,67 @@ describe("undoDeliverOrder (UC-07-undo, O-6)", () => {
 
     const result = await undoDeliverOrder(db, orderId, { confirm: true }, ACTOR);
     expect(result.order).toMatchObject({ status: "READY", saleId: null });
+  });
+
+  it("requires credit-risk acknowledgment and R-5 confirmation independently", async () => {
+    const db = createDb(env.DB);
+    const { orderId, itemId } = await seedOrderInStatus(db, "READY");
+    await recordPurchase(
+      db,
+      {
+        accountId: "acc_bank",
+        occurredAt: "2026-07-22T10:00:00.000Z",
+        businessDate: "2026-07-22",
+        lines: [{ itemId, qty: 1000, lineTotal: 20_000 }],
+      },
+      ACTOR,
+    );
+    const laterExit = await recordExit(
+      db,
+      {
+        itemId,
+        qty: 1000,
+        reason: "WASTE",
+        occurredAt: "2026-07-23T10:00:00.000Z",
+        businessDate: "2026-07-23",
+      },
+      ACTOR,
+    );
+    const backdated = {
+      occurredAt: "2026-07-21T10:00:00.000Z",
+      businessDate: "2026-07-21",
+      balancePaymentStatus: "ON_CREDIT" as const,
+    };
+
+    // R-5's `confirm` flag cannot stand in for accepting the credit risk.
+    await expect(
+      deliverOrder(db, orderId, { ...backdated, confirm: true }, ACTOR),
+    ).rejects.toMatchObject({ code: "VALIDATION" });
+    expect((await getOrder(db, orderId)).status).toBe("READY");
+
+    // Accepting the credit risk still does not waive the separate replay confirmation.
+    await expect(
+      deliverOrder(db, orderId, { ...backdated, acceptCreditRisk: true }, ACTOR),
+    ).rejects.toMatchObject({
+      code: "CONFLICT",
+      details: {
+        reason: "REPLAY_CONFIRMATION_REQUIRED",
+        impact: { affectedStockExitIds: [laterExit.exit.id] },
+      },
+    });
+    expect((await getOrder(db, orderId)).status).toBe("READY");
+
+    const result = await deliverOrder(
+      db,
+      orderId,
+      { ...backdated, acceptCreditRisk: true, confirm: true },
+      ACTOR,
+    );
+    expect(result.sale.paymentStatus).toBe("ON_CREDIT");
+    const orderAudit = await db.query.auditLog.findFirst({
+      where: (t, { and, eq: eqOp }) => and(eqOp(t.entityId, orderId), eqOp(t.action, "deliver")),
+    });
+    expect(JSON.parse(orderAudit?.afterJson ?? "null")).toMatchObject({ acceptedCreditRisk: true });
   });
 });
 

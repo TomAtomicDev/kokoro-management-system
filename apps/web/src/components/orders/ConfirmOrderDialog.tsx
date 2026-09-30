@@ -46,6 +46,7 @@ export function ConfirmOrderDialog({ order, open, onOpenChange }: ConfirmOrderDi
     PAYMENT_METHODS[0] as PaymentMethod,
   );
   const [accountId, setAccountId] = useState("");
+  const [acceptNoDepositRisk, setAcceptNoDepositRisk] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const moneySeededRef = useRef(false);
   const accountSeededRef = useRef(false);
@@ -65,6 +66,7 @@ export function ConfirmOrderDialog({ order, open, onOpenChange }: ConfirmOrderDi
     setDepositAmount(
       order.depositRequired !== null ? formatIntAsDecimalInput(order.depositRequired, 2) : "",
     );
+    setAcceptNoDepositRisk(false);
     setBusinessDate(toBusinessDate(nowIso()));
     setError(null);
   }, [open, order.agreedTotal, order.depositRequired]);
@@ -91,6 +93,8 @@ export function ConfirmOrderDialog({ order, open, onOpenChange }: ConfirmOrderDi
 
   const disabled = confirmMutation.isPending;
   const needsAgreedTotal = order.agreedTotal === null;
+  const parsedDepositAmount = parseDecimalToInt(depositAmount, 2);
+  const depositIsZero = parsedDepositAmount === 0;
 
   async function handleSubmit() {
     setError(null);
@@ -104,7 +108,7 @@ export function ConfirmOrderDialog({ order, open, onOpenChange }: ConfirmOrderDi
       parsedAgreedTotal = parsed;
     }
     const parsedDeposit = parseDecimalToInt(depositAmount, 2);
-    if (parsedDeposit === null || parsedDeposit <= 0) {
+    if (parsedDeposit === null || parsedDeposit < 0) {
       setError(ordersLabels.errors.generic);
       return;
     }
@@ -114,8 +118,8 @@ export function ConfirmOrderDialog({ order, open, onOpenChange }: ConfirmOrderDi
       businessDate,
       agreedTotal: parsedAgreedTotal ?? undefined,
       depositAmount: parsedDeposit,
-      paymentMethod,
-      accountId,
+      ...(parsedDeposit > 0 ? { paymentMethod, accountId } : {}),
+      ...(parsedDeposit === 0 ? { acceptNoDepositRisk } : {}),
     });
     if (!parsed.success) {
       setError(parsed.error.issues[0]?.message ?? ordersLabels.errors.generic);
@@ -170,36 +174,72 @@ export function ConfirmOrderDialog({ order, open, onOpenChange }: ConfirmOrderDi
             inputMode="decimal"
             placeholder="0.00"
             value={depositAmount}
-            onChange={(e) => setDepositAmount(e.target.value)}
+            onChange={(e) => {
+              const nextValue = e.target.value;
+              setDepositAmount(nextValue);
+              if (parseDecimalToInt(nextValue, 2) !== 0) setAcceptNoDepositRisk(false);
+              setError(null);
+            }}
             disabled={disabled}
           />
         </div>
 
-        <div className="flex flex-col gap-1.5">
-          <label className="font-medium text-foreground" htmlFor="co-date">
-            {ordersLabels.confirmFieldDate}
-          </label>
-          <Input
-            id="co-date"
-            type="date"
-            value={businessDate}
-            onChange={(e) => setBusinessDate(e.target.value)}
+        {!depositIsZero ? (
+          <div className="flex flex-col gap-1.5">
+            <label className="font-medium text-foreground" htmlFor="co-date">
+              {ordersLabels.confirmFieldDate}
+            </label>
+            <Input
+              id="co-date"
+              type="date"
+              value={businessDate}
+              onChange={(e) => setBusinessDate(e.target.value)}
+              disabled={disabled}
+            />
+          </div>
+        ) : null}
+
+        {depositIsZero ? (
+          <section className="flex flex-col gap-3 rounded-md border border-warning/40 bg-warning-bg px-4 py-3">
+            <div>
+              <h3 className="font-medium text-foreground text-sm">
+                {ordersLabels.confirmNoDepositRiskTitle}
+              </h3>
+              <p className="mt-1 text-muted-foreground text-sm">
+                {ordersLabels.confirmNoDepositRiskDescription}
+              </p>
+            </div>
+            <label className="flex items-start gap-2 text-foreground text-sm">
+              <input
+                id="co-no-deposit-risk"
+                type="checkbox"
+                className="mt-0.5 size-4 shrink-0 accent-primary"
+                checked={acceptNoDepositRisk}
+                onChange={(event) => {
+                  setAcceptNoDepositRisk(event.target.checked);
+                  setError(null);
+                }}
+                disabled={disabled}
+              />
+              <span>{ordersLabels.confirmNoDepositRiskAcknowledgment}</span>
+            </label>
+          </section>
+        ) : null}
+
+        {parsedDepositAmount !== null && parsedDepositAmount > 0 ? (
+          <PaymentAccountSelect
+            id="co-payment-account"
+            accounts={accounts}
+            accountId={accountId}
+            label={ordersLabels.confirmFieldPaymentAccount}
+            paymentMethodLabels={ordersLabels.paymentMethodLabels}
+            onChange={({ accountId: nextAccountId, paymentMethod: nextPaymentMethod }) => {
+              setAccountId(nextAccountId);
+              setPaymentMethod(nextPaymentMethod);
+            }}
             disabled={disabled}
           />
-        </div>
-
-        <PaymentAccountSelect
-          id="co-payment-account"
-          accounts={accounts}
-          accountId={accountId}
-          label={ordersLabels.confirmFieldPaymentAccount}
-          paymentMethodLabels={ordersLabels.paymentMethodLabels}
-          onChange={({ accountId: nextAccountId, paymentMethod: nextPaymentMethod }) => {
-            setAccountId(nextAccountId);
-            setPaymentMethod(nextPaymentMethod);
-          }}
-          disabled={disabled}
-        />
+        ) : null}
 
         {error ? <p className="text-negative text-sm">{error}</p> : null}
       </div>
@@ -212,8 +252,14 @@ export function ConfirmOrderDialog({ order, open, onOpenChange }: ConfirmOrderDi
         >
           {ordersLabels.cancel}
         </Button>
-        <Button type="button" onClick={handleSubmit} disabled={disabled || !accountId}>
-          {ordersLabels.confirmSubmit}
+        <Button
+          type="button"
+          onClick={handleSubmit}
+          disabled={
+            disabled || (parsedDepositAmount !== null && parsedDepositAmount > 0 && !accountId)
+          }
+        >
+          {depositIsZero ? ordersLabels.confirmSubmitNoDeposit : ordersLabels.confirmSubmit}
         </Button>
       </div>
     </Dialog>
