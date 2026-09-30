@@ -95,10 +95,15 @@ mandatory, audited, and independent of R-5.
 The orders UI must show every active order regardless of creation date, keep four status lanes in the
 agreed order, and sort latest promised delivery date leftmost within each lane. History quick filters
 must separate delivered-with-balance, paid and cancelled orders; delivered payment state must follow
-the linked sale through later collection. Verify that source-event links live only in order detail,
-its linked-cost panel distinguishes loading, error, verified-empty and partial evidence without
-claiming profit before delivery; after delivery, product gross margin must reconcile to the linked
-sale's merchandise subtotal and frozen line COGS. `/orders?open=<id>` survives refresh and browser
+the linked sale through later collection. `OrderDto.balanceDue` is only the expected merchandise
+remainder on a nonterminal order; delivered reads expose the linked sale's current payment state and
+actual remainder, while cancelled reads have no balance. A delivered order missing its active linked
+sale is an internal data error, never a zero receivable. Verify list and detail reads, zero-deposit
+delivery, paid/on-credit delivery, later collection, cancellation and undo. Verify that source-event
+links live only in order detail, its linked-cost panel distinguishes loading, error, verified-empty
+and partial evidence without claiming profit before delivery; after delivery, product gross margin
+must reconcile to the linked sale's merchandise subtotal and frozen line COGS.
+`/orders?open=<id>` survives refresh and browser
   navigation, including >500 active orders, stable ties and undated orders. An external
 delivery charge must be included in the final sale/receivable and equal the real operating expense
 in the linked closed DELIVERY_RUN session; the order's product gross margin excludes both sides of

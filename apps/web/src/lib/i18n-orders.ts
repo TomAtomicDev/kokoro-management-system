@@ -3,7 +3,12 @@
 // TODO: migrate into packages/shared/i18n/es.ts once that module exists (KOK-006+), same as
 // i18n-sales.ts / i18n-purchases.ts.
 
-import type { CancelResolution, CustomOrderStatus, PaymentMethod } from "@kokoro/shared";
+import type {
+  CancelResolution,
+  CustomOrderStatus,
+  PaymentMethod,
+  PaymentStatus,
+} from "@kokoro/shared";
 
 export const ordersLabels = {
   title: "Pedidos",
@@ -31,12 +36,18 @@ export const ordersLabels = {
     BANK_QR: "QR / transferencia",
   } satisfies Record<PaymentMethod, string>,
 
+  paymentStatusLabels: {
+    PAID: "Pagado",
+    ON_CREDIT: "Por cobrar",
+  } satisfies Record<PaymentStatus, string>,
+
   // --- Board / card ----------------------------------------------------------------------------
 
   columnDeliveryDate: "Entrega",
   noDeliveryDate: "Sin fecha",
   cardDeposit: "Anticipo",
-  cardBalance: "Saldo",
+  cardExpectedBalance: "Saldo previsto al entregar",
+  cardOutstandingBalance: "Saldo por cobrar",
   depositPendingBadge: "Sin anticipo",
   depositPaidBadge: "Con anticipo",
   noAgreedTotal: "Sin total acordado",
@@ -84,7 +95,9 @@ export const ordersLabels = {
   columnCustomer: "Cliente",
   columnAgreedTotal: "Total acordado",
   columnDepositPaid: "Anticipo pagado",
-  columnBalanceDue: "Saldo pendiente",
+  columnExpectedBalance: "Saldo previsto al entregar",
+  columnSalePaymentStatus: "Estado de pago",
+  columnOutstandingAmount: "Saldo por cobrar",
   columnDeliveryPlace: "Lugar",
 
   lineUnresolvedBadge: "Sin ítem del catálogo",

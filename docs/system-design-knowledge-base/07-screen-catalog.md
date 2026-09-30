@@ -73,7 +73,11 @@ duplicate it.
 `OrderBoard` has two views. **Activos** is the default and shows every nonterminal order without a
 creation-date limit, in four full-width vertical lanes from top to bottom: QUOTING, CONFIRMED,
 IN_PRODUCTION, READY. Cards show code (KOK-185, Doc 04 §3.6), customer, delivery date/place, agreed
-merchandise subtotal (`agreed_total`), deposit and the correct balance/payment label. Within each
+merchandise subtotal (`agreed_total`), deposit and the correct balance/payment label. Before
+delivery, the displayed balance is the expected merchandise remainder at handoff
+(`agreed_total − deposit_paid`), labelled **Saldo previsto al entregar**; it is not a receivable.
+Delivered cards instead show the linked sale's current **Pagado / Por cobrar** state and actual
+outstanding remainder, which becomes zero after collection. Cancelled orders have no balance. Within each
   lane, sort by promised `delivery_date` descending (latest date leftmost); undated orders last,
   breaking ties by creation time then ID descending. Load further bounded pages when needed so
   active orders beyond the first 500 are not silently omitted. Give

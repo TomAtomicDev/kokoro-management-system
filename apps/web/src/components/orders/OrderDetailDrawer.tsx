@@ -311,9 +311,31 @@ export function OrderDetailDrawer({ orderId, open, onOpenChange }: OrderDetailDr
               </div>
               {order.balanceDue !== null ? (
                 <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">{ordersLabels.columnBalanceDue}</span>
+                  <span className="text-muted-foreground">
+                    {ordersLabels.columnExpectedBalance}
+                  </span>
                   <span className="numeric-cell font-medium text-foreground">
                     {formatMoney(toCentavos(order.balanceDue))}
+                  </span>
+                </div>
+              ) : null}
+              {order.salePaymentStatus !== null ? (
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">
+                    {ordersLabels.columnSalePaymentStatus}
+                  </span>
+                  <span className="font-medium text-foreground">
+                    {ordersLabels.paymentStatusLabels[order.salePaymentStatus]}
+                  </span>
+                </div>
+              ) : null}
+              {order.outstandingAmount !== null ? (
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">
+                    {ordersLabels.columnOutstandingAmount}
+                  </span>
+                  <span className="numeric-cell font-medium text-foreground">
+                    {formatMoney(toCentavos(order.outstandingAmount))}
                   </span>
                 </div>
               ) : null}

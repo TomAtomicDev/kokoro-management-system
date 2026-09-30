@@ -9,13 +9,7 @@
   "mcp": {
     "playwright": {
       "type": "local",
-      "command": [
-        "pnpm",
-        "dlx",
-        "@playwright/mcp@latest",
-        "--headless",
-        "--isolated"
-      ],
+      "command": ["pnpm", "dlx", "@playwright/mcp@latest", "--headless", "--isolated"],
       "enabled": true,
       "timeout": 30000
     }

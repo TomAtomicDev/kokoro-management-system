@@ -21,6 +21,7 @@ import {
   allocateAgreedTotalToOrderLines,
   confirmOrderCommandSchema,
   deliverOrderCommandSchema,
+  deriveOrderOutstandingAmount,
   orderLineCommandSchema,
 } from "./orders.js";
 import { toMilliUnits, WHOLE_UNIT_MILLI_UNITS } from "./qty.js";
@@ -212,6 +213,31 @@ describe("order deposit balance math (O-1/O-2)", () => {
           expect(addMoney(deposit, balance)).toBe(total);
           expect(Number.isInteger(balance)).toBe(true);
           expect(balance).toBeGreaterThanOrEqual(0);
+        },
+      ),
+    );
+  });
+
+  it("property: current on-credit outstanding nets the deposit from the full sale total", () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 1, max: 100_000_000 }),
+        fc.integer({ min: 0, max: 100_000_000 }),
+        fc.integer({ min: 0, max: 10_000 }),
+        (merchandiseTotal, deliveryFee, depositPercentBp) => {
+          const merchandise = toCentavos(merchandiseTotal);
+          const fee = toCentavos(deliveryFee);
+          const deposit = mulMoneyByBasisPoints(merchandise, toBasisPoints(depositPercentBp));
+          const saleTotal = addMoney(merchandise, fee);
+          const expectedOutstanding = subMoney(saleTotal, deposit);
+
+          // The pass-through fee is already part of the full sale total. Paid sales are zero even
+          // when this helper is called after a later collection changes ON_CREDIT to PAID.
+          expect(deriveOrderOutstandingAmount("ON_CREDIT", saleTotal, deposit)).toBe(
+            expectedOutstanding,
+          );
+          expect(addMoney(deposit, expectedOutstanding)).toBe(saleTotal);
+          expect(deriveOrderOutstandingAmount("PAID", saleTotal, deposit)).toBe(0);
         },
       ),
     );

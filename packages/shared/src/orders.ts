@@ -32,6 +32,7 @@ import {
   type CustomOrderStatus,
   cancelResolutionSchema,
   customOrderStatusSchema,
+  type PaymentStatus,
   paymentMethodSchema,
 } from "./enums.js";
 import type { FinancialAccountDto } from "./finance.js";
@@ -40,6 +41,7 @@ import {
   type Centavos,
   type MilliCentavosPerUnit,
   rateFromTotal,
+  subMoney,
   toCentavos,
   totalCentavos,
 } from "./money.js";
@@ -344,18 +346,36 @@ export interface OrderDto {
   deliveryPlace: string | null;
   /** Set on delivery (O-2): the auto-created `CUSTOM_ORDER`-channel sale. */
   saleId: string | null;
+  /** Current payment state of the active linked sale; null unless the order is DELIVERED. */
+  salePaymentStatus: PaymentStatus | null;
+  /** Current remainder owed on the delivered sale, net of the deposit; null unless DELIVERED. */
+  outstandingAmount: number | null;
   cancelResolution: CancelResolution | null;
   /** KOK-185: human-readable code (PED-NNNN-YYYY) — see packages/shared/src/sales.ts's
    * SaleDto.code for the full contract. */
   code: string | null;
   notes: string | null;
   lines: OrderLineDto[];
-  /** DERIVED, not stored: `agreedTotal − depositPaid`, or `null` while `agreedTotal` is unset.
-   * What the customer still owes; after delivery this is exactly what `v_receivables` reports for
-   * the linked sale when the balance was left ON_CREDIT. */
+  /** DERIVED, not stored: expected merchandise balance at delivery (`agreedTotal − depositPaid`)
+   * for a nonterminal order, or `null` while `agreedTotal` is unset or after delivery/cancellation.
+   * The delivered sale's actual remainder is `outstandingAmount`. */
   balanceDue: number | null;
   createdAt: string;
   updatedAt: string;
+}
+
+/**
+ * The current remainder for a delivered custom-order sale. PAID includes a later UC-04 collection
+ * and always means zero outstanding. For ON_CREDIT, subtract the already-received deposit from the
+ * full sale total (which may include a future delivery pass-through fee, KOK-204).
+ */
+export function deriveOrderOutstandingAmount(
+  paymentStatus: PaymentStatus,
+  saleTotal: number,
+  depositPaid: number,
+): number {
+  if (paymentStatus === "PAID") return toCentavos(0);
+  return subMoney(toCentavos(saleTotal), toCentavos(depositPaid));
 }
 
 export interface QuoteOrderResult {

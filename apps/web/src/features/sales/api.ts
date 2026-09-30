@@ -11,9 +11,9 @@
 //
 // recordSale moves stock (item_stock) and both recordSale/collectPayment move an account balance
 // (financial_accounts) on the server — same precedent as recordPurchase's header comment. UC-04
-// collection invalidates the finance/dashboard summary and grouped receivables keys too, so the
-// all-dates totals reconcile immediately. updateSale/deleteSale/restoreSale follow purchases' own
-// precedent of leaving their cross-feature balance refresh unaddressed.
+// collection invalidates the finance/dashboard summary, grouped receivables and linked order reads,
+// so all current balances reconcile immediately. updateSale/deleteSale/restoreSale follow
+// purchases' own precedent of leaving their cross-feature balance refresh unaddressed.
 
 import type {
   CollectPaymentCommand,
@@ -38,6 +38,7 @@ import {
   FINANCE_SUMMARY_KEY,
   RECEIVABLES_KEY as GROUPED_RECEIVABLES_KEY,
 } from "@/features/finance/api";
+import { ORDERS_ROOT_KEY } from "@/features/orders/api";
 import { api } from "@/lib/api";
 import { FORM_SAVE_ERROR_META } from "@/lib/form-save-errors";
 
@@ -157,6 +158,7 @@ export function useCollectPayment() {
       queryClient.invalidateQueries({ queryKey: GROUPED_RECEIVABLES_KEY });
       queryClient.invalidateQueries({ queryKey: FINANCE_SUMMARY_KEY });
       queryClient.invalidateQueries({ queryKey: DASHBOARD_SUMMARY_KEY });
+      queryClient.invalidateQueries({ queryKey: ORDERS_ROOT_KEY });
     },
   });
 }

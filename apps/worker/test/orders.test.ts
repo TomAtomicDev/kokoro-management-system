@@ -255,6 +255,8 @@ describe("quoteOrder (UC-05)", () => {
       depositPaid: 0,
       depositTxId: null,
       saleId: null,
+      salePaymentStatus: null,
+      outstandingAmount: null,
       balanceDue: 50_000,
     });
     expect(order.lines).toHaveLength(2);
@@ -300,6 +302,8 @@ describe("quoteOrder (UC-05)", () => {
     expect(order.agreedTotal).toBeNull();
     expect(order.depositRequired).toBeNull();
     expect(order.balanceDue).toBeNull();
+    expect(order.salePaymentStatus).toBeNull();
+    expect(order.outstandingAmount).toBeNull();
   });
 
   it("rejects an unknown customer", async () => {
@@ -522,6 +526,8 @@ describe("confirmOrder (UC-06, O-1)", () => {
       depositPaid: 0,
       depositTxId: null,
       balanceDue: 30_000,
+      salePaymentStatus: null,
+      outstandingAmount: null,
     });
     expect(result.account).toBeNull();
     expect(await accountBalance(db, "acc_cash")).toBe(0);
@@ -639,7 +645,18 @@ describe("deliverOrder (UC-07, O-2)", () => {
       ),
     );
 
-    expect(result.order).toMatchObject({ status: "DELIVERED", saleId: result.sale.id });
+    expect(result.order).toMatchObject({
+      status: "DELIVERED",
+      saleId: result.sale.id,
+      salePaymentStatus: "PAID",
+      outstandingAmount: 0,
+      balanceDue: null,
+    });
+    expect(await getOrder(db, orderId)).toMatchObject({
+      salePaymentStatus: "PAID",
+      outstandingAmount: 0,
+      balanceDue: null,
+    });
 
     // Only the BALANCE moved cash — the deposit was banked at confirm time and is NOT re-credited.
     expect(await accountBalance(db, "acc_cash")).toBe(cashBefore + 15_000);
@@ -696,6 +713,11 @@ describe("deliverOrder (UC-07, O-2)", () => {
     );
 
     expect(result.sale).toMatchObject({ paymentStatus: "ON_CREDIT", total: 30_000, paidAt: null });
+    expect(result.order).toMatchObject({
+      salePaymentStatus: "ON_CREDIT",
+      outstandingAmount: 15_000,
+      balanceDue: null,
+    });
     expect(result.account).toBeNull();
     // No cash moved at delivery, and no balance transaction was booked.
     expect(await accountBalance(db, "acc_cash")).toBe(cashBefore);
@@ -713,6 +735,36 @@ describe("deliverOrder (UC-07, O-2)", () => {
       where: (t, { and, eq: eqOp }) => and(eqOp(t.entityId, orderId), eqOp(t.action, "deliver")),
     });
     expect(JSON.parse(orderAudit?.afterJson ?? "null")).toMatchObject({ acceptedCreditRisk: true });
+  });
+
+  it("reports the full on-credit sale as outstanding when delivered with zero deposit", async () => {
+    const db = createDb(env.DB);
+    const { orderId, agreedTotal } = await seedOrderInStatus(db, "READY", { depositAmount: 0 });
+
+    const { order, sale } = await deliverOrder(
+      db,
+      orderId,
+      {
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        balancePaymentStatus: "ON_CREDIT",
+        acceptCreditRisk: true,
+      },
+      ACTOR,
+    );
+
+    expect(sale.paymentStatus).toBe("ON_CREDIT");
+    expect(order).toMatchObject({
+      salePaymentStatus: "ON_CREDIT",
+      outstandingAmount: agreedTotal,
+      balanceDue: null,
+      depositPaid: 0,
+    });
+    expect(await getOrder(db, orderId)).toMatchObject({
+      salePaymentStatus: "ON_CREDIT",
+      outstandingAmount: agreedTotal,
+      balanceDue: null,
+    });
   });
 
   it("refuses an ON_CREDIT delivery without risk acknowledgment and writes nothing", async () => {
@@ -778,6 +830,19 @@ describe("deliverOrder (UC-07, O-2)", () => {
     });
     expect(debtTx?.amount).toBe(15_000);
     expect(await receivableFor(db, sale.id)).toBeNull();
+    expect(await getOrder(db, orderId)).toMatchObject({
+      salePaymentStatus: "PAID",
+      outstandingAmount: 0,
+      balanceDue: null,
+    });
+    const listedOrder = (await listOrders(db, { status: "DELIVERED" })).orders.find(
+      (order) => order.id === orderId,
+    );
+    expect(listedOrder).toMatchObject({
+      salePaymentStatus: "PAID",
+      outstandingAmount: 0,
+      balanceDue: null,
+    });
   });
 
   it("marks a fully prepaid order PAID and books no balance transaction", async () => {
@@ -802,6 +867,11 @@ describe("deliverOrder (UC-07, O-2)", () => {
 
     // Nothing is owed, so the sale is PAID whatever the caller said about the balance.
     expect(result.sale.paymentStatus).toBe("PAID");
+    expect(result.order).toMatchObject({
+      salePaymentStatus: "PAID",
+      outstandingAmount: 0,
+      balanceDue: null,
+    });
     expect(await accountBalance(db, "acc_cash")).toBe(cashBefore);
     expect(await txsForOrder(db, orderId)).toHaveLength(1); // the deposit only
     expect(await customerDeposits(db)).toBe(0);
@@ -1134,6 +1204,8 @@ describe("undoDeliverOrder (UC-07-undo, O-6)", () => {
       depositPaid: 0,
       depositTxId: null,
       balanceDue: agreedTotal,
+      salePaymentStatus: null,
+      outstandingAmount: null,
     });
     expect(await accountBalance(db, "acc_cash")).toBe(cashBeforeDelivery);
     expect(await customerDeposits(db)).toBe(0);
@@ -1316,7 +1388,13 @@ describe("cancelOrder (UC-08, O-3)", () => {
       ACTOR,
     );
 
-    expect(result.order).toMatchObject({ status: "CANCELLED", cancelResolution: "REFUND" });
+    expect(result.order).toMatchObject({
+      status: "CANCELLED",
+      cancelResolution: "REFUND",
+      balanceDue: null,
+      salePaymentStatus: null,
+      outstandingAmount: null,
+    });
     // The money genuinely left the account.
     expect(await accountBalance(db, "acc_cash")).toBe(cashBefore - 15_000);
     expect(result.account?.balance).toBe(cashBefore - 15_000);
@@ -1394,6 +1472,9 @@ describe("cancelOrder (UC-08, O-3)", () => {
       status: "CANCELLED",
       cancelResolution: null,
       depositPaid: 0,
+      balanceDue: null,
+      salePaymentStatus: null,
+      outstandingAmount: null,
     });
     expect(result.account).toBeNull();
     expect(await txsForOrder(db, orderId)).toHaveLength(0);
@@ -1712,6 +1793,57 @@ describe("getOrder / listOrders", () => {
   it("returns NOT_FOUND for an unknown order", async () => {
     const db = createDb(env.DB);
     await expect(getOrder(db, "nope")).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  it("returns the live linked-sale state in list reads without one sale query per order", async () => {
+    const db = createDb(env.DB);
+    const paid = await seedOrderInStatus(db, "DELIVERED");
+    const credit = await seedOrderInStatus(db, "READY");
+    await deliverOrder(
+      db,
+      credit.orderId,
+      {
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        balancePaymentStatus: "ON_CREDIT",
+        acceptCreditRisk: true,
+      },
+      ACTOR,
+    );
+
+    const saleReads = vi.spyOn(db.query.sales, "findMany");
+    const { orders } = await listOrders(db, { status: "DELIVERED" });
+
+    expect(saleReads).toHaveBeenCalledTimes(1);
+    expect(orders).toHaveLength(2);
+    expect(orders.find((order) => order.id === paid.orderId)).toMatchObject({
+      salePaymentStatus: "PAID",
+      outstandingAmount: 0,
+      balanceDue: null,
+    });
+    expect(orders.find((order) => order.id === credit.orderId)).toMatchObject({
+      salePaymentStatus: "ON_CREDIT",
+      outstandingAmount: 15_000,
+      balanceDue: null,
+    });
+  });
+
+  it("fails explicitly when a delivered order has no active linked sale", async () => {
+    const db = createDb(env.DB);
+    const { orderId } = await seedOrderInStatus(db, "DELIVERED");
+    const order = await getOrder(db, orderId);
+    const saleId = order.saleId;
+    expect(saleId).not.toBeNull();
+    vi.spyOn(db.query.sales, "findMany").mockResolvedValue([]);
+
+    await expect(getOrder(db, orderId)).rejects.toMatchObject({
+      code: "INTERNAL",
+      details: { orderId, saleId },
+    });
+    await expect(listOrders(db, { status: "DELIVERED" })).rejects.toMatchObject({
+      code: "INTERNAL",
+      details: { orderId, saleId },
+    });
   });
 
   it("filters by status and sorts by delivery date with undated orders last (O-5)", async () => {
