@@ -20,7 +20,7 @@
 // they produce no movements) and every assertion below checks specific items by id rather than
 // exact array lengths, precisely to stay correct under that accumulation.
 import { env } from "cloudflare:test";
-import { generateUuidV7 } from "@kokoro/shared";
+import { generateUuidV7, toMilliCentavosPerUnit } from "@kokoro/shared";
 import { eq, inArray } from "drizzle-orm";
 import fc from "fast-check";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -232,6 +232,117 @@ describe("startCount (UC-10 step 1) — frozen-snapshot semantics", () => {
     );
 
     expect(started.count.lines.map((line) => line.itemId)).not.toContain(unmetered.id);
+  });
+
+  it("starts, reads, lists, commits, and deletes counts across more than 100 items and keeps inactive line identity current", async () => {
+    const db = createDb(env.DB);
+    const items: Awaited<ReturnType<typeof createItem>>[] = [];
+    const itemNamePrefix = `Count scale ${generateUuidV7()}`;
+
+    for (let index = 0; index < 105; index += 1) {
+      items.push(
+        await createItem(
+          db,
+          {
+            name: `${itemNamePrefix} ${index}`,
+            kind: "PACKAGING",
+            category: "NOT_EATABLE",
+            unit: "UNIT",
+            minStockQty: 0,
+          },
+          ACTOR,
+        ),
+      );
+    }
+
+    const firstCount = await startCount(
+      db,
+      {
+        kind: "PACKAGING",
+        category: "NOT_EATABLE",
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+      },
+      ACTOR,
+    );
+    expect(firstCount.count.lines).toHaveLength(105);
+
+    const purchasedItem = items[0];
+    const deactivatedItem = items[1];
+    if (!purchasedItem || !deactivatedItem) throw new Error("Scale fixtures were not created.");
+
+    await recordPurchase(
+      db,
+      {
+        accountId: "acc_bank",
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        lines: [{ itemId: purchasedItem.id, qty: 1_000, lineTotal: 100 }],
+      },
+      ACTOR,
+    );
+    await updateItem(
+      db,
+      { id: deactivatedItem.id, name: `${itemNamePrefix} inactive and renamed` },
+      ACTOR,
+    );
+    await setItemActive(db, { id: deactivatedItem.id, isActive: false }, ACTOR);
+
+    const secondCount = await startCount(
+      db,
+      {
+        kind: "PACKAGING",
+        category: "NOT_EATABLE",
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+      },
+      ACTOR,
+    );
+    expect(secondCount.count.lines).toHaveLength(104);
+    expect(secondCount.count.lines.map((line) => line.itemId)).not.toContain(deactivatedItem.id);
+
+    const originalDetail = await getCount(db, firstCount.count.id);
+    expect(originalDetail.lines).toHaveLength(105);
+    expect(originalDetail.lines.find((line) => line.itemId === purchasedItem.id)).toMatchObject({
+      expectedQty: 0,
+      hasPriorMovements: true,
+    });
+    expect(originalDetail.lines.find((line) => line.itemId === deactivatedItem.id)).toMatchObject({
+      itemName: `${itemNamePrefix} inactive and renamed`,
+      expectedQty: 0,
+    });
+
+    const listed = await listCounts(db, { status: "DRAFT" });
+    expect(listed.counts.map((count) => count.id)).toEqual(
+      expect.arrayContaining([firstCount.count.id, secondCount.count.id]),
+    );
+    const listedFirst = listed.counts.find((count) => count.id === firstCount.count.id);
+    const listedSecond = listed.counts.find((count) => count.id === secondCount.count.id);
+    expect(listedFirst?.lines).toHaveLength(105);
+    expect(listedFirst?.lines.find((line) => line.itemId === deactivatedItem.id)?.itemName).toBe(
+      `${itemNamePrefix} inactive and renamed`,
+    );
+    expect(listedSecond?.lines).toHaveLength(104);
+    expect(listedSecond?.lines.find((line) => line.itemId === purchasedItem.id)?.expectedQty).toBe(
+      1_000,
+    );
+
+    const deleted = await deleteCount(db, firstCount.count.id, ACTOR);
+    expect(deleted.count.lines).toHaveLength(105);
+    expect(deleted.count.lines.find((line) => line.itemId === deactivatedItem.id)).toMatchObject({
+      itemName: `${itemNamePrefix} inactive and renamed`,
+      expectedQty: 0,
+    });
+
+    const committed = await commitCount(db, { countId: secondCount.count.id }, ACTOR);
+    expect(committed.count.status).toBe("COMMITTED");
+    expect(committed.count.lines).toHaveLength(104);
+    expect(committed.count.lines.find((line) => line.itemId === purchasedItem.id)).toMatchObject({
+      expectedQty: 1_000,
+      countedQty: 1_000,
+      hasPriorMovements: true,
+    });
+    expect(committed.adjustments).toEqual([]);
   });
 });
 
@@ -752,6 +863,41 @@ describe("reads: getCount / listCounts", () => {
     });
     expect(byDate.map((c) => c.id)).toContain(toCommit.count.id);
     expect(byDate.map((c) => c.id)).not.toContain(draft.count.id);
+  });
+
+  it("lists more than 100 counts in bounded count-ID queries", async () => {
+    const db = createDb(env.DB);
+    await createItem(
+      db,
+      {
+        name: `Count list scale ${generateUuidV7()}`,
+        kind: "FINISHED",
+        category: "PASTRY",
+        unit: "UNIT",
+        salePriceMc: toMilliCentavosPerUnit(100_000),
+      },
+      ACTOR,
+    );
+
+    const createdCountIds: string[] = [];
+    for (let index = 0; index < 101; index += 1) {
+      const started = await startCount(
+        db,
+        {
+          kind: "FINISHED",
+          category: "PASTRY",
+          occurredAt: NOW,
+          businessDate: BUSINESS_DATE,
+        },
+        ACTOR,
+      );
+      createdCountIds.push(started.count.id);
+    }
+
+    const listed = await listCounts(db, { status: "DRAFT", limit: 101 });
+    expect(listed.counts).toHaveLength(101);
+    expect(listed.counts.map((count) => count.id)).toEqual(expect.arrayContaining(createdCountIds));
+    expect(listed.counts.every((count) => count.lines.length === 1)).toBe(true);
   });
 });
 
