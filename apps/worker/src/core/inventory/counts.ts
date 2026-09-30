@@ -40,13 +40,18 @@ import type {
   UpdateCountLineResult,
 } from "@kokoro/shared";
 import { generateUuidV7, nowIso, toBusinessDate, toMilliCentavosPerUnit } from "@kokoro/shared";
-import { eq, inArray } from "drizzle-orm";
+import { and, asc, eq, exists, inArray, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 
 import type { Db } from "../../db/index.js";
-import { inventoryCountLines, inventoryCounts, items, stockMovements } from "../../db/schema.js";
+import {
+  inventoryCountLines,
+  inventoryCounts,
+  itemStock,
+  items,
+  stockMovements,
+} from "../../db/schema.js";
 import { buildAuditLogInsert } from "../audit.js";
-import { listItems } from "../catalog/items.js";
 import { getCurrentWac } from "../costing/repair.js";
 import { applyWacEntry, snapshotUnitCost } from "../costing/wac.js";
 import { conflict, notFound, validationError } from "../errors.js";
@@ -57,6 +62,18 @@ type Statement = BatchItem<"sqlite">;
 type InventoryCountRow = typeof inventoryCounts.$inferSelect;
 type InventoryCountLineRow = typeof inventoryCountLines.$inferSelect;
 type CountLineItemIdentity = Pick<InventoryCountLineDto, "itemName" | "unit">;
+
+// D1 caps a statement at 100 bound variables. Keep ID-list reads below that ceiling so a count
+// with a large catalog, or a list spanning many counts, never turns into one oversized IN clause.
+const MAX_IDS_PER_QUERY = 90;
+
+function chunkValues<T>(values: readonly T[], chunkSize = MAX_IDS_PER_QUERY): T[][] {
+  const chunks: T[][] = [];
+  for (let index = 0; index < values.length; index += chunkSize) {
+    chunks.push(values.slice(index, index + chunkSize));
+  }
+  return chunks;
+}
 
 interface CountLineQueryRow {
   line: InventoryCountLineRow;
@@ -107,11 +124,16 @@ async function findItemsWithPriorMovements(
   itemIds: readonly string[],
 ): Promise<Set<string>> {
   if (itemIds.length === 0) return new Set();
-  const rows = await db
-    .select({ itemId: stockMovements.itemId })
-    .from(stockMovements)
-    .where(inArray(stockMovements.itemId, itemIds));
-  return new Set(rows.map((row) => row.itemId));
+  const priorMovementItemIds = new Set<string>();
+  for (const itemIdChunk of chunkValues(itemIds)) {
+    const rows = await db
+      .select({ itemId: stockMovements.itemId })
+      .from(stockMovements)
+      .where(inArray(stockMovements.itemId, itemIdChunk))
+      .groupBy(stockMovements.itemId);
+    for (const row of rows) priorMovementItemIds.add(row.itemId);
+  }
+  return priorMovementItemIds;
 }
 
 function toCountDto(
@@ -142,6 +164,22 @@ async function fetchLines(db: Db, countId: string): Promise<ResolvedCountLines> 
   return resolveCountLines(rows);
 }
 
+async function fetchLinesForCounts(
+  db: Db,
+  countIds: readonly string[],
+): Promise<CountLineQueryRow[]> {
+  const rows: CountLineQueryRow[] = [];
+  for (const countIdChunk of chunkValues(countIds)) {
+    const chunkRows = await db
+      .select({ line: inventoryCountLines, itemName: items.name, unit: items.unit })
+      .from(inventoryCountLines)
+      .leftJoin(items, eq(inventoryCountLines.itemId, items.id))
+      .where(inArray(inventoryCountLines.countId, countIdChunk));
+    rows.push(...chunkRows);
+  }
+  return rows;
+}
+
 async function findCountRowOrThrow(db: Db, id: string): Promise<InventoryCountRow> {
   const row = await db.query.inventoryCounts.findFirst({
     where: (t, { and: andOp, eq: eqOp, isNull }) => andOp(eqOp(t.id, id), isNull(t.deletedAt)),
@@ -153,12 +191,12 @@ async function findCountRowOrThrow(db: Db, id: string): Promise<InventoryCountRo
 }
 
 /**
- * UC-10 step 1: start a new count in one atomic batch (D-3). Resolves the item set via
- * core/catalog's `listItems`, ALWAYS with `isActive: true` regardless of the caller's own kind/
- * category filter — a count over discontinued stock the owner isn't tracking day-to-day is not
- * meaningful (Doc 07 SC-08's "new count -> item checklist (filter by category)" implicitly scopes
- * to the items the owner is actually managing). Omitting BOTH `kind` and `category` includes every
- * active item.
+ * UC-10 step 1: start a new count in one atomic batch (D-3). Resolve active, metered catalog items
+ * together with their current stock and prior-movement state in one set-based read. `isActive` is
+ * always required regardless of the caller's kind/category filter — a count over discontinued
+ * stock the owner isn't tracking day-to-day is not meaningful (Doc 07 SC-08's "new count -> item
+ * checklist (filter by category)" implicitly scopes to the items the owner is actually managing).
+ * Omitting BOTH `kind` and `category` includes every active item.
  *
  * Freezes each resolved item's CURRENT `item_stock.qty_on_hand` as `expectedQty` (defaulting to 0
  * for an item with no `item_stock` row yet, i.e. one that has never had a movement) — see this
@@ -171,38 +209,60 @@ export async function startCount(
   command: StartCountCommand,
   actor: AuditActor,
 ): Promise<StartCountResult> {
-  const { items: listedItems } = await listItems(db, {
-    kind: command.kind,
-    category: command.category,
-    isActive: true,
-  });
-  const resolvedItems = listedItems.filter((item) => !item.isUnmetered);
-  if (resolvedItems.length === 0) {
+  const itemConditions: SQL[] = [eq(items.isActive, 1), eq(items.isUnmetered, 0)];
+  if (command.kind) itemConditions.push(eq(items.kind, command.kind));
+  if (command.category) itemConditions.push(eq(items.category, command.category));
+
+  const priorMovementQuery = db
+    .select({ itemId: stockMovements.itemId })
+    .from(stockMovements)
+    .where(eq(stockMovements.itemId, items.id))
+    .limit(1);
+  const candidates = await db
+    .select({
+      id: items.id,
+      itemName: items.name,
+      unit: items.unit,
+      expectedQty: itemStock.qtyOnHand,
+      hasPriorMovements: exists(priorMovementQuery),
+    })
+    .from(items)
+    .leftJoin(itemStock, eq(itemStock.itemId, items.id))
+    .where(and(...itemConditions))
+    .orderBy(
+      sql`CASE ${items.kind}
+        WHEN 'RAW_MATERIAL' THEN 0
+        WHEN 'SEMI_FINISHED' THEN 1
+        WHEN 'FINISHED' THEN 2
+        WHEN 'PACKAGING' THEN 3
+        ELSE 4
+      END`,
+      asc(items.name),
+    );
+
+  if (candidates.length === 0) {
     throw validationError("No hay ítems activos que coincidan con el alcance del conteo.", {
       kind: command.kind,
       category: command.category,
     });
   }
 
-  const itemIds = resolvedItems.map((item) => item.id);
   const itemIdentityById = new Map(
-    resolvedItems.map((item) => [item.id, { itemName: item.name, unit: item.unit }]),
+    candidates.map((item) => [item.id, { itemName: item.itemName, unit: item.unit }]),
   );
-  const stockRows = await db.query.itemStock.findMany({
-    where: (t, { inArray: inArrayOp }) => inArrayOp(t.itemId, itemIds),
-  });
-  const onHandByItem = new Map(stockRows.map((row) => [row.itemId, row.qtyOnHand]));
-  const priorMovementItemIds = await findItemsWithPriorMovements(db, itemIds);
+  const priorMovementItemIds = new Set(
+    candidates.filter((item) => Boolean(item.hasPriorMovements)).map((item) => item.id),
+  );
 
   const countId = generateUuidV7();
   const now = nowIso();
 
-  const lineRows: InventoryCountLineRow[] = itemIds.map((itemId) => {
-    const expectedQty = onHandByItem.get(itemId) ?? 0;
+  const lineRows: InventoryCountLineRow[] = candidates.map((item) => {
+    const expectedQty = item.expectedQty ?? 0;
     return {
       id: generateUuidV7(),
       countId,
-      itemId,
+      itemId: item.id,
       expectedQty,
       countedQty: expectedQty,
     };
@@ -550,14 +610,7 @@ export async function listCounts(
   });
 
   const countIds = rows.map((row) => row.id);
-  const joinedLineRows =
-    countIds.length > 0
-      ? await db
-          .select({ line: inventoryCountLines, itemName: items.name, unit: items.unit })
-          .from(inventoryCountLines)
-          .leftJoin(items, eq(inventoryCountLines.itemId, items.id))
-          .where(inArray(inventoryCountLines.countId, countIds))
-      : [];
+  const joinedLineRows = await fetchLinesForCounts(db, countIds);
   const { rows: lineRows, itemIdentityById } = resolveCountLines(joinedLineRows);
   const linesByCount = new Map<string, InventoryCountLineRow[]>();
   for (const line of lineRows) {
