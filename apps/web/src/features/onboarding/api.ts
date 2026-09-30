@@ -18,6 +18,7 @@ import type {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
+import { FORM_SAVE_ERROR_META } from "@/lib/form-save-errors";
 
 const ONBOARDING_ROOT_KEY = ["onboarding"] as const;
 // Mirrors features/finance/api.ts's ACCOUNTS_KEY and features/catalog/api.ts's ITEMS_ROOT_KEY
@@ -36,6 +37,7 @@ export function useOnboardingStatus() {
 export function useSetOpeningBalances() {
   const queryClient = useQueryClient();
   return useMutation({
+    meta: FORM_SAVE_ERROR_META,
     mutationFn: (command: SetOpeningBalancesCommand) =>
       api.post<SetOpeningBalancesResult>("/onboarding/opening-balances", command),
     onSuccess: () => {
@@ -48,6 +50,7 @@ export function useSetOpeningBalances() {
 export function useBulkCreateItems() {
   const queryClient = useQueryClient();
   return useMutation({
+    meta: FORM_SAVE_ERROR_META,
     mutationFn: (command: BulkCreateItemsCommand) =>
       api.post<BulkCreateItemsResult>("/onboarding/catalog", command),
     onSuccess: () => {
@@ -60,6 +63,7 @@ export function useBulkCreateItems() {
 export function useCompleteOnboarding() {
   const queryClient = useQueryClient();
   return useMutation({
+    meta: FORM_SAVE_ERROR_META,
     mutationFn: () => api.post<OnboardingCompleteResult>("/onboarding/complete"),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ONBOARDING_ROOT_KEY }),
   });

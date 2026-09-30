@@ -269,7 +269,7 @@ export function RecipeForm({ open, onOpenChange, recipe, settings }: RecipeFormP
       }
       onOpenChange(false);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : recipesLabels.errors.generic);
+      if (!(err instanceof ApiError)) setError(recipesLabels.errors.generic);
     }
   }
 

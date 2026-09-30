@@ -27,6 +27,7 @@ import type {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
+import { FORM_SAVE_ERROR_META } from "@/lib/form-save-errors";
 
 const SESSIONS_ROOT_KEY = ["sessions"] as const;
 
@@ -98,6 +99,7 @@ function useInvalidateSessions() {
 export function useRecordSession() {
   const invalidate = useInvalidateSessions();
   return useMutation({
+    meta: FORM_SAVE_ERROR_META,
     mutationFn: (command: RecordSessionCommand) =>
       api.post<RecordSessionResult>("/sessions", command),
     onSuccess: invalidate,
@@ -120,10 +122,11 @@ export function useCloseAndStartSession() {
   });
 }
 
-export function useUpdateSession(id: string) {
+export function useUpdateSession(id: string, options: { reportFormSaveError?: boolean } = {}) {
   const invalidate = useInvalidateSessions();
   const queryClient = useQueryClient();
   return useMutation({
+    meta: options.reportFormSaveError === false ? undefined : FORM_SAVE_ERROR_META,
     mutationFn: (command: UpdateSessionCommand) =>
       api.patch<UpdateSessionResult>(`/sessions/${id}`, command),
     onSuccess: () => {

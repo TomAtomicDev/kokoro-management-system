@@ -127,8 +127,7 @@ export function DeliverOrderDialog({ order, open, onOpenChange }: DeliverOrderDi
 
   const displayError =
     error ??
-    (replay.error instanceof ApiError ? replay.error.message : null) ??
-    (replay.error ? ordersLabels.errors.generic : null);
+    (replay.error && !(replay.error instanceof ApiError) ? ordersLabels.errors.generic : null);
 
   return (
     <>

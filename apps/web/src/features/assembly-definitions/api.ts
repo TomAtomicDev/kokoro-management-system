@@ -12,6 +12,7 @@ import type {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
+import { FORM_SAVE_ERROR_META } from "@/lib/form-save-errors";
 
 const ASSEMBLY_DEFINITIONS_ROOT_KEY = ["assembly-definitions"] as const;
 
@@ -57,6 +58,7 @@ function useInvalidateAssemblyDefinitions() {
 export function useRecordAssemblyDefinition() {
   const invalidate = useInvalidateAssemblyDefinitions();
   return useMutation({
+    meta: FORM_SAVE_ERROR_META,
     mutationFn: (command: RecordAssemblyDefinitionCommand) =>
       api.post<RecordAssemblyDefinitionResult>("/assembly-definitions", command),
     onSuccess: invalidate,
@@ -66,6 +68,7 @@ export function useRecordAssemblyDefinition() {
 export function useUpdateAssemblyDefinition(id: string) {
   const invalidate = useInvalidateAssemblyDefinitions();
   return useMutation({
+    meta: FORM_SAVE_ERROR_META,
     mutationFn: (command: UpdateAssemblyDefinitionCommand) =>
       api.patch<UpdateAssemblyDefinitionResult>(`/assembly-definitions/${id}`, command),
     onSuccess: invalidate,

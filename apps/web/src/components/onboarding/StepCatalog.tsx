@@ -355,7 +355,7 @@ export function StepCatalog({ onDone, onSkip, readOnly = false }: StepCatalogPro
       await mutation.mutateAsync({ items: parsedItems });
       onDone();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : onboardingLabels.errors.generic);
+      if (!(err instanceof ApiError)) setError(onboardingLabels.errors.generic);
     }
   }
 

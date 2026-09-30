@@ -37,6 +37,7 @@ import type {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
+import { FORM_SAVE_ERROR_META } from "@/lib/form-save-errors";
 
 const INVENTORY_ROOT_KEY = ["inventory"] as const;
 
@@ -153,6 +154,7 @@ function useInvalidateInventory() {
 export function useRecordStockExit() {
   const invalidate = useInvalidateInventory();
   return useMutation({
+    meta: FORM_SAVE_ERROR_META,
     mutationFn: (command: RecordStockExitCommand) =>
       api.post<RecordStockExitResult>("/inventory/exits", command),
     onSuccess: invalidate,
@@ -169,6 +171,7 @@ export function useRecordStockExit() {
 export function useUpdateStockExit(id: string) {
   const invalidate = useInvalidateInventory();
   return useMutation({
+    meta: FORM_SAVE_ERROR_META,
     mutationFn: (command: UpdateStockExitCommand) =>
       api.patch<UpdateStockExitResult>(`/inventory/exits/${id}`, command),
     onSuccess: invalidate,
@@ -232,9 +235,10 @@ export function useCount(countId: string | null) {
   });
 }
 
-export function useStartCount() {
+export function useStartCount(options: { reportFormSaveError?: boolean } = {}) {
   const invalidate = useInvalidateInventory();
   return useMutation({
+    meta: options.reportFormSaveError === false ? undefined : FORM_SAVE_ERROR_META,
     mutationFn: (command: StartCountCommand) =>
       api.post<StartCountResult>("/inventory/counts", command),
     onSuccess: invalidate,
@@ -261,6 +265,7 @@ export function useUpdateCountLine() {
 export function useCommitCount() {
   const invalidate = useInvalidateInventory();
   return useMutation({
+    meta: FORM_SAVE_ERROR_META,
     mutationFn: (input: CommitCountCommand | string) => {
       const command = typeof input === "string" ? { countId: input } : input;
       return api.post<CommitCountResult>(`/inventory/counts/${command.countId}/commit`, command);

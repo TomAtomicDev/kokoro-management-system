@@ -44,6 +44,11 @@ export function QuickAddModalPlaceholder({
     setError(err instanceof ApiError ? err.message : sessionsLabels.errors.generic);
   }, []);
 
+  const handleStartMutationError = useCallback((err: unknown) => {
+    setSelectedType(null);
+    if (!(err instanceof ApiError)) setError(sessionsLabels.errors.generic);
+  }, []);
+
   async function handleCloseAndStart() {
     if (!selectedType || !conflictSessionId) return;
     setError(null);
@@ -123,6 +128,7 @@ export function QuickAddModalPlaceholder({
                 onConflict={handleConflict}
                 onStarted={handleStarted}
                 onError={handleStartError}
+                onMutationError={handleStartMutationError}
               />
             ) : null}
             {error ? <p className="text-negative text-sm">{error}</p> : null}
@@ -138,11 +144,13 @@ function SelectedTypeStarter({
   onConflict,
   onStarted,
   onError,
+  onMutationError,
 }: {
   type: SessionType;
   onConflict: (session: SessionListItemDto) => void;
   onStarted: () => void;
   onError: (err: unknown) => void;
+  onMutationError: (err: unknown) => void;
 }) {
   const openSessionsQuery = useSessions({ status: "OPEN", type });
   const recordMutation = useRecordSession();
@@ -162,12 +170,13 @@ function SelectedTypeStarter({
       onConflict(existing);
       return;
     }
-    recordMutation.mutateAsync(buildStartNowCommand(type)).then(onStarted).catch(onError);
+    recordMutation.mutateAsync(buildStartNowCommand(type)).then(onStarted).catch(onMutationError);
   }, [
     openSessionsQuery.data,
     openSessionsQuery.error,
     onConflict,
     onError,
+    onMutationError,
     onStarted,
     recordMutation,
     type,

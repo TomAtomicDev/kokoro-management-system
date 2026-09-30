@@ -91,7 +91,7 @@ export function ItemDetailDrawer({ itemId, open, onOpenChange }: ItemDetailDrawe
     try {
       await updateMutation.mutateAsync({ id: itemId, ...parsed.value });
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : catalogLabels.errors.generic);
+      if (!(err instanceof ApiError)) setError(catalogLabels.errors.generic);
     }
   }
 

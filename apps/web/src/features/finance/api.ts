@@ -23,6 +23,7 @@ import type {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
+import { FORM_SAVE_ERROR_META } from "@/lib/form-save-errors";
 
 // Exported so other features whose commands move an account balance without going through
 // core/finance directly (e.g. core/sales' collectPayment, KOK-031) can invalidate it too, instead
@@ -78,6 +79,7 @@ function useInvalidateFinance() {
 export function useRecordTransaction() {
   const invalidate = useInvalidateFinance();
   return useMutation({
+    meta: FORM_SAVE_ERROR_META,
     mutationFn: (command: RecordTransactionCommand) =>
       api.post<RecordTransactionResult>("/finance/transactions", command),
     onSuccess: invalidate,
@@ -87,6 +89,7 @@ export function useRecordTransaction() {
 export function useUpdateTransaction(id: string) {
   const invalidate = useInvalidateFinance();
   return useMutation({
+    meta: FORM_SAVE_ERROR_META,
     mutationFn: (command: UpdateTransactionCommand) =>
       api.patch<UpdateTransactionResult>(`/finance/transactions/${id}`, command),
     onSuccess: invalidate,
@@ -114,6 +117,7 @@ export function useRestoreTransaction() {
 export function useTransfer() {
   const invalidate = useInvalidateFinance();
   return useMutation({
+    meta: FORM_SAVE_ERROR_META,
     mutationFn: (command: TransferCommand) =>
       api.post<TransferResult>("/finance/transfers", command),
     onSuccess: invalidate,
@@ -123,6 +127,7 @@ export function useTransfer() {
 export function useWithdraw() {
   const invalidate = useInvalidateFinance();
   return useMutation({
+    meta: FORM_SAVE_ERROR_META,
     mutationFn: (command: WithdrawCommand) =>
       api.post<WithdrawResult>("/finance/withdrawals", command),
     onSuccess: invalidate,
