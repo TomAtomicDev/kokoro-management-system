@@ -8,8 +8,10 @@ import type {
   DeleteTransactionResult,
   FinanceSummaryDto,
   ListAccountsResult,
+  ListReceivablesQuery,
   ListTransactionsFilters,
   ListTransactionsResult,
+  ReceivablesResponseDto,
   RecordTransactionCommand,
   RecordTransactionResult,
   RestoreTransactionResult,
@@ -29,6 +31,8 @@ import { FORM_SAVE_ERROR_META } from "@/lib/form-save-errors";
 // core/finance directly (e.g. core/sales' collectPayment, KOK-031) can invalidate it too, instead
 // of duplicating this literal.
 export const ACCOUNTS_KEY = ["finance", "accounts"] as const;
+export const FINANCE_SUMMARY_KEY = ["finance", "summary"] as const;
+export const RECEIVABLES_KEY = ["finance", "receivables"] as const;
 const TRANSACTIONS_ROOT_KEY = ["finance", "transactions"] as const;
 
 function transactionsListKey(filters: ListTransactionsFilters) {
@@ -55,8 +59,31 @@ export function useAccounts() {
 
 export function useFinanceSummary() {
   return useQuery({
-    queryKey: ["finance", "summary"],
+    queryKey: FINANCE_SUMMARY_KEY,
     queryFn: () => api.get<FinanceSummaryDto>("/finance/summary"),
+  });
+}
+
+function receivablesListKey(filters: ListReceivablesQuery) {
+  return [...RECEIVABLES_KEY, "list", filters] as const;
+}
+
+function receivablesFiltersToQueryString(filters: ListReceivablesQuery): string {
+  const params = new URLSearchParams();
+  if (filters.search) params.set("search", filters.search);
+  if (filters.minAgeDays !== undefined) params.set("minAgeDays", String(filters.minAgeDays));
+  params.set("sortBy", filters.sortBy);
+  params.set("page", String(filters.page));
+  params.set("pageSize", String(filters.pageSize));
+  return `?${params.toString()}`;
+}
+
+/** SC-21's all-dates grouped receivables read (KOK-197). Summary stays global across filters. */
+export function useGroupedReceivables(filters: ListReceivablesQuery) {
+  return useQuery({
+    queryKey: receivablesListKey(filters),
+    queryFn: () =>
+      api.get<ReceivablesResponseDto>(`/receivables${receivablesFiltersToQueryString(filters)}`),
   });
 }
 

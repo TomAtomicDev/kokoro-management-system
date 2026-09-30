@@ -9,12 +9,11 @@
 // retry-with-confirm dance for the R-5 replay-confirmation contract stays composed at the UI layer
 // via useReplayConfirmableMutation, never wired in here (same precedent as purchases').
 //
-// recordSale/collectPayment also move stock (item_stock) / an account balance
-// (financial_accounts) on the server — same precedent as recordPurchase's header comment: there's
-// no shared cross-feature invalidation surface yet, so collectPayment additionally invalidates
-// finance's ACCOUNTS_KEY directly (imported, not duplicated) alongside the sales keys below.
-// updateSale/deleteSale/restoreSale share that same gap (a moved/reversed account balance) but
-// follow purchases' own precedent of leaving it unaddressed until a shared surface exists.
+// recordSale moves stock (item_stock) and both recordSale/collectPayment move an account balance
+// (financial_accounts) on the server — same precedent as recordPurchase's header comment. UC-04
+// collection invalidates the finance/dashboard summary and grouped receivables keys too, so the
+// all-dates totals reconcile immediately. updateSale/deleteSale/restoreSale follow purchases' own
+// precedent of leaving their cross-feature balance refresh unaddressed.
 
 import type {
   CollectPaymentCommand,
@@ -33,13 +32,17 @@ import type {
   UpdateSaleResult,
 } from "@kokoro/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-
-import { ACCOUNTS_KEY } from "@/features/finance/api";
+import { DASHBOARD_SUMMARY_KEY } from "@/features/dashboard/api";
+import {
+  ACCOUNTS_KEY,
+  FINANCE_SUMMARY_KEY,
+  RECEIVABLES_KEY as GROUPED_RECEIVABLES_KEY,
+} from "@/features/finance/api";
 import { api } from "@/lib/api";
 import { FORM_SAVE_ERROR_META } from "@/lib/form-save-errors";
 
 const SALES_ROOT_KEY = ["sales"] as const;
-const RECEIVABLES_KEY = [...SALES_ROOT_KEY, "receivables"] as const;
+const LEGACY_RECEIVABLES_KEY = [...SALES_ROOT_KEY, "receivables"] as const;
 
 function salesListKey(filters: ListSalesFilters) {
   return [...SALES_ROOT_KEY, "list", filters] as const;
@@ -129,11 +132,10 @@ export function usePreviewSaleImpact() {
   });
 }
 
-/** SC-02's "Por cobrar" preset aging (KOK-031) — `v_receivables` via GET /sales/receivables. Only
- * fetched while the preset is active (`enabled`), same precedent as useSale's `enabled: Boolean(id)`. */
+/** KOK-031's detailed receivable amounts for sale-row collection actions (GET /sales/receivables). */
 export function useReceivables(enabled = true) {
   return useQuery({
-    queryKey: RECEIVABLES_KEY,
+    queryKey: LEGACY_RECEIVABLES_KEY,
     queryFn: () => api.get<ListReceivablesResult>("/sales/receivables"),
     enabled,
   });
@@ -152,6 +154,9 @@ export function useCollectPayment() {
     onSuccess: () => {
       invalidateSales();
       queryClient.invalidateQueries({ queryKey: ACCOUNTS_KEY });
+      queryClient.invalidateQueries({ queryKey: GROUPED_RECEIVABLES_KEY });
+      queryClient.invalidateQueries({ queryKey: FINANCE_SUMMARY_KEY });
+      queryClient.invalidateQueries({ queryKey: DASHBOARD_SUMMARY_KEY });
     },
   });
 }

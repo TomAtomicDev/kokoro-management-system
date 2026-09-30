@@ -30,8 +30,7 @@ export const salesLabels = {
   noSales: "No hay ventas registradas.",
   loading: "Cargando…",
 
-  filterAll: "Todas",
-  filterReceivable: "Por cobrar",
+  manageReceivables: "Gestionar deudas",
 
   channelLabels: {
     CATALOG: "Catálogo",
@@ -87,10 +86,9 @@ export const salesLabels = {
   detailLines: "Líneas",
   noNotes: "Sin notas.",
 
-  columnDaysOutstanding: "Días",
-  daysOutstandingValue: (days: number) => `${days} d`,
   actionCollect: "Cobrar",
   collectTitle: "Cobrar venta",
+  collectAmountLabel: "Saldo por cobrar",
   collectSubmit: "Confirmar cobro",
 
   errors: {
