@@ -69,7 +69,7 @@ export function UpdatePriceDialog({
       await mutation.mutateAsync({ id: itemId, salePriceMc });
       onOpenChange(false);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : pricingLabels.errors.generic);
+      if (!(err instanceof ApiError)) setError(pricingLabels.errors.generic);
     }
   }
 

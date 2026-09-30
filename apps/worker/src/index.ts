@@ -20,6 +20,7 @@ import { onboardingRoute } from "./api/onboarding.js";
 import { ordersRoute } from "./api/orders.js";
 import { productionRunsRoute } from "./api/production-runs.js";
 import { purchasingRoute } from "./api/purchasing.js";
+import { receivablesRoute } from "./api/receivables.js";
 import { recipesRoute } from "./api/recipes.js";
 import { salesRoute } from "./api/sales.js";
 import { sessionsRoute } from "./api/sessions.js";
@@ -48,6 +49,7 @@ app.route("/api", recipesRoute); // KOK-025 — recipes (Doc 07 SC-06).
 app.route("/api", assemblyDefinitionsRoute); // KOK-123 — assembly definitions (Doc 07 SC-19/20).
 app.route("/api", assembliesRoute); // KOK-124 — assembly events (Doc 07 SC-20).
 app.route("/api", financeRoute); // KOK-014 — standalone transactions, transfers, withdrawals (Doc 03 UC-11/12/13).
+app.route("/api", receivablesRoute); // KOK-197 — grouped, all-dates receivables read (Doc 07 SC-21).
 app.route("/api", purchasingRoute); // KOK-016 — purchases (Doc 03 UC-01), the template event vertical.
 app.route("/api", productionRunsRoute); // KOK-026 — production runs (Doc 03 UC-02), the second full event vertical.
 app.route("/api", salesRoute); // KOK-030 — catalog sales (Doc 03 UC-03, Doc 07 SC-02/03).

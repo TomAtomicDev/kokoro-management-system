@@ -5,6 +5,11 @@ to close to make "Entregar" reachable. Business rules live in the
 [System Design Knowledge Base](../system-design-knowledge-base/README.md): Doc 03 §5 (O-1…O-5),
 Doc 04 §3.3/§5, Doc 07 SC-04.
 
+> **Current-state note (Phase 3.5/KOK-202/KOK-204):** the linked-production-cost “profitability”
+> panel below describes the original UI, not the target. Product gross margin is based on delivered
+> sale-line COGS; the external-delivery pass-through is shown separately and excluded. See Doc 03
+> O-2 and Doc 07 SC-04.
+
 ## 1. Scope
 
 `OrderBoard` (one column per status, O-5 delivery-date sort within each), `OrderCard`, and

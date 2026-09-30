@@ -29,7 +29,9 @@ Currency `Bs 1.234,50` (space, comma decimals); dates `lun 6 jul` / `06/07/2026`
    (S-1). The rule is strong enough to have survived a direct request to break it — the owner
    asked for a mandatory session field and a hard production gate on orders, and both were
    answered with automatic resolution and a confirmable warning instead, because a form that
-   refuses a real event produces an unrecorded event.
+   refuses a real event produces an unrecorded event. Exception: accepting a custom order with no
+   deposit or delivering it on credit requires the owner's explicit acknowledgment of the stated
+   collection risk (O-1/O-2); this warning does not discard the form or replace R-5 confirmation.
 3. **Derived numbers are visibly derived.** Computed fields (WAC, margins, balances) render with
    a subtle "calculado" affordance and are never editable; tapping shows the calculation trace
    (e.g., kardex behind a stock figure).
@@ -72,6 +74,7 @@ Sidebar:
   ◉ Sesiones         /sessions
   ── Dinero ──
   ◉ Finanzas         /finance             (accounts, transactions, transfers, withdrawals)
+  ◉ Deudas por cobrar /receivables        (outstanding sales, grouped by customer)
   ── Análisis ──
   ◉ Precios y márgenes /price-health
   ◉ Reportes         /reports
@@ -186,6 +189,7 @@ a scarce semantic accent (≤ ~5-8% of any screen), never decoration.** Full rat
 | `Calculator` | topbar calculator: two-line display, thumb-sized keypad, copy button; built on the existing dialog primitive, no new dependency (D-10) |
 | `RecipeTimer` | `mm:ss` timer started from a recipe, displayed in the topbar; survives navigation and reload, alarms at zero. No schema change — the recipe's estimated minutes only supply a suggested value |
 | `OfflineNotice` | explicit "No hay conexión a internet" dialog when an API call fails for connectivity. The PWA shell is online-only by decision (ADR-020), so this replaces a silent failure — it is the whole user-facing surface of that decision |
+| `FormSaveErrorAlert` | persistent, manually dismissible floating alert for opted-in create/update form API failures; renders server `message_es` above dialogs and pinned form actions. Query failures, connectivity errors (which retain `OfflineNotice`), 401 redirects and expected replay-confirmation refusals are excluded |
 | `AlertsPanel` | bell dropdown: low stock, price health, negative stock, stale orders |
 | `KardexView` | per-item movement table with running balance + source-event links |
 | `CalcTrace` | popover explaining a derived number (formula + inputs) — principle 3 |

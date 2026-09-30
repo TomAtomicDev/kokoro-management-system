@@ -14,6 +14,7 @@ export const navLabels = {
   sesiones: "Sesiones",
   sectionDinero: "Dinero",
   finanzas: "Finanzas",
+  deudasPorCobrar: "Deudas por cobrar",
   sectionAnalisis: "Análisis",
   preciosYMargenes: "Precios y márgenes",
   reportes: "Reportes",

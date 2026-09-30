@@ -305,8 +305,11 @@ CREATE TABLE sales (
   channel TEXT NOT NULL CHECK (channel IN ('CATALOG','CUSTOM_ORDER')),
   custom_order_id TEXT REFERENCES custom_orders(id),
   customer_id TEXT REFERENCES customers(id),
-  session_id TEXT REFERENCES sessions(id),       -- delivery run
-  total INTEGER NOT NULL,
+  session_id TEXT REFERENCES sessions(id),       -- optional delivery run; KOK-204 links the generated
+                                                  -- custom-order sale to its external-delivery session
+  total INTEGER NOT NULL,                        -- centavos; product lines + delivery_fee
+  delivery_fee INTEGER NOT NULL DEFAULT 0 CHECK (delivery_fee >= 0), -- centavos; exact external-
+                                                  -- delivery expense pass-through (custom orders only)
   payment_status TEXT NOT NULL CHECK (payment_status IN ('PAID','ON_CREDIT')),
   paid_at TEXT,                                  -- set when receivable collected (UC-04)
   payment_method TEXT CHECK (payment_method IN ('CASH','BANK_QR')),
@@ -336,10 +339,10 @@ CREATE TABLE custom_orders (
     ('QUOTING','CONFIRMED','IN_PRODUCTION','READY','DELIVERED','CANCELLED')),
   customer_id TEXT NOT NULL REFERENCES customers(id),
   description TEXT NOT NULL,                     -- free text of the request
-  agreed_total INTEGER,                          -- centavos; required to confirm
-  deposit_required INTEGER,                      -- centavos, default = 50% of agreed_total
-  deposit_paid INTEGER NOT NULL DEFAULT 0,
-  deposit_tx_id TEXT REFERENCES financial_transactions(id),
+  agreed_total INTEGER,                          -- centavos; agreed merchandise subtotal, required to confirm
+  deposit_required INTEGER,                      -- centavos, suggested default = 50%; zero is allowed
+  deposit_paid INTEGER NOT NULL DEFAULT 0,         -- zero means no deposit was received
+  deposit_tx_id TEXT REFERENCES financial_transactions(id), -- NULL when confirmed with zero deposit
   delivery_date TEXT, delivery_place TEXT,
   sale_id TEXT REFERENCES sales(id),             -- set on delivery (O-2)
   cancel_resolution TEXT CHECK (cancel_resolution IN ('REFUND','FORFEIT')),
@@ -400,6 +403,8 @@ CREATE TABLE inventory_count_lines (
   counted_qty INTEGER NOT NULL,
   UNIQUE (count_id, item_id)
 );
+-- Count response DTOs join each line to the current `items.name` and canonical `items.unit`.
+-- These are read-time identity fields, not additional snapshots; only `expected_qty` is frozen.
 ```
 
 ### 3.4 Derived ledgers
@@ -494,6 +499,12 @@ No `affected_production_run_ids` column: the row is keyed to one `item_id`, and 
 runs exist (KOK-026) no replay ever touches one — the impact-preview DTO (`packages/shared/src/
 costing.ts`'s `ReplayImpactDto`) already carries `affectedProductionRunIds` for the day it does,
 but persisting them here is deferred to KOK-026 rather than added speculatively now.
+
+An order MAY be confirmed with `deposit_paid = 0`; that confirmation writes no ORDER_DEPOSIT row and
+does not affect account balances or deposit liability. The explicit no-deposit risk acknowledgment
+is validated by `orders.confirm` and recorded in its audit row; it is not a stored balance or a new
+column. The existing nullable `deposit_tx_id` and zero-default `deposit_paid` support this case, so
+no schema migration is required for zero-deposit confirmation.
 
 Deposit liability is derived, not a table:
 `customer_deposits = Σ deposits received − Σ released/refunded`, computed from ORDER_DEPOSIT /
@@ -640,11 +651,17 @@ statement ever includes `code` in its `SET` list.
 | `v_stock` | items ⨝ item_stock + `stock_value = round(qty_on_hand × wac_mc / 1e6)`, low-stock flag. Also selects `replacement_cost_updated_at` (migration 0016) so `core/inventory/queries.ts`'s `listStock` can apply the same C-3c effective-replacement-cost fallback `toItemDto`/`price-health.ts` already do — the view exposes the raw column plus timestamp only, the fallback projection itself happens in `queries.ts`, not in SQL (same precedent as `v_price_health` below). |
 | `v_kardex` | stock_movements ⨝ items, ordered, with running balance via window function |
 | `v_price_health` | FINISHED items: id, name, sale_price_mc, wac_mc, replacement_cost_mc, replacement_cost_updated_at. Raw columns only — margins, the C-3c effective-replacement-cost fallback, and the alert-suppression rule are all computed in `core/costing/price-health.ts` (KOK-035, KOK-103), not in this view; the former SQL margin columns were removed in migration 0006 because they mixed per-whole-unit prices with per-milli-unit costs. |
-| `v_receivables` | sales WHERE payment_status='ON_CREDIT' AND deleted_at IS NULL, aged; `total` = **uncollected remainder**, i.e. `sales.total − custom_orders.deposit_paid` for a CUSTOM_ORDER sale (KOK-033, migration 0005) and plain `sales.total` otherwise. Also selects `s.code` (migration 0024, KOK-185/§3.6). |
+| `v_receivables` | sales WHERE payment_status='ON_CREDIT' AND deleted_at IS NULL, aged; `total` = **uncollected remainder**, i.e. `sales.total − custom_orders.deposit_paid` for a CUSTOM_ORDER sale (KOK-033, migration 0005; with no deposit, the full final sale total, including any KOK-204 delivery fee) and plain `sales.total` otherwise. Also selects `s.code` (migration 0024, KOK-185/§3.6). |
 | `v_liability` | current customer_deposits (see §3.4) |
 | `v_cashflow_daily` | financial_transactions grouped by business_date × category |
 | `v_session_hours` | sessions with derived hours + linked event counts. Per-session hours only — S-5's **deduplicated** wall-clock total (the union of overlapping session intervals, for G3) is computed by a pure function in `core/`, not here, following the same rule as the business-health aggregates below: interval-union arithmetic belongs where property tests can reach it. Also selects `s.code` (migration 0024, KOK-185/§3.6). |
 | `v_waste` | stock_exits valued, grouped by reason × month |
+
+`GET /api/receivables` (KOK-197) is a derived read over `v_receivables`, not a new ledger or stored
+customer balance. It returns global, unfiltered summary totals and a searchable/age-filterable,
+paginated list grouped by customer; each debt retains its source sale code/date, channel, sale total,
+deposit applied, outstanding remainder, age and linked custom-order reference. Rows without a
+customer are listed individually in a distinct “Sin cliente” group. All amounts are centavos.
 
 **Business-health aggregates are NOT views.** Every metric in Phase 5.5 (money at risk, input
 cost index, contribution Pareto, Bs/h per product, real-vs-nominal position) is computed by a
@@ -690,28 +707,64 @@ error is invisible. Views stay for row-shaping and joins; they do no margin arit
   recipe using only its non-self ingredients, or track the reused portion as a separate line item.
   Deeper multi-item cycles (A's recipe uses B, B's recipe uses A) are not blocked at save time —
   they still surface later as the same refresh-time 409.
-- `purchases.total = Σ purchase_lines.line_total`; `sales.total = Σ qty×unit_price_mc / 1e6` (recomputed
-  server-side, client values ignored).
+- `purchases.total = Σ purchase_lines.line_total`; `sales.total = Σ sale-line merchandise amounts +
+  sales.delivery_fee` (recomputed server-side, client totals ignored). `delivery_fee` is zero for
+  ordinary sales; for a custom-order external-delivery pass-through it equals the actual
+  `DELIVERY_RUN` session cost. The pass-through is not a sale line, inventory item, stock movement,
+  or product COGS input. The customer balance and `v_receivables` use the full `sales.total`.
+- **External delivery (KOK-204, service-enforced):** a nonzero `sales.delivery_fee` is valid only
+  for a CUSTOM_ORDER sale linked to a closed `DELIVERY_RUN` session. That session has one real
+  (“not estimate”) shared-cost line for the external provider, paid from a selected account, and its
+  amount must equal `delivery_fee`. The order-delivery command creates the session, expense, sale,
+  pass-through amount, balance/receivable and order transition in one atomic batch. The application
+  creates a separate session per order as its normal capture convention, but the schema deliberately
+  does not enforce one-to-one ownership; `sales.session_id` remains many-to-one. Product gross margin
+  for the order uses product-line revenue only (`sales.total − sales.delivery_fee`) less frozen
+  product COGS, excluding both sides of the pass-through. The order detail shows the session and both
+  amounts separately. On O-6 undo, the sale/fee/receivable are reversed but the actual provider
+  expense and session remain; an external refund must be recorded separately.
+  While an active delivered sale links that session, generic session edit/delete cannot alter its
+  type, time or provider cost/account; a future explicit reconciliation command would be required.
+  After undo, re-delivery reuses the retained paid session when there is no second provider payment
+  (its timestamp remains that of the original service); a genuinely new provider payment instead
+  creates a new session and expense, preserving the previous one as history. The new sale charges
+  only the session cost of the service used for that delivery.
 - `custom_orders` transitions only along the state machine (O-1…O-3, **and O-6's backward
-  transitions** — Phase 3.2, KOK-136). There is no generic "update order" command and no
-  soft-delete/restore pair: `CANCELLED` is the terminal "this didn't happen" state and is never
-  reopened. `DELIVERED` is terminal in the forward direction but reachable backwards exactly once,
-  through `undoDelivery` (O-6), which is a distinct guarded command — not a status write.
+  transitions** — Phase 3.2, KOK-136). There is no generic `updateOrder` command. O-7 permits only
+  the named `updateOrderQuote` (QUOTING), `updateOrderLogistics` (delivery date/place/notes in active
+  post-confirmation states), and `renegotiateOrder` (pre-delivery merchandise terms, including
+  adding lines to a confirmed empty quote) commands, each
+  with status/field guards, shared schemas, before/after audit and one atomic batch. Renegotiation
+  cannot change a positive paid deposit or customer identity, cannot set the merchandise subtotal
+  below `deposit_paid`, and never rewrites production, assembly or stock events. When a zero-deposit
+  order's customer changes, the command requires a renewed `acceptNoDepositRisk` acknowledgment and
+  audit. A below-deposit renegotiation requires cancel/refund and a new order; partial refunds on an
+  active order are not supported. There is no soft-delete/restore pair: `CANCELLED` is terminal and
+  `DELIVERED` is reversed only through guarded `undoDelivery` (O-6). Corrections compare the
+  supplied `updated_at` against the current order within the atomic batch, aborting on mismatch,
+  and refuse stale writes (409).
+  When a merchandise subtotal is set, pinned `line_total` values cannot exceed it and the resulting
+  nonempty lines must be allocatable by the same exact-centavo algorithm as delivery; without a subtotal in
+  QUOTING, this check is deferred to confirmation/renegotiation. Historical production/assembly
+  links remain independent of replaced order-agreement lines.
 - **Every `custom_order_lines` row must carry an `item_id` before the order may be DELIVERED**
   (KOK-033). Item-less free-text lines are legal while QUOTING, but `sale_lines.item_id` is NOT
-  NULL and FINISHED-only and `sales.total` is recomputed from those lines, so a delivery with an
-  unlinked line could not produce a sale equal to `agreed_total` without either inventing revenue
-  no line backs or skipping the `SALE_OUT` for goods that really shipped (drifting `item_stock`
-  upward forever, INV-5, since O-4's ProductionRun already booked the matching PRODUCTION_IN).
+  NULL and FINISHED-only and the merchandise subtotal is recomputed from those lines, so a delivery
+  with an unlinked line could not produce lines equal to `agreed_total` without either inventing
+  revenue with no sale line to support it or skipping the `SALE_OUT` for goods that really shipped
+  (drifting `item_stock` upward forever, INV-5, since O-4's ProductionRun already booked the
+  matching PRODUCTION_IN).
   `deliverOrder` therefore refuses with a 409 until every line is linked. **Amendment (KOK-034):**
-  the ONE narrow exception to "no generic update order" is `resolveOrderLine`, which attaches a
-  catalog item to a single line's `item_id` (leaving `description`/`qty`/`line_total` untouched) —
-  legal on any non-terminal order (same set `cancelOrder` accepts), so the Orders board can resolve
-  a free-text line before delivery without a general-purpose line editor.
+  the named `resolveOrderLine` command attaches a catalog item to one line's `item_id` (leaving
+  `description`/`qty`/`line_total` untouched) — legal on any non-terminal order (same set
+  `cancelOrder` accepts), so the Orders board can resolve a free-text line without a general-purpose
+  line editor. Other bounded correction commands are defined by O-7.
 - `agreed_total` is split across the delivered sale's lines by the largest-remainder method
   (`allocateAgreedTotalToOrderLines`): lines carrying an explicit `line_total` are pinned, the rest
   share what is left weighted by `qty`, and `Σ(qty × unit_price_mc / 1e6)` must reproduce `agreed_total` to
-  the centavo (D-5) — otherwise the delivery is refused rather than rounded.
+  the centavo (D-5) — otherwise the delivery is refused rather than rounded. The resulting
+  merchandise subtotal equals `custom_orders.agreed_total`; any external-delivery fee is added to
+  `sales.total` separately and does not change those product prices.
 - The sale created by a delivery is owned by its order: `core/sales`' update/delete refuse
   (409 CONFLICT) for any `channel='CUSTOM_ORDER'` sale, since editing it would desynchronize
   `custom_orders.sale_id`/`agreed_total` and rewrite the order's `ORDER_BALANCE` transaction.

@@ -25,7 +25,9 @@ import { ApiError } from "@/lib/api";
 import { salesLabels } from "@/lib/i18n-sales";
 
 export interface CollectPaymentDialogProps {
-  sale: SaleDto | null;
+  sale: Pick<SaleDto, "id" | "total"> | null;
+  /** Server-derived outstanding balance; custom-order deposits are not collected a second time. */
+  outstandingAmount?: number;
   accounts: FinancialAccountDto[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -33,6 +35,7 @@ export interface CollectPaymentDialogProps {
 
 export function CollectPaymentDialog({
   sale,
+  outstandingAmount,
   accounts,
   open,
   onOpenChange,
@@ -62,6 +65,7 @@ export function CollectPaymentDialog({
 
   if (!sale) return null;
   const disabled = collectMutation.isPending;
+  const collectionAmount = outstandingAmount ?? sale.total;
 
   async function handleSubmit() {
     if (!sale) return;
@@ -81,7 +85,7 @@ export function CollectPaymentDialog({
       await collectMutation.mutateAsync({ saleId: sale.id, ...parsed.data });
       onOpenChange(false);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : salesLabels.errors.generic);
+      if (!(err instanceof ApiError)) setError(salesLabels.errors.generic);
     }
   }
 
@@ -92,9 +96,11 @@ export function CollectPaymentDialog({
       </div>
       <div className="flex flex-1 flex-col gap-4 overflow-y-auto px-5 py-4 text-sm">
         <div className="flex items-center justify-between rounded-md border border-border bg-muted px-4 py-3">
-          <span className="font-medium text-foreground text-sm">{salesLabels.columnTotal}</span>
+          <span className="font-medium text-foreground text-sm">
+            {salesLabels.collectAmountLabel}
+          </span>
           <span className="numeric-cell font-semibold text-foreground text-lg">
-            {formatMoney(toCentavos(sale.total))}
+            {formatMoney(toCentavos(collectionAmount))}
           </span>
         </div>
 

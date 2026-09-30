@@ -83,7 +83,7 @@ function OpenSessionMenuItem({
   const navigate = useNavigate();
   const { show } = useToast();
   const sessionQuery = useSession(session.id);
-  const stopMutation = useUpdateSession(session.id);
+  const stopMutation = useUpdateSession(session.id, { reportFormSaveError: false });
 
   async function handleStop(): Promise<void> {
     const fullSession = sessionQuery.data?.session ?? (await sessionQuery.refetch()).data?.session;
@@ -143,7 +143,7 @@ export function SessionChip() {
   const openSessions = openSessionsQuery.data?.sessions ?? [];
   const session = openSessions.length === 1 ? openSessions[0] : undefined;
   const sessionQuery = useSession(session?.id);
-  const stopMutation = useUpdateSession(session?.id ?? "");
+  const stopMutation = useUpdateSession(session?.id ?? "", { reportFormSaveError: false });
 
   useEffect(() => {
     if (!menuOpen) return;

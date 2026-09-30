@@ -13,6 +13,7 @@ import type {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
+import { FORM_SAVE_ERROR_META } from "@/lib/form-save-errors";
 
 const PRICE_HEALTH_ROOT_KEY = ["price-health"] as const;
 
@@ -37,6 +38,7 @@ export function usePricingSettings() {
 export function useUpdatePriceMutation() {
   const queryClient = useQueryClient();
   return useMutation({
+    meta: FORM_SAVE_ERROR_META,
     mutationFn: (command: UpdateItemCommand) => api.patch<ItemDto>(`/items/${command.id}`, command),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: PRICE_HEALTH_ROOT_KEY });

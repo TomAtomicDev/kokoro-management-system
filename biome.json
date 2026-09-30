@@ -23,7 +23,7 @@
       "!**/pnpm-lock.yaml",
       "!**/apps/worker/migrations",
       "!**/graphify-out",
-      "!**/public/**"
+      "!**/public"
     ]
   },
   "formatter": {

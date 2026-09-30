@@ -50,12 +50,13 @@ export function CreateCustomerDialog({
       setError(customersLabels.errors.nameRequired);
       return;
     }
+    setError(null);
     try {
       const created = await createMutation.mutateAsync(parsed);
       onCreated?.(created);
       onOpenChange(false);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : customersLabels.errors.generic);
+      if (!(err instanceof ApiError)) setError(customersLabels.errors.generic);
     }
   }
 

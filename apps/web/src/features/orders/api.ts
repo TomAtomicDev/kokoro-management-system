@@ -35,6 +35,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { ACCOUNTS_KEY } from "@/features/finance/api";
 import { api } from "@/lib/api";
+import { FORM_SAVE_ERROR_META } from "@/lib/form-save-errors";
 
 const ORDERS_ROOT_KEY = ["orders"] as const;
 
@@ -82,6 +83,7 @@ function useInvalidateOrders() {
 export function useQuoteOrder() {
   const invalidate = useInvalidateOrders();
   return useMutation({
+    meta: FORM_SAVE_ERROR_META,
     mutationFn: (command: QuoteOrderCommand) => api.post<QuoteOrderResult>("/orders", command),
     onSuccess: invalidate,
   });
@@ -91,6 +93,7 @@ export function useConfirmOrder(id: string) {
   const invalidate = useInvalidateOrders();
   const queryClient = useQueryClient();
   return useMutation({
+    meta: FORM_SAVE_ERROR_META,
     mutationFn: (command: ConfirmOrderCommand) =>
       api.post<ConfirmOrderResult>(`/orders/${id}/confirm`, command),
     onSuccess: () => {
@@ -136,6 +139,7 @@ export function useDeliverOrder(id: string) {
   const invalidate = useInvalidateOrders();
   const queryClient = useQueryClient();
   return useMutation({
+    meta: FORM_SAVE_ERROR_META,
     mutationFn: (command: DeliverOrderCommand) =>
       api.post<DeliverOrderResult>(`/orders/${id}/deliver`, command),
     onSuccess: () => {

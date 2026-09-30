@@ -5,6 +5,16 @@ UI) must know before building against it. Business rules themselves live in the
 [System Design Knowledge Base](../system-design-knowledge-base/README.md): Doc 03 §5 (O-1…O-5),
 Doc 04 §3.3/§4/§5, ADR-012.
 
+> **Current-state note (Phase 3.5/KOK-196/KOK-204/KOK-205):** this task records the original delivery and
+> correction contracts. The current target adds an external-delivery pass-through separately as
+> `sales.delivery_fee` and named stage-specific correction commands while still prohibiting generic
+> `updateOrder`; see Doc 03 O-2/O-7 and Doc 04 §3.3/§5.
+> KOK-196 also supersedes the original positive-deposit-only confirmation: O-1 permits `depositAmount = 0`
+> only with `acceptNoDepositRisk = true`; that branch needs no payment method/account and writes only
+> the order transition plus audit (no `ORDER_DEPOSIT`, account-balance change, or liability). The
+> suggested deposit remains 50% by default. The nullable `deposit_tx_id` and zero-default `deposit_paid`
+> require no migration; see the current O-1 rule in Doc 03 §5.
+
 ## 1. Scope
 
 The whole lifecycle, as six guarded transitions, each one atomic batch (D-3/INV-1):
@@ -12,7 +22,7 @@ The whole lifecycle, as six guarded transitions, each one atomic batch (D-3/INV-
 | Command | Transition | Writes |
 |---|---|---|
 | `quoteOrder` | → `QUOTING` | `custom_orders` + `custom_order_lines` + audit |
-| `confirmOrder` | `QUOTING` → `CONFIRMED` | INCOME/`ORDER_DEPOSIT` tx + account credit + order update + audit |
+| `confirmOrder` | `QUOTING` → `CONFIRMED` | Positive deposit: INCOME/`ORDER_DEPOSIT` tx + account credit + order update + audit. Zero deposit: acknowledged order update + audit only (KOK-196/O-1). |
 | `startOrderProduction` | `CONFIRMED` → `IN_PRODUCTION` | order update + audit |
 | `markOrderReady` | `IN_PRODUCTION` → `READY` | order update + audit |
 | `deliverOrder` | `READY` → `DELIVERED` | `sales` + `sale_lines` + SALE_OUT movements + `item_stock` + (balance only) INCOME/`ORDER_BALANCE` + order update + 2 audit rows + replay statements |

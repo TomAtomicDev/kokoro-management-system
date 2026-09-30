@@ -8,8 +8,20 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 
-import { type MilliCentavosPerUnit, toCentavos, totalCentavos } from "./money.js";
-import { allocateAgreedTotalToOrderLines, orderLineCommandSchema } from "./orders.js";
+import {
+  addMoney,
+  type MilliCentavosPerUnit,
+  mulMoneyByBasisPoints,
+  subMoney,
+  toBasisPoints,
+  toCentavos,
+  totalCentavos,
+} from "./money.js";
+import {
+  allocateAgreedTotalToOrderLines,
+  confirmOrderCommandSchema,
+  orderLineCommandSchema,
+} from "./orders.js";
 import { toMilliUnits, WHOLE_UNIT_MILLI_UNITS } from "./qty.js";
 
 /** Σ(qty × unit_price) exactly as core/orders will compute the sale's stored total. */
@@ -180,6 +192,80 @@ describe("allocateAgreedTotalToOrderLines", () => {
         },
       ),
     );
+  });
+});
+
+describe("order deposit balance math (O-1/O-2)", () => {
+  it("property: deposit received plus delivery balance conserves the agreed total, including zero deposit", () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 1, max: 100_000_000 }),
+        fc.integer({ min: 0, max: 10_000 }),
+        (agreedTotal, depositPercentBp) => {
+          const total = toCentavos(agreedTotal);
+          const deposit = mulMoneyByBasisPoints(total, toBasisPoints(depositPercentBp));
+          const balance = subMoney(total, deposit);
+
+          // O-1 allows 0% only with explicit acknowledgment; O-2 settles the full remainder at
+          // delivery. Regardless of the chosen deposit, every centavo is accounted for once.
+          expect(addMoney(deposit, balance)).toBe(total);
+          expect(Number.isInteger(balance)).toBe(true);
+          expect(balance).toBeGreaterThanOrEqual(0);
+        },
+      ),
+    );
+  });
+});
+
+describe("confirmOrderCommandSchema (O-1)", () => {
+  const dates = {
+    occurredAt: "2026-07-20T14:00:00.000Z",
+    businessDate: "2026-07-20",
+  };
+
+  it("allows a zero deposit without payment fields only when risk is explicitly accepted", () => {
+    expect(
+      confirmOrderCommandSchema.safeParse({
+        ...dates,
+        agreedTotal: 30_000,
+        depositAmount: 0,
+        acceptNoDepositRisk: true,
+      }).success,
+    ).toBe(true);
+    expect(
+      confirmOrderCommandSchema.safeParse({
+        ...dates,
+        agreedTotal: 30_000,
+        depositAmount: 0,
+      }).success,
+    ).toBe(false);
+    expect(
+      confirmOrderCommandSchema.safeParse({
+        ...dates,
+        agreedTotal: 30_000,
+        depositAmount: 0,
+        acceptNoDepositRisk: false,
+      }).success,
+    ).toBe(false);
+  });
+
+  it("keeps the positive-deposit flow independent of the no-deposit acknowledgment", () => {
+    expect(
+      confirmOrderCommandSchema.safeParse({
+        ...dates,
+        agreedTotal: 30_000,
+        depositAmount: 15_000,
+        paymentMethod: "CASH",
+        accountId: "acc_cash",
+      }).success,
+    ).toBe(true);
+    expect(
+      confirmOrderCommandSchema.safeParse({
+        ...dates,
+        agreedTotal: 30_000,
+        depositAmount: 15_000,
+      }).success,
+    ).toBe(false);
   });
 });
 

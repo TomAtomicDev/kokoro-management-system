@@ -214,7 +214,7 @@ export function TransactionDetailDrawer({
       setEditing(false);
       onOpenChange(false);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : financeLabels.errors.generic);
+      if (!(err instanceof ApiError)) setError(financeLabels.errors.generic);
     }
   }
 

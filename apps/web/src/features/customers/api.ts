@@ -11,6 +11,7 @@ import type {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
+import { FORM_SAVE_ERROR_META } from "@/lib/form-save-errors";
 
 const CUSTOMERS_ROOT_KEY = ["customers"] as const;
 
@@ -52,6 +53,7 @@ function useInvalidateCustomers() {
 export function useCreateCustomerMutation() {
   const invalidate = useInvalidateCustomers();
   return useMutation({
+    meta: FORM_SAVE_ERROR_META,
     mutationFn: (command: CreateCustomerCommand) => api.post<CustomerDto>("/customers", command),
     onSuccess: invalidate,
   });
@@ -60,6 +62,7 @@ export function useCreateCustomerMutation() {
 export function useUpdateCustomerMutation() {
   const invalidate = useInvalidateCustomers();
   return useMutation({
+    meta: FORM_SAVE_ERROR_META,
     mutationFn: (command: UpdateCustomerCommand) =>
       api.patch<CustomerDto>(`/customers/${command.id}`, command),
     onSuccess: invalidate,

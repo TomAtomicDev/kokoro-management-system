@@ -622,21 +622,11 @@ export function ProductionRunForm({ productionRun, preselectedSessionId }: Produ
     createReplay.execute(parsed.data);
   }
 
-  /** Combines client-side validation errors (`error` state) with a genuine (non-confirmation)
-   * failure surfaced by the active replay wrapper â€” mirrors PurchaseForm's `displayError`. */
+  /** API save failures use the global alert; field validation remains in the pinned footer. */
+  const replayError = isEditMode ? editReplay.error : createReplay.error;
   const displayError =
     error ??
-    (isEditMode
-      ? editReplay.error instanceof ApiError
-        ? editReplay.error.message
-        : editReplay.error
-          ? productionLabels.errors.generic
-          : null
-      : createReplay.error instanceof ApiError
-        ? createReplay.error.message
-        : createReplay.error
-          ? productionLabels.errors.generic
-          : null);
+    (replayError && !(replayError instanceof ApiError) ? productionLabels.errors.generic : null);
 
   function renderLineExtra(line: ProductionLineValue) {
     const item = line.itemId ? itemsById.get(line.itemId) : undefined;

@@ -1,7 +1,9 @@
 import {
   type ItemKind,
+  type ListReceivablesQuery,
   listAssembliesFiltersSchema,
   listOrdersFiltersSchema,
+  listReceivablesQuerySchema,
   listSalesFiltersSchema,
   listStockExitsFiltersSchema,
   listStockFiltersSchema,
@@ -18,6 +20,7 @@ import {
 import { getDefaultDateRange } from "@/components/common/DateRangeFilter";
 import type { EventTableSortDirection } from "@/components/data-table/EventTable";
 import { AppShell } from "@/components/layout/AppShell";
+import { FormSaveErrorAlertProvider } from "@/components/ui/form-save-error-alert";
 import { GlobalErrorDialogProvider } from "@/components/ui/global-error-dialog";
 import { fetchSession, sessionQueryKey } from "@/features/auth/api";
 import { queryClient } from "@/lib/query-client";
@@ -34,6 +37,7 @@ import { PanelRoute } from "@/routes/panel";
 import { PriceHealthRoute } from "@/routes/price-health";
 import { ProductionEditRoute, ProductionRecordRoute, ProductionRoute } from "@/routes/production";
 import { PurchaseEditRoute, PurchaseRecordRoute, PurchasesRoute } from "@/routes/purchases";
+import { ReceivablesRoute } from "@/routes/receivables";
 import { RecipesRoute } from "@/routes/recipes";
 import { ReportsRoute } from "@/routes/reports";
 import { SaleEditRoute, SaleRecordRoute, SalesRoute } from "@/routes/sales";
@@ -70,9 +74,10 @@ function parseTableSortSearch(search: Record<string, unknown>): TableSortSearch 
 interface SalesSearch extends TableSortSearch {
   fromDate?: string;
   toDate?: string;
-  paymentStatus?: "PAID" | "ON_CREDIT";
   open?: string;
 }
+
+type ReceivablesSearch = Partial<ListReceivablesQuery>;
 
 interface OrdersSearch {
   fromDate?: string;
@@ -130,7 +135,9 @@ function dateRangeDefaults<T extends { fromDate?: string; toDate?: string }>(
 function RootLayout() {
   return (
     <GlobalErrorDialogProvider>
-      <Outlet />
+      <FormSaveErrorAlertProvider>
+        <Outlet />
+      </FormSaveErrorAlertProvider>
     </GlobalErrorDialogProvider>
   );
 }
@@ -182,7 +189,6 @@ const salesRoute = createRoute({
     return {
       fromDate: range.fromDate,
       toDate: range.toDate,
-      paymentStatus: parsed.paymentStatus,
       open: typeof search.open === "string" ? search.open : undefined,
       ...parseTableSortSearch(search),
     };
@@ -378,6 +384,14 @@ const financeRoute = createRoute({
   component: FinanceRoute,
 });
 
+const receivablesRoute = createRoute({
+  getParentRoute: () => authenticatedRoute,
+  path: "/receivables",
+  validateSearch: (search: Record<string, unknown>): ReceivablesSearch =>
+    listReceivablesQuerySchema.parse(search),
+  component: ReceivablesRoute,
+});
+
 const priceHealthRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: "/price-health",
@@ -450,6 +464,7 @@ const routeTree = rootRoute.addChildren([
     inventoryCountDetailRoute,
     sessionsRoute,
     financeRoute,
+    receivablesRoute,
     priceHealthRoute,
     reportsRoute,
     assistantRoute,

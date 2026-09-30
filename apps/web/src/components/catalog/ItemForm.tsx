@@ -289,7 +289,7 @@ export interface ItemFormProps {
    */
   derived?: { wacMc: number; replacementCostMc: number; replacementCostUpdatedAt: string | null };
   disabled?: boolean;
-  /** KOK-145: only Catalogo and the Recipes inline-create opt into the opening mini-count. */
+  /** KOK-145/KOK-195: Catalogo and selected inline-create flows opt into the opening mini-count. */
   allowOpeningStock?: boolean;
   openingStock?: OpeningStockFormValues;
   onOpeningStockChange?: (values: OpeningStockFormValues) => void;

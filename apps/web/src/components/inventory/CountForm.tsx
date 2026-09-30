@@ -69,7 +69,7 @@ export function CountForm({ open, onOpenChange, onStarted }: CountFormProps) {
       onOpenChange(false);
       onStarted(result.count.id);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : inventoryLabels.errors.generic);
+      if (!(err instanceof ApiError)) setError(inventoryLabels.errors.generic);
     }
   }
 

@@ -27,7 +27,15 @@ Pure logic tested exhaustively, no DB:
 - **Deduplicated hours (S-5, Phase 3.2):** interval union across overlapping sessions of different
   types; sessions with no duration excluded, not imputed.
 - **Order state machine (O-1…O-3, O-6):** every legal/illegal transition, including the backward
-  ones and the refusal to reopen `CANCELLED`.
+  ones and the refusal to reopen `CANCELLED`; zero-deposit confirmation requires the explicit risk
+  acknowledgment and creates no finance rows, balance change or deposit liability; on-credit
+  delivery requires its independent acknowledgment, including when an R-5 replay confirmation is
+  also required.
+- **Order corrections (O-7, Phase 3.5):** field/status permission matrix for quote edits, logistics
+  updates and renegotiation; a positive deposit/customer identity cannot be rewritten; a zero-deposit
+  customer change requires renewed acknowledgment; merchandise subtotal cannot fall below the paid
+  deposit; pinned line shares must remain allocatable to the centavo when the subtotal is set;
+  corrections create no money/stock rows, reject stale writes and preserve already-recorded work.
 - **Margin & price suggestion (C-5).**
 - **business_date derivation (INV-3)** across DST-free La Paz and UTC boundaries.
 
@@ -36,6 +44,14 @@ Pure logic tested exhaustively, no DB:
 - ∀ purchase sequences: `item_stock` = Σ movements (INV-5 in miniature).
 - ∀ entry sequences: WAC stays within [min, max] of entry unit costs.
 - ∀ allocations: Σ parts = whole (no lost centavos).
+- ∀ custom-order deposits: `deposit_paid + delivery balance = agreed_total` exactly, including a zero
+  deposit; the zero-deposit confirmation itself creates no financial transaction or account delta.
+- ∀ custom-order deliveries with an external provider: `sale.total = merchandise subtotal + delivery fee`,
+  the fee equals the actual delivery-session expense, and product gross margin
+  (`merchandise subtotal − frozen line COGS`) is invariant to the pass-through pair.
+- ∀ receivable sets: each custom-order outstanding amount is `max(sale total − deposit paid, 0)`;
+  grouping by customer (plus individually retained no-customer sales) preserves the global sum
+  exactly, with no debt omitted or counted twice.
 - ∀ event edit/delete sequences: derived rows have no orphans (INV-9/10).
 - ∀ assemblies (Phase 3.2, C-10): **total inventory value is unchanged by the event** — Σ
   `ASSEMBLY_OUT.total_cost` + Σ `ASSEMBLY_IN.total_cost` = 0 to the centavo. This is the property
@@ -69,6 +85,29 @@ to end (deposit liability rises/falls correctly — INV-7), cancel with REFUND v
 count commit (ADJUST correctness), transfers (paired rows sum to zero), edit/delete regeneration
 (R-1), nightly consistency job detects and repairs seeded drift (R-2).
 
+**Phase 3.5 receivables/order coverage:** verify `GET /api/receivables` groups by customer, keeps
+unassigned debts as separate sale rows, returns the same unfiltered global total as the dashboard
+and finance summary under search/age filters and pagination, and reports the net custom-order
+balance (including the full total when deposit is zero). Verify zero-deposit confirmation creates
+only the order transition/audit, and that no-deposit and credit-delivery acknowledgments are each
+mandatory, audited, and independent of R-5.
+
+The orders UI must show every active order regardless of creation date, keep four status lanes in the
+agreed order, and sort latest promised delivery date leftmost within each lane. History quick filters
+must separate delivered-with-balance, paid and cancelled orders; delivered payment state must follow
+the linked sale through later collection. Verify that source-event links live only in order detail,
+its linked-cost panel distinguishes loading, error, verified-empty and partial evidence without
+claiming profit before delivery; after delivery, product gross margin must reconcile to the linked
+sale's merchandise subtotal and frozen line COGS. `/orders?open=<id>` survives refresh and browser
+  navigation, including >500 active orders, stable ties and undated orders. An external
+delivery charge must be included in the final sale/receivable and equal the real operating expense
+in the linked closed DELIVERY_RUN session; the order's product gross margin excludes both sides of
+the pass-through. The session ends at delivery time and defaults to five minutes. Undo-delivery
+  removes the sale fee and customer balance but preserves the actual provider expense/session.
+  Undo followed by re-delivery without another provider payment creates no duplicate expense;
+  a new provider payment creates a distinct session/expense. Generic edits/deletion of a session
+  linked to an active delivered sale must refuse changes to its provider cost/account/type/time.
+
 **Phase 3.2 additions:**
 
 - **Assembly end to end** — components out + presentation in, output WAC, zero financial rows, and
@@ -93,6 +132,18 @@ first sale → dashboard reflects all; order lifecycle from quote to delivery in
 balance; mark-paid receivable; count with variance; edit + undo delete; price update from
 price-health screen; login rate limit. Telegram flows are covered by integration tests against
 the grammY handlers with faked Update payloads (webhook contract), not by live Playwright.
+Phase 3.5 adds the no-deposit order confirmation and explicit acknowledgment, on-credit delivery
+warning and acknowledgment, and the Deudas por cobrar journey: reconcile Panel/Finanzas totals, find
+debts from prior months, expand a customer to the exact sale/order, collect its full balance, and
+verify the debt and all three totals refresh. It also verifies the active Pedidos board across
+creation dates, its delivery-date ordering, Historial payment filters, correct linked-sale state,
+event links confined to the detail, honest cost/loading states, and delivered product gross margin
+against the SaleDto's merchandise subtotal and frozen line COGS. The owner can edit a quote, correct
+logistics and renegotiate an active order; O-7 correction flows must preserve deposits/event history
+and obey their status/field guards.
+The same journey covers an external provider delivery: the client owes the product subtotal plus the
+pass-through fee; the provider expense posts once to the chosen account; the detail shows the linked
+session and both amounts; and product gross margin does not change because of the pass-through.
 
 ## 5. AI evaluation suite (Doc 05 §8)
 
@@ -113,6 +164,7 @@ the grammY handlers with faked Update payloads (webhook contract), not by live P
 | P2 | UC-02/14 pass; C-3/C-4 verified against a hand-calculated spreadsheet fixture (golden numbers checked into repo) |
 | P3 | UC-03…UC-08 pass; deposit liability trace correct across full order lifecycle; price-health screen matches hand-calculated margins |
 | **P3.2** | UC-21…UC-24 pass; the "Desayuno Kokoro" golden fixture reproduces every figure in `acuerdos-prueba-usuario-1.md` §A-1 including the C-5 alert on the combo; assembly value-conservation and S-5 union property tests green; no sale can carry a PACKAGING line and no packaging is deducted twice on any path; session auto-resolution and the one-OPEN-per-type index enforced; undo-delivery restores liability, balances and stock exactly; **KOK-073 deployed before the first real purchase**; full-page forms show total and affected account without scrolling on a 375px viewport |
+| **P3.5** | KOK-191…205 complete; catalog/count reads pass staging-scale and >100-item coverage; receivables API/UI reconcile the all-dates total across Panel, Finanzas and SC-21 and collect the exact full sale balance; zero-deposit orders create no cash/deposit-liability rows; no-deposit and on-credit order acknowledgments are enforced/audited and do not bypass R-5; active Pedidos are unbounded by creation date and ordered by promised date as specified; Historial reflects current sale debt and event links stay in order detail; delivered product gross margin reconciles to merchandise subtotal less frozen sale-line COGS and excludes delivery pass-through; the delivery fee equals the actual session expense and undo preserves that real expense; O-7 corrections enforce field/status permissions, preserve deposits/event history and are audited; partial linked cost is never represented as profit; `pnpm check`, invariant tests, browser and staging smoke tests green; owner approves go-live |
 | P4 | Capture eval pass ≥ 90% at launch (target G7 95% after tuning); INV-2/4 enforced by tests; digest delivered to staging chat |
 | P5 | Query evals pass; Bs/h numbers match golden spreadsheet; dashboard v2 numbers reconcile with reports |
 | P6 | Full E2E suite green; restore drill executed and documented; a11y checklist complete |

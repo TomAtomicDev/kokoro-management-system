@@ -494,17 +494,13 @@ export function SaleForm({ accounts, sale }: SaleFormProps) {
     createReplay.execute(parsed.data);
   }
 
-  /** Combines client-side validation errors (`error` state) with a genuine (non-confirmation)
-   * failure surfaced by `editReplay`/`createReplay` â€” the confirmation case is captured into
-   * their own `pendingConfirmation` instead and never reaches here (see
-   * useReplayConfirmableMutation.ts's header). */
+  /** Keep local validation in the pinned footer. API save failures use the global floating alert;
+   * expected replay confirmations are shown by ImpactConfirmDialog. */
   const activeReplay = isEditMode ? editReplay : createReplay;
   const displayError =
     error ??
-    (activeReplay.error
-      ? activeReplay.error instanceof ApiError
-        ? activeReplay.error.message
-        : salesLabels.errors.generic
+    (activeReplay.error && !(activeReplay.error instanceof ApiError)
+      ? salesLabels.errors.generic
       : null);
 
   function renderLineExtra(line: SaleLineValue) {

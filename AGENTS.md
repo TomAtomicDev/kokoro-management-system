@@ -1,4 +1,4 @@
-# CLAUDE.md — Kokoro Management Development Guide
+# AGENTS.md — Kokoro Management Development Guide
 
 Kokoro Management is an operations, inventory, costing, and cash-flow system for a solo artisanal food business in Bolivia. It captures events via Telegram and AI assistant on mobile, and a web app on desktop, automating cost, margin, and time-profitability calculations in a high-inflation context. **The [System Design Knowledge Base](docs/system-design-knowledge-base/) (start at its `README.md`) is the single source of truth for business rules and architecture.** This file condenses the key constraints every change must respect; it is not a replacement for the KB.
 
@@ -37,7 +37,6 @@ See the `add-event-type` skill for the 10-step playbook.
 - **When uncertain** between two implementations, choose the one that keeps `core/` pure/testable and put the doubt in the PR description — do not silently expand scope.
 - **Zero new lint suppressions:** generated code must compile with no new `// biome-ignore` comments; if one is required, include a justification comment.
 - **Money math:** any task touching money math MUST add/extend a property-based test (Doc 11 §2).
-- **Meta-tooling discipline:** skill/orchestration reference docs (orca-cli, codex-orchestration, etc.) exist for agents that need to operate Orca or coordinate other agents — they are not general-purpose orientation reading. A worker answering a single codebase question goes straight to graphify/grep/Read; don't preload orchestration docs "just in case" because the session happens to be running inside Orca, and never fetch the same doc twice in one session.
 
 ## Definition of Done
 
@@ -62,6 +61,7 @@ This project has a knowledge graph at graphify-out/ with god nodes, community st
 When the user types `/graphify`, use the installed graphify skill or instructions before doing anything else.
 
 Rules:
+
 - For codebase questions, first run `graphify query "<question>"` when graphify-out/graph.json exists. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
 - Dirty graphify-out/ files are expected after hooks or incremental updates; dirty graph files are not a reason to skip graphify. Only skip graphify if the task is about stale or incorrect graph output, or the user explicitly says not to use it.
 - If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.

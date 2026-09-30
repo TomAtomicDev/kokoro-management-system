@@ -1,6 +1,7 @@
 import { MutationCache, QueryCache, QueryClient } from "@tanstack/react-query";
 import { sessionQueryKey } from "@/features/auth/api";
 import { ApiError } from "@/lib/api";
+import { getFormSaveErrorMessage, showFormSaveError } from "@/lib/form-save-errors";
 
 // Global 401 handling (KOK-063): a session's 30-day sliding cookie can age out while the SPA
 // stays open in a tab, so a UNAUTHORIZED error can surface from any query/mutation, not just on
@@ -33,6 +34,8 @@ const mutationCache = new MutationCache({
   onError: (error, _variables, _onMutateResult, mutation) => {
     if (isLoginMutation(mutation.options.mutationKey)) return;
     handleUnauthorized(error);
+    const formSaveError = getFormSaveErrorMessage(mutation.options.meta, error);
+    if (formSaveError) showFormSaveError(formSaveError);
   },
 });
 

@@ -256,7 +256,7 @@ export function SessionForm({ open, onOpenChange, accounts, session }: SessionFo
         await createMutation.mutateAsync(parsed.data);
         onOpenChange(false);
       } catch (err) {
-        setError(err instanceof ApiError ? err.message : sessionsLabels.errors.generic);
+        if (!(err instanceof ApiError)) setError(sessionsLabels.errors.generic);
       }
       return;
     }
@@ -331,7 +331,7 @@ export function SessionForm({ open, onOpenChange, accounts, session }: SessionFo
         await updateMutation.mutateAsync(parsed.data);
         onOpenChange(false);
       } catch (err) {
-        setError(err instanceof ApiError ? err.message : sessionsLabels.errors.generic);
+        if (!(err instanceof ApiError)) setError(sessionsLabels.errors.generic);
       }
       return;
     }
@@ -345,7 +345,7 @@ export function SessionForm({ open, onOpenChange, accounts, session }: SessionFo
       await createMutation.mutateAsync(parsed.data);
       onOpenChange(false);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : sessionsLabels.errors.generic);
+      if (!(err instanceof ApiError)) setError(sessionsLabels.errors.generic);
     }
   }
 

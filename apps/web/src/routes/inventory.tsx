@@ -51,18 +51,7 @@ const countDetailRouteApi = getRouteApi("/_authenticated/inventory/counts/$count
 
 export function InventoryCountDetailRoute() {
   const { countId } = countDetailRouteApi.useParams();
-  // Unfiltered (all kinds, including inactive) — a count can reference an item deactivated since
-  // it was started, and the checklist must still resolve its name/unit correctly.
-  const itemsQuery = useItemsQuery({});
-  const itemLookup = useMemo(() => {
-    const map = new Map<string, { name: string; unit: ItemDto["unit"] }>();
-    for (const item of itemsQuery.data?.items ?? []) {
-      map.set(item.id, { name: item.name, unit: item.unit });
-    }
-    return map;
-  }, [itemsQuery.data]);
-
-  return <CountDetailView countId={countId} items={itemLookup} />;
+  return <CountDetailView countId={countId} />;
 }
 
 const TABS: { id: InventoryTab; label: string }[] = [

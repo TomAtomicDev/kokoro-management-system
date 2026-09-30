@@ -85,7 +85,7 @@ export function StepCount({ items, catalogCommitted }: StepCountProps) {
   const [finishing, setFinishing] = useState(false);
   const validation = useFieldValidation();
 
-  const startMutation = useStartCount();
+  const startMutation = useStartCount({ reportFormSaveError: false });
   const countQuery = useCount(countId);
   const count = countQuery.data;
   const updateLineMutation = useUpdateCountLine();
@@ -224,18 +224,24 @@ export function StepCount({ items, catalogCommitted }: StepCountProps) {
           });
         }),
       );
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : onboardingLabels.errors.generic);
+      setFinishing(false);
+      return;
+    }
 
-      // Guaranteed valid — `flatErrors` above already validated every opening-cost line.
-      const openingLines = count.lines.filter(needsOpeningCost).flatMap((line) => {
-        const parsedCost = parseCostRateInput(unitCostInputs[line.itemId] ?? "");
-        return parsedCost.ok ? [{ itemId: line.itemId, unitCostMc: parsedCost.value }] : [];
-      });
+    // Guaranteed valid — `flatErrors` above already validated every opening-cost line.
+    const openingLines = count.lines.filter(needsOpeningCost).flatMap((line) => {
+      const parsedCost = parseCostRateInput(unitCostInputs[line.itemId] ?? "");
+      return parsedCost.ok ? [{ itemId: line.itemId, unitCostMc: parsedCost.value }] : [];
+    });
 
+    try {
       await commitMutation.mutateAsync({ countId: count.id, lines: openingLines });
       await completeMutation.mutateAsync();
       navigate({ to: "/" });
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : onboardingLabels.errors.generic);
+      if (!(err instanceof ApiError)) setError(onboardingLabels.errors.generic);
       setFinishing(false);
     }
   }
@@ -247,7 +253,7 @@ export function StepCount({ items, catalogCommitted }: StepCountProps) {
       await completeMutation.mutateAsync();
       navigate({ to: "/" });
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : onboardingLabels.errors.generic);
+      if (!(err instanceof ApiError)) setError(onboardingLabels.errors.generic);
       setFinishing(false);
     }
   }

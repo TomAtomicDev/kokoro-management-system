@@ -16,6 +16,7 @@ import type {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
+import { FORM_SAVE_ERROR_META } from "@/lib/form-save-errors";
 
 const ITEMS_ROOT_KEY = ["items"] as const;
 
@@ -60,6 +61,7 @@ function useInvalidateItems() {
 export function useCreateItemMutation() {
   const invalidate = useInvalidateItems();
   return useMutation({
+    meta: FORM_SAVE_ERROR_META,
     mutationFn: (command: CreateItemCommand) => api.post<ItemDto>("/items", command),
     onSuccess: invalidate,
   });
@@ -68,6 +70,7 @@ export function useCreateItemMutation() {
 export function useUpdateItemMutation() {
   const invalidate = useInvalidateItems();
   return useMutation({
+    meta: FORM_SAVE_ERROR_META,
     mutationFn: (command: UpdateItemCommand) => api.patch<ItemDto>(`/items/${command.id}`, command),
     onSuccess: invalidate,
   });

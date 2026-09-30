@@ -25,6 +25,7 @@ export * from "./pricing";
 export * from "./production-runs";
 export * from "./purchasing";
 export * from "./qty";
+export * from "./receivables";
 export * from "./recipes";
 export * from "./sales";
 export * from "./sessions";

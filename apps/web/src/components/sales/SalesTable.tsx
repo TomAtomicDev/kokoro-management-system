@@ -6,8 +6,8 @@
 // Row-click still opens the read-only detail drawer (no inline edit here — that's KOK-064). The
 // one inline action this table DOES have (KOK-031, UC-04) is "Cobrar" on ON_CREDIT rows, opening
 // CollectPaymentDialog; its button stops click propagation so it doesn't also trigger the row's
-// onRowClick. `daysOutstandingBySaleId` is optional and only populated by the "Por cobrar" preset
-// (routes/sales.tsx, from v_receivables) — a plain sales list has no aging to show.
+// onRowClick. The full-balance display amount comes from v_receivables so custom-order deposits are
+// not presented as money still owed.
 
 import type { FinancialAccountDto, SaleDto, SaleLineDto } from "@kokoro/shared";
 import {
@@ -36,9 +36,8 @@ export interface SalesTableProps {
   accounts: FinancialAccountDto[];
   loading?: boolean;
   onRowClick?: (sale: SaleDto) => void;
-  /** `daysOutstanding` keyed by sale id, from `v_receivables` — present only while the "Por
-   * cobrar" filter preset is active (routes/sales.tsx). */
-  daysOutstandingBySaleId?: Map<string, number>;
+  /** Outstanding centavos keyed by sale id, net of any custom-order deposit. */
+  outstandingAmountBySaleId?: Map<string, number>;
   sortState: EventTableSortState | null;
   onSortChange: (sortState: EventTableSortState | null) => void;
 }
@@ -76,7 +75,7 @@ export function SalesTable({
   accounts,
   loading,
   onRowClick,
-  daysOutstandingBySaleId,
+  outstandingAmountBySaleId,
   sortState,
   onSortChange,
 }: SalesTableProps) {
@@ -95,7 +94,11 @@ export function SalesTable({
     return map;
   }, [customersQuery.data]);
 
-  const [collectingSale, setCollectingSale] = useState<SaleDto | null>(null);
+  const [collectingSale, setCollectingSale] = useState<{
+    id: string;
+    total: number;
+    outstandingAmount?: number;
+  } | null>(null);
 
   const columns: EventTableColumn<SaleDto>[] = [
     {
@@ -187,21 +190,6 @@ export function SalesTable({
           ? salesLabels.paymentMethodLabels[row.paymentMethod]
           : salesLabels.noCustomer,
     },
-    ...(daysOutstandingBySaleId
-      ? [
-          {
-            id: "daysOutstanding",
-            header: salesLabels.columnDaysOutstanding,
-            numeric: true,
-            cell: (row) => {
-              const days = daysOutstandingBySaleId.get(row.id);
-              return days === undefined ? "—" : salesLabels.daysOutstandingValue(days);
-            },
-            sortable: true,
-            sortValue: (row) => daysOutstandingBySaleId.get(row.id),
-          } satisfies EventTableColumn<SaleDto>,
-        ]
-      : []),
     {
       id: "actions",
       header: "",
@@ -213,7 +201,11 @@ export function SalesTable({
             size="sm"
             onClick={(event) => {
               event.stopPropagation();
-              setCollectingSale(row);
+              setCollectingSale({
+                id: row.id,
+                total: row.total,
+                outstandingAmount: outstandingAmountBySaleId?.get(row.id),
+              });
             }}
           >
             {salesLabels.actionCollect}
@@ -237,6 +229,7 @@ export function SalesTable({
       />
       <CollectPaymentDialog
         sale={collectingSale}
+        outstandingAmount={collectingSale?.outstandingAmount}
         accounts={accounts}
         open={collectingSale !== null}
         onOpenChange={(open) => {
