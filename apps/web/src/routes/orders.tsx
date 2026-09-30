@@ -2,7 +2,6 @@
 
 import type { CustomOrderStatus, ListOrdersFilters, OrderDto } from "@kokoro/shared";
 import { getRouteApi, Link } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
 
 import { OrderBoard } from "@/components/orders/OrderBoard";
 import { OrderDetailDrawer } from "@/components/orders/OrderDetailDrawer";
@@ -32,7 +31,7 @@ export function OrdersRoute() {
   const view = search.ordersView ?? "active";
   const historyFilter = search.historyFilter ?? "all";
   const isHistory = view === "history";
-  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
+  const selectedOrderId = search.open ?? null;
 
   const listFilters: ListOrdersFilters = {
     ...(isHistory
@@ -53,10 +52,6 @@ export function OrdersRoute() {
       : isHistory && historyFilter === "paid"
         ? orders.filter((order) => order.outstandingAmount === 0)
         : orders;
-
-  useEffect(() => {
-    if (search.open) setSelectedOrderId(search.open);
-  }, [search.open]);
 
   function setView(nextView: "active" | "history"): void {
     void navigate({
@@ -199,14 +194,24 @@ export function OrdersRoute() {
         loading={ordersQuery.isLoading}
         error={ordersQuery.isError}
         onRetry={() => void ordersQuery.refetch()}
-        onSelect={(order) => setSelectedOrderId(order.id)}
+        onSelect={(order) =>
+          void navigate({ search: (previous) => ({ ...previous, open: order.id }) })
+        }
       />
 
       <OrderDetailDrawer
         orderId={selectedOrderId}
         open={selectedOrderId !== null}
         onOpenChange={(open) => {
-          if (!open) setSelectedOrderId(null);
+          if (!open) {
+            // Replace the open entry when the owner explicitly closes the drawer. Back/forward
+            // can still traverse an open performed from the board, but won't resurrect a drawer
+            // that was deliberately dismissed.
+            void navigate({
+              replace: true,
+              search: (previous) => ({ ...previous, open: undefined }),
+            });
+          }
         }}
       />
     </div>

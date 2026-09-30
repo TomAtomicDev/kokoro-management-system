@@ -5,6 +5,7 @@
 import { type OrderDto, toBusinessDate } from "@kokoro/shared";
 import { expect, type Page, test } from "@playwright/test";
 
+import { catalogLabels } from "../src/lib/i18n-catalog";
 import { ordersLabels } from "../src/lib/i18n-orders";
 import { authenticatedHeaders, postJson, selectFromPicker, uniqueName } from "./helpers";
 
@@ -155,6 +156,83 @@ test("the active board loads every bounded page beyond 500 orders", async ({ pag
   expect(requestedCursors).toHaveLength(2);
   expect(requestedCursors[0]).toBeNull();
   expect(requestedCursors[1]).not.toBeNull();
+});
+
+test("the order drawer follows its URL through direct links and browser navigation", async ({
+  page,
+}) => {
+  const customer = await createCustomer(page, uniqueName("Cliente enlace pedido e2e"));
+  const description = uniqueName("Pedido enlace URL e2e");
+  const { order } = await postJson<{ order: { id: string } }>(page, "/api/orders", {
+    customerId: customer.id,
+    description,
+  });
+  const search = new URLSearchParams({
+    ordersView: "active",
+    historyFilter: "paid",
+    fromDate: "2026-09-01",
+    toDate: "2026-09-30",
+    open: order.id,
+  });
+
+  await page.goto(`/orders?${search.toString()}`, { timeout: 15_000 });
+  const orderDrawer = page.getByRole("dialog", { name: ordersLabels.detailTitle });
+  await expect(orderDrawer).toBeVisible();
+  await expect(orderDrawer).toContainText(description);
+  await expect(page).toHaveURL(/ordersView=active/);
+  await expect(page).toHaveURL(/historyFilter=paid/);
+  await expect(page).toHaveURL(/fromDate=2026-09-01/);
+  await expect(page).toHaveURL(/toDate=2026-09-30/);
+
+  await page.reload({ timeout: 15_000 });
+  await expect(page.getByRole("dialog", { name: ordersLabels.detailTitle })).toBeVisible();
+
+  await orderDrawer.getByRole("button", { name: catalogLabels.close, exact: true }).click();
+  await expect(page.getByRole("dialog", { name: ordersLabels.detailTitle })).toHaveCount(0);
+  await expect(page).not.toHaveURL(/(?:\?|&)open=/);
+  await expect(page).toHaveURL(/ordersView=active/);
+  await expect(page).toHaveURL(/historyFilter=paid/);
+  await expect(page).toHaveURL(/fromDate=2026-09-01/);
+  await expect(page).toHaveURL(/toDate=2026-09-30/);
+
+  const orderCard = page.getByRole("button", { name: new RegExp(description) });
+  await orderCard.click();
+  await expect(page).toHaveURL(new RegExp(`open=${order.id}`));
+  await expect(page).toHaveURL(/ordersView=active/);
+  await expect(page).toHaveURL(/historyFilter=paid/);
+  await expect(page).toHaveURL(/fromDate=2026-09-01/);
+  await expect(page).toHaveURL(/toDate=2026-09-30/);
+  await expect(page.getByRole("dialog", { name: ordersLabels.detailTitle })).toBeVisible();
+
+  const copiedLinkPage = await page.context().newPage();
+  await copiedLinkPage.goto(page.url(), { timeout: 15_000 });
+  await expect(
+    copiedLinkPage.getByRole("dialog", { name: ordersLabels.detailTitle }),
+  ).toBeVisible();
+  await copiedLinkPage.close();
+
+  await page.goBack({ timeout: 15_000 });
+  await expect(page).not.toHaveURL(/(?:\?|&)open=/);
+  await expect(page.getByRole("dialog", { name: ordersLabels.detailTitle })).toHaveCount(0);
+  await page.goForward({ timeout: 15_000 });
+  await expect(page).toHaveURL(new RegExp(`open=${order.id}`));
+  await expect(page.getByRole("dialog", { name: ordersLabels.detailTitle })).toBeVisible();
+
+  await page.reload({ timeout: 15_000 });
+  await expect(page.getByRole("dialog", { name: ordersLabels.detailTitle })).toBeVisible();
+  await page
+    .getByRole("dialog", { name: ordersLabels.detailTitle })
+    .getByRole("button", { name: catalogLabels.close, exact: true })
+    .click();
+  await expect(page.getByRole("dialog", { name: ordersLabels.detailTitle })).toHaveCount(0);
+  await expect(page).not.toHaveURL(/(?:\?|&)open=/);
+
+  await page.goBack({ timeout: 15_000 });
+  await expect(page).not.toHaveURL(/(?:\?|&)open=/);
+  await expect(page.getByRole("dialog", { name: ordersLabels.detailTitle })).toHaveCount(0);
+  await page.goForward({ timeout: 15_000 });
+  await expect(page).not.toHaveURL(/(?:\?|&)open=/);
+  await expect(page.getByRole("dialog", { name: ordersLabels.detailTitle })).toHaveCount(0);
 });
 
 test("an order's confirm, start production, mark ready, deliver and undo-deliver cycle", async ({
