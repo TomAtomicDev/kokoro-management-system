@@ -1,9 +1,10 @@
-// Dialog for UC-06 "confirmOrder" (O-1: `CONFIRMED` requires a recorded deposit). Mirrors
-// CollectPaymentDialog.tsx's shape (small, focused, no replay dance — confirming writes no kardex
-// movements). `agreedTotal` is only editable here when the order was quoted without one (Doc 04
-// §3.3: "required to confirm") — otherwise it's shown read-only, since `confirmOrderCommandSchema`
-// resolves `command.agreedTotal ?? order.agreedTotal` and a second, different value here would
-// silently override the quoted price.
+// Dialog for UC-06 "confirmOrder" (O-1). The current UI keeps the positive-deposit confirmation
+// flow; KOK-199 adds the separate zero-deposit risk acknowledgment. Mirrors CollectPaymentDialog's
+// shape (small, focused, no replay dance — confirming writes no kardex movements). `agreedTotal` is
+// only editable here when the order was quoted without one (Doc 04 §3.3: "required to confirm") —
+// otherwise it's shown read-only, since `confirmOrderCommandSchema` resolves
+// `command.agreedTotal ?? order.agreedTotal` and a second, different value here would silently
+// override the quoted price.
 
 import type { OrderDto, PaymentMethod } from "@kokoro/shared";
 import {

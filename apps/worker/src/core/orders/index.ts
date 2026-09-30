@@ -11,7 +11,7 @@
 // state machine (O-1…O-3)". There is deliberately no generic `updateOrder` free-editing columns,
 // and no soft-delete/restore pair — `CANCELLED` IS the terminal "this didn't happen" state:
 //
-//   QUOTING --confirm(+deposit)--> CONFIRMED --start--> IN_PRODUCTION --ready--> READY
+//   QUOTING --confirm(+optional deposit)--> CONFIRMED --start--> IN_PRODUCTION --ready--> READY
 //           --deliver--> DELIVERED (final)
 //   {QUOTING, CONFIRMED, IN_PRODUCTION, READY} --cancel--> CANCELLED (final)
 //
@@ -19,11 +19,13 @@
 // (`assertTransitionAllowed`), which is what makes the illegal-transition tests exhaustive.
 //
 // ---- MONEY, AND WHY NONE OF IT IS REVENUE BEFORE DELIVERY (INV-7 / ADR-012) -------------------
-// A deposit is CASH THAT IS NOT YOURS YET. `confirmOrder` books an INCOME/`ORDER_DEPOSIT` row and
-// credits a real account (the money physically arrived), while the matching liability is DERIVED,
-// never stored: `v_liability` nets ORDER_DEPOSIT − DEPOSIT_REFUND − Σ deposit_paid of DELIVERED
-// orders. So each transition releases the liability by CHANGING THE FACTS THE VIEW READS, not by
-// writing a balance anywhere:
+// A positive deposit is CASH THAT IS NOT YOURS YET. `confirmOrder` books an INCOME/`ORDER_DEPOSIT`
+// row and credits a real account (the money physically arrived), while the matching liability is
+// DERIVED, never stored: `v_liability` nets ORDER_DEPOSIT − DEPOSIT_REFUND − Σ deposit_paid of
+// DELIVERED orders. O-1 also permits a zero-deposit confirmation only with explicit risk acceptance;
+// that path writes no financial row and changes no account balance or liability. Each later
+// transition releases an existing liability by CHANGING THE FACTS THE VIEW READS, not by writing a
+// balance anywhere:
 //   - deliver → `status='DELIVERED'` makes the view subtract this order's `deposit_paid`. The
 //     revenue is recognized exactly once, by the created sale, at delivery — never before (INV-7).
 //   - cancel/REFUND  → an EXPENSE/`DEPOSIT_REFUND` row the view subtracts; the cash leaves too.
@@ -466,15 +468,11 @@ export async function quoteOrder(
 // ---- UC-06 confirm (O-1) ----------------------------------------------------------------------
 
 /**
- * UC-06 / O-1: `QUOTING → CONFIRMED`, which REQUIRES a recorded deposit. One atomic batch (D-3):
- *   - the INCOME/`ORDER_DEPOSIT` `financial_transactions` row (sourced to this order, INV-9)
- *   - the account CREDIT — the cash really did arrive (ADR-012)
- *   - the `custom_orders` UPDATE: `status`, `agreed_total`, `deposit_required`, `deposit_paid`,
- *     `deposit_tx_id`
- *   - the `audit_log` row
- *
- * INV-7: nothing here touches a revenue path. The liability is derived by `v_liability` from the
- * very row this books, and is released only by delivery, refund, or forfeit.
+ * UC-06 / O-1: `QUOTING → CONFIRMED`, with an agreed merchandise subtotal. A positive deposit books
+ * INCOME/`ORDER_DEPOSIT` and credits its account; zero requires explicit risk acceptance and writes
+ * no financial row or account delta. Either branch commits its order update and audit in one atomic
+ * batch (D-3). INV-7: nothing here touches a revenue path; positive-deposit liability is derived by
+ * `v_liability` from the deposit transaction and is released only by delivery, refund, or forfeit.
  */
 export async function confirmOrder(
   db: Db,
@@ -493,13 +491,20 @@ export async function confirmOrder(
     });
   }
 
-  // O-1, defensively re-checked (D-2): confirmOrderCommandSchema already requires a positive
-  // depositAmount, but a confirmation without money is not a confirmation whoever the caller is.
-  if (!Number.isInteger(command.depositAmount) || command.depositAmount <= 0) {
-    throw validationError("Para confirmar el pedido se requiere un anticipo.", {
+  // O-1, defensively re-checked (D-2): zero is valid only when the owner explicitly accepts its
+  // risk; neither Zod nor an API route is a substitute for enforcing that rule in core/.
+  if (!Number.isInteger(command.depositAmount) || command.depositAmount < 0) {
+    throw validationError("El anticipo debe ser un monto entero no negativo en centavos.", {
       id,
       depositAmount: command.depositAmount,
     });
+  }
+  const acceptedNoDepositRisk = command.depositAmount === 0 && command.acceptNoDepositRisk === true;
+  if (command.depositAmount === 0 && !acceptedNoDepositRisk) {
+    throw validationError(
+      "Confirma que aceptas el riesgo de iniciar el pedido sin recibir un anticipo.",
+      { id, acceptNoDepositRisk: command.acceptNoDepositRisk },
+    );
   }
   if (command.depositAmount > agreedTotal) {
     throw validationError("El anticipo no puede superar el total acordado.", {
@@ -509,8 +514,16 @@ export async function confirmOrder(
     });
   }
 
-  const account = await findActiveAccountRowOrThrow(db, command.accountId);
-  assertPaymentMethodMatchesAccountType(command.paymentMethod, account);
+  let account = null;
+  if (command.depositAmount > 0) {
+    if (command.paymentMethod === undefined || command.accountId === undefined) {
+      throw validationError("Indica el medio de pago y la cuenta que recibieron el anticipo.", {
+        id,
+      });
+    }
+    account = await findActiveAccountRowOrThrow(db, command.accountId);
+    assertPaymentMethodMatchesAccountType(command.paymentMethod, account);
+  }
 
   const depositRequired =
     command.depositRequired ??
@@ -518,7 +531,7 @@ export async function confirmOrder(
     (await resolveDefaultDepositRequired(db, agreedTotal));
 
   const now = nowIso();
-  const depositTxId = generateUuidV7();
+  const depositTxId = command.depositAmount > 0 ? generateUuidV7() : null;
   const updatedFields = {
     status: "CONFIRMED" as const,
     agreedTotal,
@@ -528,26 +541,31 @@ export async function confirmOrder(
     updatedAt: now,
   };
 
-  const statements: Statement[] = [
-    db.insert(financialTransactions).values({
-      id: depositTxId,
-      occurredAt: command.occurredAt,
-      businessDate: command.businessDate,
-      accountId: command.accountId,
-      type: "INCOME" as const,
-      // NOT revenue (INV-7) — `v_liability` reads exactly this category to derive what the owner
-      // still owes her customers.
-      category: "ORDER_DEPOSIT" as const,
-      amount: command.depositAmount,
-      counterpartTxId: null,
-      sourceEventType: ORDER_SOURCE_EVENT_TYPE,
-      sourceEventId: id,
-      description: null,
-      deletedAt: null,
-      createdAt: now,
-      updatedAt: now,
-    }),
-    buildAccountBalanceDelta(db, command.accountId, command.depositAmount),
+  const statements: Statement[] = [];
+  if (command.depositAmount > 0 && account !== null && depositTxId !== null) {
+    // NOT revenue (INV-7) — `v_liability` reads exactly this category to derive what the owner
+    // still owes her customers.
+    statements.push(
+      db.insert(financialTransactions).values({
+        id: depositTxId,
+        occurredAt: command.occurredAt,
+        businessDate: command.businessDate,
+        accountId: account.id,
+        type: "INCOME" as const,
+        category: "ORDER_DEPOSIT" as const,
+        amount: command.depositAmount,
+        counterpartTxId: null,
+        sourceEventType: ORDER_SOURCE_EVENT_TYPE,
+        sourceEventId: id,
+        description: null,
+        deletedAt: null,
+        createdAt: now,
+        updatedAt: now,
+      }),
+      buildAccountBalanceDelta(db, account.id, command.depositAmount),
+    );
+  }
+  statements.push(
     db.update(customOrders).set(updatedFields).where(eq(customOrders.id, id)),
     buildAuditLogInsert(db, {
       actor,
@@ -555,18 +573,21 @@ export async function confirmOrder(
       entityType: "custom_orders",
       entityId: id,
       before: { status: row.status, agreedTotal: row.agreedTotal, depositPaid: row.depositPaid },
-      after: updatedFields,
+      after: { ...updatedFields, acceptedNoDepositRisk },
     }),
-  ];
+  );
 
   await db.batch(statements as [Statement, ...Statement[]]);
 
   return {
     order: await readOrderDto(db, id),
-    account: toAccountDto({
-      ...account,
-      balance: addMoney(toCentavos(account.balance), toCentavos(command.depositAmount)),
-    }),
+    account:
+      account === null
+        ? null
+        : toAccountDto({
+            ...account,
+            balance: addMoney(toCentavos(account.balance), toCentavos(command.depositAmount)),
+          }),
   };
 }
 

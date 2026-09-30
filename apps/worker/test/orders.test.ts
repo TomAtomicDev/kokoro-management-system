@@ -18,7 +18,9 @@
 import { env } from "cloudflare:test";
 import type { CustomOrderStatus } from "@kokoro/shared";
 import {
+  addMoney,
   toBusinessDate,
+  toCentavos,
   toDatetimeLocal,
   toMilliCentavosPerUnit,
   toMilliUnits,
@@ -161,13 +163,20 @@ async function seedOrderInStatus(
   await confirmOrder(
     db,
     order.id,
-    {
-      occurredAt: NOW,
-      businessDate: BUSINESS_DATE,
-      depositAmount,
-      paymentMethod: "CASH",
-      accountId: "acc_cash",
-    },
+    depositAmount === 0
+      ? {
+          occurredAt: NOW,
+          businessDate: BUSINESS_DATE,
+          depositAmount,
+          acceptNoDepositRisk: true,
+        }
+      : {
+          occurredAt: NOW,
+          businessDate: BUSINESS_DATE,
+          depositAmount,
+          paymentMethod: "CASH",
+          accountId: "acc_cash",
+        },
     ACTOR,
   );
   if (status === "CONFIRMED")
@@ -340,7 +349,7 @@ describe("quoteOrder (UC-05)", () => {
 // ============================================================================================
 
 describe("confirmOrder (UC-06, O-1)", () => {
-  it("books the deposit as an ORDER_DEPOSIT liability, credits the account, and moves to CONFIRMED", async () => {
+  it("books a positive deposit as an ORDER_DEPOSIT liability, credits the account, and moves to CONFIRMED", async () => {
     const db = createDb(env.DB);
     const { orderId } = await seedOrderInStatus(db, "QUOTING");
 
@@ -364,7 +373,7 @@ describe("confirmOrder (UC-06, O-1)", () => {
       balanceDue: 15_000,
     });
     expect(result.order.depositTxId).not.toBeNull();
-    expect(result.account.balance).toBe(15_000);
+    expect(result.account?.balance).toBe(15_000);
 
     // The cash physically arrived (ADR-012)...
     expect(await accountBalance(db, "acc_cash")).toBe(15_000);
@@ -443,7 +452,7 @@ describe("confirmOrder (UC-06, O-1)", () => {
     ).rejects.toMatchObject({ code: "VALIDATION" });
   });
 
-  it("refuses a deposit of zero or less — O-1 requires a RECORDED deposit", async () => {
+  it("refuses zero without explicit risk acceptance and leaves the order and ledgers untouched", async () => {
     const db = createDb(env.DB);
     const { orderId } = await seedOrderInStatus(db, "QUOTING");
 
@@ -455,8 +464,6 @@ describe("confirmOrder (UC-06, O-1)", () => {
           occurredAt: NOW,
           businessDate: BUSINESS_DATE,
           depositAmount: 0,
-          paymentMethod: "CASH",
-          accountId: "acc_cash",
         },
         ACTOR,
       ),
@@ -466,6 +473,69 @@ describe("confirmOrder (UC-06, O-1)", () => {
     expect((await getOrder(db, orderId)).status).toBe("QUOTING");
     expect(await customerDeposits(db)).toBe(0);
     expect(await accountBalance(db, "acc_cash")).toBe(0);
+    expect(await txsForOrder(db, orderId)).toHaveLength(0);
+  });
+
+  it("rejects a negative deposit in core even when called without the shared schema", async () => {
+    const db = createDb(env.DB);
+    const { orderId } = await seedOrderInStatus(db, "QUOTING");
+
+    await expect(
+      confirmOrder(
+        db,
+        orderId,
+        {
+          occurredAt: NOW,
+          businessDate: BUSINESS_DATE,
+          depositAmount: -1,
+        },
+        ACTOR,
+      ),
+    ).rejects.toMatchObject({ code: "VALIDATION" });
+
+    expect((await getOrder(db, orderId)).status).toBe("QUOTING");
+    expect(await customerDeposits(db)).toBe(0);
+    expect(await accountBalance(db, "acc_cash")).toBe(0);
+    expect(await txsForOrder(db, orderId)).toHaveLength(0);
+  });
+
+  it("confirms at zero only with acknowledgment and writes no deposit transaction, balance change, or liability", async () => {
+    const db = createDb(env.DB);
+    const { orderId } = await seedOrderInStatus(db, "QUOTING");
+
+    const result = await confirmOrder(
+      db,
+      orderId,
+      {
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        depositAmount: 0,
+        acceptNoDepositRisk: true,
+      },
+      ACTOR,
+    );
+
+    expect(result.order).toMatchObject({
+      status: "CONFIRMED",
+      agreedTotal: 30_000,
+      depositRequired: 15_000,
+      depositPaid: 0,
+      depositTxId: null,
+      balanceDue: 30_000,
+    });
+    expect(result.account).toBeNull();
+    expect(await accountBalance(db, "acc_cash")).toBe(0);
+    expect(await customerDeposits(db)).toBe(0);
+    expect(await txsForOrder(db, orderId)).toHaveLength(0);
+
+    const audit = await db.query.auditLog.findFirst({
+      where: (t, { and, eq: eqOp }) => and(eqOp(t.entityId, orderId), eqOp(t.action, "confirm")),
+    });
+    expect(JSON.parse(audit?.afterJson ?? "null")).toMatchObject({
+      depositPaid: 0,
+      depositTxId: null,
+      acceptedNoDepositRisk: true,
+    });
   });
 
   it("refuses a deposit larger than the agreed total", async () => {
@@ -956,6 +1026,57 @@ describe("undoDeliverOrder (UC-07-undo, O-6)", () => {
     expect(await customerDeposits(db)).toBe(depositAmount);
   });
 
+  it("delivers and undoes a zero-deposit order without inventing a deposit row or liability", async () => {
+    const db = createDb(env.DB);
+    const { orderId, agreedTotal } = await seedOrderInStatus(db, "READY", { depositAmount: 0 });
+    const cashBeforeDelivery = await accountBalance(db, "acc_cash");
+
+    expect(await txsForOrder(db, orderId)).toHaveLength(0);
+    expect(await customerDeposits(db)).toBe(0);
+
+    const delivered = await deliverOrder(
+      db,
+      orderId,
+      {
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        balancePaymentStatus: "PAID",
+        paymentMethod: "CASH",
+        accountId: "acc_cash",
+      },
+      ACTOR,
+    );
+
+    expect(delivered.sale.total).toBe(agreedTotal);
+    expect(delivered.sale.paymentStatus).toBe("PAID");
+    expect(await accountBalance(db, "acc_cash")).toBe(
+      addMoney(toCentavos(cashBeforeDelivery), toCentavos(agreedTotal)),
+    );
+    expect(await customerDeposits(db)).toBe(0);
+    const balanceTransactions = await db.query.financialTransactions.findMany({
+      where: (t, { and, eq: eqOp }) =>
+        and(eqOp(t.sourceEventType, "custom_order"), eqOp(t.sourceEventId, orderId)),
+    });
+    expect(balanceTransactions).toHaveLength(1);
+    expect(balanceTransactions[0]).toMatchObject({
+      category: "ORDER_BALANCE",
+      amount: agreedTotal,
+    });
+
+    const undone = await undoDeliverOrder(db, orderId, { confirm: false }, ACTOR);
+
+    expect(undone.order).toMatchObject({
+      status: "READY",
+      saleId: null,
+      depositPaid: 0,
+      depositTxId: null,
+      balanceDue: agreedTotal,
+    });
+    expect(await accountBalance(db, "acc_cash")).toBe(cashBeforeDelivery);
+    expect(await customerDeposits(db)).toBe(0);
+    expect(await txsForOrder(db, orderId)).toHaveLength(0);
+  });
+
   it("refuses after collection with the exact sales guard message and writes nothing", async () => {
     const db = createDb(env.DB);
     const { orderId } = await seedOrderInStatus(db, "READY");
@@ -1124,6 +1245,29 @@ describe("cancelOrder (UC-08, O-3)", () => {
     expect(result.order).toMatchObject({ status: "CANCELLED", cancelResolution: null });
     expect(result.account).toBeNull();
     expect(await txsForOrder(db, orderId)).toHaveLength(0);
+    expect(await customerDeposits(db)).toBe(0);
+  });
+
+  it("cancels a confirmed zero-deposit order without a resolution or money effect", async () => {
+    const db = createDb(env.DB);
+    const { orderId } = await seedOrderInStatus(db, "CONFIRMED", { depositAmount: 0 });
+    const cashBefore = await accountBalance(db, "acc_cash");
+
+    const result = await cancelOrder(
+      db,
+      orderId,
+      { occurredAt: NOW, businessDate: BUSINESS_DATE },
+      ACTOR,
+    );
+
+    expect(result.order).toMatchObject({
+      status: "CANCELLED",
+      cancelResolution: null,
+      depositPaid: 0,
+    });
+    expect(result.account).toBeNull();
+    expect(await txsForOrder(db, orderId)).toHaveLength(0);
+    expect(await accountBalance(db, "acc_cash")).toBe(cashBefore);
     expect(await customerDeposits(db)).toBe(0);
   });
 
