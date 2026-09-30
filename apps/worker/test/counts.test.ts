@@ -553,7 +553,7 @@ describe("commitCount (UC-10 step 3)", () => {
 describe("deleteCount (KOK-141 'cancel a draft count' = soft delete, D-8)", () => {
   it("soft-deletes a DRAFT count: deletedAt is set, an audit row is written, and it drops out of getCount/listCounts", async () => {
     const db = createDb(env.DB);
-    await seedItem(db, "Delete draft count item", "RAW_MATERIAL", "NOT_EATABLE");
+    const item = await seedItem(db, "Delete draft count item", "RAW_MATERIAL", "NOT_EATABLE");
     const started = await startCount(
       db,
       { category: "NOT_EATABLE", occurredAt: NOW, businessDate: BUSINESS_DATE },
@@ -563,6 +563,10 @@ describe("deleteCount (KOK-141 'cancel a draft count' = soft delete, D-8)", () =
     const result = await deleteCount(db, started.count.id, ACTOR);
     expect(result.count.id).toBe(started.count.id);
     expect(result.deletedAt).toBeTruthy();
+    expect(result.count.lines.find((line) => line.itemId === item.id)).toMatchObject({
+      itemName: "Delete draft count item",
+      unit: "KG",
+    });
 
     await expect(getCount(db, started.count.id)).rejects.toMatchObject({ code: "NOT_FOUND" });
 
@@ -621,6 +625,87 @@ describe("deleteCount (KOK-141 'cancel a draft count' = soft delete, D-8)", () =
 });
 
 describe("reads: getCount / listCounts", () => {
+  it("resolves current item identity in every count read while expectedQty remains frozen", async () => {
+    const db = createDb(env.DB);
+    const item = await createItem(
+      db,
+      {
+        name: "Count identity item",
+        kind: "RAW_MATERIAL",
+        category: "DAIRY",
+        unit: "L",
+        minStockQty: 0,
+      },
+      ACTOR,
+    );
+    await recordPurchase(
+      db,
+      {
+        accountId: "acc_bank",
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        lines: [{ itemId: item.id, qty: 10_000, lineTotal: 1_000 }],
+      },
+      ACTOR,
+    );
+
+    const started = await startCount(
+      db,
+      { kind: "RAW_MATERIAL", category: "DAIRY", occurredAt: NOW, businessDate: BUSINESS_DATE },
+      ACTOR,
+    );
+    const initialLine = started.count.lines.find((line) => line.itemId === item.id);
+    expect(initialLine).toMatchObject({
+      itemName: "Count identity item",
+      unit: "L",
+      expectedQty: 10_000,
+      countedQty: 10_000,
+    });
+
+    await updateItem(db, { id: item.id, name: "Renamed count identity item" }, ACTOR);
+    await setItemActive(db, { id: item.id, isActive: false }, ACTOR);
+
+    const editedLine = await updateCountLine(
+      db,
+      { countId: started.count.id, itemId: item.id, countedQty: 12_000 },
+      ACTOR,
+    );
+    expect(editedLine.line).toMatchObject({
+      itemName: "Renamed count identity item",
+      unit: "L",
+      expectedQty: 10_000,
+      countedQty: 12_000,
+    });
+
+    const fetched = await getCount(db, started.count.id);
+    expect(fetched.lines.find((line) => line.itemId === item.id)).toMatchObject({
+      itemName: "Renamed count identity item",
+      unit: "L",
+      expectedQty: 10_000,
+      countedQty: 12_000,
+    });
+    const listed = await listCounts(db, { status: "DRAFT" });
+    expect(
+      listed.counts
+        .find((count) => count.id === started.count.id)
+        ?.lines.find((line) => line.itemId === item.id),
+    ).toMatchObject({
+      itemName: "Renamed count identity item",
+      unit: "L",
+      expectedQty: 10_000,
+      countedQty: 12_000,
+    });
+
+    const committed = await commitCount(db, { countId: started.count.id }, ACTOR);
+    expect(committed.count.lines.find((line) => line.itemId === item.id)).toMatchObject({
+      itemName: "Renamed count identity item",
+      unit: "L",
+      expectedQty: 10_000,
+      countedQty: 12_000,
+    });
+    expect(committed.adjustments).toContainEqual({ itemId: item.id, delta: 2_000 });
+  });
+
   it("getCount returns the count with its lines; NOT_FOUND for a missing id", async () => {
     const db = createDb(env.DB);
     await seedItem(db, "Read count item", "RAW_MATERIAL", "NOT_EATABLE");

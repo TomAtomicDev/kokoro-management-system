@@ -230,7 +230,11 @@ Tabs:
   checklist, not for data loss: counted quantities already save on blur — and a DRAFT count can
   finally be **cancelled, which deletes it**
   (soft, audit-reversible). No "Cancelado" status exists; a count that never committed produced no
-  movements and has nothing to display as a state.
+  movements and has nothing to display as a state. Each count-line response carries the item's
+  **current catalog name and canonical unit** (Doc 04 §2, §3.3), so the detail page does not fetch
+  the whole catalog; only `expected_qty` is a count-start snapshot. The detail page distinguishes
+  loading, request error (with an explicit retry), and a verified empty count in Spanish, and never
+  substitutes a blank name or `UNIT` when identity is unavailable.
 
 ## SC-09 · Sessions — `/sessions` (UC-14)
 

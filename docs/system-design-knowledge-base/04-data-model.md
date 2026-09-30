@@ -403,6 +403,8 @@ CREATE TABLE inventory_count_lines (
   counted_qty INTEGER NOT NULL,
   UNIQUE (count_id, item_id)
 );
+-- Count response DTOs join each line to the current `items.name` and canonical `items.unit`.
+-- These are read-time identity fields, not additional snapshots; only `expected_qty` is frozen.
 ```
 
 ### 3.4 Derived ledgers

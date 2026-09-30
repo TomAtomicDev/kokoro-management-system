@@ -187,6 +187,8 @@ export const inventoryLabels = {
   countColumnCounted: "Stock inicial",
   countColumnDelta: "Variación",
   noCountLines: "Este conteo no tiene ítems.",
+  countLoadError: "No se pudo cargar el conteo. Intenta de nuevo.",
+  retryCountLoad: "Reintentar",
   countItemsSummary: (count: number) => (count === 1 ? "1 ítem" : `${count} ítems`),
 
   confirmCountButton: "Confirmar conteo",

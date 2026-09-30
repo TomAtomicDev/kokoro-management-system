@@ -15,7 +15,7 @@
 
 import { z } from "zod";
 import { businessDateSchema, calendarDateSchema, occurredAtSchema } from "./dates.js";
-import type { InventoryCountStatus } from "./enums.js";
+import type { InventoryCountStatus, Unit } from "./enums.js";
 import { inventoryCountStatusSchema, itemCategorySchema, itemKindSchema } from "./enums.js";
 import { safeText } from "./text.js";
 
@@ -77,11 +77,15 @@ export const listCountsFiltersSchema = z.object({
 });
 export type ListCountsFilters = z.infer<typeof listCountsFiltersSchema>;
 
-/** Deliberately minimal — mirrors purchasing.ts's PurchaseLineDto precedent of NOT denormalizing
- * itemName/unit onto the line DTO, leaving that lookup to the frontend's own item cache. */
+/** The current catalog identity is resolved by core on every count response. It is not a snapshot:
+ * only expectedQty is frozen when the count starts. */
 export interface InventoryCountLineDto {
   id: string;
   itemId: string;
+  /** Current catalog name; unlike expectedQty, this is not frozen at count-start. */
+  itemName: string;
+  /** Current canonical persisted unit for the item (Doc 04 §2). */
+  unit: Unit;
   /** Milli-units (Doc 04 §2) — the FROZEN snapshot of item_stock.qty_on_hand taken at count-start
    * time. Never refreshed while the count is DRAFT, even if other events change the item's live
    * stock in the meantime. */
