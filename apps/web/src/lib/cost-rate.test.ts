@@ -49,6 +49,18 @@ describe("cost-rate inputs", () => {
     );
   });
 
+  it("property: positive opening unit costs remain exact positive integer rates", () => {
+    fc.assert(
+      fc.property(fc.integer({ min: 1, max: Number.MAX_SAFE_INTEGER }), (rawRate) => {
+        const rate = toMilliCentavosPerUnit(rawRate);
+        const parsed = parseCostRateInput(formatCostRateInput(rate));
+
+        expect(parsed).toEqual({ ok: true, value: rate });
+        if (parsed.ok) expect(parsed.value).toBeGreaterThan(0);
+      }),
+    );
+  });
+
   it("property: excess precision exactly predicts valid decimal parse failure", () => {
     fc.assert(
       fc.property(

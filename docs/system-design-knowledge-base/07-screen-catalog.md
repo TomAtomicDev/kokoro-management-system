@@ -436,10 +436,12 @@ original ask that started KOK-185). New assembly flow (full page): pick definiti
 prefilled from the definition, editable** → actual units obtained → notes. Live unit cost before
 commit with `CalcTrace` showing C-10.
 
-When creating an item inline from a component line, the item form offers the existing opening-stock
-option (initial quantity and unit cost), including for PACKAGING items (KOK-195). It records the
-opening balance through KOK-145's `OPENING_IN` mechanism (Doc 03 C-8) as part of item creation; it
-does not introduce a separate assembly valuation path.
+On `/packing/new`, when creating an item inline from a component line, the item form offers the
+existing opening-stock option (initial quantity and unit cost), including for PACKAGING items
+(KOK-195). After creation, select the item into the component line only when its saved kind and unit
+still satisfy that line's existing eligibility; preserve its kind and canonical unit for compatible
+quantity entry. It records the opening balance through KOK-145's `OPENING_IN` mechanism (Doc 03 C-8)
+as part of item creation; it does not introduce a separate assembly valuation path.
 
 Copy discipline for this screen, because the concept is new to the owner: it states plainly that
 this event **moves no money** — it converts product and packaging already in stock into finished

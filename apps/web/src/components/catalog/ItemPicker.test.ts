@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { isItemEligible } from "./ItemPicker";
+import { type ItemPickerEligibility, isItemEligible } from "./ItemPicker";
 
 describe("isItemEligible", () => {
   it("accepts every item when no eligibility constraints are provided", () => {
@@ -39,5 +39,21 @@ describe("isItemEligible", () => {
         { kind: ["RAW_MATERIAL", "SEMI_FINISHED"], unit: ["KG", "L"] },
       ),
     ).toBe(true);
+  });
+
+  it("accepts PACKAGING created inline as an eligible Envasar component", () => {
+    const componentEligibility: ItemPickerEligibility = {
+      kind: ["SEMI_FINISHED", "FINISHED", "PACKAGING"],
+    };
+
+    expect(
+      isItemEligible({ kind: "PACKAGING", unit: "UNIT", isUnmetered: false }, componentEligibility),
+    ).toBe(true);
+    expect(
+      isItemEligible(
+        { kind: "RAW_MATERIAL", unit: "KG", isUnmetered: false },
+        componentEligibility,
+      ),
+    ).toBe(false);
   });
 });

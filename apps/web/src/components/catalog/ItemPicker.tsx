@@ -54,7 +54,7 @@ export interface ItemPickerProps {
   disabled?: boolean;
   /** On by default — the inline "crear ítem" flow this component exists to provide. */
   allowCreate?: boolean;
-  /** KOK-145: opt in only for the Recipes inline-create and Catalogo create dialog. */
+  /** KOK-145/KOK-195: opt in only for Catalogo and supported inline-create flows. */
   allowOpeningStock?: boolean;
   /** Red border/ring on the search input — set when this field's live error is visible (KOK-143). */
   invalid?: boolean;
