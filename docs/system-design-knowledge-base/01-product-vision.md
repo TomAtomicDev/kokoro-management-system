@@ -57,8 +57,9 @@ consideration, not a requirement (see Non-goals).
    *Envasado/Armado* event that consumes base product and packaging (Phase 3.2; Doc 03 C-10).
    This is what makes packaging cost land inside the product's margin instead of beside it.
 5. **Sales** — catalog sales (Modality 1) with fixed prices, cash/QR, paid or on-credit.
-6. **Custom orders** (Modality 2) — quote → 50% deposit (liability) → production → delivery →
-   balance collection; multiple concurrent orders.
+6. **Custom orders** (Modality 2) — quote → optional deposit (50% suggested; zero is allowed with
+    an explicit risk acknowledgment) → production → delivery → collect the remaining balance or
+    record it as a receivable; multiple concurrent orders.
 7. **Non-commercial exits** — waste, self-consumption, gifts/samples, spoilage, valued at cost.
 8. **Finance** — two accounts (bank, cash box), all income/expense categorized, transfers,
    owner withdrawals, accounts receivable, deposit liability, cash-flow reporting.

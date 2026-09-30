@@ -1,9 +1,10 @@
-# Phase 3.5 — Numeric Foundation
+# Phase 3.1.5 — Numeric Foundation
 
 Condensed record of the phase that established the system's numeric representation, executed
-2026-07-27/28 between Phase 3 and Phase 4. It replaces the per-task backlog rows (KOK-070,
-KOK-071, KOK-072, KOK-083), which have been retired now that the work is complete and the
-result is simply how the system works.
+2026-07-27/28 between Phase 3.1 and Phase 3.2. It was originally labeled Phase 3.5; the roadmap
+renumbered it Phase 3.1.5 when a new staging-remediation Phase 3.5 was added. It replaces the
+per-task backlog rows (KOK-070, KOK-071, KOK-072, KOK-083), which have been retired now that the
+work is complete and the result is simply how the system works.
 
 The rule itself is law, not history: see
 [ADR-017](../system-design-knowledge-base/12-architecture-decision-records.md#adr-017) and

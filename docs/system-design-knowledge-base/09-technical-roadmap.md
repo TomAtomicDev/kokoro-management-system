@@ -1,24 +1,28 @@
 # 09 — Technical Roadmap
 
-Seven delivery phases plus four inserted remediation/depth phases (P3.1, P3.2, P3.5, P5.5 —
-half-numbers mark work added after the original plan, sequenced by execution order, not by when it
-was written). Each phase ends **deployed to production and usable** — the owner gets value from
-Phase 1 onward; Excel is retired incrementally, not big-bang. Durations assume AI-assisted solo
-development; they are sequencing guides, not commitments.
+Seven delivery phases plus five inserted remediation/depth phases (P3.1, P3.1.5, P3.2, P3.5,
+P5.5 — half-numbers mark work added after the original plan, sequenced by execution order, not by
+when it was written). The project has not been deployed to production; staging is the only
+environment used so far. Go-live is gated on the staging fixes and readiness checks in Phase 3.5.
+Durations assume AI-assisted solo development; they are sequencing guides, not commitments.
 
 ```
 P0 Foundations ─► P1 Money & Stock Ledger ─► P2 Production & Costing ─► P3 Sales & Orders
-                                                                              │
-                    P3.5 Numeric Foundation ◄── P3.1 Onboarding Hardening ◄───┘
+                                                                               │
+                    P3.1 Onboarding Hardening
                               │
-                              ▼
-                  P3.2 User-Test 1 Review ──────► ★ GO-LIVE (first real data)
+                    P3.1.5 Numeric Foundation
                               │
-                              ▼
+                    P3.2 User-Test 1 Review
+                              │
+                    P3.5 Staging Bugs & Improvements
+                              │
+                    ★ GO-LIVE (first production data)
+                              │
                     P4 Telegram + AI Capture
                               │
                               ▼
-     P5 Insights & Analytical AI ─► P5.5 Business Health Data ─► P6 Hardening
+      P5 Insights & Analytical AI ─► P5.5 Business Health Data ─► P6 Hardening
 ```
 
 ## Phase 0 — Foundations (≈1 week)
@@ -50,7 +54,16 @@ Catalog sales + receivables (SC-02/03), price_history, customers, custom-order l
 deposit liability (SC-04, O-1…O-5), price-health report v1 (SC-12).
 **Exit:** full Modality 1 + 2 operation in production; Excel fully retired.
 
-## Phase 3.5 — Numeric Foundation (≈0.5 week)
+## Phase 3.1 — Onboarding Hardening (≈0.5 week)
+
+Closure of the triage register from the owner's first walk through the setup wizard (GH #4): kind-
+conditional required fields, canonical units with magnitude-scaled input, `PACKAGING` as its own
+item kind, unmetered items (C-9), opening-inventory valuation (C-8), and the wizard-navigation
+rework. Inserted before P3.1.5 in execution order.
+**Exit:** a first-run owner reaches a trustworthy opening state — correct catalog, correct opening
+stock, correct opening balances — without help.
+
+## Phase 3.1.5 — Numeric Foundation (≈0.5 week)
 
 Branded numeric scales in `packages/shared`, migration 0007 normalizing every per-unit rate to
 milli-centavos per whole unit, and the call-site cleanup that removes ~25 ad-hoc ×1000
@@ -64,16 +77,7 @@ once against final names. P5/P5.5 are then pure price-vs-cost arithmetic on top.
 migration rescales stored values, so it must land before the owner has real data — it is a
 one-way door the moment she does.
 
-## Phase 3.1 — Onboarding Hardening (≈0.5 week)
-
-Closure of the triage register from the owner's first walk through the setup wizard (GH #4): kind-
-conditional required fields, canonical units with magnitude-scaled input, `PACKAGING` as its own
-item kind, unmetered items (C-9), opening-inventory valuation (C-8), and the wizard-navigation
-rework. Inserted before P3.5 in execution order.
-**Exit:** a first-run owner reaches a trustworthy opening state — correct catalog, correct opening
-stock, correct opening balances — without help.
-
-## Phase 3.2 — User-Test 1 Review (≈4 weeks) — *the phase that precedes go-live*
+## Phase 3.2 — User-Test 1 Review (≈4 weeks) — *a go-live prerequisite*
 
 The owner's first hands-on session on staging produced ~70 observations (GH #23). The review
 meeting on 2026-08-11 closed all of them; the decisions are recorded in
@@ -91,13 +95,57 @@ in execution order:
 4. **Forms, validation & tools** — full-page event forms, live validation with own primitives,
    recipe-less production, opening stock on item creation, calculator, persistent recipe timer.
 
-**Exit / go-live gate:** at the end of block 3 the business starts recording real data. Blocks 2
-and 3 must land first because they change the catalog, the kardex and the session model — after
-real data exists, each becomes a migration of live cost history instead of a schema edit. Block 4
-is UI surface and may land after go-live.
+**Exit / handoff:** blocks 2 and 3 must land before go-live because they change the catalog, the
+kardex and the session model — after real data exists, each becomes a migration of live cost history
+instead of a schema edit. Completion of Phase 3.2 hands off to Phase 3.5 for staging bug fixes and
+release-readiness validation. The business starts recording production data only after Phase 3.5
+exits and the owner explicitly approves the release. Block 4 is UI surface and may land after
+go-live unless needed to resolve a release-blocking issue.
 **Why the model change cannot wait:** presentations give per-size stock and put packaging cost
 inside the product's margin. Recording months of sales under the old rule and converting later
 would mean rewriting historical `unit_cost_snapshot` values — precisely what R-4 forbids.
+
+## Phase 3.5 — Staging Bugs and Improvements (milestone-based; re-estimate after sizing)
+
+Resolve staging defects and complete release-readiness improvements before the first production
+deployment. The catalog/count work addresses the `GET /api/items` D1 100-bound-parameter limit and
+the count detail screen's silent item-name/unit fallbacks: preserve the relational catalog, make
+reads set-based, return current item identity with count lines, and audit count queries for
+unbounded ID lists. Also deliver a dedicated all-dates receivables manager linked from the Panel and
+Finanzas, and allow orders to be confirmed with zero deposit or delivered on credit only with
+explicit, separately audited risk acknowledgment. Existing `custom_orders.deposit_paid` and nullable
+`deposit_tx_id` support a zero deposit; no database schema migration is planned for that rule. The
+backlog also closes two observed form defects: hidden save failures and missing opening-stock fields
+when creating an item inline from Envasar component lines. Orders get a vertical active-status board
+across all dates, an explicit filtered history for delivered/cancelled orders, linked-sale payment
+state, honest cost evidence and URL-backed detail navigation. The active board remains sorted by
+promised delivery date. The delivery form also records an external provider's real session expense
+and the equal customer pass-through in the linked sale, atomically, without adding inventory cost.
+O-7's quote, logistics and renegotiation corrections are also implemented with field/status guards,
+unchanged paid deposits, and audited atomic commands.
+
+The original two-week estimate predates KOK-200…205 and the external-delivery accounting change.
+Do not treat it as a delivery commitment: sequence KOK-196 → KOK-199, KOK-197 → KOK-198,
+KOK-191 → KOK-192 → KOK-193, and KOK-200 → KOK-201/KOK-202 (KOK-204 supplies the fee-aware
+extension to both). KOK-203 and KOK-205 can proceed after their stated dependencies; KOK-194/195
+are independent. Re-estimate the phase with the implementing team, and keep the release gate below
+based on verified behavior rather than calendar time.
+
+**Exit / go-live gate:** catalog and inventory counts work with staging-scale and larger datasets;
+count item names and units display correctly through draft editing and confirmation; query failures
+are visible rather than rendered as plausible fallback data; receivables totals reconcile across
+the Panel, Finanzas and SC-21 while the debt list shows every date and exact sale balance;
+zero-deposit confirmation/on-credit delivery warnings require the correct explicit acknowledgments
+without bypassing R-5; Pedidos shows all active orders, separates delivered/cancelled history,
+  reflects the linked sale's current debt state (including after collection), loads active orders
+  past the first 500 without truncation, never presents partial linked costs as profit, and
+shows delivered product gross margin from sale-line COGS while excluding the external pass-through.
+The external delivery expense reconciles with the equal charge in sale total without changing that
+  margin, including after undo and re-delivery without duplicate provider expense. O-7 corrections
+  preserve paid deposits, reject impossible line allocations and stale edits, and cannot silently
+  rewrite recorded production/assembly work.
+`pnpm check`, invariant tests, browser verification and staging smoke tests pass. The owner reviews
+and approves production release only after this phase exits.
 
 ## Phase 4 — Telegram + AI Capture (≈2 weeks) — *the mobile experience*
 
@@ -137,18 +185,18 @@ OCR to prefill purchases, collaborator role.
 - P4 depends only on P1–P3 services existing (tools wrap them); the eval suite (P4) must exist
   **before** P5 prompt iteration.
 - R2 backup (P1) intentionally precedes any real data accumulation.
-- P3.5 blocks P4 (which freezes field names into eval fixtures), P5 and P5.5 (price-vs-cost
+- P3.1.5 blocks P4 (which freezes field names into eval fixtures), P5 and P5.5 (price-vs-cost
   math), and KOK-036. It must land before the owner has any data, since migration 0007 rescales
   stored values.
 - P5.5 depends on P5's report shell (SC-13 tabs) and on KOK-051 for the S-4 definitions, except
-  KOK-073, which is blocked only by P3.5 and must ship before go-live — it accumulates a series
-  that no later task can reconstruct, and the clock starts when real purchases do. Since go-live is
-  now pinned to the end of P3.2 block 3, **KOK-073 is pulled forward to close alongside P3.2's
-  structural block**, not left in P5.5.
-- P3.2 blocks go-live, and therefore blocks nothing technically but gates everything practically.
+  KOK-073, which depends on Numeric Foundation (migration 0007) and must ship before go-live — it
+  accumulates a series that no later task can reconstruct, and the clock starts when real purchases
+  do. **KOK-073 is pulled forward to close before the Phase 3.5 go-live gate**, not left in P5.5.
+- P3.2 and P3.5 gate go-live, and therefore block nothing technically but gate everything
+  practically.
   Its Presentation/Combo work also feeds P4: `draft_assembly` and the "a sale never carries
   packaging" rule must exist before the capture prompt and its golden fixtures are authored, for
-  the same reason P3.5 precedes P4 — D-7 makes re-blessing the eval suite deliberately expensive,
+  the same reason P3.1.5 precedes P4 — D-7 makes re-blessing the eval suite deliberately expensive,
   so the AI layer is authored once against final names and final rules.
 - P3.2 also invalidates the staging dataset: the pre-assembly catalog shape is not migrated
   forward, so staging is wiped and re-seeded when block 2 lands. No production data exists yet, so

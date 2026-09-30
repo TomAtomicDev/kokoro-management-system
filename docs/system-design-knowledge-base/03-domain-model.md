@@ -51,8 +51,8 @@ non-food-raw-material bucket `LABEL` used to occupy. A PACKAGING item is purchas
 | **ProductionRun** | consumed lines (actual), output (actual qty), indirect cost, **required** session link | Recipe is a template: consumption defaults from recipe × batches, editable before commit. Phase 3.2: `recipe_id` becomes **optional** (KOK-144) — real cost already comes from actual consumption, so a one-off run may pick its output item directly with no recipe; and the session link becomes required (S-1, KOK-130). `indirect_cost` never moves cash — it is an estimate that only raises the batch's cost (KOK-118 renames it and says so on screen). |
 | **AssemblyDefinition** | component lines (item + qty), output item, notes | Phase 3.2 (KOK-121/KOK-123). The reusable template for a **presentation** (a quantity of product + its packaging: "Kéfir natural 500 ml") or a **combo** (several finished presentations + outer packaging: "Desayuno Kokoro"). Components MAY be SEMI_FINISHED, FINISHED or PACKAGING — the one place FINISHED is a legal input. Output item is FINISHED with unit `UNIT` and its own price, stock, WAC and margin. **At most one ACTIVE definition per output item is `is_default`; setting an active definition as default atomically demotes the previous default at write time.** The default is a UX affordance for preselection and suggestions, not the test for whether an item is assembled: that is decided by the existence of **any ACTIVE definition** for the output item. **A definition may not contain itself directly or transitively** (cycle prohibition, enforced by a graph walk at save time). Deactivated, never hard-deleted, exactly like Recipe. |
 | **Assembly** | consumed lines (actual, with frozen costs), output (actual qty obtained), **required** session link | Phase 3.2 (KOK-124). The *Envasado/Armado* event: executes an AssemblyDefinition, moving value from components into the finished presentation/combo. Definition is a template exactly as a recipe is — consumption defaults from it × planned qty and stays editable before commit. Emits ASSEMBLY_OUT for every component and ASSEMBLY_IN for the output, updates the output's WAC (C-10), and **creates no financial transaction of any kind**: it is an inventory transformation, not a purchase, sale or expense. |
-| **Sale** | sale lines, channel (CATALOG / CUSTOM_ORDER), payment status, customer ref | Creates SALE_OUT movements (+ income transaction if paid). **Lines are FINISHED-only** — presentations and combos included, packaging never (Phase 3.2, KOK-126; this resolves the Doc 04 §3.3-vs-§5 contradiction in favour of §5). The line's `unit_cost_snapshot_mc` freezes the presentation's full WAC, so the margin already contains every bag, label and box that went into it. |
-| **CustomOrder** | order items (item or free-text + agreed price), deposit, delivery date/place, linked production runs & sale | State machine in §5, including the Phase 3.2 backward transitions and undo-delivery (O-6). |
+| **Sale** | sale lines, `delivery_fee` (custom-order pass-through), channel (CATALOG / CUSTOM_ORDER), payment status, customer ref | Creates SALE_OUT movements (+ income transaction if paid). **Lines are FINISHED-only** — presentations and combos included, packaging never (Phase 3.2, KOK-126; this resolves the Doc 04 §3.3-vs-§5 contradiction in favour of §5). The line's `unit_cost_snapshot_mc` freezes the presentation's full WAC, so product gross margin contains every bag, label and box that went into it; the external delivery pass-through is separate and excluded from product gross margin. |
+| **CustomOrder** | merchandise subtotal and order items (item or free-text + agreed price), optional deposit, delivery date/place, linked production runs & sale | State machine in §5, including the Phase 3.2 backward transitions and undo-delivery (O-6). An external delivery fee is added to the generated sale at delivery, not to `agreed_total`. |
 | **StockExit** | item, qty, reason (WASTE / SELF_CONSUMPTION / GIFT_SAMPLE / SPOILAGE / OTHER), optional packaging lines | Valued at current WAC; no financial transaction (cost already incurred) — reported as "invisible cost". Phase 3.2 (KOK-128) adds **optional packaging lines** for the case where an unassembled product physically consumes packaging on its way out (gifting an unbagged loaf in a bag with a label). Default is no packaging; packaging is suggested only when the exited item is *not* itself an assembled presentation; an exit of an assembled presentation never adds packaging, because its WAC already contains it. |
 | **InventoryCount** | count lines (expected vs counted) | Commits ADJUST movements for variances. A line for an item with zero prior `stock_movements` and a positive counted qty commits OPENING_IN instead (C-8) — an opening balance, not a correction. A DRAFT count may be **cancelled, which means deleted** (soft, audit-reversible) — there is no "CANCELLED" count status (Phase 3.2, KOK-141). |
 | **FinancialTransaction** | — | Either derived (from sale/purchase/order/withdrawal) or standalone (operating expense, other income). Transfers are paired rows. |
@@ -253,7 +253,7 @@ non-food-raw-material bucket `LABEL` used to occupy. A PACKAGING item is purchas
 ## 5. Custom order lifecycle (Modality 2)
 
 ```
-QUOTING ──confirm(+deposit)──► CONFIRMED ──start──► IN_PRODUCTION ──ready──► READY ──deliver──► DELIVERED
+QUOTING ──confirm(optional deposit)──► CONFIRMED ──start──► IN_PRODUCTION ──ready──► READY ──deliver──► DELIVERED
    │                              │  ◄──back──┘  ◄──────back──────┘  ◄─ undo delivery ─┘   (terminal
    │                              │                    │                        │           unless undone)
    └────────────cancel────────────┴────────cancel──────┴──────cancel────────────┘
@@ -263,23 +263,60 @@ QUOTING ──confirm(+deposit)──► CONFIRMED ──start──► IN_PRODU
 
 Rules:
 
-- **O-1** `CONFIRMED` requires a recorded deposit (default 50%, editable amount). The deposit is
-  a financial INCOME with category ORDER_DEPOSIT into bank/cash **and** an increase of the
-  `customer_deposits` liability (INV-7).
+- **O-1** `CONFIRMED` requires the agreed merchandise subtotal. The deposit defaults to 50% of that
+  subtotal (editable), but MAY be zero. An optional external-delivery pass-through is added only at
+  delivery and is not part of the deposit base. A positive deposit is a financial INCOME with
+  category ORDER_DEPOSIT into bank/cash and an increase of the `customer_deposits` liability (INV-7).
+  A zero deposit creates no financial transaction, does not change an account balance, and creates no
+  deposit liability. Confirming at zero requires an explicit high-risk acknowledgment in the command;
+  the service validates it and the audit log records it. The confirmation UI must make clear that the
+  business is accepting the order before receiving any money and require an affirmative decision.
 - **O-2** On `deliver`: the system creates the linked **Sale** (channel CUSTOM_ORDER) for the
-  full agreed total; the deposit liability is released against it; the balance is recorded as
-  paid (ORDER_BALANCE) or as accounts receivable if the customer owes.
-  - The sale's lines are derived from the order's lines, so **every order line must be linked to
-    a catalog FINISHED item before an order can be delivered** (Doc 04 §5) — free-text lines are a
+  merchandise subtotal plus any external-delivery pass-through; the deposit liability is released
+  against it; the remaining balance is recorded as paid (ORDER_BALANCE) or as accounts receivable if
+  the customer owes.
+  - The sale's lines are derived from the order's lines, so **every order line must be linked to a
+    catalog FINISHED item before an order can be delivered** (Doc 04 §5) — free-text lines are a
     quoting convenience and must be resolved first (`resolveOrderLine`, KOK-034 — the one narrow
-    exception to "no generic update order", see Doc 04 §5); delivery refuses (409) otherwise. `agreed_total`
-    is split across those lines by largest remainder so `Σ(qty × unit_price_mc / 1e6)` reproduces it exactly.
+    exception to "no generic update order", see Doc 04 §5); delivery refuses (409) otherwise.
+    `agreed_total` is the merchandise subtotal and is split across those lines by largest remainder
+    so `Σ(qty × unit_price_mc / 1e6)` reproduces it exactly. An optional `delivery_fee` is stored
+    separately on the generated sale; `sales.total = merchandise subtotal + delivery_fee`. It is
+    never allocated onto product lines, and ordinary catalog sales have a zero delivery fee.
   - Only the **balance** is new money: the deposit was already banked at confirm time, so
-    `ORDER_BALANCE` is booked for `agreed_total − deposit_paid` (nothing when that is zero), and an
-    ON_CREDIT balance shows in `v_receivables` net of the deposit — never the full agreed total.
+    `ORDER_BALANCE` is booked for `sales.total − deposit_paid` (nothing when that is zero), and an
+    ON_CREDIT balance shows in `v_receivables` net of the deposit. With a zero deposit the full final
+    sale total, including any delivery fee, is the balance and may become a receivable; the
+    receivable is created at delivery, not while the order is still in production.
+  - Choosing ON_CREDIT at delivery requires a separate explicit high-risk acknowledgment, validated
+    by the service and recorded in the audit log. The warning states the amount that will remain
+    owed and requires an affirmative decision to proceed. This acknowledgment is independent of
+    R-5's `confirm` flag for backdated-cost replay; when both apply, both decisions are required.
   - The deposit liability is released by the status reaching `DELIVERED`; `v_liability` subtracts
     delivered orders' `deposit_paid`. Revenue is recognized here, at delivery, and never earlier
     (INV-7).
+  - **External delivery pass-through (Phase 3.5/KOK-204):** only when the business pays an external
+    delivery provider, `deliverOrder` creates one closed `DELIVERY_RUN` session by workflow
+    convention, ending at the delivery's `occurred_at`. Duration defaults to 5 minutes and is
+    editable; `started_at = occurred_at − duration`. The generated sale links to that session.
+    The session carries one actual shared-cost line (“Servicio de delivery externo”) paid from a
+    selected account; that exact amount is copied to `sales.delivery_fee` — no markup. The session's
+    operating expense and sale's customer charge are both committed in the same atomic batch. The
+    charge is included in the final paid balance/receivable, while both pass-through amounts are
+    excluded from product gross margin. Product gross margin is
+    `(sales.total − sales.delivery_fee) − frozen sale-line COGS`; show the fee and expense separately
+    in the order detail, not in the history row or margin figure. The one-session-per-order behavior
+    is a capture convention only: no DB uniqueness constraint is added, and the existing
+    `sales.session_id` relationship remains many-to-one.
+    A provider cost already recorded on an earlier delivery attempt is not paid twice when that
+    delivery is undone. If re-delivery uses the same paid service without a new payment, reuse the
+    retained session and its original time/cost, and apply its fee to the new sale; the session's
+    end time then documents the **original provider event**, not the later re-delivery timestamp.
+    If a new provider payment occurs, create a new session/expense, retain the earlier expense as
+    history, and charge only the new provider amount on the current sale. A session/cost linked to
+    an active delivered sale cannot be edited or deleted through generic session commands: changing
+    it would silently break the fee/expense reconciliation. Correct it only via a future explicit
+    reconciliation command; after undo, the retained expense can use normal guarded corrections.
 - **O-3** On `cancel` after deposit: owner chooses REFUND (expense DEPOSIT_REFUND, liability
   released) or FORFEIT (liability converts to OTHER_INCOME).
   - FORFEIT writes **no new transaction and moves no cash**: the money is already in the account
@@ -293,16 +330,21 @@ Rules:
   - Cancelling an order that never took a deposit needs no resolution and has no financial effect.
 - **O-4** Orders never reserve stock (single operator; reservation adds friction without value).
   Production for an order is a normal ProductionRun linked via `custom_order_id`, enabling
-  per-order cost and profit reporting.
+  per-order work evidence. A linked run's full batch cost is not, by itself, the order's gross
+  margin; realized product gross margin comes from the delivered sale lines' frozen COGS.
   - Consequence, decided 2026-08-11 and **not** to be re-litigated: there is **no hard gate**
     blocking `ready` when the order has no linked production run. Filling an order from stock
     already produced is legitimate, and a gate would force fake zero-quantity runs that corrupt
     C-4 and the WAC. The UI instead warns and asks for explicit confirmation (KOK-137).
   - Production and assembly forms offer orders in **every status except DELIVERED and CANCELLED**
     (KOK-137). Restricting the picker to CONFIRMED/IN_PRODUCTION hid legitimate work.
-- **O-5** Unlimited concurrent orders; the Orders board sorts by `delivery_date`. `delivery_date`
-  is a promised calendar date and MAY be in the future. The no-future-date rule applies only to
-  transaction `business_date` values; it explicitly does not apply to `custom_orders.delivery_date`.
+- **O-5** Unlimited concurrent orders; the active Orders board sorts each status lane by
+  `delivery_date` **descending** (latest promised date first, leftmost; undated orders last; Phase
+  3.5/KOK-201). Tie-break by `created_at` descending and `id` descending; a bounded read must expose
+  continuation rather than silently omit active or historical orders beyond the per-request limit. `delivery_date`
+  is a promised calendar date and MAY be in the future. The
+  no-future-date rule applies only to transaction `business_date` values; it explicitly does not
+  apply to `custom_orders.delivery_date`.
 - **O-6 Backward transitions** (Phase 3.2, KOK-136 — decided 2026-08-11, shipped 2026-08-16).
   A mis-clicked status was previously unrecoverable. Two mechanisms, deliberately different:
   - **Free reversal** among `CONFIRMED` ↔ `IN_PRODUCTION` ↔ `READY`. No money moves in either
@@ -318,16 +360,43 @@ Rules:
     other sale deletion does.
     - Mechanically (verified against the code 2026-08-11): `core/sales`' refusal to touch a
       `channel='CUSTOM_ORDER'` sale **stands unchanged** — `undoDelivery` does not call
-      `updateSale`/`deleteSale`, it emits its own reversal statements from `core/orders`, which is
-      the module that owns the sale. Restoring the deposit liability needs no reversal row at all:
-      the liability is derived (ADR-012) and simply resumes counting the order once its status
-      leaves `DELIVERED`.
+      `updateSale`/`deleteSale`; it emits its own reversal statements from `core/orders`, the module
+      that owns the sale. Restoring the deposit liability needs no reversal row at all: the liability
+      is derived (ADR-012) and simply resumes counting the order once its status leaves `DELIVERED`.
+    - If delivery used an external provider, undo also removes the sale's pass-through fee and
+      associated customer balance, but preserves the closed delivery session and its real
+      operating-expense transaction: the provider was actually paid. A provider refund, if any, is
+      recorded as a separate financial event.
     - **If the delivered sale has since been collected**, `undoDelivery` refuses with a 409.
       Collection is real money that really arrived, on a path that deliberately nets the deposit;
       silently reversing it would be worse than telling the owner to reverse the collection first.
   - **`CANCELLED` stays terminal.** Reopening it would mean reversing a `DEPOSIT_REFUND` expense
     or un-recognizing a FORFEIT already booked as `OTHER_INCOME` in a closed period — accounting
     surface with no matching operational need. Record a new order instead.
+- **O-7 Stage-specific order correction (Phase 3.5/KOK-205):** there is no general-purpose
+  `updateOrder`. Corrections use named commands with status and field guards, preserve the immutable
+  `PED` code, audit before/after, and commit in one atomic batch:
+  - While `QUOTING`, `updateOrderQuote` may correct the full quote, including customer, description,
+    merchandise subtotal, lines, delivery date/place, notes and expected deposit.
+  - In `CONFIRMED`, `IN_PRODUCTION` and `READY`, `updateOrderLogistics` may change only delivery
+    date/place and notes; it moves no money or stock.
+  - In those same pre-delivery statuses, `renegotiateOrder` may change the description, merchandise
+    lines/quantities (including adding a line to an empty quote) and agreed merchandise subtotal. It
+    never rewrites `deposit_paid`, the deposit transaction, or existing production/assembly/stock events.
+    New subtotal must be at least
+    `deposit_paid`; if it would be lower, reject the renegotiation and require cancellation with
+    REFUND followed by a new order (partial deposit refunds on active orders are not supported).
+    Once any positive deposit has been received, customer identity is immutable. A confirmed
+    zero-deposit order may change customer only with a fresh explicit `acceptNoDepositRisk` and audit
+    entry for the new counterparty. When the quote has a subtotal, explicitly pinned line shares
+    must fit within it; if lines exist, delivery's largest-remainder allocation must be able to
+    reproduce the subtotal exactly. An unset QUOTING subtotal defers this check until it is agreed.
+    Keep empty lines legal before delivery but reject delivery with none. Every correction compares
+    the order's `updated_at` from the form at commit inside its atomic command, aborts the batch if it has changed,
+    and reports a stale edit with 409.
+  - `DELIVERED` corrections use O-6's guarded undo-delivery path; `CANCELLED` remains terminal.
+    Renegotiating order lines never rewrites already-recorded production or assembly events; if the
+    physical work itself was wrong, correct that source event separately through its guarded service.
 
 ## 6. Sessions, shared costs, and time profitability
 
@@ -371,8 +440,9 @@ Rules:
 - **S-4** Time profitability:
   `session Bs/h = attributable contribution / hours`, where contribution for a production
   session = Σ over produced goods of `(current price − unit cost) × qty produced` (potential
-  contribution), for a delivery run = margin of delivered sales, for purchase/admin = 0 (cost
-  centers). Monthly `owner Bs/h = operating profit / total logged hours` (see S-5 for what
+  contribution), for a delivery run = product gross margin of delivered sales (excluding the equal
+  external-delivery fee/expense pass-through), for purchase/admin = 0 (cost centers). Monthly
+  `owner Bs/h = operating profit / total logged hours` (see S-5 for what
   "total logged hours" means once sessions can overlap). Both are reported; the monthly figure is
   the headline (G3).
 - **S-5 Deduplicated hours** *(Phase 3.2, KOK-135 — decided 2026-08-11, shipped 2026-08-16)*.
@@ -447,7 +517,7 @@ refresh only.
 | UC-03 | Record catalog sale (items, qty, payment method/status) | TG, Web | sales.recordSale |
 | UC-04 | Collect receivable (mark sale paid) | TG, Web | sales.collectPayment |
 | UC-05 | Quote custom order | TG, Web | orders.quote |
-| UC-06 | Confirm order with deposit | TG, Web | orders.confirm |
+| UC-06 | Confirm order (optional deposit; zero requires risk acknowledgment) | TG, Web | orders.confirm |
 | UC-07 | Deliver order (auto-sale, balance settle) | TG, Web | orders.deliver |
 | UC-08 | Cancel order (refund/forfeit) | Web | orders.cancel |
 | UC-09 | Record non-commercial exit | TG, Web | inventory.recordExit |
@@ -466,9 +536,10 @@ refresh only.
 | UC-22 | Manage presentation & combo definitions | Web | assembly.definitions.* |
 | UC-23 | Revert an order's status / undo a delivery (O-6) | Web | orders.revertStatus / orders.undoDelivery |
 | UC-24 | Cancel (delete) a draft inventory count | Web | inventory.cancelCount |
+| UC-25 | Review receivables by customer and open the source sale/order | Web | finance.listReceivables |
 
-UC-21…UC-24 are Phase 3.2 additions (decided 2026-08-11); their acceptance criteria land in
-Doc 11 with the tasks that build them.
+UC-21…UC-24 are Phase 3.2 additions (decided 2026-08-11); UC-25 is a Phase 3.5 addition. Their
+acceptance criteria land in Doc 11 with the tasks that build them.
 
 Each use case's acceptance criteria live in [11 — Testing Strategy](11-testing-strategy.md)
 (integration suites §3, phase gates §6).

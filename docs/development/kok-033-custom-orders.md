@@ -5,6 +5,11 @@ UI) must know before building against it. Business rules themselves live in the
 [System Design Knowledge Base](../system-design-knowledge-base/README.md): Doc 03 §5 (O-1…O-5),
 Doc 04 §3.3/§4/§5, ADR-012.
 
+> **Current-state note (Phase 3.5/KOK-204/KOK-205):** this task records the original delivery and
+> correction contracts. The current target adds an external-delivery pass-through separately as
+> `sales.delivery_fee` and named stage-specific correction commands while still prohibiting generic
+> `updateOrder`; see Doc 03 O-2/O-7 and Doc 04 §3.3/§5.
+
 ## 1. Scope
 
 The whole lifecycle, as six guarded transitions, each one atomic batch (D-3/INV-1):
