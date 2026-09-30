@@ -672,6 +672,7 @@ function AssemblyForm({ sessionId, assemblyId }: { sessionId?: string; assemblyI
             createLine={emptyLine}
             disabled={disabled}
             showAmount={false}
+            allowOpeningStock={!isEditMode}
             itemKindFilter={["SEMI_FINISHED", "FINISHED", "PACKAGING"]}
             getItemUnit={(itemId) => itemsById.get(itemId)?.unit}
             onItemChange={(_index, itemId) => {

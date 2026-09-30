@@ -6,7 +6,8 @@
 import { expect, type Page, test } from "@playwright/test";
 
 import { assembliesLabels } from "../src/lib/i18n-assemblies";
-import { postJson, uniqueName } from "./helpers";
+import { catalogLabels } from "../src/lib/i18n-catalog";
+import { authenticatedHeaders, postJson, uniqueName } from "./helpers";
 
 interface CreatedItem {
   id: string;
@@ -60,4 +61,51 @@ test("recording an Envasado from a definition prefills and submits", async ({ pa
   await page.getByRole("button", { name: assembliesLabels.submit, exact: true }).click();
 
   await expect(page).toHaveURL(/\/packing(\?|$)/);
+});
+
+test("inline PACKAGING component creation records opening stock and selects the item", async ({
+  page,
+}) => {
+  const itemName = uniqueName("Empaque inicial e2e");
+
+  await page.goto("/packing/new");
+
+  const itemPicker = page.getByPlaceholder(assembliesLabels.lineItem);
+  await itemPicker.fill(itemName);
+  await page
+    .getByRole("button", {
+      name: `${catalogLabels.itemPickerCreateNew} "${itemName}"`,
+      exact: true,
+    })
+    .click();
+
+  await page.getByLabel(catalogLabels.fieldKind, { exact: true }).selectOption("PACKAGING");
+  await expect(page.getByLabel(catalogLabels.fieldUnit, { exact: true })).toHaveValue("UNIT");
+  await page.getByRole("textbox", { name: /Stock mínimo/ }).fill("0");
+  await page.getByRole("switch", { name: catalogLabels.fieldOpeningStock }).click();
+  const createItemDialog = page.getByRole("dialog", { name: catalogLabels.createTitle });
+  await createItemDialog.getByRole("textbox", { name: /Cantidad inicial/ }).fill("3");
+  await createItemDialog.getByRole("textbox", { name: /Costo unitario inicial/ }).fill("2.25");
+  const createItemResponsePromise = page.waitForResponse(
+    (response) => response.url().endsWith("/api/items") && response.request().method() === "POST",
+  );
+  await page.getByRole("button", { name: catalogLabels.create, exact: true }).click();
+  const createItemResponse = await createItemResponsePromise;
+  expect(createItemResponse.ok()).toBe(true);
+  const createdItem = (await createItemResponse.json()) as CreatedItem;
+
+  await expect(itemPicker).toHaveValue(itemName);
+  const componentQty = page.getByLabel(assembliesLabels.lineQty, { exact: true }).first();
+  await expect(componentQty.locator("xpath=..")).toContainText("u");
+
+  const kardexResponse = await page.request.get(`/api/inventory/kardex?itemId=${createdItem.id}`, {
+    headers: await authenticatedHeaders(page),
+  });
+  expect(kardexResponse.ok()).toBe(true);
+  const kardex = (await kardexResponse.json()) as {
+    movements: { type: string; qty: number; unitCostMc: number }[];
+  };
+  expect(kardex.movements).toContainEqual(
+    expect.objectContaining({ type: "OPENING_IN", qty: 3_000, unitCostMc: 225_000 }),
+  );
 });
