@@ -21,6 +21,7 @@ export async function postJson<T>(page: Page, path: string, data: unknown): Prom
   const response = await page.request.post(path, {
     data,
     headers: await authenticatedHeaders(page),
+    timeout: 10_000,
   });
   expect(response.ok(), await response.text()).toBe(true);
   return (await response.json()) as T;

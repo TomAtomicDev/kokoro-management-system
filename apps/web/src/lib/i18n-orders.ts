@@ -120,7 +120,13 @@ export const ordersLabels = {
   confirmFieldDepositAmount: "Anticipo (Bs)",
   confirmFieldPaymentAccount: "Cuenta y método de pago",
   confirmFieldDate: "Fecha del anticipo",
+  confirmNoDepositRiskTitle: "Sin anticipo recibido",
+  confirmNoDepositRiskDescription:
+    "Confirmarás este pedido antes de recibir dinero. El negocio asume el riesgo de que el cliente no pague.",
+  confirmNoDepositRiskAcknowledgment:
+    "Acepto confirmar este pedido sin haber recibido un anticipo.",
   confirmSubmit: "Confirmar y cobrar anticipo",
+  confirmSubmitNoDeposit: "Confirmar sin anticipo",
 
   deliverDialogTitle: "Entregar pedido",
   deliverUnresolvedWarning:
@@ -128,6 +134,8 @@ export const ordersLabels = {
   deliverFieldBalanceStatus: "Estado del saldo",
   deliverBalancePaid: "Pagado",
   deliverBalanceOnCredit: "Por cobrar",
+  deliverCreditRiskDescription: "Al entregar, quedará por cobrar este saldo:",
+  deliverCreditRiskAcknowledgment: "Acepto entregar el pedido y dejar este saldo por cobrar.",
   deliverFieldPaymentAccount: "Cuenta y método de pago",
   deliverFieldDate: "Fecha de entrega",
   deliverSubmit: "Confirmar entrega",

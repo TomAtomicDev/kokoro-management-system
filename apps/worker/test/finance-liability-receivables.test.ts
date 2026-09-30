@@ -124,7 +124,12 @@ async function deliverConfirmedOrder(
           paymentMethod: "CASH",
           accountId: "acc_cash",
         }
-      : { occurredAt: NOW, businessDate: BUSINESS_DATE, balancePaymentStatus },
+      : {
+          occurredAt: NOW,
+          businessDate: BUSINESS_DATE,
+          balancePaymentStatus,
+          acceptCreditRisk: true,
+        },
     ACTOR,
   );
 }

@@ -20,6 +20,7 @@ import {
 import {
   allocateAgreedTotalToOrderLines,
   confirmOrderCommandSchema,
+  deliverOrderCommandSchema,
   orderLineCommandSchema,
 } from "./orders.js";
 import { toMilliUnits, WHOLE_UNIT_MILLI_UNITS } from "./qty.js";
@@ -266,6 +267,52 @@ describe("confirmOrderCommandSchema (O-1)", () => {
         depositAmount: 15_000,
       }).success,
     ).toBe(false);
+  });
+});
+
+describe("deliverOrderCommandSchema (O-2 risk acknowledgment)", () => {
+  const dates = {
+    occurredAt: "2026-07-20T14:00:00.000Z",
+    businessDate: "2026-07-20",
+  };
+
+  it("requires the separate credit-risk acknowledgment, independent of R-5 confirmation", () => {
+    const missingAcknowledgment = deliverOrderCommandSchema.safeParse({
+      ...dates,
+      balancePaymentStatus: "ON_CREDIT",
+    });
+    expect(missingAcknowledgment.success).toBe(false);
+    if (!missingAcknowledgment.success) {
+      expect(missingAcknowledgment.error.issues[0]?.path).toEqual(["acceptCreditRisk"]);
+    }
+
+    expect(
+      deliverOrderCommandSchema.safeParse({
+        ...dates,
+        balancePaymentStatus: "ON_CREDIT",
+        acceptCreditRisk: false,
+        confirm: true,
+      }).success,
+    ).toBe(false);
+    expect(
+      deliverOrderCommandSchema.safeParse({
+        ...dates,
+        balancePaymentStatus: "ON_CREDIT",
+        acceptCreditRisk: true,
+        confirm: false,
+      }).success,
+    ).toBe(true);
+  });
+
+  it("keeps paid-balance delivery independent of the credit-risk acknowledgment", () => {
+    expect(
+      deliverOrderCommandSchema.safeParse({
+        ...dates,
+        balancePaymentStatus: "PAID",
+        paymentMethod: "CASH",
+        accountId: "acc_cash",
+      }).success,
+    ).toBe(true);
   });
 });
 

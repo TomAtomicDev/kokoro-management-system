@@ -141,6 +141,7 @@ async function recordDeliveredOrder(
       occurredAt,
       businessDate: occurredAt.slice(0, 10),
       balancePaymentStatus: "ON_CREDIT",
+      acceptCreditRisk: true,
     },
     ACTOR,
   );

@@ -4,13 +4,28 @@
 import { expect, type Page, test } from "@playwright/test";
 
 import { ordersLabels } from "../src/lib/i18n-orders";
-import { postJson, selectFromPicker, uniqueName } from "./helpers";
+import { authenticatedHeaders, postJson, selectFromPicker, uniqueName } from "./helpers";
 
 interface CreatedCustomer {
   id: string;
 }
 interface CreatedItem {
   id: string;
+}
+
+interface DeliverOrderResponse {
+  order: { status: string };
+  sale: { id: string; paymentStatus: string; total: number };
+}
+
+interface ReceivablesResponse {
+  groups: Array<{
+    sales: Array<{
+      saleId: string;
+      customOrderId: string | null;
+      outstandingAmount: number;
+    }>;
+  }>;
 }
 
 async function createCustomer(page: Page, name: string): Promise<CreatedCustomer> {
@@ -35,9 +50,14 @@ function futureDeliveryDate(daysAhead: number): string {
 }
 
 test.beforeEach(async ({ page }) => {
+  page.setDefaultTimeout(10_000);
+  page.setDefaultNavigationTimeout(15_000);
   const password = process.env.E2E_LOGIN_PASSWORD;
   test.skip(!password, "E2E_LOGIN_PASSWORD not set — skipping order flow checks");
-  const response = await page.request.post("/api/auth/login", { data: { password } });
+  const response = await page.request.post("/api/auth/login", {
+    data: { password },
+    timeout: 10_000,
+  });
   expect(response.ok()).toBe(true);
 });
 
@@ -86,9 +106,9 @@ test("an order's confirm, start production, mark ready, deliver and undo-deliver
 
   await page.getByText(description, { exact: true }).click();
 
-  // Confirmar: deposit == full agreed total, so the delivery step has zero balance due.
+  // Leave half of the agreed total to exercise the paid-balance delivery branch.
   await page.getByRole("button", { name: ordersLabels.actionConfirm, exact: true }).click();
-  await page.getByLabel(ordersLabels.confirmFieldDepositAmount).fill("100");
+  await page.getByLabel(ordersLabels.confirmFieldDepositAmount).fill("50");
   await page.getByRole("button", { name: ordersLabels.confirmSubmit, exact: true }).click();
   await expect(page.getByText(ordersLabels.statusLabels.CONFIRMED, { exact: true })).toBeVisible();
 
@@ -103,11 +123,129 @@ test("an order's confirm, start production, mark ready, deliver and undo-deliver
   await expect(page.getByText(ordersLabels.statusLabels.READY, { exact: true })).toBeVisible();
 
   await page.getByRole("button", { name: ordersLabels.actionDeliver, exact: true }).click();
-  await expect(page.getByText(ordersLabels.deliverBalanceZero)).toBeVisible();
+  await expect(
+    page.getByLabel(ordersLabels.deliverFieldPaymentAccount, { exact: true }),
+  ).toBeVisible();
+  const paidDeliveryResponsePromise = page.waitForResponse(
+    (response) =>
+      response.url().includes("/api/orders/") &&
+      response.url().endsWith("/deliver") &&
+      response.request().method() === "POST",
+    { timeout: 10_000 },
+  );
   await page.getByRole("button", { name: ordersLabels.deliverSubmit, exact: true }).click();
+  const paidDeliveryResponse = await paidDeliveryResponsePromise;
+  const paidDeliveryPayload: unknown = await paidDeliveryResponse.json();
+  expect(paidDeliveryResponse.ok(), JSON.stringify(paidDeliveryPayload)).toBe(true);
+  expect(paidDeliveryPayload).toMatchObject({
+    order: { status: "DELIVERED" },
+    sale: { paymentStatus: "PAID", total: 10_000 },
+  });
   await expect(page.getByText(ordersLabels.statusLabels.DELIVERED, { exact: true })).toBeVisible();
 
   await page.getByRole("button", { name: ordersLabels.actionUndoDeliver, exact: true }).click();
   await page.getByRole("dialog").getByRole("button", { name: "Confirmar", exact: true }).click();
   await expect(page.getByText(ordersLabels.statusLabels.READY, { exact: true })).toBeVisible();
+});
+
+test("zero-deposit confirmation and credit delivery require separate risk acknowledgments", async ({
+  page,
+}) => {
+  test.setTimeout(90_000);
+
+  const customerName = uniqueName("Cliente riesgo e2e");
+  const description = uniqueName("Pedido riesgo e2e");
+  const itemName = uniqueName("Producto riesgo e2e");
+  await createCustomer(page, customerName);
+  await createFinishedItem(page, itemName);
+
+  await page.goto("/orders", { timeout: 15_000 });
+  await page.getByRole("link", { name: ordersLabels.actionQuote, exact: true }).click();
+  await selectFromPicker(page, "Buscar cliente…", customerName);
+  await page.getByLabel(ordersLabels.fieldDescription, { exact: true }).fill(description);
+  await page.getByLabel(ordersLabels.fieldAgreedTotal).fill("100");
+  await selectFromPicker(page, ordersLabels.lineItem, itemName);
+
+  const quoteResponsePromise = page.waitForResponse(
+    (response) => response.url().endsWith("/api/orders") && response.request().method() === "POST",
+    { timeout: 10_000 },
+  );
+  await page.getByRole("button", { name: ordersLabels.submit, exact: true }).click();
+  const quoteResponse = await quoteResponsePromise;
+  expect(quoteResponse.ok()).toBe(true);
+  const quotePayload = (await quoteResponse.json()) as { order: { id: string } };
+
+  await page.getByText(description, { exact: true }).click();
+  const orderDrawer = page.getByRole("dialog", { name: "Pedido" });
+  await page.getByRole("button", { name: ordersLabels.actionConfirm, exact: true }).click();
+  await page.getByLabel(ordersLabels.confirmFieldDepositAmount, { exact: true }).fill("0");
+  await expect(page.getByText(ordersLabels.confirmNoDepositRiskDescription)).toBeVisible();
+  await page
+    .getByRole("button", { name: ordersLabels.confirmSubmitNoDeposit, exact: true })
+    .click();
+  await expect(
+    page.getByText("Confirma que aceptas el riesgo de iniciar el pedido sin recibir un anticipo."),
+  ).toBeVisible();
+  await page
+    .getByRole("checkbox", { name: ordersLabels.confirmNoDepositRiskAcknowledgment })
+    .check();
+  await page
+    .getByRole("button", { name: ordersLabels.confirmSubmitNoDeposit, exact: true })
+    .click();
+  await expect(page.getByText(ordersLabels.statusLabels.CONFIRMED, { exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: ordersLabels.actionStartProduction, exact: true }).click();
+  await expect(
+    page.getByText(ordersLabels.statusLabels.IN_PRODUCTION, { exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: ordersLabels.actionMarkReady, exact: true }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Confirmar", exact: true }).click();
+  await expect(page.getByText(ordersLabels.statusLabels.READY, { exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: ordersLabels.actionDeliver, exact: true }).click();
+  await page
+    .getByRole("button", { name: ordersLabels.deliverBalanceOnCredit, exact: true })
+    .click();
+  const creditRiskSection = page
+    .locator("section")
+    .filter({ hasText: ordersLabels.deliverCreditRiskDescription });
+  await expect(creditRiskSection).toBeVisible();
+  await expect(creditRiskSection.getByText("Bs 100,00", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: ordersLabels.deliverSubmit, exact: true }).click();
+  await expect(
+    page.getByText("Confirma que aceptas el riesgo de entregar el pedido con el saldo por cobrar."),
+  ).toBeVisible();
+  await page.getByRole("checkbox", { name: ordersLabels.deliverCreditRiskAcknowledgment }).check();
+  const deliveryResponsePromise = page.waitForResponse(
+    (response) =>
+      response.url().endsWith(`/api/orders/${quotePayload.order.id}/deliver`) &&
+      response.request().method() === "POST",
+    { timeout: 10_000 },
+  );
+  await page.getByRole("button", { name: ordersLabels.deliverSubmit, exact: true }).click();
+  const deliveryResponse = await deliveryResponsePromise;
+  const deliveryPayload = (await deliveryResponse.json()) as DeliverOrderResponse;
+  expect(deliveryResponse.ok(), JSON.stringify(deliveryPayload)).toBe(true);
+  expect(deliveryPayload).toMatchObject({
+    order: { status: "DELIVERED" },
+    sale: { paymentStatus: "ON_CREDIT", total: 10_000 },
+  });
+  await expect(
+    orderDrawer.getByText(ordersLabels.statusLabels.DELIVERED, { exact: true }),
+  ).toBeVisible();
+
+  const receivablesResponse = await page.request.get("/api/receivables", {
+    headers: await authenticatedHeaders(page),
+    timeout: 10_000,
+  });
+  const receivablesPayload: unknown = await receivablesResponse.json();
+  expect(receivablesResponse.ok(), JSON.stringify(receivablesPayload)).toBe(true);
+  const receivables = receivablesPayload as ReceivablesResponse;
+  const orderReceivable = receivables.groups
+    .flatMap((group) => group.sales)
+    .find((sale) => sale.saleId === deliveryPayload.sale.id);
+  expect(orderReceivable).toMatchObject({
+    customOrderId: quotePayload.order.id,
+    outstandingAmount: 10_000,
+  });
 });

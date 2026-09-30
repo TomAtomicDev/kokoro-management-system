@@ -202,23 +202,36 @@ const deliverOrderCommonFields = {
  *                 the balance ONLY, and the sale is marked PAID.
  *   - ON_CREDIT → books nothing; the sale sits in `v_receivables`, which reports
  *                 `total − deposit_paid` so the already-banked deposit is never double-counted as
- *                 still-owed (migration 0005, Doc 04 §4).
+ *                 still-owed (migration 0005, Doc 04 §4), and requires its own `acceptCreditRisk`
+ *                 acknowledgment, independent of R-5's `confirm` flag.
  *
  * When the balance is zero (the deposit covered the whole order) the sale is PAID either way and no
  * balance transaction is written — nothing is owed and no cash moves at delivery.
  */
-export const deliverOrderCommandSchema = z.discriminatedUnion("balancePaymentStatus", [
-  z.object({
-    balancePaymentStatus: z.literal("PAID"),
-    paymentMethod: paymentMethodSchema,
-    accountId: z.string().min(1),
-    ...deliverOrderCommonFields,
-  }),
-  z.object({
-    balancePaymentStatus: z.literal("ON_CREDIT"),
-    ...deliverOrderCommonFields,
-  }),
-]);
+export const deliverOrderCommandSchema = z
+  .discriminatedUnion("balancePaymentStatus", [
+    z.object({
+      balancePaymentStatus: z.literal("PAID"),
+      paymentMethod: paymentMethodSchema,
+      accountId: z.string().min(1),
+      ...deliverOrderCommonFields,
+    }),
+    z.object({
+      balancePaymentStatus: z.literal("ON_CREDIT"),
+      /** Required when the delivery leaves a receivable; distinct from R-5's `confirm` flag. */
+      acceptCreditRisk: z.boolean().optional(),
+      ...deliverOrderCommonFields,
+    }),
+  ])
+  .superRefine((command, ctx) => {
+    if (command.balancePaymentStatus === "ON_CREDIT" && command.acceptCreditRisk !== true) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Confirma que aceptas el riesgo de entregar el pedido con el saldo por cobrar.",
+        path: ["acceptCreditRisk"],
+      });
+    }
+  });
 /** `z.input` — `confirm` carries a `.default()`, same reasoning as `RecordSaleCommand`. */
 export type DeliverOrderCommand = z.input<typeof deliverOrderCommandSchema>;
 
