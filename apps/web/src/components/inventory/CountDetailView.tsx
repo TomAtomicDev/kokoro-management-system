@@ -3,7 +3,8 @@
 // the server on blur, never per keystroke — see `handleBlur` — and "Confirmar conteo" flushes any
 // still-dirty line first). A DRAFT count's lines are editable; a COMMITTED count renders the same
 // line list read-only. `expectedQty` is always read-only (it is frozen at startCount time — see
-// core/inventory/counts.ts's header — this screen never lets the owner edit it).
+// core/inventory/counts.ts's header — this screen never lets the owner edit it). Each line also
+// carries the current catalog name/unit from its count DTO, so this page never fetches the catalog.
 //
 // Committing goes through a two-step confirm (a Dialog over the full-page body — same nesting
 // pattern as ItemPicker's CreateItemDialog inside a parent form Dialog): any unsaved line edits are
@@ -17,7 +18,7 @@
 // command; see `core/inventory/counts.ts`'s `deleteCount`), so there is nothing for an "Deshacer"
 // action to call.
 
-import type { InventoryCountLineDto, Unit } from "@kokoro/shared";
+import type { InventoryCountLineDto } from "@kokoro/shared";
 import { formatQty } from "@kokoro/shared";
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
@@ -40,14 +41,18 @@ import { formatIntAsDecimalInput, parseDecimalToInt } from "@/lib/decimal";
 import { inventoryLabels } from "@/lib/i18n-inventory";
 import { cn } from "@/lib/utils";
 
+const COUNT_LOADING_SKELETON_ROWS = [
+  "loading-row-1",
+  "loading-row-2",
+  "loading-row-3",
+  "loading-row-4",
+];
+
 export interface CountDetailViewProps {
   countId: string;
-  /** itemId -> { name, unit }, built by the caller from useItemsQuery (see routes/inventory.tsx),
-   * same lookup ExitsTable/KardexView reuse. */
-  items: Map<string, { name: string; unit: Unit }>;
 }
 
-export function CountDetailView({ countId, items }: CountDetailViewProps) {
+export function CountDetailView({ countId }: CountDetailViewProps) {
   const navigate = useNavigate();
   const toast = useToast();
   const countQuery = useCount(countId);
@@ -225,8 +230,40 @@ export function CountDetailView({ countId, items }: CountDetailViewProps) {
       >
         {count?.notes ? <p className="text-muted-foreground text-sm">{count.notes}</p> : null}
         {countQuery.isLoading ? (
-          <p className="text-muted-foreground text-sm">{inventoryLabels.loading}</p>
-        ) : !count || count.lines.length === 0 ? (
+          <div
+            aria-busy="true"
+            aria-label={inventoryLabels.loading}
+            className="flex flex-col gap-3"
+            role="status"
+          >
+            <p className="text-muted-foreground text-sm">{inventoryLabels.loading}</p>
+            <div aria-hidden="true" className="flex flex-col gap-2">
+              {COUNT_LOADING_SKELETON_ROWS.map((rowKey) => (
+                <div
+                  key={rowKey}
+                  className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-3 rounded-md border border-border px-3 py-3"
+                >
+                  <span className="h-4 w-36 animate-pulse rounded bg-muted" />
+                  <span className="h-4 w-12 animate-pulse rounded bg-muted" />
+                  <span className="h-8 w-24 animate-pulse rounded bg-muted" />
+                  <span className="h-4 w-12 animate-pulse rounded bg-muted" />
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : countQuery.isError || !count ? (
+          <div className="flex flex-col items-start gap-3" role="alert">
+            <p className="text-negative text-sm">{inventoryLabels.countLoadError}</p>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => void countQuery.refetch()}
+              disabled={countQuery.isFetching}
+            >
+              {countQuery.isFetching ? inventoryLabels.loading : inventoryLabels.retryCountLoad}
+            </Button>
+          </div>
+        ) : count.lines.length === 0 ? (
           <p className="text-muted-foreground text-sm">{inventoryLabels.noCountLines}</p>
         ) : (
           <div className="overflow-hidden rounded-lg border border-border">
@@ -237,17 +274,15 @@ export function CountDetailView({ countId, items }: CountDetailViewProps) {
               <span className="text-right">{inventoryLabels.countColumnDelta}</span>
             </div>
             {count.lines.map((line) => {
-              const info = items.get(line.itemId);
-              const unit = info?.unit ?? "UNIT";
               const delta = effectiveCountedQty(line) - line.expectedQty;
               return (
                 <div
                   key={line.id}
                   className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-3 border-b border-border px-3 py-2 text-sm last:border-0"
                 >
-                  <span className="text-foreground">{info?.name ?? "—"}</span>
+                  <span className="text-foreground">{line.itemName}</span>
                   <span className="numeric-cell text-right text-muted-foreground">
-                    {formatQty(line.expectedQty, unit)}
+                    {formatQty(line.expectedQty, line.unit)}
                   </span>
                   {isDraft ? (
                     <Input
@@ -262,11 +297,11 @@ export function CountDetailView({ countId, items }: CountDetailViewProps) {
                     />
                   ) : (
                     <span className="numeric-cell text-right text-foreground">
-                      {formatQty(line.countedQty, unit)}
+                      {formatQty(line.countedQty, line.unit)}
                     </span>
                   )}
                   <span className={cn("numeric-cell text-right", delta < 0 && "text-negative")}>
-                    {formatQty(delta, unit)}
+                    {formatQty(delta, line.unit)}
                   </span>
                 </div>
               );
@@ -293,13 +328,11 @@ export function CountDetailView({ countId, items }: CountDetailViewProps) {
               <p className="text-muted-foreground">{inventoryLabels.confirmCountSummaryIntro}</p>
               <ul className="flex flex-col gap-1.5">
                 {variantLines.map(({ line, delta }) => {
-                  const info = items.get(line.itemId);
-                  const unit = info?.unit ?? "UNIT";
                   return (
                     <li key={line.id} className="flex items-center justify-between gap-3">
-                      <span className="text-foreground">{info?.name ?? "—"}</span>
+                      <span className="text-foreground">{line.itemName}</span>
                       <span className={cn("numeric-cell", delta < 0 && "text-negative")}>
-                        {formatQty(delta, unit)}
+                        {formatQty(delta, line.unit)}
                       </span>
                     </li>
                   );

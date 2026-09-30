@@ -14,7 +14,9 @@
 // live at commit time, matching C-6's exit-valuation rule exactly (value at CURRENT WAC, but never
 // freeze that part the way `expectedQty` is frozen). Get the frozen/live split backwards and the
 // whole feature silently corrupts inventory data — see test/counts.test.ts's dedicated
-// snapshot-semantics test, which is the load-bearing test for this entire module.
+// snapshot-semantics test, which is the load-bearing test for this entire module. By contrast,
+// line item names and canonical units are resolved from the current catalog on each response; they
+// are display identity, not part of the count-start snapshot.
 //
 // State-machine guard (mirrors core/finance/transactions.ts's `assertTransactionEditable`
 // precedent — Doc 08 §2's error-code taxonomy draws the 409-vs-400 distinction between "this row's
@@ -33,6 +35,7 @@ import type {
   ListCountsResult,
   StartCountCommand,
   StartCountResult,
+  Unit,
   UpdateCountLineCommand,
   UpdateCountLineResult,
 } from "@kokoro/shared";
@@ -53,18 +56,50 @@ import type { StockMovementInput } from "./types.js";
 type Statement = BatchItem<"sqlite">;
 type InventoryCountRow = typeof inventoryCounts.$inferSelect;
 type InventoryCountLineRow = typeof inventoryCountLines.$inferSelect;
+type CountLineItemIdentity = Pick<InventoryCountLineDto, "itemName" | "unit">;
+
+interface CountLineQueryRow {
+  line: InventoryCountLineRow;
+  itemName: string | null;
+  unit: Unit | null;
+}
+
+interface ResolvedCountLines {
+  rows: InventoryCountLineRow[];
+  itemIdentityById: Map<string, CountLineItemIdentity>;
+}
 
 function toLineDto(
   row: InventoryCountLineRow,
   priorMovementItemIds: ReadonlySet<string>,
+  itemIdentityById: ReadonlyMap<string, CountLineItemIdentity>,
 ): InventoryCountLineDto {
+  const itemIdentity = itemIdentityById.get(row.itemId);
+  if (!itemIdentity) {
+    throw notFound("No se encontró el ítem asociado a este conteo.", { itemId: row.itemId });
+  }
+
   return {
     id: row.id,
     itemId: row.itemId,
+    ...itemIdentity,
     expectedQty: row.expectedQty,
     countedQty: row.countedQty,
     hasPriorMovements: priorMovementItemIds.has(row.itemId),
   };
+}
+
+function resolveCountLines(rows: readonly CountLineQueryRow[]): ResolvedCountLines {
+  const lineRows: InventoryCountLineRow[] = [];
+  const itemIdentityById = new Map<string, CountLineItemIdentity>();
+  for (const { line, itemName, unit } of rows) {
+    if (itemName === null || unit === null) {
+      throw notFound("No se encontró el ítem asociado a este conteo.", { itemId: line.itemId });
+    }
+    lineRows.push(line);
+    itemIdentityById.set(line.itemId, { itemName, unit });
+  }
+  return { rows: lineRows, itemIdentityById };
 }
 
 async function findItemsWithPriorMovements(
@@ -83,6 +118,7 @@ function toCountDto(
   row: InventoryCountRow,
   lineRows: readonly InventoryCountLineRow[],
   priorMovementItemIds: ReadonlySet<string>,
+  itemIdentityById: ReadonlyMap<string, CountLineItemIdentity>,
 ): InventoryCountDto {
   return {
     id: row.id,
@@ -91,16 +127,19 @@ function toCountDto(
     status: row.status,
     code: row.code,
     notes: row.notes,
-    lines: lineRows.map((line) => toLineDto(line, priorMovementItemIds)),
+    lines: lineRows.map((line) => toLineDto(line, priorMovementItemIds, itemIdentityById)),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
 }
 
-async function fetchLines(db: Db, countId: string): Promise<InventoryCountLineRow[]> {
-  return db.query.inventoryCountLines.findMany({
-    where: (t, { eq: eqOp }) => eqOp(t.countId, countId),
-  });
+async function fetchLines(db: Db, countId: string): Promise<ResolvedCountLines> {
+  const rows = await db
+    .select({ line: inventoryCountLines, itemName: items.name, unit: items.unit })
+    .from(inventoryCountLines)
+    .leftJoin(items, eq(inventoryCountLines.itemId, items.id))
+    .where(eq(inventoryCountLines.countId, countId));
+  return resolveCountLines(rows);
 }
 
 async function findCountRowOrThrow(db: Db, id: string): Promise<InventoryCountRow> {
@@ -146,6 +185,9 @@ export async function startCount(
   }
 
   const itemIds = resolvedItems.map((item) => item.id);
+  const itemIdentityById = new Map(
+    resolvedItems.map((item) => [item.id, { itemName: item.name, unit: item.unit }]),
+  );
   const stockRows = await db.query.itemStock.findMany({
     where: (t, { inArray: inArrayOp }) => inArrayOp(t.itemId, itemIds),
   });
@@ -203,7 +245,12 @@ export async function startCount(
   });
 
   return {
-    count: toCountDto({ ...countRow, code: codeRow?.code ?? null }, lineRows, priorMovementItemIds),
+    count: toCountDto(
+      { ...countRow, code: codeRow?.code ?? null },
+      lineRows,
+      priorMovementItemIds,
+      itemIdentityById,
+    ),
   };
 }
 
@@ -249,8 +296,24 @@ export async function updateCountLine(
   ];
   await db.batch(statements as [Statement, ...Statement[]]);
 
+  const currentItem = await db.query.items.findFirst({
+    where: (t, { eq: eqOp }) => eqOp(t.id, lineRow.itemId),
+    columns: { name: true, unit: true },
+  });
+  if (!currentItem) {
+    throw notFound("No se encontró el ítem asociado a este conteo.", { itemId: lineRow.itemId });
+  }
   const priorMovementItemIds = await findItemsWithPriorMovements(db, [lineRow.itemId]);
-  return { line: toLineDto({ ...lineRow, countedQty: command.countedQty }, priorMovementItemIds) };
+  const itemIdentityById = new Map([
+    [lineRow.itemId, { itemName: currentItem.name, unit: currentItem.unit }],
+  ]);
+  return {
+    line: toLineDto(
+      { ...lineRow, countedQty: command.countedQty },
+      priorMovementItemIds,
+      itemIdentityById,
+    ),
+  };
 }
 
 /**
@@ -285,7 +348,7 @@ export async function commitCount(
     });
   }
 
-  const lineRows = await fetchLines(db, command.countId);
+  const { rows: lineRows, itemIdentityById } = await fetchLines(db, command.countId);
   const countLineIds = new Set(lineRows.map((line) => line.itemId));
   const suppliedCosts = new Map<string, number | undefined>();
   for (const suppliedLine of command.lines ?? []) {
@@ -401,7 +464,7 @@ export async function commitCount(
   const updatedPriorMovementItemIds = new Set(priorMovementItemIds);
   for (const itemId of openingItemIds) updatedPriorMovementItemIds.add(itemId);
   return {
-    count: toCountDto(updatedCountRow, lineRows, updatedPriorMovementItemIds),
+    count: toCountDto(updatedCountRow, lineRows, updatedPriorMovementItemIds, itemIdentityById),
     adjustments,
   };
 }
@@ -427,7 +490,7 @@ export async function deleteCount(
     });
   }
 
-  const lineRows = await fetchLines(db, id);
+  const { rows: lineRows, itemIdentityById } = await fetchLines(db, id);
   const now = nowIso();
   const deletedRow: InventoryCountRow = { ...countRow, deletedAt: now, updatedAt: now };
 
@@ -453,17 +516,20 @@ export async function deleteCount(
     db,
     lineRows.map((line) => line.itemId),
   );
-  return { count: toCountDto(deletedRow, lineRows, priorMovementItemIds), deletedAt: now };
+  return {
+    count: toCountDto(deletedRow, lineRows, priorMovementItemIds, itemIdentityById),
+    deletedAt: now,
+  };
 }
 
 export async function getCount(db: Db, id: string): Promise<InventoryCountDto> {
   const row = await findCountRowOrThrow(db, id);
-  const lineRows = await fetchLines(db, id);
+  const { rows: lineRows, itemIdentityById } = await fetchLines(db, id);
   const priorMovementItemIds = await findItemsWithPriorMovements(
     db,
     lineRows.map((line) => line.itemId),
   );
-  return toCountDto(row, lineRows, priorMovementItemIds);
+  return toCountDto(row, lineRows, priorMovementItemIds, itemIdentityById);
 }
 
 /** Read query for the (later) Counts screen's list — mirrors core/purchasing's listPurchases. */
@@ -484,12 +550,15 @@ export async function listCounts(
   });
 
   const countIds = rows.map((row) => row.id);
-  const lineRows =
+  const joinedLineRows =
     countIds.length > 0
-      ? await db.query.inventoryCountLines.findMany({
-          where: (t, { inArray: inArrayOp }) => inArrayOp(t.countId, countIds),
-        })
+      ? await db
+          .select({ line: inventoryCountLines, itemName: items.name, unit: items.unit })
+          .from(inventoryCountLines)
+          .leftJoin(items, eq(inventoryCountLines.itemId, items.id))
+          .where(inArray(inventoryCountLines.countId, countIds))
       : [];
+  const { rows: lineRows, itemIdentityById } = resolveCountLines(joinedLineRows);
   const linesByCount = new Map<string, InventoryCountLineRow[]>();
   for (const line of lineRows) {
     const arr = linesByCount.get(line.countId) ?? [];
@@ -504,7 +573,7 @@ export async function listCounts(
 
   return {
     counts: rows.map((row) =>
-      toCountDto(row, linesByCount.get(row.id) ?? [], priorMovementItemIds),
+      toCountDto(row, linesByCount.get(row.id) ?? [], priorMovementItemIds, itemIdentityById),
     ),
   };
 }
