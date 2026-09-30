@@ -1,8 +1,10 @@
 // Route-level smoke test for /api/items + /api/item-aliases (KOK-011). The service-level
 // atomicity/derived-row assertions live in test/catalog.test.ts (Doc 11 §3); this file only
 // proves the Hono wiring (auth/CSRF gate, status codes, body shape) end-to-end via SELF.fetch.
-import { SELF } from "cloudflare:test";
+import { env, SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
+import { createItem } from "../src/core/catalog/items.js";
+import { createDb } from "../src/db/index.js";
 
 const DEV_PASSWORD = "test-password-123";
 
@@ -29,6 +31,68 @@ describe("GET /api/items", () => {
   it("returns 401 without a session", async () => {
     const res = await SELF.fetch("https://example.com/api/items");
     expect(res.status).toBe(401);
+  });
+
+  it("returns authenticated catalog results at and above D1's 100-parameter bound", async () => {
+    const { cookie } = await login();
+    const db = createDb(env.DB);
+    const search = "KOK191 route parameter item";
+    const names: string[] = [];
+
+    for (let index = 0; index < 100; index += 1) {
+      const name = `${search} ${index.toString().padStart(3, "0")}`;
+      await createItem(
+        db,
+        {
+          name,
+          kind: "RAW_MATERIAL",
+          category: "INGREDIENT",
+          unit: "KG",
+          minStockQty: 0,
+        },
+        "OWNER_WEB",
+      );
+      names.push(name);
+    }
+
+    const getMatches = () =>
+      SELF.fetch(`https://example.com/api/items?search=${encodeURIComponent(search)}`, {
+        headers: { cookie },
+      });
+
+    const atLimitResponse = await getMatches();
+    expect(atLimitResponse.status).toBe(200);
+    const atLimit = (await atLimitResponse.json()) as {
+      items: Array<{ id: string; name: string; aliases: Array<{ id: string; alias: string }> }>;
+    };
+    expect(atLimit.items).toHaveLength(100);
+    expect(atLimit.items.map((item) => item.name)).toEqual(names);
+
+    const finalName = `${search} ${names.length.toString().padStart(3, "0")}`;
+    await createItem(
+      db,
+      {
+        name: finalName,
+        kind: "RAW_MATERIAL",
+        category: "INGREDIENT",
+        unit: "KG",
+        minStockQty: 0,
+      },
+      "OWNER_WEB",
+    );
+    names.push(finalName);
+
+    const aboveLimitResponse = await SELF.fetch("https://example.com/api/items", {
+      headers: { cookie },
+    });
+    expect(aboveLimitResponse.status).toBe(200);
+    const aboveLimit = (await aboveLimitResponse.json()) as {
+      items: Array<{ id: string; name: string; aliases: Array<{ id: string; alias: string }> }>;
+    };
+    const regressionItems = aboveLimit.items.filter((item) => item.name.startsWith(`${search} `));
+    expect(regressionItems).toHaveLength(101);
+    expect(regressionItems.map((item) => item.name)).toEqual(names);
+    expect(regressionItems.every((item) => item.aliases.length === 0)).toBe(true);
   });
 });
 

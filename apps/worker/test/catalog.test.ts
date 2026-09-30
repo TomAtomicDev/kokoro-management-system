@@ -375,6 +375,142 @@ describe("listItems", () => {
     const byNameSearch = await listItems(db, { search: "Harina" });
     expect(byNameSearch.items.map((i) => i.id)).toContain(flour.id);
   });
+
+  it("hydrates aliases and searches by alias at and above D1's 100-parameter bound", async () => {
+    const db = createDb(env.DB);
+    const aliasSearch = "kok191-parameter-alias";
+    const kinds = ["RAW_MATERIAL", "SEMI_FINISHED", "FINISHED", "PACKAGING"] as const;
+    const fixtureItems: Array<{
+      id: string;
+      name: string;
+      kind: (typeof kinds)[number];
+      category: "INGREDIENT" | "BAKERY" | "NOT_EATABLE";
+      active: boolean;
+    }> = [];
+    let firstItemAliasIds: string[] = [];
+
+    for (let index = 0; index < 100; index += 1) {
+      const kind = kinds[index % kinds.length] ?? "RAW_MATERIAL";
+      const name = `KOK191 parameter item ${index.toString().padStart(3, "0")}`;
+      const category =
+        kind === "PACKAGING" ? "NOT_EATABLE" : kind === "FINISHED" ? "BAKERY" : "INGREDIENT";
+      const unit = kind === "RAW_MATERIAL" || kind === "SEMI_FINISHED" ? "KG" : "UNIT";
+      const item = await createItem(db, { name, kind, category, unit }, ACTOR);
+      const alias = await addItemAlias(
+        db,
+        { itemId: item.id, alias: `${aliasSearch}-${index.toString().padStart(3, "0")}` },
+        ACTOR,
+      );
+      const active = index !== 1;
+      fixtureItems.push({ id: item.id, name, kind, category, active });
+
+      if (index === 0) {
+        const laterAlias = await addItemAlias(
+          db,
+          { itemId: item.id, alias: "zz-kok191-sort" },
+          ACTOR,
+        );
+        const earlierAlias = await addItemAlias(
+          db,
+          { itemId: item.id, alias: "aa-kok191-sort" },
+          ACTOR,
+        );
+        firstItemAliasIds = [earlierAlias.id, alias.id, laterAlias.id];
+      }
+      if (!active) {
+        await setItemActive(db, { id: item.id, isActive: false }, ACTOR);
+      }
+    }
+
+    const atLimit = await listItems(db, { search: aliasSearch });
+    expect(atLimit.items).toHaveLength(100);
+    expect(atLimit.items.map((item) => item.id)).toEqual(
+      fixtureItems
+        .slice(0, 100)
+        .slice()
+        .sort(
+          (left, right) =>
+            kinds.indexOf(left.kind) - kinds.indexOf(right.kind) ||
+            left.name.localeCompare(right.name),
+        )
+        .map((item) => item.id),
+    );
+
+    const filteredAtLimit = await listItems(db, {
+      search: aliasSearch,
+      kind: "RAW_MATERIAL",
+      category: "INGREDIENT",
+      isActive: true,
+    });
+    expect(
+      filteredAtLimit.items.every(
+        (item) => item.kind === "RAW_MATERIAL" && item.category === "INGREDIENT" && item.isActive,
+      ),
+    ).toBe(true);
+    expect(filteredAtLimit.items).toHaveLength(
+      fixtureItems
+        .slice(0, 100)
+        .filter(
+          (item) => item.kind === "RAW_MATERIAL" && item.category === "INGREDIENT" && item.active,
+        ).length,
+    );
+
+    const index = 100;
+    const kind = kinds[index % kinds.length] ?? "RAW_MATERIAL";
+    const name = `KOK191 parameter item ${index.toString().padStart(3, "0")}`;
+    const category =
+      kind === "PACKAGING" ? "NOT_EATABLE" : kind === "FINISHED" ? "BAKERY" : "INGREDIENT";
+    const unit = kind === "RAW_MATERIAL" || kind === "SEMI_FINISHED" ? "KG" : "UNIT";
+    const finalItem = await createItem(db, { name, kind, category, unit }, ACTOR);
+    await addItemAlias(
+      db,
+      { itemId: finalItem.id, alias: `${aliasSearch}-${index.toString().padStart(3, "0")}` },
+      ACTOR,
+    );
+    fixtureItems.push({ id: finalItem.id, name, kind, category, active: true });
+
+    const aboveLimit = await listItems(db, { search: aliasSearch });
+    expect(aboveLimit.items).toHaveLength(101);
+    expect(aboveLimit.items.map((item) => item.id)).toEqual(
+      fixtureItems
+        .slice()
+        .sort(
+          (left, right) =>
+            kinds.indexOf(left.kind) - kinds.indexOf(right.kind) ||
+            left.name.localeCompare(right.name),
+        )
+        .map((item) => item.id),
+    );
+
+    const firstItem = aboveLimit.items.find((item) => item.id === fixtureItems[0]?.id);
+    expect(firstItem).toBeDefined();
+    expect(firstItem?.aliases.map((itemAlias) => itemAlias.id)).toEqual(firstItemAliasIds);
+    expect(firstItem?.aliases.map((itemAlias) => itemAlias.alias)).toEqual([
+      "aa-kok191-sort",
+      `${aliasSearch}-000`,
+      "zz-kok191-sort",
+    ]);
+    expect(Object.keys(firstItem ?? {}).sort()).toEqual(
+      [
+        "aliases",
+        "category",
+        "createdAt",
+        "id",
+        "isActive",
+        "isUnmetered",
+        "kind",
+        "minStockQty",
+        "name",
+        "notes",
+        "replacementCostMc",
+        "replacementCostUpdatedAt",
+        "salePriceMc",
+        "unit",
+        "updatedAt",
+        "wacMc",
+      ].sort(),
+    );
+  });
 });
 
 describe("mergeItems", () => {
