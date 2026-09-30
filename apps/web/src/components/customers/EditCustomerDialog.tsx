@@ -46,11 +46,12 @@ export function EditCustomerDialog({ open, onOpenChange, customer }: EditCustome
       return;
     }
 
+    setError(null);
     try {
       await updateMutation.mutateAsync({ id: customer.id, ...parsed });
       onOpenChange(false);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : customersLabels.errors.generic);
+      if (!(err instanceof ApiError)) setError(customersLabels.errors.generic);
     }
   }
 

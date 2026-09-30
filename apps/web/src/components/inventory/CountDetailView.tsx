@@ -157,7 +157,7 @@ export function CountDetailView({ countId }: CountDetailViewProps) {
       await commitMutation.mutateAsync(count.id);
       setConfirmOpen(false);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : inventoryLabels.errors.generic);
+      if (!(err instanceof ApiError)) setError(inventoryLabels.errors.generic);
     }
   }
 

@@ -36,6 +36,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { ACCOUNTS_KEY } from "@/features/finance/api";
 import { api } from "@/lib/api";
+import { FORM_SAVE_ERROR_META } from "@/lib/form-save-errors";
 
 const SALES_ROOT_KEY = ["sales"] as const;
 const RECEIVABLES_KEY = [...SALES_ROOT_KEY, "receivables"] as const;
@@ -82,6 +83,7 @@ function useInvalidateSales() {
 export function useRecordSale() {
   const invalidate = useInvalidateSales();
   return useMutation({
+    meta: FORM_SAVE_ERROR_META,
     mutationFn: (command: RecordSaleCommand) => api.post<RecordSaleResult>("/sales", command),
     onSuccess: invalidate,
   });
@@ -95,6 +97,7 @@ export function useRecordSale() {
 export function useUpdateSale(id: string) {
   const invalidate = useInvalidateSales();
   return useMutation({
+    meta: FORM_SAVE_ERROR_META,
     mutationFn: (command: UpdateSaleCommand) =>
       api.patch<UpdateSaleResult>(`/sales/${id}`, command),
     onSuccess: invalidate,
@@ -143,6 +146,7 @@ export function useCollectPayment() {
   const invalidateSales = useInvalidateSales();
   const queryClient = useQueryClient();
   return useMutation({
+    meta: FORM_SAVE_ERROR_META,
     mutationFn: ({ saleId, ...command }: CollectPaymentCommand & { saleId: string }) =>
       api.post<CollectPaymentResult>(`/sales/${saleId}/collect-payment`, command),
     onSuccess: () => {

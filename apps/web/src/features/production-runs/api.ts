@@ -28,6 +28,7 @@ import type {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
+import { FORM_SAVE_ERROR_META } from "@/lib/form-save-errors";
 
 const PRODUCTION_RUNS_ROOT_KEY = ["production-runs"] as const;
 
@@ -75,6 +76,7 @@ function useInvalidateProductionRuns() {
 export function useRecordProductionRun() {
   const invalidate = useInvalidateProductionRuns();
   return useMutation({
+    meta: FORM_SAVE_ERROR_META,
     mutationFn: (command: RecordProductionRunCommand) =>
       api.post<RecordProductionRunResult>("/production-runs", command),
     onSuccess: invalidate,
@@ -86,6 +88,7 @@ export function useRecordProductionRun() {
 export function useUpdateProductionRun(id: string) {
   const invalidate = useInvalidateProductionRuns();
   return useMutation({
+    meta: FORM_SAVE_ERROR_META,
     mutationFn: (command: UpdateProductionRunCommand) =>
       api.patch<UpdateProductionRunResult>(`/production-runs/${id}`, command),
     onSuccess: invalidate,

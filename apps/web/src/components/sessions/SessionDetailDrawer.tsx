@@ -71,7 +71,7 @@ export function SessionDetailDrawer({
 
   const deleteMutation = useDeleteSession(sessionId ?? "");
   const restoreMutation = useRestoreSession(pendingRestoreId ?? "");
-  const closeMutation = useUpdateSession(sessionId ?? "");
+  const closeMutation = useUpdateSession(sessionId ?? "", { reportFormSaveError: false });
 
   const accountNameById = useMemo(() => {
     const map = new Map<string, string>();

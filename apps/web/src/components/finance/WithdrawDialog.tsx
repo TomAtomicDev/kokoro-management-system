@@ -44,6 +44,7 @@ export function WithdrawDialog({ open, onOpenChange, accounts }: WithdrawDialogP
   }, [open]);
 
   async function handleSubmit() {
+    setError(null);
     const amountCentavos = parseDecimalToInt(amount, 2);
     if (amountCentavos === null || amountCentavos <= 0) {
       setError(financeLabels.errors.invalidAmount);
@@ -64,7 +65,7 @@ export function WithdrawDialog({ open, onOpenChange, accounts }: WithdrawDialogP
       await mutation.mutateAsync(parsed.data);
       onOpenChange(false);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : financeLabels.errors.generic);
+      if (!(err instanceof ApiError)) setError(financeLabels.errors.generic);
     }
   }
 

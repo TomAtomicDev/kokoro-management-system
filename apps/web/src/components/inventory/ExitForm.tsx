@@ -156,10 +156,6 @@ export function exitFormInitialState(
   };
 }
 
-function errorMessage(err: unknown): string {
-  return err instanceof ApiError ? err.message : inventoryLabels.errors.generic;
-}
-
 export function hasActiveAssemblyDefinition(
   definitions: readonly { isActive: boolean; isDefault: boolean }[] | undefined,
 ): boolean {
@@ -291,7 +287,11 @@ export function ExitForm({ open, onOpenChange, exit }: ExitFormProps) {
 
   const disabled = isEditMode ? updateReplay.isPending : createReplay.isPending;
   const activeReplay = isEditMode ? updateReplay : createReplay;
-  const displayedError = error ?? (activeReplay.error ? errorMessage(activeReplay.error) : null);
+  const displayedError =
+    error ??
+    (activeReplay.error && !(activeReplay.error instanceof ApiError)
+      ? inventoryLabels.errors.generic
+      : null);
 
   async function handleSubmit() {
     setError(null);

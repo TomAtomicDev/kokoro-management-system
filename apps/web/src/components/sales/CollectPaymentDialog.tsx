@@ -81,7 +81,7 @@ export function CollectPaymentDialog({
       await collectMutation.mutateAsync({ saleId: sale.id, ...parsed.data });
       onOpenChange(false);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : salesLabels.errors.generic);
+      if (!(err instanceof ApiError)) setError(salesLabels.errors.generic);
     }
   }
 

@@ -470,11 +470,9 @@ function AssemblyForm({ sessionId, assemblyId }: { sessionId?: string; assemblyI
   const mutationError = isEditMode ? editReplay.error : createReplay.error;
   const displayError =
     error ??
-    (mutationError instanceof ApiError
-      ? mutationError.message
-      : mutationError
-        ? assembliesLabels.errors.generic
-        : null);
+    (mutationError && !(mutationError instanceof ApiError)
+      ? assembliesLabels.errors.generic
+      : null);
 
   const pageTitle = isEditMode ? assembliesLabels.editTitle : assembliesLabels.recordTitle;
 

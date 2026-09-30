@@ -125,7 +125,7 @@ export function ConfirmOrderDialog({ order, open, onOpenChange }: ConfirmOrderDi
       await confirmMutation.mutateAsync(parsed.data);
       onOpenChange(false);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : ordersLabels.errors.generic);
+      if (!(err instanceof ApiError)) setError(ordersLabels.errors.generic);
     }
   }
 

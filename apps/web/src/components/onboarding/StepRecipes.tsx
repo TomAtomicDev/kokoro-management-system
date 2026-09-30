@@ -105,7 +105,7 @@ export interface StepRecipesProps {
 
 export function StepRecipes({ items, catalogCommitted, onContinue }: StepRecipesProps) {
   const [error, setError] = useState<string | null>(null);
-  const mutation = useRecordRecipe();
+  const mutation = useRecordRecipe({ suppressConflictAlert: true });
   const itemsByName = useMemo(
     () => new Map(items.map((item) => [item.name, item] as const)),
     [items],
@@ -146,7 +146,7 @@ export function StepRecipes({ items, catalogCommitted, onContinue }: StepRecipes
       }
       onContinue();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : onboardingLabels.errors.generic);
+      if (!(err instanceof ApiError)) setError(onboardingLabels.errors.generic);
     }
   }
 

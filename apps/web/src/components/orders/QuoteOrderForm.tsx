@@ -217,7 +217,7 @@ export function QuoteOrderForm() {
       unsavedChangesGuard.markClean();
       void navigate({ to: "/orders" });
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : ordersLabels.errors.generic);
+      if (!(err instanceof ApiError)) setError(ordersLabels.errors.generic);
     }
   }
 

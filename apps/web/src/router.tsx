@@ -18,6 +18,7 @@ import {
 import { getDefaultDateRange } from "@/components/common/DateRangeFilter";
 import type { EventTableSortDirection } from "@/components/data-table/EventTable";
 import { AppShell } from "@/components/layout/AppShell";
+import { FormSaveErrorAlertProvider } from "@/components/ui/form-save-error-alert";
 import { GlobalErrorDialogProvider } from "@/components/ui/global-error-dialog";
 import { fetchSession, sessionQueryKey } from "@/features/auth/api";
 import { queryClient } from "@/lib/query-client";
@@ -130,7 +131,9 @@ function dateRangeDefaults<T extends { fromDate?: string; toDate?: string }>(
 function RootLayout() {
   return (
     <GlobalErrorDialogProvider>
-      <Outlet />
+      <FormSaveErrorAlertProvider>
+        <Outlet />
+      </FormSaveErrorAlertProvider>
     </GlobalErrorDialogProvider>
   );
 }

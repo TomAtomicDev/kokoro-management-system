@@ -110,6 +110,7 @@ export function CreateItemDialog({
       setError(catalogLabels.errors[parsed.code]);
       return;
     }
+    setError(null);
     const hasOpeningStock = allowOpeningStock && openingStock.enabled && !values.isUnmetered;
     const openingQty = hasOpeningStock ? parseDecimalToInt(openingStock.qty, 3) : null;
     const openingUnitCost = hasOpeningStock ? parseCostRateInput(openingStock.unitCost) : null;
@@ -133,7 +134,7 @@ export function CreateItemDialog({
       onCreated?.(created);
       onOpenChange(false);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : catalogLabels.errors.generic);
+      if (!(err instanceof ApiError)) setError(catalogLabels.errors.generic);
     }
   }
 

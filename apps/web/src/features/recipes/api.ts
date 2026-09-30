@@ -21,6 +21,7 @@ import type {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
+import { FORM_SAVE_ERROR_META } from "@/lib/form-save-errors";
 
 const RECIPES_ROOT_KEY = ["recipes"] as const;
 
@@ -60,9 +61,12 @@ function useInvalidateRecipes() {
   return () => queryClient.invalidateQueries({ queryKey: RECIPES_ROOT_KEY });
 }
 
-export function useRecordRecipe() {
+export function useRecordRecipe(options: { suppressConflictAlert?: boolean } = {}) {
   const invalidate = useInvalidateRecipes();
   return useMutation({
+    meta: options.suppressConflictAlert
+      ? { ...FORM_SAVE_ERROR_META, suppressConflictAlert: true }
+      : FORM_SAVE_ERROR_META,
     mutationFn: (command: RecordRecipeCommand) => api.post<RecordRecipeResult>("/recipes", command),
     onSuccess: invalidate,
   });
@@ -71,6 +75,7 @@ export function useRecordRecipe() {
 export function useUpdateRecipe(id: string) {
   const invalidate = useInvalidateRecipes();
   return useMutation({
+    meta: FORM_SAVE_ERROR_META,
     mutationFn: (command: UpdateRecipeCommand) =>
       api.patch<UpdateRecipeResult>(`/recipes/${id}`, command),
     onSuccess: invalidate,

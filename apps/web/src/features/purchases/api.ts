@@ -24,6 +24,7 @@ import type {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { ApiError, api, asNetworkApiError } from "@/lib/api";
+import { FORM_SAVE_ERROR_META } from "@/lib/form-save-errors";
 
 const PURCHASES_ROOT_KEY = ["purchases"] as const;
 
@@ -68,6 +69,7 @@ function useInvalidatePurchases() {
 export function useRecordPurchase() {
   const invalidate = useInvalidatePurchases();
   return useMutation({
+    meta: FORM_SAVE_ERROR_META,
     mutationFn: (command: RecordPurchaseCommand) =>
       api.post<RecordPurchaseResult>("/purchases", command),
     onSuccess: invalidate,
@@ -86,6 +88,7 @@ export function useRecordPurchase() {
 export function useUpdatePurchase(id: string) {
   const invalidate = useInvalidatePurchases();
   return useMutation({
+    meta: FORM_SAVE_ERROR_META,
     mutationFn: (command: UpdatePurchaseCommand) =>
       api.patch<UpdatePurchaseResult>(`/purchases/${id}`, command),
     onSuccess: invalidate,

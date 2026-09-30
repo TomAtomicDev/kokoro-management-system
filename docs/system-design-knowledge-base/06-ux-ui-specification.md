@@ -189,6 +189,7 @@ a scarce semantic accent (≤ ~5-8% of any screen), never decoration.** Full rat
 | `Calculator` | topbar calculator: two-line display, thumb-sized keypad, copy button; built on the existing dialog primitive, no new dependency (D-10) |
 | `RecipeTimer` | `mm:ss` timer started from a recipe, displayed in the topbar; survives navigation and reload, alarms at zero. No schema change — the recipe's estimated minutes only supply a suggested value |
 | `OfflineNotice` | explicit "No hay conexión a internet" dialog when an API call fails for connectivity. The PWA shell is online-only by decision (ADR-020), so this replaces a silent failure — it is the whole user-facing surface of that decision |
+| `FormSaveErrorAlert` | persistent, manually dismissible floating alert for opted-in create/update form API failures; renders server `message_es` above dialogs and pinned form actions. Query failures, connectivity errors (which retain `OfflineNotice`), 401 redirects and expected replay-confirmation refusals are excluded |
 | `AlertsPanel` | bell dropdown: low stock, price health, negative stock, stale orders |
 | `KardexView` | per-item movement table with running balance + source-event links |
 | `CalcTrace` | popover explaining a derived number (formula + inputs) — principle 3 |

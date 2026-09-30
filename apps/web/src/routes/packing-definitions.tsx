@@ -226,12 +226,11 @@ function AssemblyDefinitionForm({
     const mutation = isEdit ? updateMutation : createMutation;
     mutation.mutate(parsed.data, {
       onSuccess: () => onOpenChange(false),
-      onError: (mutationError) =>
-        setError(
-          mutationError instanceof ApiError
-            ? mutationError.message
-            : assemblyDefinitionsLabels.errors.generic,
-        ),
+      onError: (mutationError) => {
+        if (!(mutationError instanceof ApiError)) {
+          setError(assemblyDefinitionsLabels.errors.generic);
+        }
+      },
     });
   }
 

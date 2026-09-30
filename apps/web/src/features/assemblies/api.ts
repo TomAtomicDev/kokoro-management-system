@@ -18,6 +18,7 @@ import type {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
+import { FORM_SAVE_ERROR_META } from "@/lib/form-save-errors";
 
 const ASSEMBLIES_ROOT_KEY = ["assemblies"] as const;
 
@@ -68,6 +69,7 @@ function useInvalidateAssemblyLists() {
 export function useRecordAssembly() {
   const invalidate = useInvalidateAssemblies();
   return useMutation({
+    meta: FORM_SAVE_ERROR_META,
     mutationFn: (command: RecordAssemblyCommand) =>
       api.post<RecordAssemblyResult>("/assemblies", command),
     onSuccess: invalidate,
@@ -77,6 +79,7 @@ export function useRecordAssembly() {
 export function useUpdateAssembly(id: string) {
   const invalidate = useInvalidateAssemblies();
   return useMutation({
+    meta: FORM_SAVE_ERROR_META,
     mutationFn: (command: UpdateAssemblyCommand) =>
       api.patch<UpdateAssemblyResult>(`/assemblies/${id}`, command),
     onSuccess: invalidate,

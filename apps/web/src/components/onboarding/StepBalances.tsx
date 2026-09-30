@@ -95,7 +95,7 @@ export function StepBalances({ onDone, onSkip, readOnly = false }: StepBalancesP
       await mutation.mutateAsync({ bankOpening, cashOpening });
       onDone();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : onboardingLabels.errors.generic);
+      if (!(err instanceof ApiError)) setError(onboardingLabels.errors.generic);
     }
   }
 
