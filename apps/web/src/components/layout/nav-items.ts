@@ -1,6 +1,7 @@
 import {
   BarChart3,
   Bot,
+  CircleDollarSign,
   ClipboardList,
   Clock,
   Factory,
@@ -47,6 +48,7 @@ export type AppPath =
   | "/inventory/counts/$countId"
   | "/sessions"
   | "/finance"
+  | "/receivables"
   | "/price-health"
   | "/reports"
   | "/assistant"
@@ -92,6 +94,12 @@ export const primaryNav: NavEntry[] = [
   { kind: "link", label: navLabels.sesiones, to: "/sessions", icon: Clock },
   { kind: "divider", label: navLabels.sectionDinero },
   { kind: "link", label: navLabels.finanzas, to: "/finance", icon: Wallet },
+  {
+    kind: "link",
+    label: navLabels.deudasPorCobrar,
+    to: "/receivables",
+    icon: CircleDollarSign,
+  },
   { kind: "divider", label: navLabels.sectionAnalisis },
   { kind: "link", label: navLabels.preciosYMargenes, to: "/price-health", icon: TrendingUp },
   { kind: "link", label: navLabels.reportes, to: "/reports", icon: BarChart3 },

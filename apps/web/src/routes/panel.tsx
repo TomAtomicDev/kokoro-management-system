@@ -85,7 +85,7 @@ export function PanelRoute() {
         <StatCard
           label={dashboardLabels.receivablesTotal}
           value={receivablesValue}
-          href="/finance"
+          href="/receivables"
         />
       </div>
 

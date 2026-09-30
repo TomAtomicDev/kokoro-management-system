@@ -7,9 +7,11 @@ import { useQuery } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
 
+export const DASHBOARD_SUMMARY_KEY = ["dashboard", "summary"] as const;
+
 export function useDashboardSummary() {
   return useQuery({
-    queryKey: ["dashboard", "summary"],
+    queryKey: DASHBOARD_SUMMARY_KEY,
     queryFn: () => api.get<DashboardSummaryDto>("/dashboard/summary"),
   });
 }
