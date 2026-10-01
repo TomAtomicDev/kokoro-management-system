@@ -16,6 +16,7 @@ function purchase(overrides: Partial<PurchaseDto> = {}): PurchaseDto {
     businessDate: "2026-07-01",
     supplierName: "Proveedor Uno",
     sessionId: null,
+    customOrderId: null,
     accountId: "account-1",
     total: 1500,
     receiptPhotoKey: "receipts/abc.jpg",
@@ -37,6 +38,7 @@ describe("purchaseToFormState", () => {
 
     expect(state.supplierName).toBe("Proveedor Uno");
     expect(state.accountId).toBe("account-1");
+    expect(state.customOrderId).toBeNull();
     expect(state.businessDate).toBe("2026-07-01");
     expect(state.notes).toBe("Compra semanal");
     expect(state.photoKey).toBe("receipts/abc.jpg");
@@ -70,5 +72,11 @@ describe("purchaseToFormState", () => {
     const state = purchaseToFormState(purchase({ receiptPhotoKey: null }));
 
     expect(state.photoKey).toBeNull();
+  });
+
+  it("prefills the fixed order association when editing a linked purchase", () => {
+    const state = purchaseToFormState(purchase({ customOrderId: "order-1" }));
+
+    expect(state.customOrderId).toBe("order-1");
   });
 });

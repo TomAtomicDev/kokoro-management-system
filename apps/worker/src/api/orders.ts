@@ -19,11 +19,13 @@ import {
   listOrdersFiltersSchema,
   orderImpactRequestSchema,
   quoteOrderCommandSchema,
+  recordOrderTransactionCommandSchema,
   resolveOrderLineCommandSchema,
   undoDeliverOrderCommandSchema,
 } from "@kokoro/shared";
 import { Hono } from "hono";
 
+import { recordTransaction } from "../core/finance/index.js";
 import {
   cancelOrder,
   confirmOrder,
@@ -66,6 +68,12 @@ export const ordersRoute = new Hono<{ Bindings: Env; Variables: Variables }>()
   .get("/orders/:id", async (c) => {
     const db = createDb(c.env.DB);
     return c.json(await getOrder(db, c.req.param("id")));
+  })
+  .post("/orders/:id/transactions", async (c) => {
+    const db = createDb(c.env.DB);
+    const body = recordOrderTransactionCommandSchema.parse(await c.req.json());
+    const command = { ...body, customOrderId: c.req.param("id") };
+    return c.json(await recordTransaction(db, command, ACTOR), 201);
   })
   .post("/orders/:id/confirm", async (c) => {
     const db = createDb(c.env.DB);

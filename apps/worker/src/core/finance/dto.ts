@@ -4,6 +4,7 @@
 import type {
   FinancialAccountDto,
   FinancialTransactionDto,
+  FinancialTransactionOrderDto,
   FinancialTransactionSourceEventDto,
 } from "@kokoro/shared";
 
@@ -26,6 +27,7 @@ export function toAccountDto(row: FinancialAccountRow): FinancialAccountDto {
 export function toTransactionDto(
   row: FinancialTransactionRow,
   sourceEvent?: FinancialTransactionSourceEventDto,
+  relatedOrder?: FinancialTransactionOrderDto,
 ): FinancialTransactionDto {
   const dto: FinancialTransactionDto = {
     id: row.id,
@@ -38,11 +40,16 @@ export function toTransactionDto(
     counterpartTxId: row.counterpartTxId,
     sourceEventType: row.sourceEventType,
     sourceEventId: row.sourceEventId,
+    customOrderId: row.customOrderId,
     code: row.code,
     description: row.description,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
 
-  return sourceEvent === undefined ? dto : { ...dto, sourceEvent };
+  return {
+    ...dto,
+    ...(sourceEvent === undefined ? {} : { sourceEvent }),
+    ...(relatedOrder === undefined ? {} : { relatedOrder }),
+  };
 }

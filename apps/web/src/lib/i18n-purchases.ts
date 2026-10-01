@@ -29,6 +29,8 @@ export const purchasesLabels = {
   fieldSupplier: "Proveedor",
   supplierPlaceholder: "Opcional",
   fieldAccount: "Cuenta",
+  fieldOrder: "Pedido relacionado (opcional)",
+  orderPlaceholder: "Buscar por código, cliente o descripción",
   fieldDate: "Fecha",
   fieldNotes: "Notas",
   charactersRemaining: (count: number) => `${count} caracteres restantes.`,

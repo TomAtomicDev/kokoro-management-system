@@ -48,6 +48,8 @@ export const financeLabels = {
   columnAmount: "Monto",
   columnDescription: "Descripción",
   columnSource: "Origen",
+  columnOrder: "Pedido",
+  relatedOrderWithoutCode: "Pedido relacionado",
 
   sourceEventTypeLabels: {
     purchase: "Compra",
@@ -72,6 +74,7 @@ export const financeLabels = {
     OPERATING_EXPENSE: "Gasto operativo",
     EQUIPMENT: "Equipamiento",
     DEPOSIT_REFUND: "Devolución de anticipo",
+    ORDER_REFUND: "Devolución de pedido",
     OWNER_WITHDRAWAL: "Retiro personal",
     TRANSFER: "Transferencia",
     OTHER_EXPENSE: "Otro gasto",

@@ -134,6 +134,9 @@ test data at the coordinated cutover and verify catalog/order receivables exactl
 with matching unfiltered totals across SC-21, Finance, Panel, alerts and snapshots; label
 the daily-snapshot/liability projection boundary explicitly. Test >500 orders and bounded
 set-based lookup, partial collection and later zero-debt removal. Playwright covers the
+KOK-204 migration-0026 fixture checks `PRAGMA foreign_key_check`, order/purchase indexes, manual
+ING/GTO codes and transfer pairing; its order-scoped create route takes the association from the
+path, and Finance edits preserve that association. Playwright covers the
 dedicated `/orders/:id` page, original `?open=` bookmarks, income/expense/refund buttons
 whose forms submit the page's PED ID without a picker, appearance of each row in Finance,
 and responsive history/finance navigation. The earlier payment-coupled Phase 3.5 assertions

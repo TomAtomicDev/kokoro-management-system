@@ -176,6 +176,13 @@
       "when": 1787262000000,
       "tag": "0025_recipe_less_production",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1790834877559,
+      "tag": "0026_independent_order_finance",
+      "breakpoints": true
     }
   ]
 }
