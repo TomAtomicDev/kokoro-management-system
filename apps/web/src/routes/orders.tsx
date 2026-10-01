@@ -8,10 +8,11 @@ import { OrderDetailDrawer } from "@/components/orders/OrderDetailDrawer";
 import { QuoteOrderForm } from "@/components/orders/QuoteOrderForm";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { useOrders } from "@/features/orders/api";
+import { useOrder, useOrders } from "@/features/orders/api";
 import { type OrdersHistoryFilter, ordersLabels } from "@/lib/i18n-orders";
 
 const routeApi = getRouteApi("/_authenticated/orders");
+const editRouteApi = getRouteApi("/_authenticated/orders/$orderId/edit");
 
 const ACTIVE_ORDER_STATUSES: CustomOrderStatus[] = [
   "QUOTING",
@@ -23,6 +24,35 @@ const TERMINAL_ORDER_STATUSES: CustomOrderStatus[] = ["DELIVERED", "CANCELLED"];
 
 export function OrderRecordRoute() {
   return <QuoteOrderForm />;
+}
+
+export function OrderEditRoute() {
+  const { orderId } = editRouteApi.useParams();
+  const orderQuery = useOrder(orderId);
+  if (orderQuery.isLoading) {
+    return <p className="text-muted-foreground text-sm">{ordersLabels.loading}</p>;
+  }
+  if (orderQuery.isError || !orderQuery.data) {
+    return (
+      <div className="flex flex-col gap-3">
+        <p className="text-negative text-sm">{ordersLabels.loadError}</p>
+        <Button type="button" variant="outline" onClick={() => void orderQuery.refetch()}>
+          {ordersLabels.retry}
+        </Button>
+      </div>
+    );
+  }
+  if (orderQuery.data.status === "DELIVERED" || orderQuery.data.status === "CANCELLED") {
+    return (
+      <div className="flex flex-col gap-3">
+        <p className="text-muted-foreground text-sm">{ordersLabels.terminalOrderNotEditable}</p>
+        <Link to="/orders" className={buttonVariants({ variant: "outline" })}>
+          {ordersLabels.backToOrders}
+        </Link>
+      </div>
+    );
+  }
+  return <QuoteOrderForm order={orderQuery.data} />;
 }
 
 export function OrdersRoute() {

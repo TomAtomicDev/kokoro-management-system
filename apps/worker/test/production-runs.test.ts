@@ -1055,7 +1055,7 @@ describe("updateProductionRun (R-1)", () => {
       { customerId: customer.id, description: "To be cancelled" },
       ACTOR,
     );
-    await cancelOrder(db, cancellable.id, { occurredAt: NOW, businessDate: BUSINESS_DATE }, ACTOR);
+    await cancelOrder(db, cancellable.id, {}, ACTOR);
 
     await expect(
       recordProductionRun(
@@ -1111,12 +1111,7 @@ describe("updateProductionRun (R-1)", () => {
 
     // KOK-137: the link's own order later becoming CANCELLED does not retroactively break an
     // edit that leaves the link untouched — it is historical fact, not something being re-asserted.
-    await cancelOrder(
-      db,
-      linkableThenCancelled.id,
-      { occurredAt: NOW, businessDate: BUSINESS_DATE },
-      ACTOR,
-    );
+    await cancelOrder(db, linkableThenCancelled.id, {}, ACTOR);
     const untouched = await updateProductionRun(
       db,
       created.productionRun.id,

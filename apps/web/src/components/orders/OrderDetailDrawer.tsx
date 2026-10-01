@@ -1,26 +1,21 @@
-// Detail drawer for a single order (Doc 06 §4 DetailDrawer contract, Doc 07 SC-04). Full lifecycle
-// actions live here: Confirmar/Iniciar producción/Marcar listo/Entregar/Cancelar, each opening its
-// own small dialog (mirrors SalesTable's inline "Cobrar" + SaleDetailDrawer's edit/delete split).
-//
-// Unresolved (free-text) lines are resolved inline via `resolveOrderLine` (KOK-034, the narrow
-// exception to "no generic update order" — packages/shared/src/orders.ts's header) — an ItemPicker
-// appears next to any line missing an `itemId`, and "Entregar" stays disabled until every line has
-// one, per the KOK-033 dev doc's explicit callout of what this drawer must gate.
+// Detail drawer for one order (Doc 06 §4, Doc 07 SC-04). Agreement edits navigate to the shared
+// full-page pre-delivery form; lifecycle actions remain guarded commands. Free-text order lines are
+// edited/resolved through that same update command, and delivery is unavailable until all lines link
+// to FINISHED items.
 //
 // The order-profitability panel (agreed total − order-linked run costs) sums `totalCost` across
 // every ProductionRun linked via `custom_order_id` (O-4) — one extra list fetch, no N+1.
 
 import type {
   CustomOrderStatus,
-  ItemDto,
   OrderDto,
   OrderTransitionResult,
   UndoDeliverOrderCommand,
 } from "@kokoro/shared";
 import { formatMoney, toCentavos } from "@kokoro/shared";
+import { useNavigate } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 
-import { ItemPicker } from "@/components/catalog/ItemPicker";
 import { DetailDrawer } from "@/components/data-table/DetailDrawer";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -31,7 +26,6 @@ import { useItemsQuery } from "@/features/catalog/api";
 import {
   useMarkOrderReady,
   useOrder,
-  useResolveOrderLine,
   useStartOrderProduction,
   useUndoDeliverOrder,
   useUndoMarkOrderReady,
@@ -46,7 +40,7 @@ import { CancelOrderDialog } from "./CancelOrderDialog";
 import { ConfirmOrderDialog } from "./ConfirmOrderDialog";
 import { DeliverOrderDialog } from "./DeliverOrderDialog";
 
-/** Cancel is legal from every non-terminal status (same set `cancelOrder` accepts). */
+/** Cancel is legal from every pre-delivery status. */
 const CANCELLABLE_STATUSES: readonly CustomOrderStatus[] = [
   "QUOTING",
   "CONFIRMED",
@@ -60,54 +54,8 @@ export interface OrderDetailDrawerProps {
   onOpenChange: (open: boolean) => void;
 }
 
-function UnresolvedLineRow({
-  orderId,
-  lineId,
-  description,
-}: {
-  orderId: string;
-  lineId: string;
-  description: string | null;
-}) {
-  const [itemId, setItemId] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const resolveMutation = useResolveOrderLine(orderId);
-
-  async function handleResolve() {
-    if (!itemId) return;
-    setError(null);
-    try {
-      await resolveMutation.mutateAsync({ lineId, itemId });
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : ordersLabels.errors.generic);
-    }
-  }
-
-  return (
-    <li className="flex flex-col gap-2 rounded-md border border-border bg-warning-bg px-3 py-2">
-      <div className="flex items-center justify-between">
-        <span className="font-medium text-foreground">{description ?? ordersLabels.lineItem}</span>
-        <Badge variant="warning">{ordersLabels.lineUnresolvedBadge}</Badge>
-      </div>
-      <div className="flex items-center gap-2">
-        <div className="flex-1">
-          <ItemPicker value={itemId} onChange={setItemId} kindFilter="FINISHED" />
-        </div>
-        <Button
-          type="button"
-          size="sm"
-          onClick={handleResolve}
-          disabled={!itemId || resolveMutation.isPending}
-        >
-          {ordersLabels.lineResolveSubmit}
-        </Button>
-      </div>
-      {error ? <p className="text-negative text-xs">{error}</p> : null}
-    </li>
-  );
-}
-
 export function OrderDetailDrawer({ orderId, open, onOpenChange }: OrderDetailDrawerProps) {
+  const navigate = useNavigate();
   const orderQuery = useOrder(orderId ?? undefined);
   const itemsQuery = useItemsQuery({ isActive: true });
   const runsQuery = useProductionRuns(orderId ? { customOrderId: orderId } : {});
@@ -132,9 +80,9 @@ export function OrderDetailDrawer({ orderId, open, onOpenChange }: OrderDetailDr
   const [undoReadyConfirmOpen, setUndoReadyConfirmOpen] = useState(false);
   const [undoDeliverConfirmOpen, setUndoDeliverConfirmOpen] = useState(false);
 
-  const itemById = useMemo(() => {
-    const map = new Map<string, ItemDto>();
-    for (const item of itemsQuery.data?.items ?? []) map.set(item.id, item);
+  const itemNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const item of itemsQuery.data?.items ?? []) map.set(item.id, item.name);
     return map;
   }, [itemsQuery.data]);
 
@@ -185,6 +133,18 @@ export function OrderDetailDrawer({ orderId, open, onOpenChange }: OrderDetailDr
         ) : (
           <div className="flex flex-col gap-5 text-sm">
             <div className="flex flex-wrap items-center justify-end gap-2">
+              {CANCELLABLE_STATUSES.includes(order.status) ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    void navigate({ to: "/orders/$orderId/edit", params: { orderId: order.id } });
+                  }}
+                >
+                  {ordersLabels.actionEdit}
+                </Button>
+              ) : null}
               {order.status === "QUOTING" ? (
                 <Button type="button" size="sm" onClick={() => setConfirmOpen(true)}>
                   {ordersLabels.actionConfirm}
@@ -304,41 +264,11 @@ export function OrderDetailDrawer({ orderId, open, onOpenChange }: OrderDetailDr
                 </span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">{ordersLabels.columnDepositPaid}</span>
+                <span className="text-muted-foreground">{ordersLabels.fieldAdditionalCharge}</span>
                 <span className="numeric-cell font-medium text-foreground">
-                  {formatMoney(toCentavos(order.depositPaid))}
+                  {formatMoney(toCentavos(order.additionalCharge))}
                 </span>
               </div>
-              {order.balanceDue !== null ? (
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">
-                    {ordersLabels.columnExpectedBalance}
-                  </span>
-                  <span className="numeric-cell font-medium text-foreground">
-                    {formatMoney(toCentavos(order.balanceDue))}
-                  </span>
-                </div>
-              ) : null}
-              {order.salePaymentStatus !== null ? (
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">
-                    {ordersLabels.columnSalePaymentStatus}
-                  </span>
-                  <span className="font-medium text-foreground">
-                    {ordersLabels.paymentStatusLabels[order.salePaymentStatus]}
-                  </span>
-                </div>
-              ) : null}
-              {order.outstandingAmount !== null ? (
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">
-                    {ordersLabels.columnOutstandingAmount}
-                  </span>
-                  <span className="numeric-cell font-medium text-foreground">
-                    {formatMoney(toCentavos(order.outstandingAmount))}
-                  </span>
-                </div>
-              ) : null}
               <div className="flex items-center justify-between">
                 <span className="text-muted-foreground">{ordersLabels.columnDeliveryDate}</span>
                 <span className="font-medium text-foreground">
@@ -363,19 +293,22 @@ export function OrderDetailDrawer({ orderId, open, onOpenChange }: OrderDetailDr
                       className="flex items-center justify-between rounded-md border border-border px-3 py-2"
                     >
                       <span className="font-medium text-foreground">
-                        {itemById.get(line.itemId)?.name ?? line.itemId}
+                        {itemNameById.get(line.itemId) ?? line.itemId}
                       </span>
                       <span className="numeric-cell text-muted-foreground text-xs">
                         {line.lineTotal !== null ? formatMoney(toCentavos(line.lineTotal)) : "—"}
                       </span>
                     </li>
                   ) : (
-                    <UnresolvedLineRow
+                    <li
                       key={line.id}
-                      orderId={order.id}
-                      lineId={line.id}
-                      description={line.description}
-                    />
+                      className="flex items-center justify-between rounded-md border border-warning/40 bg-warning-bg px-3 py-2"
+                    >
+                      <span className="font-medium text-foreground">
+                        {line.description ?? ordersLabels.lineItem}
+                      </span>
+                      <Badge variant="warning">{ordersLabels.lineUnresolvedBadge}</Badge>
+                    </li>
                   ),
                 )}
               </ul>

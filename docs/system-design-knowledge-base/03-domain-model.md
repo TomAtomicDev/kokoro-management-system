@@ -253,24 +253,24 @@ non-food-raw-material bucket `LABEL` used to occupy. A PACKAGING item is purchas
 ## 5. Custom order lifecycle (Modality 2)
 
 ```
-QUOTING ──confirm(optional deposit)──► CONFIRMED ──start──► IN_PRODUCTION ──ready──► READY ──deliver──► DELIVERED
+QUOTING ──confirm (cash-free)──► CONFIRMED ──start──► IN_PRODUCTION ──ready──► READY ──deliver──► DELIVERED
    │                              │  ◄──back──┘  ◄──────back──────┘  ◄─ undo delivery ─┘   (terminal
    │                              │                    │                        │           unless undone)
    └────────────cancel────────────┴────────cancel──────┴──────cancel────────────┘
-                                    → CANCELLED (deposit refund or forfeit, owner decides)
-                                      TERMINAL — never reopened (O-6)
+                                     → CANCELLED (cash-free; any refund is separate)
+                                       TERMINAL — never reopened (O-6/O-8)
 ```
 
 Rules:
 
-**Superseding payment/edition contract (Phase 3.5, KOK-204…208; ADR-022).** The
-payment-coupled clauses in O-1…O-3 and O-6 below document already shipped behavior; O-7 and
-the external-delivery clauses describe earlier unimplemented plans. None is the target payment
-contract. O-8 below supersedes them wherever they require automatic cash posting,
-deposit release/recategorization, full-balance collection, a payment-based undo veto, or
-deposit-based restrictions on the agreed total. O-4's stock and costing rules and O-5's ordering
-rules still apply. The migration in Doc 04 §3.4 specifies the cutover; the old code must not be
-interpreted as implementing O-8 until those backlog tasks ship.
+**Superseding payment/edition contract (Phase 3.5, KOK-204…208; ADR-022).** Payment-coupled
+clauses in O-1…O-3 and the historic O-6 implementation describe shipped legacy behavior, not the
+target. O-7 and O-8 below define the KOK-205…208 edit/payment contract. Older external-delivery
+provider/session clauses are also not the target. O-8 supersedes legacy clauses wherever they
+require automatic cash posting, deposit release/recategorization, full-balance collection, a
+payment-based undo veto, or deposit-based restrictions on the agreed total. O-4's stock and costing
+rules and O-5's ordering rules still apply. Doc 04 §3.4 specifies the coordinated cutover; code and
+read views must not be interpreted as implementing O-8 until those backlog tasks ship.
 
 - **O-1** `CONFIRMED` requires the agreed merchandise subtotal. The deposit defaults to 50% of that
   subtotal (editable), but MAY be zero. An optional external-delivery pass-through is added only at
@@ -355,57 +355,31 @@ interpreted as implementing O-8 until those backlog tasks ship.
   no-future-date rule applies only to transaction `business_date` values; it explicitly does not
   apply to `custom_orders.delivery_date`.
 - **O-6 Backward transitions** (Phase 3.2, KOK-136 — decided 2026-08-11, shipped 2026-08-16).
-  A mis-clicked status was previously unrecoverable. Two mechanisms, deliberately different:
-  - **Free reversal** among `CONFIRMED` ↔ `IN_PRODUCTION` ↔ `READY`. No money moves in either
-    direction, so a simple confirmation is enough. `QUOTING` → `CONFIRMED` is **not** reversible
-    this way: it took a deposit, so undoing it is a cancellation with a refund/forfeit resolution
-    (O-3), not a status step.
-  - **Undo delivery** (`DELIVERED` → `READY`), with explicit confirmation and an R-5 impact
-    preview. In one atomic batch it soft-deletes the sale that O-2 created (releasing its
-    `SALE_OUT` movements and its income/receivable rows through the normal regenerate path),
-    clears `custom_orders.sale_id`, and **restores the deposit to the `customer_deposits`
-    liability** (INV-7) — revenue recognized at delivery is un-recognized here, and nowhere else.
-    Because this deletes a sale, it inherits R-2's replay and R-5's confirmation exactly as any
-    other sale deletion does.
-    - Mechanically (verified against the code 2026-08-11): `core/sales`' refusal to touch a
-      `channel='CUSTOM_ORDER'` sale **stands unchanged** — `undoDelivery` does not call
-      `updateSale`/`deleteSale`; it emits its own reversal statements from `core/orders`, the module
-      that owns the sale. Restoring the deposit liability needs no reversal row at all: the liability
-      is derived (ADR-012) and simply resumes counting the order once its status leaves `DELIVERED`.
-    - If delivery used an external provider, undo also removes the sale's pass-through fee and
-      associated customer balance, but preserves the closed delivery session and its real
-      operating-expense transaction: the provider was actually paid. A provider refund, if any, is
-      recorded as a separate financial event.
-    - **If the delivered sale has since been collected**, `undoDelivery` refuses with a 409.
-      Collection is real money that really arrived, on a path that deliberately nets the deposit;
-      silently reversing it would be worse than telling the owner to reverse the collection first.
-  - **`CANCELLED` stays terminal.** Reopening it would mean reversing a `DEPOSIT_REFUND` expense
-    or un-recognizing a FORFEIT already booked as `OTHER_INCOME` in a closed period — accounting
-    surface with no matching operational need. Record a new order instead.
-- **O-7 Stage-specific order correction (Phase 3.5/KOK-205):** there is no general-purpose
-  `updateOrder`. Corrections use named commands with status and field guards, preserve the immutable
-  `PED` code, audit before/after, and commit in one atomic batch:
-  - While `QUOTING`, `updateOrderQuote` may correct the full quote, including customer, description,
-    merchandise subtotal, lines, delivery date/place, notes and expected deposit.
-  - In `CONFIRMED`, `IN_PRODUCTION` and `READY`, `updateOrderLogistics` may change only delivery
-    date/place and notes; it moves no money or stock.
-  - In those same pre-delivery statuses, `renegotiateOrder` may change the description, merchandise
-    lines/quantities (including adding a line to an empty quote) and agreed merchandise subtotal. It
-    never rewrites `deposit_paid`, the deposit transaction, or existing production/assembly/stock events.
-    New subtotal must be at least
-    `deposit_paid`; if it would be lower, reject the renegotiation and require cancellation with
-    REFUND followed by a new order (partial deposit refunds on active orders are not supported).
-    Once any positive deposit has been received, customer identity is immutable. A confirmed
-    zero-deposit order may change customer only with a fresh explicit `acceptNoDepositRisk` and audit
-    entry for the new counterparty. When the quote has a subtotal, explicitly pinned line shares
-    must fit within it; if lines exist, delivery's largest-remainder allocation must be able to
-    reproduce the subtotal exactly. An unset QUOTING subtotal defers this check until it is agreed.
-    Keep empty lines legal before delivery but reject delivery with none. Every correction compares
-    the order's `updated_at` from the form at commit inside its atomic command, aborts the batch if it has changed,
-    and reports a stale edit with 409.
-  - `DELIVERED` corrections use O-6's guarded undo-delivery path; `CANCELLED` remains terminal.
-    Renegotiating order lines never rewrites already-recorded production or assembly events; if the
-    physical work itself was wrong, correct that source event separately through its guarded service.
+  A mis-clicked status is recoverable without changing cash:
+  - Free reversal among `CONFIRMED` ↔ `IN_PRODUCTION` ↔ `READY` remains a simple, audited status
+    change. Confirmation and cancellation are also cash-free under O-8.
+  - **Undo delivery** (`DELIVERED` → `READY`) requires explicit confirmation and the R-5 impact
+    preview. One atomic batch soft-deletes the order-owned sale, reverses its `SALE_OUT` movements,
+    clears `custom_orders.sale_id`, and runs the R-2/R-5 costing replay. It is allowed after any
+    number of independent receipts; all finance rows and account balances remain unchanged.
+  - **`CANCELLED` stays terminal.** Retained receipts are cash history, not an order transition to
+    reverse. Record a new order for a new agreement.
+- **O-7 Pre-delivery agreement correction (KOK-205):** one `updateOrder` command replaces the
+  stage-specific quote/logistics/renegotiation split. In QUOTING, CONFIRMED, IN_PRODUCTION and READY,
+  it edits customer, description, merchandise subtotal, lines, additional charge, promised
+  date/place and notes in one audited, optimistic-concurrency-guarded batch. It preserves the
+  immutable `PED` code and never rewrites linked production/assembly/stock work.
+  - A customer may change only before any qualifying order receipt has ever been linked, including
+    a subsequently soft-deleted receipt. `ORDER_DEPOSIT` and `ORDER_BALANCE` receipts remain owned by
+    finance and are never changed by agreement edits.
+  - The subtotal and additional charge are nonnegative centavos. A revised customer amount may be
+    below active qualifying receipts; show the informational excess and never reject the agreement
+    for that reason. A NULL subtotal has no numeric expected/excess preview.
+  - When a subtotal is set, pinned line shares must fit it and nonempty lines must be allocatable to
+    it exactly. Validate FINISHED-item eligibility and positive quantities. Empty lines remain legal
+    before delivery; delivery still requires at least one linked line.
+  - Every edit compares the form's `updated_at` inside the atomic command; stale edits return 409.
+    DELIVERED edits require undo first; CANCELLED remains terminal.
 
 **O-8 Independent order cash events and editable pre-delivery agreement (target; KOK-204…208).**
 

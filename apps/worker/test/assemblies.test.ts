@@ -566,12 +566,7 @@ describe("recordAssembly", () => {
       { customerId: customer.id, description: "Se cancelará" },
       ACTOR,
     );
-    await cancelOrder(
-      db,
-      cancellable.id,
-      { occurredAt: OCCURRED_AT, businessDate: BUSINESS_DATE },
-      ACTOR,
-    );
+    await cancelOrder(db, cancellable.id, {}, ACTOR);
 
     await expect(
       recordAssembly(
@@ -616,12 +611,7 @@ describe("recordAssembly", () => {
 
     // KOK-137: the linked order later becoming CANCELLED does not retroactively break an edit
     // that leaves the link untouched — it is historical fact, not something being re-asserted.
-    await cancelOrder(
-      db,
-      linkedThenCancelled.id,
-      { occurredAt: OCCURRED_AT, businessDate: BUSINESS_DATE },
-      ACTOR,
-    );
+    await cancelOrder(db, linkedThenCancelled.id, {}, ACTOR);
     const untouched = await updateAssembly(
       db,
       recorded.assembly.id,

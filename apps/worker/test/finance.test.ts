@@ -11,7 +11,7 @@
 // The `beforeEach` below restores the per-test guarantee this file's tests were written against:
 // both seeded accounts back at balance 0, with no leftover transactions/audit rows from prior tests.
 import { applyD1Migrations, env } from "cloudflare:test";
-import { addMoney, subMoney, toCentavos } from "@kokoro/shared";
+import { addMoney, calculateOrderReceiptBalance, subMoney, toCentavos } from "@kokoro/shared";
 import { eq, inArray } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import fc from "fast-check";
@@ -32,7 +32,7 @@ import {
   updateTransaction,
   withdraw,
 } from "../src/core/finance/index.js";
-import { cancelOrder, confirmOrder, quoteOrder } from "../src/core/orders/index.js";
+import { cancelOrder, quoteOrder } from "../src/core/orders/index.js";
 import { createDb } from "../src/db/index.js";
 import { auditLog, financialAccounts, financialTransactions } from "../src/db/schema.js";
 
@@ -72,7 +72,7 @@ async function createOrder(db: TestDb, cancel = false): Promise<string> {
     ACTOR,
   );
   if (cancel) {
-    await cancelOrder(db, order.id, { occurredAt: NOW, businessDate: BUSINESS_DATE }, ACTOR);
+    await cancelOrder(db, order.id, {}, ACTOR);
   }
   return order.id;
 }
@@ -812,9 +812,10 @@ describe("property: independent order cash centavo conservation (KOK-204 / O-8)"
             )
             .map((row) => toCentavos(row.amount));
           const receiptTotal = addMoney(...receipts);
+          const summary = calculateOrderReceiptBalance(customerPrice, 0, receiptTotal);
+          const expected = toCentavos(summary.expected ?? 0);
+          const excess = toCentavos(summary.excess ?? 0);
           const difference = subMoney(toCentavos(customerPrice), receiptTotal);
-          const expected = toCentavos(difference > 0 ? difference : 0);
-          const excess = toCentavos(difference < 0 ? -difference : 0);
           expect(expected).toBeGreaterThanOrEqual(0);
           expect(excess).toBeGreaterThanOrEqual(0);
           expect(subMoney(expected, excess)).toBe(difference);
@@ -883,7 +884,7 @@ describe("KOK-204 migration integrity", () => {
     ]);
   });
 
-  it("preserves pre-existing order deposit FKs and paired transfers across the 0026 rebuild", async () => {
+  it("preserves pre-existing order rows and paired transfers across the 0026 rebuild", async () => {
     const fixtureDb = (env as unknown as { MIGRATION_FIXTURE_DB: D1Database }).MIGRATION_FIXTURE_DB;
     const migrations = env.TEST_MIGRATIONS;
     const migrationIndex = migrations.findIndex(
@@ -895,9 +896,9 @@ describe("KOK-204 migration integrity", () => {
     }
 
     await applyD1Migrations(fixtureDb, migrations.slice(0, migrationIndex));
-    // Add only the two nullable columns that allow the current core factories to run against this
-    // pre-rebuild schema. The 0026 migration still creates the indexes and performs the actual
-    // financial_transactions table rebuild below; business fixtures are written through core/.
+    // Add the KOK-204 link and KOK-205 charge columns needed by current core factories while
+    // retaining the pre-0026 financial_transactions table. The rebuild/index work still runs below;
+    // business fixtures are written through core/.
     await fixtureDb
       .prepare(
         "ALTER TABLE financial_transactions ADD custom_order_id TEXT REFERENCES custom_orders(id) ON UPDATE NO ACTION ON DELETE RESTRICT",
@@ -906,6 +907,16 @@ describe("KOK-204 migration integrity", () => {
     await fixtureDb
       .prepare(
         "ALTER TABLE purchases ADD custom_order_id TEXT REFERENCES custom_orders(id) ON UPDATE NO ACTION ON DELETE RESTRICT",
+      )
+      .run();
+    await fixtureDb
+      .prepare(
+        "ALTER TABLE custom_orders ADD additional_charge INTEGER NOT NULL DEFAULT 0 CHECK (additional_charge >= 0)",
+      )
+      .run();
+    await fixtureDb
+      .prepare(
+        "ALTER TABLE sales ADD additional_charge INTEGER NOT NULL DEFAULT 0 CHECK (additional_charge >= 0)",
       )
       .run();
 
@@ -919,26 +930,11 @@ describe("KOK-204 migration integrity", () => {
       db,
       {
         customerId: customer.id,
-        description: "Transfer/deposit migration fixture",
+        description: "Transfer/order migration fixture",
         agreedTotal: 10_000,
       },
       ACTOR,
     );
-    const confirmed = await confirmOrder(
-      db,
-      order.id,
-      {
-        occurredAt: NOW,
-        businessDate: BUSINESS_DATE,
-        depositAmount: 2_000,
-        paymentMethod: "CASH",
-        accountId: "acc_cash",
-      },
-      ACTOR,
-    );
-    const depositTxId = confirmed.order.depositTxId;
-    if (!depositTxId) throw new Error("The pre-migration deposit fixture has no transaction ID");
-
     const transferFixture = await transfer(
       db,
       {
@@ -968,24 +964,14 @@ describe("KOK-204 migration integrity", () => {
     });
     const preservedTransactions = await db.query.financialTransactions.findMany({
       where: (t, { inArray: inArrayOp }) =>
-        inArrayOp(t.id, [
-          depositTxId,
-          transferFixture.outTransaction.id,
-          transferFixture.inTransaction.id,
-        ]),
+        inArrayOp(t.id, [transferFixture.outTransaction.id, transferFixture.inTransaction.id]),
     });
     const transactionById = new Map(preservedTransactions.map((row) => [row.id, row]));
-    const preservedDeposit = transactionById.get(depositTxId);
     const preservedOut = transactionById.get(transferFixture.outTransaction.id);
     const preservedIn = transactionById.get(transferFixture.inTransaction.id);
 
-    expect(preservedOrder?.depositTxId).toBe(depositTxId);
-    expect(preservedDeposit).toMatchObject({
-      sourceEventType: "custom_order",
-      sourceEventId: order.id,
-      customOrderId: null,
-      code: null,
-    });
+    expect(preservedOrder?.status).toBe("QUOTING");
+    expect(preservedOrder?.depositTxId).toBeNull();
     expect(preservedOut).toMatchObject({
       counterpartTxId: transferFixture.inTransaction.id,
       code: legacyTransferCode,

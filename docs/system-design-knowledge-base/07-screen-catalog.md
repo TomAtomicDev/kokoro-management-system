@@ -36,11 +36,16 @@ opens it in thirty seconds between batches.
 ## SC-02 · Sales list — `/sales` (UC-03, UC-04, UC-18)
 
 Table: código (KOK-185, Doc 04 §3.6), fecha, canal, cliente, items resumen, total, margen (from
-`unit_cost_snapshot`), estado pago (badge POR COBRAR), método. Actions: new sale, mark paid
-(account + method inline), edit/delete. The date-range filter remains a sales-period view; the old
+`unit_cost_snapshot`), catalog-sale payment state (badge POR COBRAR), método. Actions: new sale,
+mark a CATALOG sale paid (account + method inline), edit/delete catalog sales. The date-range filter remains a sales-period view; the old
 "Por cobrar" preset is replaced by a **Gestionar deudas** link to SC-21 so outstanding balances
 from earlier dates are not hidden by the current month's range. The debt-management screen is the
 primary place to review receivables by customer and source sale.
+
+For CATALOG rows, payment state and mark-paid remain the catalog `collectPayment` flow. An order-owned
+CUSTOM_ORDER sale is only the delivered inventory/COGS snapshot: do not present its compatibility
+`payment_status` as order payment state or offer collection here. Order receipts and additional charge
+belong to the order relationship and its separate finance rows (O-8/KOK-205).
 
 This margin is historical — the WAC frozen at sale time, not the item's current replacement cost —
 so it is a plain neutral figure, deliberately **not** `MarginBadge`/C-5-thresholded (KOK-036):
@@ -136,29 +141,27 @@ Loading, query error, verified empty and available data are distinct states. Kee
 producción”** (status change) distinct from **“Registrar producción”** (creates work). The drawer's
 `open` state is synchronized with `/orders?open=<id>` for refresh and browser back/forward.
 
-**Corrections (O-7, KOK-205):** QUOTING has **Editar cotización**, a full-page form that may update
-the quote fields and lines. CONFIRMED/IN_PRODUCTION/READY offer **Ajustar entrega** for date, place
-and notes, and **Renegociar pedido** for description, merchandise lines/quantities (including adding
-the first line to an empty quote) and merchandise subtotal. Renegotiation is a separate full-page
-form with a before/after summary; it never silently
-changes the paid deposit or rewrites linked production/assembly events. The customer cannot change
-once a positive deposit is paid; a zero-deposit order requires a renewed risk acknowledgment and
-audit if its customer changes. A new merchandise subtotal below the deposit already paid is refused
-with a clear message; resolve it by cancelling/refunding and recording a new order (partial deposit
-  refunds on an active order are unsupported). The form rejects line shares that cannot reproduce the
-  agreed subtotal on delivery, offers explicit clearing for optional fields, and reports a stale-edit
-  conflict rather than overwriting newer work. DELIVERED remains editable only through O-6's guarded
-Deshacer entrega path; CANCELLED remains terminal.
+**Pre-delivery agreement edit (O-7/O-8, KOK-205):** every active status
+(QUOTING/CONFIRMED/IN_PRODUCTION/READY) opens the same full-page **Editar pedido** form and the same
+`updateOrder` command. It edits customer, description, merchandise subtotal, additional charge,
+lines, promised date/place and notes; nullable fields have explicit clear values. The form shows
+active qualifying ORDER_DEPOSIT/ORDER_BALANCE receipts and previews the draft customer amount,
+expected balance and excess using the shared integer-centavo calculation. With no agreed subtotal it
+shows no numeric balance preview. Previewing excess is informational: an agreement may be reduced
+below receipts, and the customer remains locked once any receipt has ever been linked, including a
+soft-deleted receipt. Receipt/refund/expense corrections remain Finance commands; this form never
+changes money. Pinned line shares must fit and every nonempty line set must reproduce the merchandise
+subtotal exactly. A stale `updated_at` returns a conflict instead of overwriting newer work.
+DELIVERED remains editable only through O-6's guarded Deshacer entrega path; CANCELLED remains
+terminal. Updating the agreement never rewrites linked production or assembly events.
 
-**Backward actions (Phase 3.2, KOK-136, O-6):** a **Volver atrás** action in the detail of orders
-in CONFIRMED/IN_PRODUCTION/READY (one step, simple confirmation, no money moves), and **Deshacer
-entrega** in the detail of a DELIVERED order — explicit confirmation plus an `ImpactConfirmDialog`,
-because it deletes the sale delivery created and returns the deposit to the liability. It is
-**disabled with an explanation when that sale has already been collected**: the money really
-arrived, and the owner must reverse the collection first (O-6). CANCELLED orders carry no backward
-action: that state is terminal by decision. Also shown: a warning when **Marcar listo** is pressed
-  on an order with no linked production run ("este pedido no tiene producción vinculada — ¿continuar?")
-  — a warning, never a block (O-4).
+**Backward actions (Phase 3.2, KOK-136, O-6/O-8):** a **Volver atrás** action in CONFIRMED,
+IN_PRODUCTION and READY remains a one-step audited status change. **Deshacer entrega** is available
+from DELIVERED with explicit confirmation and an `ImpactConfirmDialog`; it soft-deletes the
+order-owned sale, reverses stock and applies R-2/R-5, even after any number of order receipts. It
+never changes finance rows or account balances, and the UI does not disable it because of a payment.
+CANCELLED has no backward action. Still show the nonblocking O-4 warning before **Marcar listo**
+when the order has no linked production run ("este pedido no tiene producción vinculada — ¿continuar?").
 
 **Target order UI (KOK-204…208):** keep the existing active/history board and its bounded
 pagination, but use `/orders/:id` as the canonical detail with a stable deep link, full edit

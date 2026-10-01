@@ -108,7 +108,7 @@ async function seedOrder(db: TestDb, cancelled = false): Promise<string> {
     ACTOR,
   );
   if (cancelled) {
-    await cancelOrder(db, order.id, { occurredAt: NOW, businessDate: BUSINESS_DATE }, ACTOR);
+    await cancelOrder(db, order.id, {}, ACTOR);
   }
   return order.id;
 }

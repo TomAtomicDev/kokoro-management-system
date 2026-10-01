@@ -4,13 +4,11 @@
 // field validation elsewhere. Mirrors packages/shared/src/sales.ts's structure (field schemas ->
 // command schemas -> hand-written DTOs -> result types).
 //
-// THE STATE MACHINE IS THE API. There is deliberately no generic `updateOrder` that free-edits
-// arbitrary columns: Doc 04 §5 says "`custom_orders` transitions only along the state machine
-// (O-1…O-3)", so every mutation below is a named transition with its own guard, and `status` is
-// never a caller-supplied field. `CANCELLED` is the terminal "this didn't happen" state — there is
-// no soft-delete/restore pair for orders (contrast core/sales' UC-18 verbs).
+// Status transitions remain named commands, while the pre-delivery agreement is replaced through
+// one full-state `updateOrder` command. `status` is never caller-supplied; DELIVERED agreement edits
+// require undo, and CANCELLED remains terminal.
 //
-//   QUOTING --confirm(+optional deposit)--> CONFIRMED --start--> IN_PRODUCTION --ready--> READY
+//   QUOTING --confirm(no cash)--> CONFIRMED --start--> IN_PRODUCTION --ready--> READY
 //           --deliver--> DELIVERED (final)
 //   {QUOTING, CONFIRMED, IN_PRODUCTION, READY} --cancel--> CANCELLED (final)
 //
@@ -30,13 +28,11 @@ import { businessDateSchema, calendarDateSchema, occurredAtSchema } from "./date
 import {
   type CancelResolution,
   type CustomOrderStatus,
-  cancelResolutionSchema,
   customOrderStatusSchema,
   type PaymentStatus,
-  paymentMethodSchema,
 } from "./enums.js";
-import type { FinancialAccountDto } from "./finance.js";
 import {
+  addMoney,
   allocateLargestRemainder,
   type Centavos,
   type MilliCentavosPerUnit,
@@ -52,25 +48,26 @@ import { safeText } from "./text.js";
 export const ORDER_DESCRIPTION_MAX_LENGTH = 2000;
 export const ORDER_NOTES_MAX_LENGTH = 2000;
 
-/** Centavos (INV-6). The price agreed with the customer; required before an order can be CONFIRMED
- * (Doc 04 §3.3's "required to confirm"), hence optional at quote time. Strictly positive: an order
- * worth nothing has no deposit to take and no sale to create. */
+/** Centavos (INV-6). Merchandise subtotal, optional while quoting and nonnegative when supplied. */
 const agreedTotalSchema = z
   .number()
   .int()
-  .positive("El total acordado debe ser un entero positivo (centavos).");
-/** Centavos (INV-6), never negative. O-1 allows zero only with the explicit risk acknowledgment. */
-const depositAmountSchema = z
+  .nonnegative("El subtotal de artículos debe ser un monto entero no negativo (centavos).")
+  .refine(Number.isSafeInteger, "El subtotal excede el rango entero seguro.");
+/** Centavos (INV-6), never negative. */
+const additionalChargeSchema = z
   .number()
   .int()
-  .nonnegative("El anticipo debe ser un entero no negativo (centavos).");
+  .nonnegative("El cargo adicional debe ser un entero no negativo (centavos).")
+  .refine(Number.isSafeInteger, "El cargo adicional excede el rango entero seguro.");
 /** Milli-units of the item's own stored unit (Doc 04 §2). Defaults to 1000 (= one whole unit),
  * matching `custom_order_lines.qty`'s own DDL default — the overwhelmingly common custom order is
  * "one of this thing". */
 const orderLineQtySchema = z
   .number()
   .int()
-  .positive("La cantidad debe ser un entero positivo (mili-unidades).");
+  .positive("La cantidad debe ser un entero positivo (mili-unidades).")
+  .refine(Number.isSafeInteger, "La cantidad excede el rango entero seguro.");
 
 /**
  * One line of what will be delivered (Doc 04 §3.3 `custom_order_lines`: "item-linked or free text").
@@ -91,7 +88,12 @@ export const orderLineCommandSchema = z
     itemId: z.string().min(1).nullish(),
     description: z.string().trim().pipe(safeText(500)).nullish(),
     qty: orderLineQtySchema.default(1000),
-    lineTotal: z.number().int().nonnegative().nullish(),
+    lineTotal: z
+      .number()
+      .int()
+      .nonnegative()
+      .refine(Number.isSafeInteger, "El importe de línea excede el rango entero seguro.")
+      .nullish(),
   })
   .refine((line) => line.itemId != null || (line.description != null && line.description !== ""), {
     message: "Cada línea necesita un ítem del catálogo o una descripción.",
@@ -104,136 +106,93 @@ export type OrderLineCommand = z.input<typeof orderLineCommandSchema>;
 
 /**
  * UC-05 quote a custom order. The order starts at `QUOTING`; only `customerId` (a NOT NULL FK per
- * the DDL — an order always belongs to someone) and `description` are required. Everything a
- * confirmation needs (`agreedTotal`, the deposit) may arrive later via `confirmOrderCommandSchema`.
+ * the DDL — an order always belongs to someone) and `description` are required. The merchandise
+ * subtotal may arrive later via the pre-delivery agreement edit.
  */
-export const quoteOrderCommandSchema = z.object({
-  customerId: z.string().min(1),
-  description: z
-    .string()
-    .trim()
-    .min(1, "La descripción es obligatoria.")
-    .pipe(safeText(ORDER_DESCRIPTION_MAX_LENGTH)),
-  agreedTotal: agreedTotalSchema.optional(),
-  /** Centavos the owner expects as a deposit. Omitted → derived at confirm time from the
-   * `default_deposit_pct` app setting (basis points, Doc 04 §3.5), falling back to 50% (O-1). */
-  depositRequired: z.number().int().nonnegative().optional(),
-  /** Promised calendar date; unlike transaction dates, it may be in the future (Doc 03 O-5). */
-  deliveryDate: calendarDateSchema.optional(),
-  deliveryPlace: z.string().trim().pipe(safeText(200)).optional(),
-  notes: z.string().trim().pipe(safeText(ORDER_NOTES_MAX_LENGTH)).optional(),
-  lines: z.array(orderLineCommandSchema).default([]),
-});
+export const quoteOrderCommandSchema = z
+  .object({
+    customerId: z.string().min(1),
+    description: z
+      .string()
+      .trim()
+      .min(1, "La descripción es obligatoria.")
+      .pipe(safeText(ORDER_DESCRIPTION_MAX_LENGTH)),
+    agreedTotal: agreedTotalSchema.optional(),
+    /** Legacy quote guidance only; confirmation never creates a receipt. */
+    depositRequired: z.number().int().nonnegative().optional(),
+    /** Separately quoted customer charge, not allocated onto merchandise lines. */
+    additionalCharge: additionalChargeSchema.default(0),
+    /** Promised calendar date; unlike transaction dates, it may be in the future (Doc 03 O-5). */
+    deliveryDate: calendarDateSchema.optional(),
+    deliveryPlace: z.string().trim().pipe(safeText(200)).optional(),
+    notes: z.string().trim().pipe(safeText(ORDER_NOTES_MAX_LENGTH)).optional(),
+    lines: z.array(orderLineCommandSchema).default([]),
+  })
+  .superRefine((command, ctx) => {
+    if (command.agreedTotal === undefined) return;
+    try {
+      calculateOrderReceiptBalance(command.agreedTotal, command.additionalCharge, 0);
+    } catch {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "El importe al cliente excede el rango entero seguro.",
+        path: ["additionalCharge"],
+      });
+    }
+  });
 /** `z.input` — `lines` and each line's `qty` carry defaults. */
 export type QuoteOrderCommand = z.input<typeof quoteOrderCommandSchema>;
 
-/**
- * UC-06 confirm (O-1). `depositAmount` is a required integer-centavo amount and may be zero only
- * when `acceptNoDepositRisk` is explicitly true. Zero means no payment was received, so the
- * payment method/account fields are optional and the service writes no financial transaction or
- * account balance change. Positive deposits require both fields and book INCOME/ORDER_DEPOSIT into
- * a real account (ADR-012); the matching liability is DERIVED via `v_liability` (INV-7).
- *
- * `agreedTotal` is required here only when the quote didn't already carry one; the service resolves
- * `command.agreedTotal ?? order.agreedTotal` and rejects when both are absent. The suggested
- * deposit remains `default_deposit_pct`, which defaults to 50% (O-1); this is independent of the
- * amount actually received.
- */
-export const confirmOrderCommandSchema = z
+/** Full replacement of the editable agreement. Null explicitly clears nullable agreement fields. */
+export const updateOrderCommandSchema = z
   .object({
-    /** When a positive deposit was actually received — the transaction's own cash date (INV-3). */
-    occurredAt: occurredAtSchema,
-    businessDate: businessDateSchema,
-    agreedTotal: agreedTotalSchema.optional(),
-    depositRequired: z.number().int().nonnegative().optional(),
-    depositAmount: depositAmountSchema,
-    paymentMethod: paymentMethodSchema.optional(),
-    accountId: z.string().min(1).optional(),
-    /** Required only when `depositAmount` is zero; it is never a replacement for R-5's `confirm`. */
-    acceptNoDepositRisk: z.boolean().optional(),
+    expectedUpdatedAt: z.string().datetime(),
+    customerId: z.string().min(1),
+    description: z
+      .string()
+      .trim()
+      .min(1, "La descripción es obligatoria.")
+      .pipe(safeText(ORDER_DESCRIPTION_MAX_LENGTH)),
+    agreedTotal: agreedTotalSchema.nullable(),
+    additionalCharge: additionalChargeSchema,
+    deliveryDate: calendarDateSchema.nullable(),
+    deliveryPlace: z.string().trim().pipe(safeText(200)).nullable(),
+    notes: z.string().trim().pipe(safeText(ORDER_NOTES_MAX_LENGTH)).nullable(),
+    lines: z.array(orderLineCommandSchema),
   })
   .superRefine((command, ctx) => {
-    if (command.depositAmount === 0 && command.acceptNoDepositRisk !== true) {
+    if (command.agreedTotal === null) return;
+    try {
+      calculateOrderReceiptBalance(command.agreedTotal, command.additionalCharge, 0);
+    } catch {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "Confirma que aceptas el riesgo de iniciar el pedido sin recibir un anticipo.",
-        path: ["acceptNoDepositRisk"],
+        message: "El importe al cliente excede el rango entero seguro.",
+        path: ["additionalCharge"],
       });
     }
-    if (command.depositAmount > 0) {
-      if (command.paymentMethod === undefined) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "Indica el medio de pago del anticipo recibido.",
-          path: ["paymentMethod"],
-        });
-      }
-      if (command.accountId === undefined) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "Indica la cuenta que recibió el anticipo.",
-          path: ["accountId"],
-        });
-      }
-    }
   });
-export type ConfirmOrderCommand = z.input<typeof confirmOrderCommandSchema>;
+export type UpdateOrderCommand = z.input<typeof updateOrderCommandSchema>;
 
-/** Fields both delivery branches share. */
-const deliverOrderCommonFields = {
-  /** When the goods were handed over — becomes the sale's `occurred_at` (INV-3). */
-  occurredAt: occurredAtSchema,
-  businessDate: businessDateSchema,
-  /** Free-text note copied onto the created sale. */
-  notes: z.string().trim().pipe(safeText(ORDER_NOTES_MAX_LENGTH)).optional(),
-  // R-5 / ADR-016: delivering writes SALE_OUT movements, so a BACKDATED delivery re-weights C-1 for
-  // every later kardex entry exactly as a backdated sale does (KOK-064). When it would move cost
-  // already booked, the service refuses with a ReplayImpactDto until the caller re-sends with
-  // `confirm: true`. Shared flag (D-4) — the same one every replay-triggering command uses.
-  confirm: confirmFlagSchema,
-} as const;
+/** Confirm is a pure state transition. Receipts are separate finance commands (ADR-022). */
+export const confirmOrderCommandSchema = z.object({}).strict();
+export type ConfirmOrderCommand = z.infer<typeof confirmOrderCommandSchema>;
 
-/**
- * UC-07 deliver (O-2). Creates the linked `CUSTOM_ORDER` sale for the full `agreedTotal`; the
- * deposit liability is released against it (it falls out of `v_liability` the moment the order
- * reaches `DELIVERED`), and the BALANCE — `agreedTotal − depositPaid` — is settled here.
- *
- * Discriminated on `balancePaymentStatus`, which describes the BALANCE only, never the whole sale
- * (the deposit portion was already collected at confirm time):
- *   - PAID      → `paymentMethod` + `accountId` required; books an INCOME/`ORDER_BALANCE` row for
- *                 the balance ONLY, and the sale is marked PAID.
- *   - ON_CREDIT → books nothing; the sale sits in `v_receivables`, which reports
- *                 `total − deposit_paid` so the already-banked deposit is never double-counted as
- *                 still-owed (migration 0005, Doc 04 §4), and requires its own `acceptCreditRisk`
- *                 acknowledgment, independent of R-5's `confirm` flag.
- *
- * When the balance is zero (the deposit covered the whole order) the sale is PAID either way and no
- * balance transaction is written — nothing is owed and no cash moves at delivery.
- */
+/** Delivery records when stock left; its confirmation flag exists only for R-5 costing replay. */
 export const deliverOrderCommandSchema = z
-  .discriminatedUnion("balancePaymentStatus", [
-    z.object({
-      balancePaymentStatus: z.literal("PAID"),
-      paymentMethod: paymentMethodSchema,
-      accountId: z.string().min(1),
-      ...deliverOrderCommonFields,
-    }),
-    z.object({
-      balancePaymentStatus: z.literal("ON_CREDIT"),
-      /** Required when the delivery leaves a receivable; distinct from R-5's `confirm` flag. */
-      acceptCreditRisk: z.boolean().optional(),
-      ...deliverOrderCommonFields,
-    }),
-  ])
-  .superRefine((command, ctx) => {
-    if (command.balancePaymentStatus === "ON_CREDIT" && command.acceptCreditRisk !== true) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Confirma que aceptas el riesgo de entregar el pedido con el saldo por cobrar.",
-        path: ["acceptCreditRisk"],
-      });
-    }
-  });
+  .object({
+    /** When the goods were handed over — becomes the sale's `occurred_at` (INV-3). */
+    occurredAt: occurredAtSchema,
+    businessDate: businessDateSchema,
+    /** Free-text note copied onto the created sale. */
+    notes: z.string().trim().pipe(safeText(ORDER_NOTES_MAX_LENGTH)).optional(),
+    // R-5 / ADR-016: delivering writes SALE_OUT movements, so a BACKDATED delivery re-weights C-1 for
+    // every later kardex entry exactly as a backdated sale does (KOK-064). When it would move cost
+    // already booked, the service refuses with a ReplayImpactDto until the caller re-sends with
+    // `confirm: true`. Shared flag (D-4) — the same one every replay-triggering command uses.
+    confirm: confirmFlagSchema,
+  })
+  .strict();
 /** `z.input` — `confirm` carries a `.default()`, same reasoning as `RecordSaleCommand`. */
 export type DeliverOrderCommand = z.input<typeof deliverOrderCommandSchema>;
 
@@ -244,44 +203,13 @@ export const undoDeliverOrderCommandSchema = z.object({ confirm: confirmFlagSche
 /** `z.input` — `confirm` carries a `.default()`, same reasoning as `DeliverOrderCommand`. */
 export type UndoDeliverOrderCommand = z.input<typeof undoDeliverOrderCommandSchema>;
 
-/**
- * UC-08 cancel (O-3). Legal from every non-terminal status. `resolution` is required EXACTLY when
- * the order already holds a deposit (`deposit_paid > 0`) and must be absent otherwise — a quote
- * cancelled before any money changed hands has nothing to resolve. The service enforces both
- * directions (the schema cannot: it does not know `deposit_paid`).
- *   - REFUND  → an EXPENSE/`DEPOSIT_REFUND` transaction gives the money back; `v_liability`
- *               subtracts it and the liability clears.
- *   - FORFEIT → NO new transaction. The original INCOME/`ORDER_DEPOSIT` row is RECATEGORIZED in
- *               place to `OTHER_INCOME` (same row, account, amount and original `business_date`),
- *               which both recognizes the income and drops the row out of `v_liability`'s
- *               category filter in one move. Writing a fresh income row instead would double-count
- *               cash that is already sitting in the account (ADR-012).
- */
-export const cancelOrderCommandSchema = z.object({
-  /** When the cancellation happened; used as the refund transaction's cash date (REFUND only). */
-  occurredAt: occurredAtSchema,
-  businessDate: businessDateSchema,
-  resolution: cancelResolutionSchema.optional(),
-  /** Where a REFUND's money comes FROM. Omitted → the account the deposit was received into. */
-  accountId: z.string().min(1).optional(),
-  notes: z.string().trim().pipe(safeText(ORDER_NOTES_MAX_LENGTH)).optional(),
-});
+/** Cancellation is terminal; any refund is recorded separately through finance. */
+export const cancelOrderCommandSchema = z
+  .object({
+    notes: z.string().trim().pipe(safeText(ORDER_NOTES_MAX_LENGTH)).optional(),
+  })
+  .strict();
 export type CancelOrderCommand = z.infer<typeof cancelOrderCommandSchema>;
-
-/**
- * Resolves a free-text order line to a catalog item (KOK-034, Doc 04 §5 amendment). Doc 04 §5 rules
- * out a generic "update order" command, but that leaves no way to satisfy O-2's delivery gate: a
- * line quoted with only `description` (no `itemId`) cannot become a `sale_lines` row (NOT NULL +
- * FINISHED-only), and `deliverOrder` refuses (409) while any line lacks one. This is deliberately
- * NOT a generic line editor — it does exactly one thing (attach a catalog item to one line) and
- * nothing else about the order is editable through it, so it doesn't reopen the door the "no
- * generic update" rule closed. Legal on any non-terminal order (same set `cancelOrder` accepts);
- * once `DELIVERED`/`CANCELLED` the lines are historical fact, not something to keep resolving.
- */
-export const resolveOrderLineCommandSchema = z.object({
-  itemId: z.string().min(1, "Selecciona un ítem del catálogo."),
-});
-export type ResolveOrderLineCommand = z.infer<typeof resolveOrderLineCommandSchema>;
 
 /** Widened for KOK-136 exactly as this schema's own pre-existing comment anticipated ("a future
  * movement-writing transition can widen it into a discriminated union without breaking callers") —
@@ -370,21 +298,23 @@ export interface OrderDto {
   /** Joined from `customers.name` for SC-04's cards — saves the board an N+1 per order. */
   customerName: string | null;
   description: string;
-  /** Centavos (INV-6). `null` only while QUOTING — confirming requires one. */
+  /** Merchandise subtotal in centavos; `null` only while QUOTING. */
   agreedTotal: number | null;
+  /** Separately quoted customer charge; not allocated onto merchandise lines. */
+  additionalCharge: number;
+  /** Legacy quote guidance; never a receipt or source of current order balances. */
   depositRequired: number | null;
-  /** Centavos actually received (0 until confirmed). */
+  /** Legacy pre-cutover value; current receipts are independent finance rows. */
   depositPaid: number;
-  /** The INCOME/`ORDER_DEPOSIT` row the deposit was booked as — recategorized to `OTHER_INCOME`
-   * in place if the order is later cancelled with FORFEIT (O-3). */
+  /** Legacy pre-cutover transaction reference; current receipts link directly through finance. */
   depositTxId: string | null;
   deliveryDate: string | null;
   deliveryPlace: string | null;
-  /** Set on delivery (O-2): the auto-created `CUSTOM_ORDER`-channel sale. */
+  /** Set on delivery: the order-owned `CUSTOM_ORDER` inventory/COGS snapshot sale. */
   saleId: string | null;
-  /** Current payment state of the active linked sale; null unless the order is DELIVERED. */
+  /** Legacy sale compatibility state; never use as order payment state under O-8. */
   salePaymentStatus: PaymentStatus | null;
-  /** Current remainder owed on the delivered sale, net of the deposit; null unless DELIVERED. */
+  /** Legacy sale projection retained until KOK-207/206 replace the order debt reads. */
   outstandingAmount: number | null;
   cancelResolution: CancelResolution | null;
   /** KOK-185: human-readable code (PED-NNNN-YYYY) — see packages/shared/src/sales.ts's
@@ -392,9 +322,7 @@ export interface OrderDto {
   code: string | null;
   notes: string | null;
   lines: OrderLineDto[];
-  /** DERIVED, not stored: expected merchandise balance at delivery (`agreedTotal − depositPaid`)
-   * for a nonterminal order, or `null` while `agreedTotal` is unset or after delivery/cancellation.
-   * The delivered sale's actual remainder is `outstandingAmount`. */
+  /** Legacy expected-balance projection retained until KOK-207/206 replace the order debt reads. */
   balanceDue: number | null;
   createdAt: string;
   updatedAt: string;
@@ -418,10 +346,12 @@ export interface QuoteOrderResult {
   order: OrderDto;
 }
 
+export interface UpdateOrderResult {
+  order: OrderDto;
+}
+
 export interface ConfirmOrderResult {
   order: OrderDto;
-  /** The credited account carrying its post-deposit balance (ADR-012); null when no deposit was received. */
-  account: FinancialAccountDto | null;
 }
 
 /** Pure status transitions (`startOrderProduction`, `markOrderReady`) move no money and touch no
@@ -432,23 +362,19 @@ export interface OrderTransitionResult {
 
 export interface DeliverOrderResult {
   order: OrderDto;
-  /** The auto-created `CUSTOM_ORDER` sale (O-2), with its derived `sale_lines`. */
+  /** The order-owned `CUSTOM_ORDER` sale (O-8), with its derived `sale_lines`. */
   sale: SaleDto;
-  /** The credited account when the balance was taken as PAID; `null` when it was left ON_CREDIT or
-   * when there was no balance to settle. */
-  account: FinancialAccountDto | null;
 }
 
 export interface CancelOrderResult {
   order: OrderDto;
-  /** The DEBITED account for a REFUND; `null` for FORFEIT (no cash moves — the money is already in
-   * the account and merely stops being a liability) and for a deposit-free cancellation. */
-  account: FinancialAccountDto | null;
 }
 
-/** Result of `resolveOrderLine` — no money or kardex moves, just the order with its updated line. */
-export interface ResolveOrderLineResult {
-  order: OrderDto;
+/** Order-scoped active receipt aggregate for the pre-delivery agreement-edit preview. */
+export interface OrderReceiptSummaryDto {
+  qualifyingReceipts: number;
+  /** True for any historically linked qualifying receipt, including a soft-deleted one. */
+  hasEverQualifyingReceipt: boolean;
 }
 
 export interface ListOrdersResult {
@@ -460,6 +386,41 @@ export interface ListOrdersResult {
 /** The shared URL representation used by the Worker API and the web query hook. */
 export function serializeOrderListCursor(cursor: OrderListCursor): string {
   return JSON.stringify(cursor);
+}
+
+export interface OrderReceiptBalance {
+  customerAmount: number | null;
+  expected: number | null;
+  excess: number | null;
+}
+
+/** Shared ADR-022 integer-centavo receipt math for KOK-205 preview and KOK-207 debt reads. */
+export function calculateOrderReceiptBalance(
+  agreedTotal: number | null,
+  additionalCharge: number,
+  qualifyingReceipts: number,
+): OrderReceiptBalance {
+  const charge = toCentavos(additionalCharge);
+  const receipts = toCentavos(qualifyingReceipts);
+  const zero = toCentavos(0);
+  if (charge < zero || receipts < zero) {
+    throw new RangeError("Order charges and qualifying receipts must be nonnegative centavos.");
+  }
+  if (agreedTotal === null) {
+    return { customerAmount: null, expected: null, excess: null };
+  }
+
+  const merchandise = toCentavos(agreedTotal);
+  if (merchandise < zero) {
+    throw new RangeError("Order merchandise subtotal must be nonnegative centavos.");
+  }
+  const customerAmount = addMoney(merchandise, charge);
+  const difference = subMoney(toCentavos(customerAmount), receipts);
+  return {
+    customerAmount,
+    expected: difference > 0 ? difference : zero,
+    excess: difference < 0 ? subMoney(zero, difference) : zero,
+  };
 }
 
 /** What `deliverOrder` derives for one order line before it becomes a `sale_lines` row. */
@@ -496,12 +457,29 @@ export function allocateAgreedTotalToOrderLines(
   agreedTotal: Centavos,
   lines: readonly { qty: number; lineTotal?: number | null }[],
 ): OrderLineAllocation[] | null {
+  if (!Number.isSafeInteger(agreedTotal) || agreedTotal < 0) return null;
   if (lines.length === 0) return null;
   // Defensive: `orderLineQtySchema` already forbids it, but a non-positive qty would divide by zero
   // below and this helper is exported for callers that may not have run Zod first.
-  if (lines.some((line) => !Number.isInteger(line.qty) || line.qty <= 0)) return null;
+  if (
+    lines.some(
+      (line) =>
+        !Number.isSafeInteger(line.qty) ||
+        line.qty <= 0 ||
+        (line.lineTotal != null && (!Number.isSafeInteger(line.lineTotal) || line.lineTotal < 0)),
+    )
+  ) {
+    return null;
+  }
 
-  const pinnedSum = lines.reduce((sum, line) => sum + (line.lineTotal ?? 0), 0);
+  let pinnedSum = toCentavos(0);
+  try {
+    for (const line of lines) {
+      if (line.lineTotal != null) pinnedSum = addMoney(pinnedSum, toCentavos(line.lineTotal));
+    }
+  } catch {
+    return null;
+  }
   const unpinnedIndexes = lines
     .map((line, i) => (line.lineTotal == null ? i : -1))
     .filter((i) => i >= 0);
@@ -511,7 +489,7 @@ export function allocateAgreedTotalToOrderLines(
   // the difference, and silently inflating a hand-priced line would misstate it.
   if (unpinnedIndexes.length === 0 && pinnedSum !== agreedTotal) return null;
 
-  const residual = toCentavos(agreedTotal - pinnedSum);
+  const residual = subMoney(agreedTotal, pinnedSum);
   const shares = allocateLargestRemainder(
     residual,
     unpinnedIndexes.map((i) => lines[i]?.qty ?? 0),
@@ -530,8 +508,8 @@ export function allocateAgreedTotalToOrderLines(
   // Doc 04 §5's `sales.total = Σ(qty × unit_price)` is what the service will actually store, so the
   // reconstruction — not the intermediate `lineTotals` — is what has to equal `agreedTotal`.
   const reconstructed = allocations.reduce(
-    (sum, a, i) => sum + totalCentavos(a.unitPriceMc, toMilliUnits(lines[i]?.qty ?? 0)),
-    0,
+    (sum, a, i) => addMoney(sum, totalCentavos(a.unitPriceMc, toMilliUnits(lines[i]?.qty ?? 0))),
+    toCentavos(0),
   );
   return reconstructed === agreedTotal ? allocations : null;
 }

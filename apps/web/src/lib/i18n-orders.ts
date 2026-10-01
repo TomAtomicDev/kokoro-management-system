@@ -3,12 +3,7 @@
 // TODO: migrate into packages/shared/i18n/es.ts once that module exists (KOK-006+), same as
 // i18n-sales.ts / i18n-purchases.ts.
 
-import type {
-  CancelResolution,
-  CustomOrderStatus,
-  PaymentMethod,
-  PaymentStatus,
-} from "@kokoro/shared";
+import type { CustomOrderStatus } from "@kokoro/shared";
 
 export type OrdersHistoryFilter = "all" | "outstanding" | "paid" | "cancelled";
 
@@ -52,41 +47,34 @@ export const ordersLabels = {
     CANCELLED: "Cancelado",
   } satisfies Record<CustomOrderStatus, string>,
 
-  cancelResolutionLabels: {
-    REFUND: "Devuelto",
-    FORFEIT: "Retenido",
-  } satisfies Record<CancelResolution, string>,
-
-  paymentMethodLabels: {
-    CASH: "Efectivo",
-    BANK_QR: "QR / transferencia",
-  } satisfies Record<PaymentMethod, string>,
-
-  paymentStatusLabels: {
-    PAID: "Pagado",
-    ON_CREDIT: "Por cobrar",
-  } satisfies Record<PaymentStatus, string>,
-
   // --- Board / card ----------------------------------------------------------------------------
 
   columnDeliveryDate: "Entrega",
   noDeliveryDate: "Sin fecha",
-  cardDeposit: "Anticipo",
-  cardExpectedBalance: "Saldo previsto al entregar",
-  cardOutstandingBalance: "Saldo por cobrar",
-  depositPendingBadge: "Sin anticipo",
-  depositPaidBadge: "Con anticipo",
   noAgreedTotal: "Sin total acordado",
 
   // --- Quote form (create) ----------------------------------------------------------------------
 
   quoteTitle: "Nuevo pedido",
+  editTitle: "Editar pedido",
   backToOrders: "Volver a pedidos",
   fieldCustomer: "Cliente",
   fieldDescription: "Descripción",
   descriptionPlaceholder: "¿Qué se va a entregar?",
-  fieldAgreedTotal: "Total acordado (Bs)",
-  fieldDepositRequired: "Anticipo esperado (Bs)",
+  fieldAgreedTotal: "Subtotal de artículos (Bs)",
+  fieldAdditionalCharge: "Cargo adicional al cliente (Bs)",
+  customerAmount: "Importe al cliente",
+  qualifyingReceipts: "Recibos vinculados",
+  draftExpectedBalance: "Saldo previsto con este cambio",
+  draftExcess: "Exceso con este cambio",
+  receiptPreviewNoAgreement: "Define el subtotal de artículos para ver el saldo y el exceso.",
+  customerAmountOutOfRange: "El importe al cliente excede el rango permitido.",
+  receiptPreviewInfo: "Vista informativa; puedes ajustar el acuerdo por debajo de los recibos.",
+  receiptSummaryError: "No se pudieron actualizar los recibos vinculados.",
+  receiptSummaryLoading: "Actualizando recibos…",
+  customerLocked: "El cliente no se puede cambiar porque ya hay un recibo vinculado.",
+  terminalOrderNotEditable: "Los pedidos entregados o cancelados no se pueden editar.",
+  saved: "Cambios guardados; recibos actualizados.",
   fieldDeliveryDate: "Fecha de entrega",
   fieldDeliveryPlace: "Lugar de entrega",
   fieldNotes: "Notas",
@@ -119,26 +107,22 @@ export const ordersLabels = {
   noNotes: "Sin notas.",
   columnStatus: "Estado",
   columnCustomer: "Cliente",
-  columnAgreedTotal: "Total acordado",
-  columnDepositPaid: "Anticipo pagado",
-  columnExpectedBalance: "Saldo previsto al entregar",
-  columnSalePaymentStatus: "Estado de pago",
-  columnOutstandingAmount: "Saldo por cobrar",
+  columnAgreedTotal: "Subtotal de artículos",
   columnDeliveryPlace: "Lugar",
 
   lineUnresolvedBadge: "Sin ítem del catálogo",
-  lineResolveAction: "Vincular ítem",
-  lineResolveTitle: "Vincular ítem del catálogo",
-  lineResolveSubmit: "Vincular",
   errors: {
     generic: "Ocurrió un error inesperado. Intenta de nuevo.",
     itemRequired: "Selecciona un ítem del catálogo.",
     customerRequired: "Selecciona un cliente.",
+    agreedTotalRequired: "Define el subtotal antes de confirmar el pedido.",
+    linesNotAllocatable: "Ajusta las líneas para repartir exactamente el subtotal.",
   },
 
   // --- Lifecycle actions ---------------------------------------------------------------------
 
   actionConfirm: "Confirmar",
+  actionEdit: "Editar pedido",
   actionStartProduction: "Iniciar producción",
   actionMarkReady: "Marcar listo",
   actionDeliver: "Entregar",
@@ -149,43 +133,26 @@ export const ordersLabels = {
   confirmUndoStart: "¿Volver este pedido a confirmado?",
   confirmUndoReady: "¿Volver este pedido a en producción?",
   confirmUndoDeliver:
-    "¿Deshacer la entrega de este pedido? Se eliminará la venta generada y se revertirá el saldo cobrado; el anticipo volverá a contar como pendiente.",
+    "¿Deshacer la entrega? Se eliminará la venta del inventario y se revertirá el stock; los movimientos de dinero no cambiarán.",
   impactUndoDeliverTitle: "¿Deshacer esta entrega?",
   impactUndoDeliverDescription:
     "Esta entrega tiene movimientos posteriores que dependen de su costo. Deshacerla recalculará esos costos.",
 
   confirmDialogTitle: "Confirmar pedido",
-  confirmFieldAgreedTotal: "Total acordado (Bs)",
-  confirmFieldDepositAmount: "Anticipo (Bs)",
-  confirmFieldPaymentAccount: "Cuenta y método de pago",
-  confirmFieldDate: "Fecha del anticipo",
-  confirmNoDepositRiskTitle: "Sin anticipo recibido",
-  confirmNoDepositRiskDescription:
-    "Confirmarás este pedido antes de recibir dinero. El negocio asume el riesgo de que el cliente no pague.",
-  confirmNoDepositRiskAcknowledgment:
-    "Acepto confirmar este pedido sin haber recibido un anticipo.",
-  confirmSubmit: "Confirmar y cobrar anticipo",
-  confirmSubmitNoDeposit: "Confirmar sin anticipo",
+  confirmDescription: "El pedido pasará a confirmado. Este cambio no registra ni modifica dinero.",
+  confirmSubmit: "Confirmar pedido",
 
   deliverDialogTitle: "Entregar pedido",
   deliverUnresolvedWarning:
     "Todas las líneas deben tener un ítem del catálogo vinculado antes de entregar.",
-  deliverFieldBalanceStatus: "Estado del saldo",
-  deliverBalancePaid: "Pagado",
-  deliverBalanceOnCredit: "Por cobrar",
-  deliverCreditRiskDescription: "Al entregar, quedará por cobrar este saldo:",
-  deliverCreditRiskAcknowledgment: "Acepto entregar el pedido y dejar este saldo por cobrar.",
-  deliverFieldPaymentAccount: "Cuenta y método de pago",
   deliverFieldDate: "Fecha de entrega",
   deliverSubmit: "Confirmar entrega",
-  deliverBalanceZero: "El anticipo cubre el total; no queda saldo por cobrar.",
+  deliverDescription:
+    "Se guardará la venta y el movimiento de stock; no se registrará ningún pago.",
 
   cancelDialogTitle: "Cancelar pedido",
-  cancelFieldResolution: "¿Qué pasa con el anticipo?",
-  cancelResolutionRefund: "Devolver (REFUND)",
-  cancelResolutionForfeit: "Retener (FORFEIT)",
-  cancelFieldAccount: "Cuenta de devolución",
-  cancelNoDeposit: "Este pedido no tiene anticipo; se cancelará sin efecto en el dinero.",
+  cancelDescription:
+    "El pedido quedará cancelado. Los recibos no cambiarán; registra cualquier devolución por separado.",
   cancelSubmit: "Confirmar cancelación",
 
   /** ImpactConfirmDialog copy — only shown when the server refuses with
@@ -198,7 +165,7 @@ export const ordersLabels = {
   // --- Order-profitability panel (linked production runs) -------------------------------------
 
   profitabilityTitle: "Rentabilidad del pedido",
-  profitabilityAgreedTotal: "Total acordado",
+  profitabilityAgreedTotal: "Subtotal de artículos",
   profitabilityLinkedCosts: "Costo de producción vinculado",
   profitabilityMargin: "Margen",
   linkedRunsTitle: "Producción vinculada",

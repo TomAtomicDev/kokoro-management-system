@@ -79,10 +79,10 @@ declaration order, which is worse than an obvious crash — watch for it in revi
 integration test touches seed-only rows instead of creating its own.
 
 Priority suites: purchase (WAC + replacement cost updates), production run (consumption edit,
-output WAC), sale (PAID vs ON_CREDIT, margin snapshots), collect receivable, order lifecycle end
-to end (deposit liability rises/falls correctly — INV-7), cancel with REFUND vs FORFEIT, exits,
-count commit (ADJUST correctness), transfers (paired rows sum to zero), edit/delete regeneration
-(R-1), nightly consistency job detects and repairs seeded drift (R-2).
+output WAC), sale (PAID vs ON_CREDIT, margin snapshots), catalog receivable collection, cash-free
+order lifecycle with byte-for-byte finance-row/account conservation, exits, count commit (ADJUST
+correctness), transfers (paired rows sum to zero), edit/delete regeneration (R-1), nightly
+consistency job detects and repairs seeded drift (R-2).
 
 **Legacy Phase 3.5 receivables/order coverage (superseded for order payments by ADR-022):** verify `GET /api/receivables` groups by customer, keeps
 unassigned debts as separate sale rows, returns the same unfiltered global total as the dashboard
@@ -94,26 +94,30 @@ mandatory, audited, and independent of R-5.
 The orders UI must show every active order regardless of creation date, fetch bounded keyset pages
 until continuation is exhausted, keep four vertical status lanes in the agreed order, and sort the
 latest promised delivery date first within each lane (undated ties by creation time and ID descending).
-History quick filters must separate delivered-with-positive-outstanding, delivered-with-zero-outstanding
-(including later collection), and cancelled orders. Its optional creation-date range defaults to no
-restriction and is cleared when switching to Activos; view, filter and date state survive URL reload.
-Delivered payment state must follow the linked sale through later collection. `OrderDto.balanceDue` is only the expected merchandise
-remainder on a nonterminal order; delivered reads expose the linked sale's current payment state and
-actual remainder, while cancelled reads have no balance. A delivered order missing its active linked
-sale is an internal data error, never a zero receivable. Verify list and detail reads, zero-deposit
-delivery, paid/on-credit delivery, later collection, cancellation and undo. Verify that source-event
-links live only in order detail, its linked-cost panel distinguishes loading, error, verified-empty
-and partial evidence without claiming profit before delivery; after delivery, product gross margin
-must reconcile to the linked sale's merchandise subtotal and frozen line COGS.
-`/orders?open=<id>` survives refresh and browser
-  navigation, including >500 active orders, stable ties and undated orders. An external
-delivery charge must be included in the final sale/receivable and equal the real operating expense
-in the linked closed DELIVERY_RUN session; the order's product gross margin excludes both sides of
-the pass-through. The session ends at delivery time and defaults to five minutes. Undo-delivery
-  removes the sale fee and customer balance but preserves the actual provider expense/session.
-  Undo followed by re-delivery without another provider payment creates no duplicate expense;
-  a new provider payment creates a distinct session/expense. Generic edits/deletion of a session
-  linked to an active delivered sale must refuse changes to its provider cost/account/type/time.
+The optional history creation-date range defaults to no restriction and is cleared when switching to
+Activos; view, filter and date state survive URL reload. KOK-206 owns the payment-derived history
+filters and broad read-surface reconciliation; KOK-207 owns delivered-only debt, global receivables,
+views, snapshots and alerts.
+
+**KOK-205 edit-form acceptance:** an order-scoped read sums only active, directly linked manual
+ORDER_DEPOSIT/ORDER_BALANCE incomes. The agreement form shows that current receipt total and uses
+`calculateOrderReceiptBalance` for its draft subtotal + charge preview. It excludes soft-deleted
+rows, refunds, OTHER_INCOME, expenses and receipts for other orders; a NULL subtotal has no numeric
+preview. Lowering the agreement below receipts is accepted and shows excess. Finance edits invalidate
+the read, and a successful order save refreshes it. Update validation covers all four pre-delivery
+statuses, FINISHED items, positive quantities, pinned/exact-centavo allocation, customer lock after
+any historically linked receipt, explicit nullable clears, immutable PED code, retained work and
+stale-write conflict without partial line/audit writes. DELIVERED/CANCELLED agreement edits refuse.
+
+`/orders?open=<id>` survives refresh and browser navigation, including >500 active orders, stable ties
+and undated orders. Lifecycle coverage runs confirm/start/ready/back/deliver/undo/cancel/redeliver
+against active order cash rows and verifies every transition leaves every financial row and account
+balance byte-for-byte unchanged. Delivery snapshots `sale.total = merchandise subtotal +
+additional_charge`, posts stock/COGS with R-2/R-5 and creates no provider session/payment. Undo
+soft-deletes the sale and reverses stock with R-5 even after independent receipts; redelivery posts no
+money. CUSTOM_ORDER collection through `collectPayment` refuses, while CATALOG collection remains
+unchanged. After delivery, product gross margin reconciles to merchandise subtotal and frozen sale-line
+COGS; KOK-208 verifies the dedicated page's honest linked-cost evidence.
 
 **ADR-022 replacement acceptance (KOK-204…208):** retain the existing catalog-sale and
 inventory/costing tests. Add property-based tests on safe integer centavos for arbitrary
@@ -162,29 +166,22 @@ covered by KOK-208's dedicated page, not an intermediate drawer.
 - **Session auto-resolution** (S-1): a purchase with no open PURCHASE_TRIP session creates one in
   the same batch; with one open, it links instead; it never attaches to an open session of another
   type; and a second OPEN session of the same type is rejected by the unique index.
-- **Undo delivery** (O-6) — the sale is soft-deleted, `custom_orders.sale_id` cleared, the deposit
-  back in `v_liability`, balances restored, all in one batch, with the order back at READY.
+- **Undo delivery** (O-6/O-8) — the sale is soft-deleted, `custom_orders.sale_id` cleared, stock and
+  costing are reversed in one batch, all finance rows/accounts remain unchanged, and the order returns
+  to READY even after independent receipts.
 - **Future-dated commands are rejected** (KOK-138) across every event service.
 
 ## 4. E2E (Playwright, staging)
 
 Journeys (mirroring UC + SC docs): onboarding wizard → first purchase → first production →
-first sale → dashboard reflects all; order lifecycle from quote to delivery incl. deposit and
-balance; mark-paid receivable; count with variance; edit + undo delete; price update from
-price-health screen; login rate limit. Telegram flows are covered by integration tests against
-the grammY handlers with faked Update payloads (webhook contract), not by live Playwright.
-Phase 3.5 adds the no-deposit order confirmation and explicit acknowledgment, on-credit delivery
-warning and acknowledgment, and the Deudas por cobrar journey: reconcile Panel/Finanzas totals, find
-debts from prior months, expand a customer to the exact sale/order, collect its full balance, and
-verify the debt and all three totals refresh. It also verifies the active Pedidos board across
-creation dates, its delivery-date ordering, Historial payment filters, correct linked-sale state,
-event links confined to the detail, honest cost/loading states, and delivered product gross margin
-against the SaleDto's merchandise subtotal and frozen line COGS. The owner can edit a quote, correct
-logistics and renegotiate an active order; O-7 correction flows must preserve deposits/event history
-and obey their status/field guards.
-The same journey covers an external provider delivery: the client owes the product subtotal plus the
-pass-through fee; the provider expense posts once to the chosen account; the detail shows the linked
-session and both amounts; and product gross margin does not change because of the pass-through.
+first sale → dashboard reflects all; order quote/edit with a direct receipt, draft excess preview,
+cash-free confirmation, delivery, undo and redelivery; catalog-sale collection; count with variance;
+edit + undo delete; price update from price-health screen; login rate limit. The order journey verifies
+the same direct receipt row and account balance before/after each lifecycle transition, and that the
+order-owned sale snapshots merchandise plus additional charge without collection. KOK-206/207/208
+cover global debt surfaces, delivered-only receivables and the dedicated order page. Telegram flows
+are covered by integration tests against grammY handlers with faked Update payloads (webhook
+contract), not by live Playwright.
 
 ## 5. AI evaluation suite (Doc 05 §8)
 

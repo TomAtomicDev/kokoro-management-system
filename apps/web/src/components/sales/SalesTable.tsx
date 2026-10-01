@@ -1,23 +1,14 @@
-// SC-02 sales table: all sales, items summary, margin (read-only display math off
-// `unit_cost_snapshot` vs `unit_price`, never fed back into any command — D-5's integer-money
-// rule governs values that get WRITTEN, this is display-only, same carve-out the task brief calls
-// out explicitly), payment-status badge, row -> detail drawer.
+// SC-02 sales table: all sales, items summary, product gross margin from frozen line COGS (excluding
+// a CUSTOM_ORDER's separately quoted additional charge), catalog-sale payment badge, row -> detail.
 //
 // Row-click still opens the read-only detail drawer (no inline edit here — that's KOK-064). The
 // one inline action this table DOES have (KOK-031, UC-04) is "Cobrar" on ON_CREDIT rows, opening
 // CollectPaymentDialog; its button stops click propagation so it doesn't also trigger the row's
-// onRowClick. The full-balance display amount comes from v_receivables so custom-order deposits are
-// not presented as money still owed.
+// onRowClick. CUSTOM_ORDER compatibility payment state is never presented as its current order debt;
+// KOK-206/207 reconcile those reads to independent order receipts.
 
 import type { FinancialAccountDto, SaleDto, SaleLineDto } from "@kokoro/shared";
-import {
-  formatMoney,
-  subMoney,
-  toCentavos,
-  toMilliCentavosPerUnit,
-  toMilliUnits,
-  totalCentavos,
-} from "@kokoro/shared";
+import { calculateSaleProductGrossMargin, formatMoney, subMoney, toCentavos } from "@kokoro/shared";
 import { useMemo, useState } from "react";
 import {
   EventTable,
@@ -36,7 +27,7 @@ export interface SalesTableProps {
   accounts: FinancialAccountDto[];
   loading?: boolean;
   onRowClick?: (sale: SaleDto) => void;
-  /** Outstanding centavos keyed by sale id, net of any custom-order deposit. */
+  /** Legacy receivable amounts keyed by sale id; only CATALOG sale rows expose the collection action. */
   outstandingAmountBySaleId?: Map<string, number>;
   sortState: EventTableSortState | null;
   onSortChange: (sortState: EventTableSortState | null) => void;
@@ -51,16 +42,12 @@ function summarizeLines(lines: SaleLineDto[], itemNameById: Map<string, string>)
     : firstName;
 }
 
-/** Margin off the frozen WAC snapshot per line (never the item's LIVE wac, which may have moved
- * since the sale). Each line uses `totalCentavos`, matching the server's ADR-017 conversion.
- * Returns `null` margin% when the sale has zero total. */
+/** Product gross margin off frozen WAC snapshots (never live WAC); the order charge stays outside
+ * both the margin amount and its percentage base. Returns `null` margin% when product sales are 0. */
 function computeMargin(sale: SaleDto): { margin: number; marginPct: number | null } {
-  let cost = 0;
-  for (const line of sale.lines) {
-    cost += totalCentavos(toMilliCentavosPerUnit(line.unitCostSnapshotMc), toMilliUnits(line.qty));
-  }
-  const margin = subMoney(toCentavos(sale.total), toCentavos(cost));
-  const marginPct = sale.total > 0 ? margin / sale.total : null;
+  const merchandiseTotal = subMoney(toCentavos(sale.total), toCentavos(sale.additionalCharge));
+  const margin = calculateSaleProductGrossMargin(sale);
+  const marginPct = merchandiseTotal > 0 ? margin / merchandiseTotal : null;
   return { margin, marginPct };
 }
 
@@ -172,13 +159,17 @@ export function SalesTable({
     {
       id: "status",
       header: salesLabels.columnStatus,
-      cell: (row) => (
-        <Badge variant={row.paymentStatus === "PAID" ? "default" : "warning"}>
-          {salesLabels.paymentStatusLabels[row.paymentStatus]}
-        </Badge>
-      ),
+      cell: (row) =>
+        row.channel === "CUSTOM_ORDER" ? (
+          <span className="text-muted-foreground">—</span>
+        ) : (
+          <Badge variant={row.paymentStatus === "PAID" ? "default" : "warning"}>
+            {salesLabels.paymentStatusLabels[row.paymentStatus]}
+          </Badge>
+        ),
       sortable: true,
-      sortValue: (row) => salesLabels.paymentStatusLabels[row.paymentStatus],
+      sortValue: (row) =>
+        row.channel === "CUSTOM_ORDER" ? "—" : salesLabels.paymentStatusLabels[row.paymentStatus],
     },
     {
       id: "method",
@@ -194,7 +185,7 @@ export function SalesTable({
       id: "actions",
       header: "",
       cell: (row) =>
-        row.paymentStatus === "ON_CREDIT" ? (
+        row.channel === "CATALOG" && row.paymentStatus === "ON_CREDIT" ? (
           <Button
             type="button"
             variant="outline"
