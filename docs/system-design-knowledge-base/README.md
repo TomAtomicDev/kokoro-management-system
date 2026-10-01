@@ -27,7 +27,7 @@ here. If a rule is missing, the KB must be amended first (see [08 — AI Develop
 | 09 | [Technical Roadmap](09-technical-roadmap.md) | Phases, milestones, dependencies |
 | 10 | [Implementation Backlog](10-implementation-backlog.md) | Prioritized tasks (UI, backend, AI, infra, deployment) |
 | 11 | [Testing Strategy](11-testing-strategy.md) | Unit, integration, E2E, AI evals, acceptance criteria |
-| 12 | [Architecture Decision Records](12-architecture-decision-records.md) | ADR-001 … ADR-021 |
+| 12 | [Architecture Decision Records](12-architecture-decision-records.md) | ADR-001 … ADR-022 |
 | 13 | [Project Glossary](13-project-glossary.md) | Official terminology (EN ↔ ES) |
 
 ## How to read this KB

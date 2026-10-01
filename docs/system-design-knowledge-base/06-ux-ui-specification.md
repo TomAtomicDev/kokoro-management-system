@@ -45,8 +45,8 @@ Currency `Bs 1.234,50` (space, comma decimals); dates `lun 6 jul` / `06/07/2026`
    (explicit refund/forfeit choice, O-3), and any create/edit/delete/restore whose cost-replay
    impact requires confirmation (R-5, ADR-016) — that one genuinely needs the owner's informed
    yes before it commits, not an after-the-fact undo window (KOK-024). Phase 3.2 adds a third
-   exception: **undo delivery** (O-6), which deletes a real sale and moves a deposit back to
-   liability — too much to hand to a 10-second toast.
+    exception: **undo delivery** (O-6), which reverses a real sale/stock movement and may require
+    an R-5 cost-impact preview. Under ADR-022 it never changes cash or recategorizes a receipt.
 
 ## 2. Web app — navigation & layout
 

@@ -70,6 +70,13 @@ duplicate it.
 
 ## SC-04 · Orders board — `/orders` (UC-05…UC-08)
 
+**Implementation note:** the following board/drawer paragraphs document the pre-KOK-204
+payment-coupled screen. The **target contract** below supersedes them where they refer to
+single deposits, automatic collection/refund, sale-based order debt, matched provider expense,
+payment-based undo restrictions and the three O-7 edit flows. KOK-206 revises the shipped or
+in-review KOK-197…201 surfaces; unimplemented KOK-202 is superseded, with its valid detail
+evidence requirements incorporated into KOK-208's dedicated order page.
+
 `OrderBoard` has two views. **Activos** is the default and shows every nonterminal order without a
 creation-date limit, in four full-width vertical lanes from top to bottom: QUOTING, CONFIRMED,
 IN_PRODUCTION, READY. Cards show code (KOK-185, Doc 04 §3.6), customer, delivery date/place, agreed
@@ -150,8 +157,39 @@ because it deletes the sale delivery created and returns the deposit to the liab
 **disabled with an explanation when that sale has already been collected**: the money really
 arrived, and the owner must reverse the collection first (O-6). CANCELLED orders carry no backward
 action: that state is terminal by decision. Also shown: a warning when **Marcar listo** is pressed
-on an order with no linked production run ("este pedido no tiene producción vinculada — ¿continuar?")
-— a warning, never a block (O-4).
+  on an order with no linked production run ("este pedido no tiene producción vinculada — ¿continuar?")
+  — a warning, never a block (O-4).
+
+**Target order UI (KOK-204…208):** keep the existing active/history board and its bounded
+pagination, but use `/orders/:id` as the canonical detail with a stable deep link, full edit
+form, lifecycle actions, related-work references, linked cash-event timeline and separate
+amounts for merchandise agreement, additional customer charge, receipts, expected/actual debt,
+excess, product gross margin and order cash result. Keep `/orders?open=<id>` as a compatibility
+redirect to the same page. A drawer is not the primary editing/detail surface after KOK-208.
+Before that page ships, the interim UI may expose the same shared schemas through focused
+finance actions and links from the existing drawer; no backend behavior depends on the drawer.
+
+The customer amount is merchandise `agreed_total + additional_charge`; the charge does not
+require a provider payment and may differ from one or several order-linked delivery expenses.
+Order receipt actions accept multiple manual ORDER_DEPOSIT and ORDER_BALANCE incomes with
+independent account/date/amount and their own ING codes; refunds are separately captured
+ORDER_REFUND expenses. Finance edits/delete/restore are available for those manual rows in any
+order status. Purchases and their derived expense retain the purchase as the editable source;
+an order relationship is an additional association. Do not show a standalone edit action on a
+purchase-owned finance row. Do not automatically create money on confirm/deliver/cancel/undo.
+Undo delivery always presents the stock/cost impact preview (R-5), including after collection,
+and never changes finance rows or account balances. Cancelled orders retain cash history, show
+no collectible debt and permit explicit refunds without reopening the agreement.
+
+Before delivery, label `max(customer amount − qualifying receipts, 0)` as expected balance, not
+a receivable. Only delivered orders with a positive derived balance appear in the history's
+"to collect" filter and SC-21; a later partial receipt refreshes that balance immediately.
+Show overpayment/tips separately even when debt is zero. Show product gross margin after delivery
+from the active sale's frozen line COGS, and show order cash result (all linked active income minus
+all linked active expenses) independently; never call the latter gross margin. An agreement edit
+is permitted in QUOTING/CONFIRMED/IN_PRODUCTION/READY even below receipts, displaying excess;
+the customer is locked once any receipt exists. DELIVERED requires undo before agreement/line
+edits; CANCELLED is terminal. Product production and purchase links remain visible across states.
 
 ## SC-05 · Production list — `/production` (UC-02)
 
@@ -273,6 +311,10 @@ triggers shared-cost allocation (S-3) and shows the resulting per-run cost updat
 Header: account cards (Banco, Caja chica) with balances + "Transferir" + "Retiro personal"
 actions; liability strip: Anticipos de clientes (v_liability) + Por cobrar (v_receivables). The
 Por cobrar amount is a link to SC-21 and displays the same global outstanding total as the Panel.
+**Target KOK-206:** label the first metric as pre-delivery order cash exposure (Doc 04 §3.4.1),
+not a status-released deposit liability; include active order-linked manual receipts/refunds in
+the table with their own code AND a related-order link. "Origin" still identifies a purchase,
+sale or session that owns a derived transaction; it is not the related-order field.
 Table: all financial_transactions (fecha, código, cuenta, tipo, categoría, monto signed-colored,
 descripción, source-event link). System-owned rows (with source_event) are read-only here with
 "editar el evento origen" link (Doc 04 §5). Forms: gasto operativo / otro ingreso; transfer
@@ -460,6 +502,17 @@ change is backdated (an assembly can move WAC in both directions and downstream 
 definition graph).
 
 ## SC-21 · Deudas por cobrar — `/receivables` (UC-25; UC-04 collection)
+
+**Target KOK-206 (supersedes the custom-order portions below):** include each delivered
+custom order with derived positive outstanding, grouped by customer alongside unpaid catalog
+sales without double counting its generated sale. Show PED code, delivered sale date for aging,
+customer price, cumulative qualifying receipts and remaining debt; subsequent partial
+ORDER_BALANCE receipts reduce it immediately. Order collection opens the order-linked manual
+receipt flow, accepting any positive amount (including a tip/excess); catalog-sale collection
+retains the full-balance `collectPayment` flow. Cancelled/pre-delivery orders never appear as
+receivables. The global unfiltered total, dashboard, Finance summary and alert job share this
+projection. Link an order row to `/orders/:id` (KOK-208); preserve date/search filters and
+loading/error/empty distinctions. Source sales retain their own code for inventory history.
 
 **Purpose:** manage every sale balance customers still owe, independent of sale date. The owner can
 answer “¿quién me debe, cuánto y por cuáles ventas?” and collect the complete balance from the same

@@ -107,6 +107,20 @@ would mean rewriting historical `unit_cost_snapshot` values — precisely what R
 
 ## Phase 3.5 — Staging Bugs and Improvements (milestone-based; re-estimate after sizing)
 
+**Revised order/finance target (ADR-022; KOK-204…208).** The phase narrative below records
+the already delivered or in-review KOK-196…203 baseline. It is superseded for custom-order
+payments: receipt/refund/expense events are independent of order transitions; delivery/undo
+only alter the sale/stock snapshot. Implement in order: KOK-204 (forward-only schema and
+independent finance capture/backfill) → KOK-205 (cash-free order transitions and guarded
+pre-delivery edits) + KOK-207 (derived debt, exposure and historical cutover) → KOK-206
+(reconcile built/in-review KOK-197…201 APIs/screens/jobs) → KOK-208 (dedicated order page
+and the valid, never-implemented KOK-202 detail requirements). KOK-202 is not a parallel
+drawer implementation or a dependency for these tasks.
+KOK-205/206/207 require a coordinated rollout: a partial release would double-count or
+silently hide receivables. Keep catalog-sale collections unchanged. KOK-203's URL links
+remain supported by a redirect after KOK-208. Re-estimate the release gate against the new
+dependency chain, not the previous external-delivery-session pass-through estimate.
+
 Resolve staging defects and complete release-readiness improvements before the first production
 deployment. The catalog/count work addresses the `GET /api/items` D1 100-bound-parameter limit and
 the count detail screen's silent item-name/unit fallbacks: preserve the relational catalog, make
@@ -131,7 +145,17 @@ extension to both). KOK-203 and KOK-205 can proceed after their stated dependenc
 are independent. Re-estimate the phase with the implementing team, and keep the release gate below
 based on verified behavior rather than calendar time.
 
-**Exit / go-live gate:** catalog and inventory counts work with staging-scale and larger datasets;
+**Revised order go-live gate:** confirm/deliver/undo/cancel preserve every existing finance
+row and account balance; undo/re-delivery preserves real receipts/provider expenses and correct
+inventory replay; multiple partial receipts, excess/tips and explicit refunds reconcile to
+delivered-only receivables and the Panel/Finance/SC-21 totals; KOK-197…202 consumers no longer
+derive custom-order debt from sale payment status or `deposit_paid`; product gross margin and
+cash result remain separately correct; KOK-202's valid detail evidence ships in KOK-208,
+not in a separate drawer; historical data cut over without cash reposting, and
+the dedicated order page works on staging/mobile. The previous order-specific criteria in the
+legacy gate below are replaced by these ADR-022 criteria; catalog/count criteria remain.
+
+**Original exit / go-live gate (pre-ADR-022 baseline):** catalog and inventory counts work with staging-scale and larger datasets;
 count item names and units display correctly through draft editing and confirmation; query failures
 are visible rather than rendered as plausible fallback data; receivables totals reconcile across
 the Panel, Finanzas and SC-21 while the debt list shows every date and exact sale balance;

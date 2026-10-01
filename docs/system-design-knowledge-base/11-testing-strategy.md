@@ -26,16 +26,12 @@ Pure logic tested exhaustively, no DB:
   Σ allocations = shared cost exactly); assemblies in the session receive nothing.
 - **Deduplicated hours (S-5, Phase 3.2):** interval union across overlapping sessions of different
   types; sessions with no duration excluded, not imputed.
-- **Order state machine (O-1…O-3, O-6):** every legal/illegal transition, including the backward
-  ones and the refusal to reopen `CANCELLED`; zero-deposit confirmation requires the explicit risk
-  acknowledgment and creates no finance rows, balance change or deposit liability; on-credit
-  delivery requires its independent acknowledgment, including when an R-5 replay confirmation is
-  also required.
-- **Order corrections (O-7, Phase 3.5):** field/status permission matrix for quote edits, logistics
-  updates and renegotiation; a positive deposit/customer identity cannot be rewritten; a zero-deposit
-  customer change requires renewed acknowledgment; merchandise subtotal cannot fall below the paid
-  deposit; pinned line shares must remain allocatable to the centavo when the subtotal is set;
-  corrections create no money/stock rows, reject stale writes and preserve already-recorded work.
+- **Order state machine (O-8 target):** every legal/illegal transition, including reversal and
+  terminal CANCELLED; none creates/reverses cash. Delivery/undo still use R-2/R-5 for stock/cost
+  and never refuse because cash was collected.
+- **Order corrections (O-8 target):** pre-delivery field/status permission matrix; customer
+  fixed once any receipt has ever been linked, merchandise agreement can fall below receipts;
+  pinned line shares stay exactly allocatable. Stale writes fail and existing work/cash remains.
 - **Margin & price suggestion (C-5).**
 - **business_date derivation (INV-3)** across DST-free La Paz and UTC boundaries.
 
@@ -44,14 +40,12 @@ Pure logic tested exhaustively, no DB:
 - ∀ purchase sequences: `item_stock` = Σ movements (INV-5 in miniature).
 - ∀ entry sequences: WAC stays within [min, max] of entry unit costs.
 - ∀ allocations: Σ parts = whole (no lost centavos).
-- ∀ custom-order deposits: `deposit_paid + delivery balance = agreed_total` exactly, including a zero
-  deposit; the zero-deposit confirmation itself creates no financial transaction or account delta.
-- ∀ custom-order deliveries with an external provider: `sale.total = merchandise subtotal + delivery fee`,
-  the fee equals the actual delivery-session expense, and product gross margin
-  (`merchandise subtotal − frozen line COGS`) is invariant to the pass-through pair.
-- ∀ receivable sets: each custom-order outstanding amount is `max(sale total − deposit paid, 0)`;
-  grouping by customer (plus individually retained no-customer sales) preserves the global sum
-  exactly, with no debt omitted or counted twice.
+- ∀ order-linked receipt sequences: customer price minus qualifying active receipts equals
+  expected minus excess; multiple deposits and balance receipts preserve exact centavos.
+- ∀ order deliveries: `sale.total = merchandise subtotal + additional_charge`, independently
+  of any number of provider expenses; product margin excludes charge and expense cash flows.
+- ∀ receivable sets: positive outstanding delivered orders plus catalog-sale debt preserve the
+  global sum across customer groups with no order sale counted twice or zero-debt order listed.
 - ∀ event edit/delete sequences: derived rows have no orphans (INV-9/10).
 - ∀ assemblies (Phase 3.2, C-10): **total inventory value is unchanged by the event** — Σ
   `ASSEMBLY_OUT.total_cost` + Σ `ASSEMBLY_IN.total_cost` = 0 to the centavo. This is the property
@@ -85,7 +79,7 @@ to end (deposit liability rises/falls correctly — INV-7), cancel with REFUND v
 count commit (ADJUST correctness), transfers (paired rows sum to zero), edit/delete regeneration
 (R-1), nightly consistency job detects and repairs seeded drift (R-2).
 
-**Phase 3.5 receivables/order coverage:** verify `GET /api/receivables` groups by customer, keeps
+**Legacy Phase 3.5 receivables/order coverage (superseded for order payments by ADR-022):** verify `GET /api/receivables` groups by customer, keeps
 unassigned debts as separate sale rows, returns the same unfiltered global total as the dashboard
 and finance summary under search/age filters and pagination, and reports the net custom-order
 balance (including the full total when deposit is zero). Verify zero-deposit confirmation creates
@@ -115,6 +109,37 @@ the pass-through. The session ends at delivery time and defaults to five minutes
   Undo followed by re-delivery without another provider payment creates no duplicate expense;
   a new provider payment creates a distinct session/expense. Generic edits/deletion of a session
   linked to an active delivered sale must refuse changes to its provider cost/account/type/time.
+
+**ADR-022 replacement acceptance (KOK-204…208):** retain the existing catalog-sale and
+inventory/costing tests. Add property-based tests on safe integer centavos for arbitrary
+numbers of deposits, balance receipts, refunds, expenses, overpayments and edits/deletions:
+account balances equal opening plus signed active transactions; `expected` and `excess` are
+nonnegative and conserve the signed difference without duplicate receipts; order debt counts
+only qualifying active receipts, not expenses/refunds/tips from an unrelated order. Confirm,
+deliver, undo, cancel and re-deliver against any existing cash history must leave all finance
+rows, account balances, original categories and codes unchanged. Delivery/undo must still
+atomically reverse sale/stock with R-2/R-5 replay, even after partial collection; the new
+sale remains a stock/COGS snapshot, never an income source. Cover active pre-delivery expected
+balance, delivered-only positive receivable, cancellation with/without retained cash,
+overpayment, provider expense without customer charge and customer charge without expense.
+Product gross margin uses frozen sale-line COGS, whereas cash result sums linked incomes
+minus linked expenses, including purchase cash outflow without deducting it again as COGS.
+Editing the agreement below receipts shows excess; customer edit after receipt and all edits
+of delivered/cancelled agreement fail. Corrections in Finance remain possible in every state.
+
+Migration fixtures must include pre-existing ORDER_DEPOSIT, ORDER_BALANCE, DEPOSIT_REFUND,
+sale-owned DEBT_COLLECTION, paired transfers, order sale undone/redelivered, cancelled/forfeited
+orders, zero-deposit confirmations, unlinked purchases and ambiguous/orphan source rows. Verify
+the backfill is idempotent and neither changes account balances nor mints duplicate codes;
+unprovable links are reported for review. Cut over catalog and order portions of receivables
+once each, with matching unfiltered totals across SC-21, Finance, Panel, alerts and snapshots;
+label the daily-snapshot/liability projection boundary explicitly. Test >500 orders and bounded
+set-based lookup, partial collection and later zero-debt removal. Playwright covers the
+dedicated `/orders/:id` page, original `?open=` bookmarks, receipt/refund actions, and
+responsive history/finance navigation. The earlier payment-coupled Phase 3.5 assertions
+above remain regression history, not target acceptance for custom orders. KOK-202 is retired
+unimplemented; its partial-evidence, frozen-COGS, link and error/loading assertions are
+covered by KOK-208's dedicated page, not an intermediate drawer.
 
 **Phase 3.2 additions:**
 
@@ -172,7 +197,7 @@ session and both amounts; and product gross margin does not change because of th
 | P2 | UC-02/14 pass; C-3/C-4 verified against a hand-calculated spreadsheet fixture (golden numbers checked into repo) |
 | P3 | UC-03…UC-08 pass; deposit liability trace correct across full order lifecycle; price-health screen matches hand-calculated margins |
 | **P3.2** | UC-21…UC-24 pass; the "Desayuno Kokoro" golden fixture reproduces every figure in `acuerdos-prueba-usuario-1.md` §A-1 including the C-5 alert on the combo; assembly value-conservation and S-5 union property tests green; no sale can carry a PACKAGING line and no packaging is deducted twice on any path; session auto-resolution and the one-OPEN-per-type index enforced; undo-delivery restores liability, balances and stock exactly; **KOK-073 deployed before the first real purchase**; full-page forms show total and affected account without scrolling on a 375px viewport |
-| **P3.5** | KOK-191…205 complete; catalog/count reads pass staging-scale and >100-item coverage; receivables API/UI reconcile the all-dates total across Panel, Finanzas and SC-21 and collect the exact full sale balance; zero-deposit orders create no cash/deposit-liability rows; no-deposit and on-credit order acknowledgments are enforced/audited and do not bypass R-5; active Pedidos are unbounded by creation date and ordered by promised date as specified; Historial reflects current sale debt and event links stay in order detail; delivered product gross margin reconciles to merchandise subtotal less frozen sale-line COGS and excludes delivery pass-through; the delivery fee equals the actual session expense and undo preserves that real expense; O-7 corrections enforce field/status permissions, preserve deposits/event history and are audited; partial linked cost is never represented as profit; `pnpm check`, invariant tests, browser and staging smoke tests green; owner approves go-live |
+| **P3.5** | KOK-191…208 complete; catalog/count reads pass staging-scale and >100-item coverage; ADR-022's independent cash, multiple receipts/refunds, cash-free transitions, historical backfill, order-only delivered debts and separately labelled product margin/cash result satisfy the replacement acceptance above; KOK-197…202 surfaces reconciled, dedicated order page and legacy deep links verified; `pnpm check`, invariant tests, browser and staging smoke tests green; owner approves go-live. The earlier KOK-204/205 provider-session and single-deposit gates are superseded. |
 | P4 | Capture eval pass ≥ 90% at launch (target G7 95% after tuning); INV-2/4 enforced by tests; digest delivered to staging chat |
 | P5 | Query evals pass; Bs/h numbers match golden spreadsheet; dashboard v2 numbers reconcile with reports |
 | P6 | Full E2E suite green; restore drill executed and documented; a11y checklist complete |
