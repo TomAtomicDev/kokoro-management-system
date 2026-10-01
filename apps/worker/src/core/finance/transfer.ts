@@ -119,7 +119,10 @@ export async function transfer(
       entityType: "financial_transactions",
       entityId: outId,
       before: null,
-      after: { out: outRow, in: inRow },
+      after: {
+        out: { ...outRow, customOrderId: null },
+        in: { ...inRow, customOrderId: null },
+      },
     }),
   ]);
 
@@ -132,8 +135,8 @@ export async function transfer(
   const code = codeRow?.code ?? null;
 
   return {
-    outTransaction: toTransactionDto({ ...outRow, code }),
-    inTransaction: toTransactionDto({ ...inRow, code }),
+    outTransaction: toTransactionDto({ ...outRow, customOrderId: null, code }),
+    inTransaction: toTransactionDto({ ...inRow, customOrderId: null, code }),
     fromAccount: toAccountDto({
       ...fromAccount,
       balance: subMoney(toCentavos(fromAccount.balance), toCentavos(command.amount)),

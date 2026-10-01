@@ -166,8 +166,13 @@ form, lifecycle actions, related-work references, linked cash-event timeline and
 amounts for merchandise agreement, additional customer charge, receipts, expected/actual debt,
 excess, product gross margin and order cash result. Keep `/orders?open=<id>` as a compatibility
 redirect to the same page. A drawer is not the primary editing/detail surface after KOK-208.
-Before that page ships, the interim UI may expose the same shared schemas through focused
-finance actions and links from the existing drawer; no backend behavior depends on the drawer.
+KOK-204 provides shared finance commands and the relationship in Finance reads, but does
+not add a Finance order picker or an interim drawer-based order payment flow. KOK-208 makes
+the page the creation surface: its expense/income/refund buttons open the familiar Finance
+forms with the current PED already fixed as context; income categories include deposit,
+order balance and other income (the last does not settle debt). Saved rows appear in both the order
+timeline and the Finance movements table. Backend commands take the order ID directly,
+without any session intermediary or reliance on the current drawer.
 
 The customer amount is merchandise `agreed_total + additional_charge`; the charge does not
 require a provider payment and may differ from one or several order-linked delivery expenses.
@@ -244,7 +249,9 @@ detail drawer with Editar/Eliminar (KOK-024). Form (full page in Phase 3.2, shar
 edit, `PurchaseForm`), with the computed total and "se descontará X de la cuenta Y" pinned to the
 footer (KOK-112) and one `PaymentAccountPicker` instead of separate method/account fields:
 `LineEditor` (item, qty, line total → unit cost preview + Δ vs previous replacement cost
-highlighted, the inflation signal), account, supplier, photo upload, session. Eliminar commits
+highlighted, the inflation signal), account, supplier, optional order association (KOK-204; any
+order status), photo upload and session. The purchase remains the finance row's source owner; its
+optional PED association is separate and follows purchase edits/regeneration. Eliminar commits
 immediately (R-3, principle 6) with a 10s "Deshacer" undo toast; both edit and delete fall back to
 an impact-confirmation dialog instead of the toast when the change would move already-booked cost
 (R-5) — see UC-18 and Doc 06 principle 6 for the general pattern this and SC-08's Salidas tab
@@ -311,10 +318,12 @@ triggers shared-cost allocation (S-3) and shows the resulting per-run cost updat
 Header: account cards (Banco, Caja chica) with balances + "Transferir" + "Retiro personal"
 actions; liability strip: Anticipos de clientes (v_liability) + Por cobrar (v_receivables). The
 Por cobrar amount is a link to SC-21 and displays the same global outstanding total as the Panel.
-**Target KOK-206:** label the first metric as pre-delivery order cash exposure (Doc 04 §3.4.1),
-not a status-released deposit liability; include active order-linked manual receipts/refunds in
-the table with their own code AND a related-order link. "Origin" still identifies a purchase,
-sale or session that owns a derived transaction; it is not the related-order field.
+**KOK-204:** Finance shows a direct PED association in its own column, separate from "Origen";
+the latter still identifies a purchase, sale or session that owns a derived transaction. **Target
+KOK-206:** label the first metric as pre-delivery order cash exposure (Doc 04 §3.4.1), not a
+status-released deposit liability, and reconcile the independent payments across Finance consumers.
+Finance has no order picker to create or reassign order-linked finance rows: order-page actions
+(KOK-208) supply the direct association, while Finance remains a list and manual-row editor.
 Table: all financial_transactions (fecha, código, cuenta, tipo, categoría, monto signed-colored,
 descripción, source-event link). System-owned rows (with source_event) are read-only here with
 "editar el evento origen" link (Doc 04 §5). Forms: gasto operativo / otro ingreso; transfer

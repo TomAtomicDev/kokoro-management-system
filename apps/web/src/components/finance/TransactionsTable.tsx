@@ -7,6 +7,7 @@
 import type {
   FinancialAccountDto,
   FinancialTransactionDto,
+  FinancialTransactionOrderDto,
   FinancialTransactionSourceEventDto,
 } from "@kokoro/shared";
 import { formatMoney, toCentavos } from "@kokoro/shared";
@@ -33,6 +34,13 @@ export function formatSourceEventLabel(sourceEvent: FinancialTransactionSourceEv
     .filter((part): part is string => part !== null)
     .join(" ")
     .concat(` · ${shortDate}`);
+}
+
+export function formatRelatedOrderLabel(
+  relatedOrder: FinancialTransactionOrderDto | undefined,
+  customOrderId: string | null,
+): string {
+  return relatedOrder?.code ?? (customOrderId ? financeLabels.relatedOrderWithoutCode : "—");
 }
 
 function SourceEventLink({
@@ -195,6 +203,13 @@ export function TransactionsTable({
         ),
       sortable: true,
       sortValue: (row) => (row.sourceEvent ? formatSourceEventLabel(row.sourceEvent) : "—"),
+    },
+    {
+      id: "relatedOrder",
+      header: financeLabels.columnOrder,
+      cell: (row) => formatRelatedOrderLabel(row.relatedOrder, row.customOrderId),
+      sortable: true,
+      sortValue: (row) => formatRelatedOrderLabel(row.relatedOrder, row.customOrderId),
     },
   ];
 

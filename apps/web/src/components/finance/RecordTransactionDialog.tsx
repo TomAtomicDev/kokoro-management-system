@@ -4,15 +4,15 @@
 // one generic form with a type toggle — so the Finance header exposes two buttons ("Registrar
 // gasto" / "Registrar otro ingreso"), each opening THIS SAME component with `type` pre-fixed. The
 // component itself only asks for `category` among the legal subset for that fixed type
-// (RECORD_TRANSACTION_CATEGORIES_BY_TYPE, exported by packages/shared so this never re-derives
-// the pairing rule — D-4). Validated with the exact same `recordTransactionCommandSchema` the API
-// route parses with.
+// (FINANCE_FORM_TRANSACTION_CATEGORIES_BY_TYPE, exported by packages/shared so this never offers
+// order-only categories without page context — D-4). Validated with the exact same
+// `recordTransactionCommandSchema` the API route parses with.
 
 import {
+  FINANCE_FORM_TRANSACTION_CATEGORIES_BY_TYPE,
   type FinancialAccountDto,
   type FinancialTransactionCategory,
   nowIso,
-  RECORD_TRANSACTION_CATEGORIES_BY_TYPE,
   recordTransactionCommandSchema,
   toBusinessDate,
 } from "@kokoro/shared";
@@ -41,7 +41,7 @@ export function RecordTransactionDialog({
   type,
   accounts,
 }: RecordTransactionDialogProps) {
-  const allowedCategories = RECORD_TRANSACTION_CATEGORIES_BY_TYPE[type];
+  const allowedCategories = FINANCE_FORM_TRANSACTION_CATEGORIES_BY_TYPE[type];
   const [accountId, setAccountId] = useState("");
   const [category, setCategory] = useState<FinancialTransactionCategory>(
     allowedCategories[0] ?? "OTHER_EXPENSE",

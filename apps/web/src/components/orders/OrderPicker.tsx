@@ -12,6 +12,8 @@ export interface OrderPickerProps {
   onChange: (orderId: string | null, order: OrderDto | null) => void;
   placeholder?: string;
   disabled?: boolean;
+  /** Purchases may be associated for cost evidence regardless of the order's lifecycle state. */
+  includeTerminalStatuses?: boolean;
 }
 
 export function formatOrderPickerDisplay(
@@ -28,12 +30,14 @@ export function formatOrderPickerDisplay(
 }
 
 export function OrderPicker(props: OrderPickerProps): JSX.Element {
-  const { value, onChange, placeholder, disabled } = props;
+  const { value, onChange, placeholder, disabled, includeTerminalStatuses = false } = props;
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const ordersQuery = useOrders({ excludeStatuses: ["DELIVERED", "CANCELLED"] });
+  const ordersQuery = useOrders(
+    includeTerminalStatuses ? {} : { excludeStatuses: ["DELIVERED", "CANCELLED"] },
+  );
   const orders = ordersQuery.data?.orders ?? [];
   // KOK-137: resolved via its OWN query, not `orders.find(...)` — a run/assembly's existing link
   // can point at an order that's since gone DELIVERED/CANCELLED (excluded from `orders` above),
@@ -60,7 +64,11 @@ export function OrderPicker(props: OrderPickerProps): JSX.Element {
       field?.toLowerCase().includes(trimmedQuery),
     );
   });
-  const displayValue = open ? query : selectedOrder ? formatOrderPickerDisplay(selectedOrder) : "";
+  const displayValue = open
+    ? query
+    : selectedOrder
+      ? `${formatOrderPickerDisplay(selectedOrder)}${includeTerminalStatuses ? ` · ${ordersLabels.statusLabels[selectedOrder.status]}` : ""}`
+      : "";
 
   function selectOrder(order: OrderDto): void {
     onChange(order.id, order);
@@ -105,6 +113,9 @@ export function OrderPicker(props: OrderPickerProps): JSX.Element {
                       <span className="w-full truncate text-muted-foreground text-xs">
                         {order.code ? `${order.code} · ` : ""}
                         {order.deliveryDate ?? ordersLabels.noDeliveryDate}
+                        {includeTerminalStatuses
+                          ? ` · ${ordersLabels.statusLabels[order.status]}`
+                          : ""}
                       </span>
                       {order.description ? (
                         <span className="w-full truncate text-foreground text-xs">

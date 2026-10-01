@@ -265,6 +265,9 @@ export const purchases = sqliteTable(
     sessionId: text("session_id")
       .notNull()
       .references(() => sessions.id, { onDelete: "restrict" }),
+    customOrderId: text("custom_order_id").references((): AnySQLiteColumn => customOrders.id, {
+      onDelete: "restrict",
+    }),
     // Forward reference ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â financial_accounts is declared later (Doc 04 Ãƒâ€šÃ‚Â§3.4).
     accountId: text("account_id")
       .notNull()
@@ -279,6 +282,7 @@ export const purchases = sqliteTable(
     updatedAt: text("updated_at").notNull(),
   },
   (t) => ({
+    ixOrder: index("ix_purchases_order").on(t.customOrderId),
     uxCode: uniqueIndex("ux_purchases_code").on(t.code),
   }),
 );
@@ -728,6 +732,7 @@ export const financialTransactions = sqliteTable(
         "OPERATING_EXPENSE",
         "EQUIPMENT",
         "DEPOSIT_REFUND",
+        "ORDER_REFUND",
         "OWNER_WITHDRAWAL",
         "TRANSFER",
         "OTHER_EXPENSE",
@@ -740,12 +745,14 @@ export const financialTransactions = sqliteTable(
     ),
     sourceEventType: text("source_event_type"),
     sourceEventId: text("source_event_id"),
-    // KOK-185: human-readable code (GTO-/ING-/RET-/TRF-NNNN-YYYY), assigned only for MANUAL rows
-    // (source_event_id IS NULL) - system-owned rows (SALE, SUPPLY_PURCHASE, DEBT_COLLECTION,
-    // ORDER_DEPOSIT, ORDER_BALANCE, DEPOSIT_REFUND) inherit their source event's code instead and
-    // stay NULL here. A TRANSFER's two legs (TRANSFER_OUT/TRANSFER_IN) share one code - see
-    // migration 0024's header for the AFTER UPDATE trigger that makes that possible despite
-    // core/finance/transfer.ts inserting both rows with counterpart_tx_id initially NULL.
+    customOrderId: text("custom_order_id").references((): AnySQLiteColumn => customOrders.id, {
+      onDelete: "restrict",
+    }),
+    // KOK-185/KOK-204: human-readable code (GTO-/ING-/RET-/TRF-NNNN-YYYY), assigned only for
+    // MANUAL rows (source_event_id IS NULL), including independent order receipts/refunds. Legacy
+    // source-owned rows inherit their source event's code instead and stay NULL here. A TRANSFER's
+    // two legs (TRANSFER_OUT/TRANSFER_IN) share one code - see migrations 0024/0026 for the AFTER
+    // UPDATE trigger that makes that possible despite counterpart_tx_id starting NULL.
     code: text("code"),
     description: text("description"),
     deletedAt: text("deleted_at"),
@@ -759,12 +766,21 @@ export const financialTransactions = sqliteTable(
     ),
     categoryCheck: check(
       "financial_transactions_category_check",
-      sql`${t.category} IN ('SALE','ORDER_DEPOSIT','ORDER_BALANCE','DEBT_COLLECTION','OTHER_INCOME','SUPPLY_PURCHASE','OPERATING_EXPENSE','EQUIPMENT','DEPOSIT_REFUND','OWNER_WITHDRAWAL','TRANSFER','OTHER_EXPENSE')`,
+      sql`${t.category} IN ('SALE','ORDER_DEPOSIT','ORDER_BALANCE','DEBT_COLLECTION','OTHER_INCOME','SUPPLY_PURCHASE','OPERATING_EXPENSE','EQUIPMENT','DEPOSIT_REFUND','ORDER_REFUND','OWNER_WITHDRAWAL','TRANSFER','OTHER_EXPENSE')`,
     ),
     amountCheck: check("financial_transactions_amount_check", sql`${t.amount} > 0`),
+    orderReceiptCheck: check(
+      "financial_transactions_order_receipt_check",
+      sql`${t.category} NOT IN ('ORDER_DEPOSIT','ORDER_BALANCE') OR (${t.type} = 'INCOME' AND (${t.sourceEventId} IS NOT NULL OR ${t.customOrderId} IS NOT NULL))`,
+    ),
+    orderRefundCheck: check(
+      "financial_transactions_order_refund_check",
+      sql`${t.category} != 'ORDER_REFUND' OR (${t.type} = 'EXPENSE' AND ${t.sourceEventId} IS NULL AND ${t.customOrderId} IS NOT NULL)`,
+    ),
     ixAccountDate: index("ix_tx_account_date").on(t.accountId, t.businessDate),
     ixSource: index("ix_tx_source").on(t.sourceEventType, t.sourceEventId),
     ixCategoryDate: index("ix_tx_category_date").on(t.category, t.businessDate),
+    ixCustomOrderDate: index("ix_tx_custom_order_date").on(t.customOrderId, t.businessDate, t.id),
     // Partial: excludes TRANSFER_IN, whose code is a deliberate mirror of its TRANSFER_OUT
     // counterpart's (migration 0024's header) — see that migration for the full reasoning.
     uxCode: uniqueIndex("ux_financial_transactions_code")

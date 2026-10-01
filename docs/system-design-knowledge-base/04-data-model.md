@@ -2,8 +2,9 @@
 
 Target: **Cloudflare D1 (SQLite)**, managed with Drizzle ORM migrations. This document is the
 authoritative **target** schema; Drizzle definitions in `apps/worker/src/db/schema.ts` MUST mirror
-the applied-migration version 1:1 at every deployed step. Sections explicitly marked target
-(ADR-022/KOK-204…208) require new migrations and are not assertions about the current database.
+the applied-migration version 1:1 at every deployed step. KOK-204's independent finance association
+and ORDER_REFUND category are implemented by migration 0026; KOK-205…208 remain target work and are
+not assertions about the current database.
 
 ## 1. Conventions
 
@@ -213,7 +214,7 @@ CREATE TABLE purchases (
   id TEXT PRIMARY KEY,
   occurred_at TEXT NOT NULL, business_date TEXT NOT NULL,
   supplier_name TEXT,
-  custom_order_id TEXT REFERENCES custom_orders(id), -- target KOK-204; optional cost/cash association
+  custom_order_id TEXT REFERENCES custom_orders(id), -- KOK-204/migration 0026; optional cost/cash association
   session_id TEXT NOT NULL REFERENCES sessions(id),   -- Phase 3.2 (KOK-130): required (Doc 03 S-1).
                                                  -- Resolved by the service — link to the open
                                                  -- PURCHASE_TRIP session or create a minimal one
@@ -311,7 +312,7 @@ CREATE TABLE sales (
   session_id TEXT REFERENCES sessions(id),       -- optional work session; no automatic provider session
   total INTEGER NOT NULL,                        -- centavos; product lines + additional_charge
   additional_charge INTEGER NOT NULL DEFAULT 0 CHECK (additional_charge >= 0),
-                                                   -- snapshot of the customer's extra charge (target migration)
+                                                   -- customer charge snapshot (KOK-205 migration)
   payment_status TEXT NOT NULL CHECK (payment_status IN ('PAID','ON_CREDIT')),
   paid_at TEXT,                                  -- set when receivable collected (UC-04)
   payment_method TEXT CHECK (payment_method IN ('CASH','BANK_QR')),
@@ -342,7 +343,7 @@ CREATE TABLE custom_orders (
   customer_id TEXT NOT NULL REFERENCES customers(id),
   description TEXT NOT NULL,                     -- free text of the request
   agreed_total INTEGER,                          -- centavos; agreed merchandise subtotal, required to confirm
-  additional_charge INTEGER NOT NULL DEFAULT 0 CHECK (additional_charge >= 0), -- target migration
+  additional_charge INTEGER NOT NULL DEFAULT 0 CHECK (additional_charge >= 0), -- KOK-205 migration
   deposit_required INTEGER,                      -- centavos, suggested default = 50%; zero is allowed
   deposit_paid INTEGER NOT NULL DEFAULT 0,         -- zero means no deposit was received
   deposit_tx_id TEXT REFERENCES financial_transactions(id), -- NULL when confirmed with zero deposit
@@ -463,7 +464,7 @@ CREATE TABLE financial_transactions (
   amount INTEGER NOT NULL CHECK (amount > 0),    -- always positive; direction from `type`
   counterpart_tx_id TEXT REFERENCES financial_transactions(id),  -- transfer pairing (UC-12)
   source_event_type TEXT, source_event_id TEXT,  -- NULL for standalone tx (UC-11/12/13)
-  custom_order_id TEXT REFERENCES custom_orders(id), -- target KOK-204; independent of source
+  custom_order_id TEXT REFERENCES custom_orders(id), -- KOK-204/migration 0026; independent of source
   description TEXT, deleted_at TEXT,
   created_at TEXT NOT NULL, updated_at TEXT NOT NULL
 );
@@ -517,15 +518,18 @@ daily.
 
 ### 3.4.1 Target order-independent cash model (KOK-204…208; supersedes the payment-coupled parts above)
 
-The DDL in §3.3–3.4 is the **target logical schema**, not a claim that migrations through 0024
-already implement every column: the previously proposed `sales.delivery_fee` was never migrated
-or added to Drizzle. The following is the target derivation/migration contract. ADR-022 supersedes
-ADR-012's order-state-dependent liability mechanism. Ship this
-change in a **new forward-only migration**; never rewrite applied migrations.
+The DDL in §3.3–3.4 is the **target logical schema**, not a claim that migrations through 0026
+already implement every column: KOK-204's order associations and ORDER_REFUND category are applied
+in migration 0026, while KOK-205's additional-charge columns are not yet implemented. The previously
+proposed `sales.delivery_fee` was never migrated or added to Drizzle. The following is the target
+derivation/migration contract. ADR-022 supersedes ADR-012's order-state-dependent liability
+mechanism. Ship remaining schema changes in **new forward-only migrations**; never rewrite applied
+migrations.
 
-- Add `custom_orders.additional_charge INTEGER NOT NULL DEFAULT 0 CHECK (additional_charge >= 0)`
+- KOK-205 adds `custom_orders.additional_charge INTEGER NOT NULL DEFAULT 0 CHECK (additional_charge >= 0)`
   and `sales.additional_charge INTEGER NOT NULL DEFAULT 0 CHECK (additional_charge >= 0)` in
-  the new migration and matching Drizzle definitions; no `sales.delivery_fee` column exists in
+  its own forward migration with matching shared command, order UI and Drizzle definitions;
+  do not add DB-only unused charge fields in KOK-204. No `sales.delivery_fee` column exists in
   deployed migrations, so do not migrate from or depend on it.
   `agreed_total` remains the merchandise subtotal. A generated CUSTOM_ORDER sale snapshots both:
   `sales.total = agreed_total + additional_charge` and
@@ -534,64 +538,53 @@ change in a **new forward-only migration**; never rewrite applied migrations.
   No additional-charge transaction is generated by delivery; a customer payment is a separate
   receipt. Change the fee's descriptive naming in DTO/UI where necessary without duplicating the
   stored amount. Once delivered, the order agreement/charge are immutable until undo.
-- Add `financial_transactions.custom_order_id TEXT REFERENCES custom_orders(id)` and an index on
-  `(custom_order_id, business_date, id)`. This **association** is separate from
+- KOK-204 adds `financial_transactions.custom_order_id TEXT REFERENCES custom_orders(id)` and the
+  `ix_tx_custom_order_date` index on `(custom_order_id, business_date, id)` in migration 0026. This
+  **association** is separate from
   `source_event_type/id`: manual receipts/refunds/other expenses have a NULL source and an order ID,
   and therefore keep their own code/editability; purchase-owned expenses keep their purchase source
   and may also carry an order ID, remaining editable only through the purchase service. Do not
   use a PED display code as a foreign key. Add nullable `purchases.custom_order_id` and maintain
   the same order ID on its derived SUPPLY_PURCHASE transaction within the owning purchase batch;
   edits/soft-deletes/restores keep the association and account/stock invariants consistent.
-  Provider delivery costs are ordinary manual order-linked expenses (multiple allowed), not
+  The order relationship is set when a finance command is launched from `/orders/:id` (KOK-208),
+  not by selecting or reassigning an order in a Finance form. Finance lists the relationship
+  and may edit non-link fields of manual rows; to correct a wrongly associated row, soft-delete
+  it and capture the corrected event from the right order page. Provider delivery costs are
+  ordinary manual order-linked expenses (multiple allowed), not
   autogenerated DELIVERY_RUN costs; a user-created session can still be independently linked if
   recorded for actual work. Never turn a source-owned row into a manual row to enable editing.
-- Add `ORDER_REFUND` to the transaction category CHECK/shared enum, allowed only for manual
+- KOK-204 migration 0026 adds `ORDER_REFUND` to the transaction category CHECK/shared enum, allowed only for manual
   EXPENSE with an order ID. Permit manual INCOME/`ORDER_DEPOSIT` and INCOME/`ORDER_BALANCE` only
   with an order ID; existing `OTHER_INCOME`, `OPERATING_EXPENSE`, `OTHER_EXPENSE` and purchase
   categories preserve their meanings. The code-allocation trigger must assign `ING` to manual
-  order receipts and `GTO` to manual ORDER_REFUND; system-owned legacy rows retain NULL code and
-  their original source reference. Rebuild the CHECK-bearing SQLite table safely if ALTER cannot
+  order receipts and `GTO` to manual ORDER_REFUND; source-owned rows retain NULL code and
+  their source reference. Rebuild the CHECK-bearing SQLite table safely if ALTER cannot
   change the constraint; preserve IDs, timestamps, transfer pair FKs/codes, partial unique indexes,
   triggers and all existing account balances. Validate the rebuild on D1/SQLite with
   `foreign_key_check` across the circular order/deposit and transfer references; never silently
   drop an FK, index or trigger to make the rebuild pass. Code allocation is still atomic and never
   rewrites a historical code. No new package dependency.
-- `deposit_paid` and `deposit_tx_id` are **legacy-only** after cutover; do not use them as the
-  accounting read source. A forward migration may leave the columns nullable/untouched for
-  compatibility while all new order commands stop writing them. Do not drop either in a migration
-  that would require a fragile circular-FK table rebuild. `cancel_resolution` is likewise legacy
-  history, not a prerequisite for cancellation. Keep the stored sale payment status for catalog
+- `deposit_paid` and `deposit_tx_id` are **old-model fields** after cutover; do not use them as the
+  accounting read source. A forward migration may leave the columns nullable/untouched while all
+  new order commands stop writing them; reset disposable test data before cutover. Do not drop
+  either in a migration that would require a fragile circular-FK table rebuild.
+  `cancel_resolution` is likewise no longer a prerequisite for cancellation. Keep the stored sale payment status for catalog
   sales; new order sales are operational sale/stock snapshots and must not drive receivables or
   cash. Until a safe sale-table rebuild removes the legacy NOT NULL payment-status constraint,
   write generated order sales with `payment_status='ON_CREDIT'` solely as a compatibility value,
   `paid_at/payment_method/account_id=NULL`, regardless of actual receipts. Never display this
-  value as an order payment state or allow `collectPayment` on CUSTOM_ORDER sales. Historical
-  generated sale payment metadata remains unchanged as provenance, not the new debt oracle.
-- Backfill `financial_transactions.custom_order_id` idempotently from existing `custom_order`
-  source IDs (deposit, balance, refund), and from `sale` sources whose sale has
-  `sales.custom_order_id` (legacy DEBT_COLLECTION). Preserve each existing row, amount, account,
-  category, code and source; do not book a second receipt or change account balances. A historical
-  order-linked DEBT_COLLECTION counts as a receipt in order totals without changing its category.
-  Existing purchase expenses have no provable order relationship: leave them unlinked pending
-  explicit manual association through the purchase service; never infer it from free-text notes or
-  dates. For historical provider sessions, retain the actual session expense/source and explicitly
-  associate it with the order where proven, without another expense. Reconcile per-account opening
-  balance plus signed active transactions, per-order receipt totals, and aggregate receivables
-  before/after migration; flag ambiguous/orphan source references for review, not silent repair.
-- Legacy order-created ORDER_DEPOSIT, ORDER_BALANCE and DEPOSIT_REFUND rows and order-sale-created
-  DEBT_COLLECTION rows **must become correctable** even though they retain non-NULL historical
-  `source_event_type/id` and NULL code. Add an explicit `core/finance` order-cash correction/soft-
-  delete/restore service and shared commands restricted to these proven order-linked categories;
-  its single batch adjusts balances, records before/after audit and leaves original source/code
-  intact. Do not route them through the generic manual-row guard or delete/recreate them solely
-  to gain editability. The old `deposit_paid`, payment status and `paid_at` values are historical
-  snapshots, never updated to impersonate the new totals. The rule that purchase/session-owned
-  rows are edited only through their own service still applies. The source may be a soft-deleted
-  generated sale after undo; keep the source sale row for provenance and find the order via the
-  explicit association, not an active-sale join. Compare source/association and edit timestamp
-  inside the correction batch to prevent a stale write from losing a concurrent change.
-- Derive order receipts from **active** (`deleted_at IS NULL`) linked INCOME rows in
-  `ORDER_DEPOSIT`, `ORDER_BALANCE` and migrated DEBT_COLLECTION only; exclude other income,
+  value as an order payment state or allow `collectPayment` on CUSTOM_ORDER sales.
+- **No historical provider-session or order-cash backfill is required.** The app has only
+  disposable test data, not production records; reset affected development/staging databases
+  at the coordinated ADR-022 cutover. Do not change applied migration files or skip a schema
+  migration merely because data is disposable. Keep fixture-based FK/trigger/account tests,
+  but no special service for correcting source-owned test receipts and no session-to-order
+  attribution logic. New cash commands link directly to the order ID; there is no session
+  intermediary. During the KOK-204-only development interval, old order transitions may still
+  create old-model test rows until KOK-205 replaces them; do not treat those rows as target data.
+- Derive order receipts from **active** (`deleted_at IS NULL`) linked manual INCOME rows in
+  `ORDER_DEPOSIT` and `ORDER_BALANCE` only; exclude other income,
   purchase/provider expenses, refunds and unrelated sales. `expected = max(agreed_total +
   additional_charge - receipts, 0)` and `excess = max(receipts - agreed_total -
   additional_charge, 0)` in integer centavos; with NULL agreed_total both are NULL. A separate
@@ -605,7 +598,7 @@ change in a **new forward-only migration**; never rewrite applied migrations.
   amounts never resets the age. An order's refund does not increase expected/debt.
 - Replace the legacy `v_liability` formula that subtracts `deposit_paid` at delivery: report
   pre-delivery, non-cancelled order cash exposure from active order receipts net of explicit
-  order refunds (`ORDER_REFUND` and linked legacy `DEPOSIT_REFUND`), floored at zero, without recategorizing any receipt. On undo it becomes
+  order refunds (`ORDER_REFUND`), floored at zero, without recategorizing any receipt. On undo it becomes
   pre-delivery exposure again; on cancellation it leaves that operational exposure measure even
   if cash remains in the account. Do not label this operational projection as a legally settled
   liability or as recognized revenue. Keep `v_cashflow_daily` tied to actual transaction dates
@@ -712,16 +705,16 @@ invariant — see migration `0024_add_event_codes.sql`'s header for the full tra
 | `stock_exits` | `stock_exit` | `SAL` |
 | `financial_transactions`, category IN (`OPERATING_EXPENSE`,`EQUIPMENT`,`OTHER_EXPENSE`) | `expense` | `GTO` |
 | `financial_transactions`, category = `OTHER_INCOME` | `income` | `ING` |
-| `financial_transactions`, manual `ORDER_DEPOSIT`/`ORDER_BALANCE` (target KOK-204) | `income` | `ING` |
-| `financial_transactions`, manual `ORDER_REFUND` (target KOK-204) | `expense` | `GTO` |
+| `financial_transactions`, manual `ORDER_DEPOSIT`/`ORDER_BALANCE` (KOK-204/migration 0026) | `income` | `ING` |
+| `financial_transactions`, manual `ORDER_REFUND` (KOK-204/migration 0026) | `expense` | `GTO` |
 | `financial_transactions`, category = `OWNER_WITHDRAWAL` | `withdrawal` | `RET` |
 | `financial_transactions`, category = `TRANSFER` (both legs) | `transfer` | `TRF` |
 
 **Manual vs. system-owned `financial_transactions`.** Only rows with `source_event_id IS NULL`
-get a code, including newly captured manual order receipts/refunds. A historical source-owned
-row (`SALE`, `SUPPLY_PURCHASE`, `DEBT_COLLECTION`, `ORDER_DEPOSIT`, `ORDER_BALANCE`,
-`DEPOSIT_REFUND`) retains its NULL code and source identity even after migration; its guarded
-correction path is described in §3.4.1. A second display code is not minted retroactively.
+get a code, including newly captured manual order receipts/refunds. Existing source-owned
+test rows (`SALE`, `SUPPLY_PURCHASE`, `DEBT_COLLECTION`, `ORDER_DEPOSIT`, `ORDER_BALANCE`,
+`DEPOSIT_REFUND`) retain their NULL code until disposable data is reset at cutover; no second
+display code is minted retroactively.
 
 **Transfer pairs share one code.** `core/finance/transfer.ts` inserts both legs
 (`TRANSFER_OUT`/`TRANSFER_IN`) with `counterpart_tx_id` still NULL, then links them via two
@@ -869,10 +862,9 @@ error is invisible. Views stay for row-shaping and joins; they do no margin arit
   different types may overlap; the resulting double-counted hours are handled by S-5's
   deduplicated wall-clock union, not by forbidding the overlap.
 - `financial_transactions` with `source_event_id` are system-owned: source event services own
-  edits. **Target exception:** historical order-created deposit/balance/refund and sale-created
-  debt-collection cash rows can be corrected through the dedicated guarded order-cash service
-  (§3.4.1) without changing their source or original category merely on an order transition.
-  Purchase/session-owned rows retain their existing source-only correction rule.
+  edits. No special direct edit path or backfill is required for disposable old-model order
+  test rows; new independent receipts/refunds use NULL source plus `custom_order_id` and are
+  editable as manual rows. Purchase/session-owned rows retain source-only correction rules.
 
 ## 6. Indexes
 
@@ -882,9 +874,11 @@ CREATE INDEX ix_movements_source ON stock_movements(source_event_type, source_ev
 CREATE INDEX ix_tx_account_date ON financial_transactions(account_id, business_date);
 CREATE INDEX ix_tx_source ON financial_transactions(source_event_type, source_event_id);
 CREATE INDEX ix_tx_category_date ON financial_transactions(category, business_date);
+CREATE INDEX ix_tx_custom_order_date ON financial_transactions(custom_order_id, business_date, id); -- KOK-204
 CREATE INDEX ix_sales_date ON sales(business_date);
 CREATE INDEX ix_sales_status ON sales(payment_status) WHERE payment_status='ON_CREDIT';
 CREATE INDEX ix_purchases_date ON purchases(business_date);
+CREATE INDEX ix_purchases_order ON purchases(custom_order_id);               -- KOK-204
 CREATE INDEX ix_runs_date ON production_runs(business_date);
 CREATE INDEX ix_runs_order ON production_runs(custom_order_id);
 CREATE INDEX ix_assemblies_date ON assemblies(business_date);              -- Phase 3.2

@@ -36,6 +36,7 @@ import { FormPage } from "@/components/common/FormPage";
 import { PinnedSummaryFooter } from "@/components/common/PinnedSummaryFooter";
 import { LineEditor, type LineEditorLine } from "@/components/line-editor/LineEditor";
 import { parseLineQuantityToMilliUnits } from "@/components/line-editor/line-editor-quantity";
+import { OrderPicker } from "@/components/orders/OrderPicker";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { ImpactConfirmDialog } from "@/components/ui/ImpactConfirmDialog";
@@ -94,6 +95,7 @@ function emptyLine(): PurchaseLineValue {
 interface PurchaseFormState {
   supplierName: string;
   accountId: string;
+  customOrderId: string | null;
   businessDate: string;
   notes: string;
   lines: PurchaseLineValue[];
@@ -111,6 +113,7 @@ export function purchaseToFormState(purchase: PurchaseDto): PurchaseFormState {
   return {
     supplierName: purchase.supplierName ?? "",
     accountId: purchase.accountId,
+    customOrderId: purchase.customOrderId,
     businessDate: purchase.businessDate,
     notes: purchase.notes ?? "",
     lines:
@@ -139,6 +142,7 @@ export function PurchaseForm({ accounts, purchase, preselectedSessionId }: Purch
 
   const [supplierName, setSupplierName] = useState("");
   const [accountId, setAccountId] = useState("");
+  const [customOrderId, setCustomOrderId] = useState<string | null>(null);
   const [businessDate, setBusinessDate] = useState("");
   const [notes, setNotes] = useState("");
   const [lines, setLines] = useState<PurchaseLineValue[]>([emptyLine()]);
@@ -152,6 +156,7 @@ export function PurchaseForm({ accounts, purchase, preselectedSessionId }: Purch
   const currentFormState: PurchaseFormState = {
     supplierName,
     accountId,
+    customOrderId,
     businessDate,
     notes,
     lines,
@@ -222,13 +227,14 @@ export function PurchaseForm({ accounts, purchase, preselectedSessionId }: Purch
     const savedDraft = readPersistentDraft<PurchaseFormState>(draftKey);
     let initialFormState: PurchaseFormState;
     if (savedDraft) {
-      initialFormState = savedDraft;
+      initialFormState = { ...savedDraft, customOrderId: savedDraft.customOrderId ?? null };
     } else if (purchase) {
       initialFormState = purchaseToFormState(purchase);
     } else {
       initialFormState = {
         supplierName: "",
         accountId: accounts[0]?.id ?? "",
+        customOrderId: null,
         businessDate: toBusinessDate(nowIso()),
         notes: "",
         lines: [emptyLine()],
@@ -237,6 +243,7 @@ export function PurchaseForm({ accounts, purchase, preselectedSessionId }: Purch
     }
     setSupplierName(initialFormState.supplierName);
     setAccountId(initialFormState.accountId);
+    setCustomOrderId(initialFormState.customOrderId);
     setBusinessDate(initialFormState.businessDate);
     setNotes(initialFormState.notes);
     setLines(initialFormState.lines);
@@ -254,12 +261,13 @@ export function PurchaseForm({ accounts, purchase, preselectedSessionId }: Purch
     writePersistentDraft<PurchaseFormState>(draftKey, {
       supplierName,
       accountId,
+      customOrderId,
       businessDate,
       notes,
       lines,
       photoKey,
     });
-  }, [accountId, businessDate, draftKey, lines, notes, photoKey, supplierName]);
+  }, [accountId, businessDate, customOrderId, draftKey, lines, notes, photoKey, supplierName]);
 
   const disabled = (isEditMode ? editReplay.isPending : createReplay.isPending) || photoUploading;
 
@@ -384,6 +392,7 @@ export function PurchaseForm({ accounts, purchase, preselectedSessionId }: Purch
       sessionId: purchase ? undefined : preselectedSessionId,
       supplierName: supplierName.trim() === "" ? undefined : supplierName.trim(),
       accountId,
+      customOrderId,
       receiptPhotoKey: photoKey ?? undefined,
       notes: notes.trim() === "" ? undefined : notes.trim(),
       // Edit mode keeps the purchase's original instant â€” there's no UI field to change it, and
@@ -558,6 +567,19 @@ export function PurchaseForm({ accounts, purchase, preselectedSessionId }: Purch
               ))}
             </Select>
           </Field>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <label className="font-medium text-foreground" htmlFor="linked-order-picker">
+            {purchasesLabels.fieldOrder}
+          </label>
+          <OrderPicker
+            value={customOrderId}
+            onChange={(orderId) => setCustomOrderId(orderId)}
+            placeholder={purchasesLabels.orderPlaceholder}
+            disabled={disabled}
+            includeTerminalStatuses
+          />
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2">
