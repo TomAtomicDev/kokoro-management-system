@@ -31,7 +31,7 @@ import { FinanceRoute } from "@/routes/finance";
 import { InventoryCountDetailRoute, InventoryRoute } from "@/routes/inventory";
 import { LoginRoute } from "@/routes/login";
 import { OnboardingRoute } from "@/routes/onboarding";
-import { OrderRecordRoute, OrdersRoute } from "@/routes/orders";
+import { OrderEditRoute, OrderRecordRoute, OrdersRoute } from "@/routes/orders";
 import { PackingRoute } from "@/routes/packing";
 import { PackingDefinitionsRoute } from "@/routes/packing-definitions";
 import { PanelRoute } from "@/routes/panel";
@@ -236,6 +236,12 @@ const ordersRecordRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: "/orders/new",
   component: OrderRecordRoute,
+});
+
+const ordersEditRoute = createRoute({
+  getParentRoute: () => authenticatedRoute,
+  path: "/orders/$orderId/edit",
+  component: OrderEditRoute,
 });
 
 const productionRoute = createRoute({
@@ -458,6 +464,7 @@ const routeTree = rootRoute.addChildren([
     salesEditRoute,
     ordersRoute,
     ordersRecordRoute,
+    ordersEditRoute,
     productionRoute,
     productionRecordRoute,
     productionEditRoute,

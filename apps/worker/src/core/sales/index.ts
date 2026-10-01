@@ -35,17 +35,9 @@
 // `core/purchasing`'s `buildReplaceTransactionsForSourceStatements` usage — exits have no cash side
 // to regenerate, purchases always have one; a sale has one only conditionally (PAID).
 //
-// ONE GUARD NEITHER PURCHASES NOR EXITS HAVE: `updateSale`/`deleteSale` refuse (409 CONFLICT) once a
-// sale has already been collected via `collectPayment` (KOK-031) — i.e. it carries a
-// `financial_transactions` row with `category='DEBT_COLLECTION'` sourced to it
-// (`assertSaleNotCollected`). `collectPayment` books that row at the COLLECTION moment, independent
-// of the sale's own `occurred_at`/`accountId`/`paymentMethod`; a full-replacement edit that
-// regenerated it the way `updatePurchase` regenerates its own transaction would silently overwrite
-// the true collection date/category with a fresh SALE-category row dated at the sale's own
-// `occurred_at` — a financial-history regression, not a correction. See
-// docs/development/kok-030-sales-end-to-end.md §1 for the full reasoning. `restoreSale` needs no
-// equivalent guard: `collectPayment` requires a non-deleted sale, so a soft-deleted sale can never
-// have been collected while deleted.
+// CATALOG sale edits/deletes retain their post-collection guard: a system-owned collection row is
+// separate from the original sale and must never be regenerated as a SALE row. CUSTOM_ORDER sale
+// snapshots are owned by core/orders and cannot use these commands or `collectPayment` (O-8).
 //
 // Every line's `unit_cost_snapshot` is taken FRESH from the item's current WAC on every `updateSale`
 // (reusing `resolveLineSnapshots`, identical to the create path) rather than preserved per-line like
@@ -84,7 +76,6 @@ import {
   generateUuidV7,
   nowIso,
   REPLAY_CONFIRMATION_REQUIRED,
-  subMoney,
   toCentavos,
   toMilliCentavosPerUnit,
   toMilliUnits,
@@ -136,6 +127,7 @@ function toSaleDto(row: SaleRow, lineRows: readonly SaleLineRow[]): SaleDto {
     customerId: row.customerId,
     sessionId: row.sessionId,
     total: row.total,
+    additionalCharge: row.additionalCharge,
     paymentStatus: row.paymentStatus,
     paidAt: row.paidAt,
     paymentMethod: row.paymentMethod,
@@ -274,6 +266,7 @@ async function buildSaleCreateMovements(
     customerId: command.customerId ?? null,
     sessionId: command.sessionId ?? null,
     total,
+    additionalCharge: 0,
     paymentStatus: command.paymentStatus,
     // A PAID sale was paid at the moment it occurred; an ON_CREDIT sale's paid_at stays null until
     // collectPayment (KOK-031) sets it.
@@ -445,12 +438,8 @@ async function loadSaleForMutation(
   if (!row) {
     throw notFound("No se encontró la venta.", { id });
   }
-  // KOK-033: a CUSTOM_ORDER sale is DERIVED — `deliverOrder` (O-2) created it from the order's
-  // agreed total and lines, and `custom_orders.sale_id` points back at it. Editing or deleting it
-  // here would desynchronize the two (a changed total would no longer match `agreed_total`; a
-  // delete would strand `sale_id` and silently un-release the deposit liability, INV-7) and would
-  // rewrite the order's own ORDER_BALANCE row into a plain SALE one. Doc 04 §5's "transitions only
-  // along the state machine" applies to everything the order owns, this sale included.
+  // A CUSTOM_ORDER sale is a delivery-owned inventory/COGS snapshot. Editing or deleting it here
+  // would desynchronize its order agreement, sale lines and stock; only core/orders may undo it.
   if (row.channel === "CUSTOM_ORDER") {
     throw conflict(
       "Esta venta pertenece a un pedido; corrígela desde el pedido, no desde ventas.",
@@ -1121,6 +1110,9 @@ export async function collectPayment(
   if (!saleRow) {
     throw notFound("No se encontró la venta.", { id });
   }
+  if (saleRow.channel === "CUSTOM_ORDER") {
+    throw conflict("Los recibos de pedidos se registran desde sus movimientos vinculados.", { id });
+  }
   if (saleRow.paymentStatus !== "ON_CREDIT") {
     throw conflict("Esta venta ya está pagada; no se puede cobrar de nuevo.", { id });
   }
@@ -1128,12 +1120,7 @@ export async function collectPayment(
   const account = await findActiveAccountRowOrThrow(db, command.accountId);
   assertPaymentMethodMatchesAccountType(command.paymentMethod, account);
 
-  // KOK-033: what is actually OUTSTANDING, which is not always the sale's total. A CUSTOM_ORDER
-  // sale created by `deliverOrder` (O-2) carries the FULL agreed total, but its deposit was already
-  // banked as ORDER_DEPOSIT at confirm time — collecting `total` here would credit that money a
-  // SECOND time. This is the same netting `v_receivables` performs (migration 0005), applied to the
-  // cash side so the view and the collection can never disagree.
-  const outstanding = await outstandingForSale(db, saleRow);
+  const outstanding = saleRow.total;
 
   const now = nowIso();
   const updatedFields = {
@@ -1144,9 +1131,8 @@ export async function collectPayment(
     updatedAt: now,
   };
 
-  // financial_transactions.amount is always > 0 (Doc 04 §3.4's CHECK): a receivable of 0 (an
-  // all-giveaway ON_CREDIT sale, or a delivered order whose deposit covered everything) is marked
-  // collected but moves no cash, mirroring recordSale's own total===0 skip.
+  // financial_transactions.amount is always > 0 (Doc 04 §3.4's CHECK); a zero-total CATALOG sale
+  // can be marked collected without creating a zero-amount finance row.
   const financialStatements: Statement[] = [];
   if (outstanding > 0) {
     financialStatements.push(
@@ -1201,26 +1187,6 @@ export async function collectPayment(
       balance: addMoney(toCentavos(account.balance), toCentavos(outstanding)),
     }),
   };
-}
-
-/**
- * What a sale still owes, netting off any deposit already banked against it (KOK-033).
- *
- * For an ordinary CATALOG sale this is just `total`. For a `CUSTOM_ORDER` sale it is
- * `total − custom_orders.deposit_paid`: O-2 makes the delivery sale carry the FULL agreed total,
- * but the deposit portion arrived at confirm time as its own ORDER_DEPOSIT transaction, so only the
- * balance was ever uncollected. `v_receivables` reports the identical figure (migration 0005) —
- * this is that formula on the cash side, kept in one place so the two cannot drift apart.
- */
-async function outstandingForSale(db: Db, saleRow: SaleRow): Promise<number> {
-  const customOrderId = saleRow.customOrderId;
-  if (customOrderId === null) return saleRow.total;
-  const orderRow = await db.query.customOrders.findFirst({
-    where: (t, { and: andOp, eq: eqOp, isNull }) =>
-      andOp(eqOp(t.id, customOrderId), isNull(t.deletedAt)),
-  });
-  if (!orderRow) return saleRow.total;
-  return Math.max(subMoney(toCentavos(saleRow.total), toCentavos(orderRow.depositPaid)), 0);
 }
 
 /** Raw `v_receivables` row shape (snake_case, exactly the view's SELECT list — Doc 04 §4). The

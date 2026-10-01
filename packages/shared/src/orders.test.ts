@@ -11,20 +11,19 @@ import { describe, expect, it } from "vitest";
 import {
   addMoney,
   type MilliCentavosPerUnit,
-  mulMoneyByBasisPoints,
   subMoney,
-  toBasisPoints,
   toCentavos,
   totalCentavos,
 } from "./money.js";
 import {
   allocateAgreedTotalToOrderLines,
+  calculateOrderReceiptBalance,
   confirmOrderCommandSchema,
   deliverOrderCommandSchema,
-  deriveOrderOutstandingAmount,
   listOrdersFiltersSchema,
   orderLineCommandSchema,
   serializeOrderListCursor,
+  updateOrderCommandSchema,
 } from "./orders.js";
 import { toMilliUnits, WHOLE_UNIT_MILLI_UNITS } from "./qty.js";
 
@@ -34,8 +33,8 @@ function reconstructTotal(
   lines: readonly { qty: number }[],
 ): number {
   return allocations.reduce(
-    (sum, a, i) => sum + totalCentavos(a.unitPriceMc, toMilliUnits(lines[i]?.qty ?? 0)),
-    0,
+    (sum, a, i) => addMoney(sum, totalCentavos(a.unitPriceMc, toMilliUnits(lines[i]?.qty ?? 0))),
+    toCentavos(0),
   );
 }
 
@@ -71,7 +70,9 @@ describe("allocateAgreedTotalToOrderLines", () => {
     const lines = [{ qty: 1000 }, { qty: 1000 }, { qty: 1000 }];
     const out = allocateAgreedTotalToOrderLines(toCentavos(1000), lines);
     expect(out?.map((a) => a.lineTotal)).toEqual([334, 333, 333]);
-    expect(out?.reduce((s, a) => s + a.lineTotal, 0)).toBe(1000);
+    expect(
+      out?.reduce((sum, allocation) => addMoney(sum, allocation.lineTotal), toCentavos(0)),
+    ).toBe(1000);
   });
 
   it("returns null when there are no lines at all (nothing to price)", () => {
@@ -148,16 +149,17 @@ describe("allocateAgreedTotalToOrderLines", () => {
         fc.integer({ min: 1, max: 100_000 }),
         fc.integer({ min: 1, max: 10 }),
         (pinned, residual, unpinnedCount) => {
+          const agreedTotal = addMoney(toCentavos(pinned), toCentavos(residual));
           const lines = [
             { qty: 1000, lineTotal: pinned },
             ...Array.from({ length: unpinnedCount }, () => ({ qty: 1000 })),
           ];
-          const out = allocateAgreedTotalToOrderLines(toCentavos(pinned + residual), lines);
+          const out = allocateAgreedTotalToOrderLines(agreedTotal, lines);
           expect(out).not.toBeNull();
           if (out === null) return;
           // Rule 1: a hand-priced line keeps exactly the price the owner typed.
           expect(out[0]?.lineTotal).toBe(pinned);
-          expect(reconstructTotal(out, lines)).toBe(pinned + residual);
+          expect(reconstructTotal(out, lines)).toBe(agreedTotal);
         },
       ),
     );
@@ -199,148 +201,132 @@ describe("allocateAgreedTotalToOrderLines", () => {
   });
 });
 
-describe("order deposit balance math (O-1/O-2)", () => {
-  it("property: deposit received plus delivery balance conserves the agreed total, including zero deposit", () => {
+describe("calculateOrderReceiptBalance (KOK-205/KOK-207)", () => {
+  it("property: customer amount, expected and excess conserve arbitrary integer centavos", () => {
     fc.assert(
       fc.property(
-        fc.integer({ min: 1, max: 100_000_000 }),
-        fc.integer({ min: 0, max: 10_000 }),
-        (agreedTotal, depositPercentBp) => {
-          const total = toCentavos(agreedTotal);
-          const deposit = mulMoneyByBasisPoints(total, toBasisPoints(depositPercentBp));
-          const balance = subMoney(total, deposit);
-
-          // O-1 allows 0% only with explicit acknowledgment; O-2 settles the full remainder at
-          // delivery. Regardless of the chosen deposit, every centavo is accounted for once.
-          expect(addMoney(deposit, balance)).toBe(total);
-          expect(Number.isInteger(balance)).toBe(true);
-          expect(balance).toBeGreaterThanOrEqual(0);
-        },
-      ),
-    );
-  });
-
-  it("property: current on-credit outstanding nets the deposit from the full sale total", () => {
-    fc.assert(
-      fc.property(
-        fc.integer({ min: 1, max: 100_000_000 }),
-        fc.integer({ min: 0, max: 100_000_000 }),
-        fc.integer({ min: 0, max: 10_000 }),
-        (merchandiseTotal, deliveryFee, depositPercentBp) => {
-          const merchandise = toCentavos(merchandiseTotal);
-          const fee = toCentavos(deliveryFee);
-          const deposit = mulMoneyByBasisPoints(merchandise, toBasisPoints(depositPercentBp));
-          const saleTotal = addMoney(merchandise, fee);
-          const expectedOutstanding = subMoney(saleTotal, deposit);
-
-          // The pass-through fee is already part of the full sale total. Paid sales are zero even
-          // when this helper is called after a later collection changes ON_CREDIT to PAID.
-          expect(deriveOrderOutstandingAmount("ON_CREDIT", saleTotal, deposit)).toBe(
-            expectedOutstanding,
+        fc.integer({ min: 0, max: 2_000_000_000_000 }),
+        fc.integer({ min: 0, max: 2_000_000_000_000 }),
+        fc.integer({ min: 0, max: 2_000_000_000_000 }),
+        (merchandise, charge, receipts) => {
+          const result = calculateOrderReceiptBalance(merchandise, charge, receipts);
+          expect(result.customerAmount).not.toBeNull();
+          expect(result.expected).not.toBeNull();
+          expect(result.excess).not.toBeNull();
+          if (
+            result.customerAmount === null ||
+            result.expected === null ||
+            result.excess === null
+          ) {
+            return;
+          }
+          const signedDifference = subMoney(
+            toCentavos(result.customerAmount),
+            toCentavos(receipts),
           );
-          expect(addMoney(deposit, expectedOutstanding)).toBe(saleTotal);
-          expect(deriveOrderOutstandingAmount("PAID", saleTotal, deposit)).toBe(0);
+          expect(result.expected).toBeGreaterThanOrEqual(0);
+          expect(result.excess).toBeGreaterThanOrEqual(0);
+          expect(result.expected === 0 || result.excess === 0).toBe(true);
+          expect(subMoney(toCentavos(result.expected), toCentavos(result.excess))).toBe(
+            signedDifference,
+          );
         },
       ),
     );
   });
-});
 
-describe("confirmOrderCommandSchema (O-1)", () => {
-  const dates = {
-    occurredAt: "2026-07-20T14:00:00.000Z",
-    businessDate: "2026-07-20",
-  };
-
-  it("allows a zero deposit without payment fields only when risk is explicitly accepted", () => {
-    expect(
-      confirmOrderCommandSchema.safeParse({
-        ...dates,
-        agreedTotal: 30_000,
-        depositAmount: 0,
-        acceptNoDepositRisk: true,
-      }).success,
-    ).toBe(true);
-    expect(
-      confirmOrderCommandSchema.safeParse({
-        ...dates,
-        agreedTotal: 30_000,
-        depositAmount: 0,
-      }).success,
-    ).toBe(false);
-    expect(
-      confirmOrderCommandSchema.safeParse({
-        ...dates,
-        agreedTotal: 30_000,
-        depositAmount: 0,
-        acceptNoDepositRisk: false,
-      }).success,
-    ).toBe(false);
-  });
-
-  it("keeps the positive-deposit flow independent of the no-deposit acknowledgment", () => {
-    expect(
-      confirmOrderCommandSchema.safeParse({
-        ...dates,
-        agreedTotal: 30_000,
-        depositAmount: 15_000,
-        paymentMethod: "CASH",
-        accountId: "acc_cash",
-      }).success,
-    ).toBe(true);
-    expect(
-      confirmOrderCommandSchema.safeParse({
-        ...dates,
-        agreedTotal: 30_000,
-        depositAmount: 15_000,
-      }).success,
-    ).toBe(false);
-  });
-});
-
-describe("deliverOrderCommandSchema (O-2 risk acknowledgment)", () => {
-  const dates = {
-    occurredAt: "2026-07-20T14:00:00.000Z",
-    businessDate: "2026-07-20",
-  };
-
-  it("requires the separate credit-risk acknowledgment, independent of R-5 confirmation", () => {
-    const missingAcknowledgment = deliverOrderCommandSchema.safeParse({
-      ...dates,
-      balancePaymentStatus: "ON_CREDIT",
+  it("returns no numeric balance preview until a merchandise subtotal is agreed", () => {
+    expect(calculateOrderReceiptBalance(null, 500, 1_250)).toEqual({
+      customerAmount: null,
+      expected: null,
+      excess: null,
     });
-    expect(missingAcknowledgment.success).toBe(false);
-    if (!missingAcknowledgment.success) {
-      expect(missingAcknowledgment.error.issues[0]?.path).toEqual(["acceptCreditRisk"]);
-    }
+  });
 
+  it("accepts subtotal reduction below receipts and exposes the excess", () => {
+    expect(calculateOrderReceiptBalance(1_000, 200, 1_500)).toEqual({
+      customerAmount: 1_200,
+      expected: 0,
+      excess: 300,
+    });
+  });
+
+  it("refuses customer amounts outside safe integer centavos", () => {
+    expect(() => calculateOrderReceiptBalance(Number.MAX_SAFE_INTEGER, 1, 0)).toThrow();
+  });
+
+  it("rejects negative agreement amounts and receipts defensively", () => {
+    expect(() => calculateOrderReceiptBalance(-1, 0, 0)).toThrow();
+    expect(() => calculateOrderReceiptBalance(0, -1, 0)).toThrow();
+    expect(() => calculateOrderReceiptBalance(0, 0, -1)).toThrow();
+    expect(() => calculateOrderReceiptBalance(null, -1, 0)).toThrow();
+  });
+});
+
+describe("cash-free order transition schemas (O-8)", () => {
+  const dates = {
+    occurredAt: "2026-07-20T14:00:00.000Z",
+    businessDate: "2026-07-20",
+  };
+
+  it("confirms without payment fields and rejects attempts to include them", () => {
+    expect(confirmOrderCommandSchema.safeParse({}).success).toBe(true);
+    expect(
+      confirmOrderCommandSchema.safeParse({ depositAmount: 100, accountId: "acc_cash" }).success,
+    ).toBe(false);
+  });
+
+  it("accepts delivery date and R-5 flag only; rejects payment and risk fields", () => {
     expect(
       deliverOrderCommandSchema.safeParse({
         ...dates,
-        balancePaymentStatus: "ON_CREDIT",
-        acceptCreditRisk: false,
         confirm: true,
       }).success,
-    ).toBe(false);
-    expect(
-      deliverOrderCommandSchema.safeParse({
-        ...dates,
-        balancePaymentStatus: "ON_CREDIT",
-        acceptCreditRisk: true,
-        confirm: false,
-      }).success,
     ).toBe(true);
-  });
-
-  it("keeps paid-balance delivery independent of the credit-risk acknowledgment", () => {
     expect(
       deliverOrderCommandSchema.safeParse({
         ...dates,
         balancePaymentStatus: "PAID",
-        paymentMethod: "CASH",
         accountId: "acc_cash",
       }).success,
-    ).toBe(true);
+    ).toBe(false);
+  });
+});
+
+describe("updateOrderCommandSchema (KOK-205)", () => {
+  const command = {
+    expectedUpdatedAt: "2026-07-20T14:00:00.000Z",
+    customerId: "cus_1",
+    description: "Pedido actualizado",
+    agreedTotal: 1_000,
+    additionalCharge: 125,
+    deliveryDate: null,
+    deliveryPlace: null,
+    notes: null,
+    lines: [{ itemId: "itm_1", qty: 1000, lineTotal: null }],
+  };
+
+  it("accepts explicit nullable clears and a zero subtotal", () => {
+    expect(updateOrderCommandSchema.safeParse({ ...command, agreedTotal: 0 }).success).toBe(true);
+  });
+
+  it("rejects negative charges and missing optimistic version", () => {
+    expect(updateOrderCommandSchema.safeParse({ ...command, additionalCharge: -1 }).success).toBe(
+      false,
+    );
+    expect(
+      updateOrderCommandSchema.safeParse({ ...command, expectedUpdatedAt: undefined }).success,
+    ).toBe(false);
+  });
+
+  it("rejects a customer amount that cannot be represented as safe integer centavos", () => {
+    expect(
+      updateOrderCommandSchema.safeParse({
+        ...command,
+        agreedTotal: Number.MAX_SAFE_INTEGER,
+        additionalCharge: 1,
+      }).success,
+    ).toBe(false);
   });
 });
 

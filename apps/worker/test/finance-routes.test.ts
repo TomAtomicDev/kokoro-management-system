@@ -64,12 +64,7 @@ describe("KOK-146 finance transaction routes", () => {
       { customerId: customer.id, description: "Pedido que no debe sustituir el contexto" },
       "OWNER_WEB",
     );
-    await cancelOrder(
-      db,
-      order.id,
-      { occurredAt: OCCURRED_AT, businessDate: BUSINESS_DATE },
-      "OWNER_WEB",
-    );
+    await cancelOrder(db, order.id, {}, "OWNER_WEB");
 
     const createResponse = await SELF.fetch(
       `https://example.com/api/orders/${order.id}/transactions`,

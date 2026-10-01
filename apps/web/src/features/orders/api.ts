@@ -2,12 +2,10 @@
 // sales/api.ts's shape: a root key + list/detail key helpers, a query hook per resource, and a
 // mutation whose onSuccess invalidates the root key.
 //
-// Every lifecycle mutation (confirm/start/ready/deliver/cancel/resolveLine) also invalidates
-// finance's ACCOUNTS_KEY whenever it can move an account balance (confirm/deliver/cancel), same
-// precedent as useCollectPayment/useRecordSale in features/sales/api.ts — there's no shared
-// cross-feature invalidation surface yet.
+// Order lifecycle and agreement mutations invalidate order reads only; cash/account writes belong
+// to Finance. Finance mutations separately invalidate the order-scoped receipt-summary query.
 //
-// deliverOrder is the only transition that writes kardex movements (Doc 03 O-2), so it's the only
+// deliverOrder is the only transition that writes kardex movements (Doc 03 O-8), so it's the only
 // one wrapped with the R-5 replay-confirmation dance at the UI layer (OrderDetailDrawer composes it
 // with useReplayConfirmableMutation, same precedent as SaleForm's edit path) — the plain mutation
 // exposed here just posts the command and lets the caller catch the 409.
@@ -24,22 +22,21 @@ import type {
   OrderDto,
   OrderImpactRequest,
   OrderListCursor,
+  OrderReceiptSummaryDto,
   OrderTransitionResult,
   QuoteOrderCommand,
   QuoteOrderResult,
   ReplayImpactDto,
-  ResolveOrderLineCommand,
-  ResolveOrderLineResult,
   UndoDeliverOrderCommand,
+  UpdateOrderCommand,
+  UpdateOrderResult,
 } from "@kokoro/shared";
 import { serializeOrderListCursor } from "@kokoro/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { ACCOUNTS_KEY } from "@/features/finance/api";
+import { ORDERS_ROOT_KEY, orderReceiptSummaryKey } from "@/features/orders/query-keys";
 import { api } from "@/lib/api";
 import { FORM_SAVE_ERROR_META } from "@/lib/form-save-errors";
-
-export const ORDERS_ROOT_KEY = ["orders"] as const;
 
 function ordersListKey(filters: ListOrdersFilters) {
   return [...ORDERS_ROOT_KEY, "list", filters] as const;
@@ -97,6 +94,14 @@ export function useOrder(id: string | undefined) {
   });
 }
 
+export function useOrderReceiptSummary(id: string | undefined) {
+  return useQuery({
+    queryKey: orderReceiptSummaryKey(id ?? ""),
+    queryFn: () => api.get<OrderReceiptSummaryDto>(`/orders/${id}/receipt-summary`),
+    enabled: Boolean(id),
+  });
+}
+
 function useInvalidateOrders() {
   const queryClient = useQueryClient();
   return () => queryClient.invalidateQueries({ queryKey: ORDERS_ROOT_KEY });
@@ -111,17 +116,27 @@ export function useQuoteOrder() {
   });
 }
 
-export function useConfirmOrder(id: string) {
+export function useUpdateOrder(id: string) {
   const invalidate = useInvalidateOrders();
   const queryClient = useQueryClient();
   return useMutation({
     meta: FORM_SAVE_ERROR_META,
-    mutationFn: (command: ConfirmOrderCommand) =>
-      api.post<ConfirmOrderResult>(`/orders/${id}/confirm`, command),
+    mutationFn: (command: UpdateOrderCommand) =>
+      api.patch<UpdateOrderResult>(`/orders/${id}`, command),
     onSuccess: () => {
       invalidate();
-      queryClient.invalidateQueries({ queryKey: ACCOUNTS_KEY });
+      queryClient.invalidateQueries({ queryKey: orderReceiptSummaryKey(id) });
     },
+  });
+}
+
+export function useConfirmOrder(id: string) {
+  const invalidate = useInvalidateOrders();
+  return useMutation({
+    meta: FORM_SAVE_ERROR_META,
+    mutationFn: (command: ConfirmOrderCommand) =>
+      api.post<ConfirmOrderResult>(`/orders/${id}/confirm`, command),
+    onSuccess: invalidate,
   });
 }
 
@@ -159,52 +174,29 @@ export function useUndoMarkOrderReady(id: string) {
 
 export function useDeliverOrder(id: string) {
   const invalidate = useInvalidateOrders();
-  const queryClient = useQueryClient();
   return useMutation({
     meta: FORM_SAVE_ERROR_META,
     mutationFn: (command: DeliverOrderCommand) =>
       api.post<DeliverOrderResult>(`/orders/${id}/deliver`, command),
-    onSuccess: () => {
-      invalidate();
-      queryClient.invalidateQueries({ queryKey: ACCOUNTS_KEY });
-    },
+    onSuccess: invalidate,
   });
 }
 
-// Mirrors useDeliverOrder exactly (invalidates ACCOUNTS_KEY too — money moves).
+// The order-owned sale is soft-deleted and stock is reversed; finance rows and accounts stay intact.
 export function useUndoDeliverOrder(id: string) {
   const invalidate = useInvalidateOrders();
-  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (command: UndoDeliverOrderCommand) =>
       api.post<OrderTransitionResult>(`/orders/${id}/undo-deliver`, command),
-    onSuccess: () => {
-      invalidate();
-      queryClient.invalidateQueries({ queryKey: ACCOUNTS_KEY });
-    },
+    onSuccess: invalidate,
   });
 }
 
 export function useCancelOrder(id: string) {
   const invalidate = useInvalidateOrders();
-  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (command: CancelOrderCommand) =>
       api.post<CancelOrderResult>(`/orders/${id}/cancel`, command),
-    onSuccess: () => {
-      invalidate();
-      queryClient.invalidateQueries({ queryKey: ACCOUNTS_KEY });
-    },
-  });
-}
-
-/** KOK-034: attaches a catalog item to one free-text line (`resolveOrderLine`, the one narrow
- * exception to "no generic update order" — see packages/shared/src/orders.ts's header). */
-export function useResolveOrderLine(orderId: string) {
-  const invalidate = useInvalidateOrders();
-  return useMutation({
-    mutationFn: ({ lineId, ...command }: ResolveOrderLineCommand & { lineId: string }) =>
-      api.post<ResolveOrderLineResult>(`/orders/${orderId}/lines/${lineId}/resolve`, command),
     onSuccess: invalidate,
   });
 }

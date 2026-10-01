@@ -70,7 +70,6 @@ async function seedStockedItem(db: TestDb) {
 
 async function seedConfirmedOrder(
   db: TestDb,
-  depositAmount: number,
   agreedTotal = 30_000,
 ): Promise<{ orderId: string; itemId: string }> {
   const customer = await createCustomer(
@@ -90,48 +89,15 @@ async function seedConfirmedOrder(
     },
     ACTOR,
   );
-  await confirmOrder(
-    db,
-    order.id,
-    {
-      occurredAt: NOW,
-      businessDate: BUSINESS_DATE,
-      depositAmount,
-      paymentMethod: "CASH",
-      accountId: "acc_cash",
-    },
-    ACTOR,
-  );
+  await confirmOrder(db, order.id, {}, ACTOR);
   return { orderId: order.id, itemId: item.id };
 }
 
-async function deliverConfirmedOrder(
-  db: TestDb,
-  depositAmount: number,
-  balancePaymentStatus: "PAID" | "ON_CREDIT",
-): Promise<void> {
-  const { orderId } = await seedConfirmedOrder(db, depositAmount);
+async function deliverConfirmedOrder(db: TestDb): Promise<void> {
+  const { orderId } = await seedConfirmedOrder(db);
   await startOrderProduction(db, orderId, ACTOR);
   await markOrderReady(db, orderId, ACTOR);
-  await deliverOrder(
-    db,
-    orderId,
-    balancePaymentStatus === "PAID"
-      ? {
-          occurredAt: NOW,
-          businessDate: BUSINESS_DATE,
-          balancePaymentStatus,
-          paymentMethod: "CASH",
-          accountId: "acc_cash",
-        }
-      : {
-          occurredAt: NOW,
-          businessDate: BUSINESS_DATE,
-          balancePaymentStatus,
-          acceptCreditRisk: true,
-        },
-    ACTOR,
-  );
+  await deliverOrder(db, orderId, { occurredAt: NOW, businessDate: BUSINESS_DATE }, ACTOR);
 }
 
 beforeEach(async () => {
@@ -163,19 +129,9 @@ describe("getLiabilityReceivableSummary (KOK-037)", () => {
     });
   });
 
-  it("reports an ORDER_DEPOSIT while its order is not delivered", async () => {
+  it("does not manufacture a liability or receivable when confirming an order", async () => {
     const db = createDb(env.DB);
-    await seedConfirmedOrder(db, 12_000);
-
-    await expect(getLiabilityReceivableSummary(db)).resolves.toMatchObject({
-      liability: 12_000,
-      receivablesTotal: 0,
-    });
-  });
-
-  it("nets a delivered order's deposit_paid out of liability", async () => {
-    const db = createDb(env.DB);
-    await deliverConfirmedOrder(db, 12_000, "PAID");
+    await seedConfirmedOrder(db);
 
     await expect(getLiabilityReceivableSummary(db)).resolves.toMatchObject({
       liability: 0,
@@ -183,20 +139,22 @@ describe("getLiabilityReceivableSummary (KOK-037)", () => {
     });
   });
 
-  it("nets a DEPOSIT_REFUND out of liability", async () => {
+  it("keeps delivery cash-free", async () => {
     const db = createDb(env.DB);
-    const { orderId } = await seedConfirmedOrder(db, 12_000);
-    await cancelOrder(
-      db,
-      orderId,
-      {
-        occurredAt: NOW,
-        businessDate: BUSINESS_DATE,
-        resolution: "REFUND",
-        accountId: "acc_cash",
-      },
-      ACTOR,
-    );
+    await deliverConfirmedOrder(db);
+
+    await expect(getLiabilityReceivableSummary(db)).resolves.toMatchObject({
+      liability: 0,
+      // The existing view still sees the operational ON_CREDIT compatibility sale until KOK-207
+      // performs the coordinated debt projection cutover.
+      receivablesTotal: 30_000,
+    });
+  });
+
+  it("cancels without creating a refund or other finance effect", async () => {
+    const db = createDb(env.DB);
+    const { orderId } = await seedConfirmedOrder(db);
+    await cancelOrder(db, orderId, {}, ACTOR);
 
     await expect(getLiabilityReceivableSummary(db)).resolves.toMatchObject({
       liability: 0,
@@ -204,12 +162,10 @@ describe("getLiabilityReceivableSummary (KOK-037)", () => {
     });
   });
 
-  it("sums net custom-order and plain catalog ON_CREDIT receivables", async () => {
+  it("preserves catalog-sale receivables", async () => {
     const db = createDb(env.DB);
-    await deliverConfirmedOrder(db, 12_000, "ON_CREDIT");
-
     const item = await seedStockedItem(db);
-    await recordSale(
+    const result = await recordSale(
       db,
       {
         paymentStatus: "ON_CREDIT",
@@ -220,9 +176,9 @@ describe("getLiabilityReceivableSummary (KOK-037)", () => {
       ACTOR,
     );
 
-    await expect(getLiabilityReceivableSummary(db)).resolves.toEqual({
+    await expect(getLiabilityReceivableSummary(db)).resolves.toMatchObject({
       liability: 0,
-      receivablesTotal: 18_750,
+      receivablesTotal: result.sale.total,
     });
   });
 });

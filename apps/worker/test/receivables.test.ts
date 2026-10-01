@@ -102,7 +102,6 @@ async function recordDeliveredOrder(
   customerId: string,
   itemId: string,
   agreedTotal: number,
-  depositAmount: number,
   occurredAt: string,
 ) {
   const { order } = await quoteOrder(
@@ -115,34 +114,14 @@ async function recordDeliveredOrder(
     },
     ACTOR,
   );
-  const paymentFields = {
-    occurredAt,
-    businessDate: occurredAt.slice(0, 10),
-    depositAmount,
-  };
-
-  if (depositAmount === 0) {
-    await confirmOrder(db, order.id, { ...paymentFields, acceptNoDepositRisk: true }, ACTOR);
-  } else {
-    await confirmOrder(
-      db,
-      order.id,
-      { ...paymentFields, paymentMethod: "CASH", accountId: "acc_cash" },
-      ACTOR,
-    );
-  }
+  await confirmOrder(db, order.id, {}, ACTOR);
 
   await startOrderProduction(db, order.id, ACTOR);
   await markOrderReady(db, order.id, ACTOR);
   const delivered = await deliverOrder(
     db,
     order.id,
-    {
-      occurredAt,
-      businessDate: occurredAt.slice(0, 10),
-      balancePaymentStatus: "ON_CREDIT",
-      acceptCreditRisk: true,
-    },
+    { occurredAt, businessDate: occurredAt.slice(0, 10) },
     ACTOR,
   );
   return { orderId: order.id, sale: delivered.sale };
@@ -202,7 +181,6 @@ describe("listGroupedReceivables (KOK-197)", () => {
       customerA.id,
       item.id,
       30_000,
-      10_000,
       "2026-09-01T12:00:00.000Z",
     );
     const recentA = await recordCreditSale(
@@ -218,7 +196,6 @@ describe("listGroupedReceivables (KOK-197)", () => {
       customerB.id,
       item.id,
       12_000,
-      0,
       "2026-09-29T12:00:00.000Z",
     );
 
@@ -227,7 +204,9 @@ describe("listGroupedReceivables (KOK-197)", () => {
       listReceivablesQuerySchema.parse({ pageSize: 100 }),
     );
     expect(result.globalSummary).toEqual({
-      receivablesTotal: 57_000,
+      // Legacy v_receivables still nets deposit_paid until KOK-207's coordinated cutover; the new
+      // cash-free lifecycle leaves that compatibility field at zero.
+      receivablesTotal: 67_000,
       debtorCount: 2,
       pendingSaleCount: 7,
     });
@@ -243,7 +222,7 @@ describe("listGroupedReceivables (KOK-197)", () => {
     const groupA = result.groups.find(
       (group) => group.groupType === "CUSTOMER" && group.customerId === customerA.id,
     );
-    expect(groupA).toMatchObject({ outstandingTotal: 25_000, pendingSaleCount: 3 });
+    expect(groupA).toMatchObject({ outstandingTotal: 35_000, pendingSaleCount: 3 });
     const depositedSale = groupA?.sales.find((sale) => sale.saleId === depositedOrder.sale.id);
     expect(depositedSale).toMatchObject({
       code: depositedOrder.sale.code,
@@ -251,8 +230,8 @@ describe("listGroupedReceivables (KOK-197)", () => {
       businessDate: "2026-09-01",
       channel: "CUSTOM_ORDER",
       saleTotal: 30_000,
-      depositApplied: 10_000,
-      outstandingAmount: 20_000,
+      depositApplied: 0,
+      outstandingAmount: 30_000,
       customOrderId: depositedOrder.orderId,
     });
     expect(depositedSale?.ageDays).toBeGreaterThanOrEqual(0);

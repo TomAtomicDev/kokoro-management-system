@@ -41,6 +41,8 @@ export const salesLabels = {
     PAID: "Pagado",
     ON_CREDIT: "Por cobrar",
   } satisfies Record<PaymentStatus, string>,
+  orderSalePaymentSeparate: "El cobro del pedido se registra por separado.",
+  additionalCharge: "Cargo adicional al cliente",
 
   paymentMethodLabels: {
     CASH: "Efectivo",

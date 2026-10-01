@@ -447,6 +447,7 @@ export const sales = sqliteTable(
     customerId: text("customer_id").references(() => customers.id, { onDelete: "restrict" }),
     sessionId: text("session_id").references(() => sessions.id, { onDelete: "restrict" }),
     total: integer("total").notNull(),
+    additionalCharge: integer("additional_charge").notNull().default(0),
     paymentStatus: text("payment_status", { enum: ["PAID", "ON_CREDIT"] }).notNull(),
     paidAt: text("paid_at"),
     paymentMethod: text("payment_method", { enum: ["CASH", "BANK_QR"] }),
@@ -463,6 +464,7 @@ export const sales = sqliteTable(
   },
   (t) => ({
     channelCheck: check("sales_channel_check", sql`${t.channel} IN ('CATALOG','CUSTOM_ORDER')`),
+    additionalChargeCheck: check("sales_additional_charge_check", sql`${t.additionalCharge} >= 0`),
     paymentStatusCheck: check(
       "sales_payment_status_check",
       sql`${t.paymentStatus} IN ('PAID','ON_CREDIT')`,
@@ -510,6 +512,7 @@ export const customOrders = sqliteTable(
       .references(() => customers.id, { onDelete: "restrict" }),
     description: text("description").notNull(),
     agreedTotal: integer("agreed_total"),
+    additionalCharge: integer("additional_charge").notNull().default(0),
     depositRequired: integer("deposit_required"),
     depositPaid: integer("deposit_paid").notNull().default(0),
     // Forward reference ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â financial_transactions is declared later (Doc 04 Ãƒâ€šÃ‚Â§3.4).
@@ -532,6 +535,10 @@ export const customOrders = sqliteTable(
     statusCheck: check(
       "custom_orders_status_check",
       sql`${t.status} IN ('QUOTING','CONFIRMED','IN_PRODUCTION','READY','DELIVERED','CANCELLED')`,
+    ),
+    additionalChargeCheck: check(
+      "custom_orders_additional_charge_check",
+      sql`${t.additionalCharge} >= 0`,
     ),
     cancelResolutionCheck: check(
       "custom_orders_cancel_resolution_check",

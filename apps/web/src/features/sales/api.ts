@@ -38,7 +38,7 @@ import {
   FINANCE_SUMMARY_KEY,
   RECEIVABLES_KEY as GROUPED_RECEIVABLES_KEY,
 } from "@/features/finance/api";
-import { ORDERS_ROOT_KEY } from "@/features/orders/api";
+import { ORDERS_ROOT_KEY } from "@/features/orders/query-keys";
 import { api } from "@/lib/api";
 import { FORM_SAVE_ERROR_META } from "@/lib/form-save-errors";
 

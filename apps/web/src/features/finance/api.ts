@@ -24,6 +24,7 @@ import type {
 } from "@kokoro/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import { ORDER_RECEIPTS_ROOT_KEY } from "@/features/orders/query-keys";
 import { api } from "@/lib/api";
 import { FORM_SAVE_ERROR_META } from "@/lib/form-save-errors";
 
@@ -100,6 +101,7 @@ function useInvalidateFinance() {
   return () => {
     queryClient.invalidateQueries({ queryKey: ACCOUNTS_KEY });
     queryClient.invalidateQueries({ queryKey: TRANSACTIONS_ROOT_KEY });
+    queryClient.invalidateQueries({ queryKey: ORDER_RECEIPTS_ROOT_KEY });
   };
 }
 

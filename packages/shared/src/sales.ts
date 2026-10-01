@@ -27,7 +27,15 @@ import {
   type SaleChannel,
 } from "./enums.js";
 import type { FinancialAccountDto } from "./finance.js";
-import { type MilliCentavosPerUnit, toMilliCentavosPerUnit } from "./money.js";
+import {
+  addMoney,
+  type MilliCentavosPerUnit,
+  subMoney,
+  toCentavos,
+  toMilliCentavosPerUnit,
+  totalCentavos,
+} from "./money.js";
+import { toMilliUnits } from "./qty.js";
 import { safeText } from "./text.js";
 
 export const SALE_NOTES_MAX_LENGTH = 2000;
@@ -188,8 +196,10 @@ export interface SaleDto {
   customOrderId: string | null;
   customerId: string | null;
   sessionId: string | null;
-  /** Centavos (INV-6), server-recomputed as Σ(qty × unit_price) — never caller-supplied (Doc 04 §5). */
+  /** Centavos (INV-6), server-recomputed as merchandise line totals plus the custom-order charge. */
   total: number;
+  /** Separate customer charge snapshot; ordinary catalog sales always have zero here. */
+  additionalCharge: number;
   paymentStatus: PaymentStatus;
   /** ISO-8601 instant the sale was paid: `occurred_at` for a PAID sale, `null` while ON_CREDIT
    * (set later by collectPayment, KOK-031). */
@@ -208,6 +218,22 @@ export interface SaleDto {
   lines: SaleLineDto[];
   createdAt: string;
   updatedAt: string;
+}
+
+/** Product gross margin excludes the separately quoted custom-order charge (Doc 03 §5 O-8). */
+export function calculateSaleProductGrossMargin(
+  sale: Pick<SaleDto, "total" | "additionalCharge" | "lines">,
+): number {
+  const merchandiseTotal = subMoney(toCentavos(sale.total), toCentavos(sale.additionalCharge));
+  const frozenCost = sale.lines.reduce(
+    (total, line) =>
+      addMoney(
+        total,
+        totalCentavos(toMilliCentavosPerUnit(line.unitCostSnapshotMc), toMilliUnits(line.qty)),
+      ),
+    toCentavos(0),
+  );
+  return subMoney(merchandiseTotal, frozenCost);
 }
 
 export interface RecordSaleResult {

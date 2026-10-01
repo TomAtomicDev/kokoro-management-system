@@ -596,6 +596,15 @@ migrations.
   query and no truncation at the board's page boundary); snapshot totals/alerts/dashboard all use
   the same derivation. For aging, use the delivered sale's business date; collecting partial
   amounts never resets the age. An order's refund does not increase expected/debt.
+  KOK-205 introduces the reusable integer-centavo expected/excess calculation and an
+  order-scoped receipt read for its pre-delivery agreement edit preview, using the draft
+  merchandise subtotal plus draft additional charge. KOK-207 reuses that calculation for
+  delivered-only order debt and aggregate consumers; do not derive a second formula in the web
+  form or a divergent SQL expression for the order portion. The edit preview is not a stored receivable or a
+  restriction on changing the agreement below receipts. Use the order-scoped read's historical
+  receipt-existence fact (including soft-deleted qualifying receipts) to enforce the customer lock;
+  only active rows contribute to the displayed total. Refresh after saving because
+  independent finance edits can change the qualifying receipts without changing order fields.
 - Replace the legacy `v_liability` formula that subtracts `deposit_paid` at delivery: report
   pre-delivery, non-cancelled order cash exposure from active order receipts net of explicit
   order refunds (`ORDER_REFUND`), floored at zero, without recategorizing any receipt. On undo it becomes
@@ -817,15 +826,14 @@ error is invisible. Views stay for row-shaping and joins; they do no margin arit
   Product gross margin is the sale-line merchandise revenue minus frozen COGS; show the separate
   cash result as linked income minus linked expenses, never as gross margin (O-8).
 - `custom_orders` retains the O-1…O-6 state graph, but target O-8 separates cash from every
-  transition. `updateOrder` (KOK-205) accepts corrections in QUOTING, CONFIRMED, IN_PRODUCTION and
-  READY; DELIVERED requires undo first, CANCELLED stays terminal. Correcting agreement or charge
-  never rewrites cash or linked production. Once a receipt is linked, customer identity is fixed.
-  Preserve explicit `updated_at` compare-and-fail inside the atomic batch and reject stale writes
-  (409). The previously specified O-7 split commands and deposit-based minimum are superseded.
-  When a merchandise subtotal is set, pinned `line_total` values cannot exceed it and the resulting
-  nonempty lines must be allocatable by the same exact-centavo algorithm as delivery; without a subtotal in
-  QUOTING, this check is deferred to confirmation/renegotiation. Historical production/assembly
-  links remain independent of replaced order-agreement lines.
+  transition. KOK-205's single `updateOrder` command accepts agreement corrections in QUOTING,
+  CONFIRMED, IN_PRODUCTION and READY; DELIVERED requires undo first, CANCELLED stays terminal.
+  Correcting agreement or charge never rewrites cash or linked production. Once any qualifying
+  receipt is ever linked, customer identity is fixed. Preserve the explicit `updated_at`
+  compare-and-fail inside the atomic batch and reject stale writes (409). The former O-7 split and
+  deposit-based minimum are superseded. A set subtotal and nonempty lines must be allocatable by
+  the shared exact-centavo algorithm; NULL subtotal has no numeric receipt preview. Historical
+  production/assembly links remain independent of replaced order-agreement lines.
 - **Every `custom_order_lines` row must carry an `item_id` before the order may be DELIVERED**
   (KOK-033). Item-less free-text lines are legal while QUOTING, but `sale_lines.item_id` is NOT
   NULL and FINISHED-only and the merchandise subtotal is recomputed from those lines, so a delivery
@@ -833,11 +841,9 @@ error is invisible. Views stay for row-shaping and joins; they do no margin arit
   revenue with no sale line to support it or skipping the `SALE_OUT` for goods that really shipped
   (drifting `item_stock` upward forever, INV-5, since O-4's ProductionRun already booked the
   matching PRODUCTION_IN).
-  `deliverOrder` therefore refuses with a 409 until every line is linked. **Amendment (KOK-034):**
-  the named `resolveOrderLine` command attaches a catalog item to one line's `item_id` (leaving
-  `description`/`qty`/`line_total` untouched) — legal on any non-terminal order (same set
-  `cancelOrder` accepts), so the Orders board can resolve a free-text line without a general-purpose
-  line editor. The target `updateOrder` command can also resolve a line as part of a pre-delivery edit.
+  `deliverOrder` therefore refuses with a 409 until every line is linked. A free-text line can be
+  resolved as part of `updateOrder`'s full pre-delivery line replacement; there is no separate
+  line-resolution write path.
 - `agreed_total` is split across the delivered sale's lines by the largest-remainder method
   (`allocateAgreedTotalToOrderLines`): lines carrying an explicit `line_total` are pinned, the rest
   share what is left weighted by `qty`, and `Σ(qty × unit_price_mc / 1e6)` must reproduce `agreed_total` to
