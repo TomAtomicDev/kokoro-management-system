@@ -42,6 +42,11 @@ Pure logic tested exhaustively, no DB:
 - ∀ allocations: Σ parts = whole (no lost centavos).
 - ∀ order-linked receipt sequences: customer price minus qualifying active receipts equals
   expected minus excess; multiple deposits and balance receipts preserve exact centavos.
+- ∀ pre-delivery agreement edits (KOK-205): draft agreed subtotal plus draft additional charge
+  and the currently active qualifying receipts use the same pure expected/excess helper as
+  KOK-207; a subtotal below receipts previews positive excess and is accepted. Deleted rows,
+  refunds, OTHER_INCOME and purchase expenses never settle debt. A NULL subtotal has no
+  numeric preview; independent finance edits refresh the order-scoped read after saving.
 - ∀ order deliveries: `sale.total = merchandise subtotal + additional_charge`, independently
   of any number of provider expenses; product margin excludes charge and expense cash flows.
 - ∀ receivable sets: positive outstanding delivered orders plus catalog-sale debt preserve the

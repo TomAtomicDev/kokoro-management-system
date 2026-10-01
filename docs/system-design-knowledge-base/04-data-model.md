@@ -596,6 +596,13 @@ migrations.
   query and no truncation at the board's page boundary); snapshot totals/alerts/dashboard all use
   the same derivation. For aging, use the delivered sale's business date; collecting partial
   amounts never resets the age. An order's refund does not increase expected/debt.
+  KOK-205 introduces the reusable integer-centavo expected/excess calculation and an
+  order-scoped receipt read for its pre-delivery agreement edit preview, using the draft
+  merchandise subtotal plus draft additional charge. KOK-207 reuses that calculation for
+  delivered-only order debt and aggregate consumers; do not derive a second formula in the web
+  form or a divergent SQL expression for the order portion. The edit preview is not a stored receivable or a
+  restriction on changing the agreement below receipts. Refresh after saving because
+  independent finance edits can change the qualifying receipts without changing order fields.
 - Replace the legacy `v_liability` formula that subtracts `deposit_paid` at delivery: report
   pre-delivery, non-cancelled order cash exposure from active order receipts net of explicit
   order refunds (`ORDER_REFUND`), floored at zero, without recategorizing any receipt. On undo it becomes
