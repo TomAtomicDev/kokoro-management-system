@@ -127,16 +127,16 @@ minus linked expenses, including purchase cash outflow without deducting it agai
 Editing the agreement below receipts shows excess; customer edit after receipt and all edits
 of delivered/cancelled agreement fail. Corrections in Finance remain possible in every state.
 
-Migration fixtures must include pre-existing ORDER_DEPOSIT, ORDER_BALANCE, DEPOSIT_REFUND,
-sale-owned DEBT_COLLECTION, paired transfers, order sale undone/redelivered, cancelled/forfeited
-orders, zero-deposit confirmations, unlinked purchases and ambiguous/orphan source rows. Verify
-the backfill is idempotent and neither changes account balances nor mints duplicate codes;
-unprovable links are reported for review. Cut over catalog and order portions of receivables
-once each, with matching unfiltered totals across SC-21, Finance, Panel, alerts and snapshots;
-label the daily-snapshot/liability projection boundary explicitly. Test >500 orders and bounded
+Migration tests use service-created fixtures to validate FK/trigger/paired-transfer integrity,
+order association and account conservation on SQLite/D1; they do not require backfilling
+disposable pre-release order cash or provider-session test rows. Reset affected dev/staging
+test data at the coordinated cutover and verify catalog/order receivables exactly once,
+with matching unfiltered totals across SC-21, Finance, Panel, alerts and snapshots; label
+the daily-snapshot/liability projection boundary explicitly. Test >500 orders and bounded
 set-based lookup, partial collection and later zero-debt removal. Playwright covers the
-dedicated `/orders/:id` page, original `?open=` bookmarks, receipt/refund actions, and
-responsive history/finance navigation. The earlier payment-coupled Phase 3.5 assertions
+dedicated `/orders/:id` page, original `?open=` bookmarks, income/expense/refund buttons
+whose forms submit the page's PED ID without a picker, appearance of each row in Finance,
+and responsive history/finance navigation. The earlier payment-coupled Phase 3.5 assertions
 above remain regression history, not target acceptance for custom orders. KOK-202 is retired
 unimplemented; its partial-evidence, frozen-COGS, link and error/loading assertions are
 covered by KOK-208's dedicated page, not an intermediate drawer.
@@ -197,7 +197,7 @@ session and both amounts; and product gross margin does not change because of th
 | P2 | UC-02/14 pass; C-3/C-4 verified against a hand-calculated spreadsheet fixture (golden numbers checked into repo) |
 | P3 | UC-03…UC-08 pass; deposit liability trace correct across full order lifecycle; price-health screen matches hand-calculated margins |
 | **P3.2** | UC-21…UC-24 pass; the "Desayuno Kokoro" golden fixture reproduces every figure in `acuerdos-prueba-usuario-1.md` §A-1 including the C-5 alert on the combo; assembly value-conservation and S-5 union property tests green; no sale can carry a PACKAGING line and no packaging is deducted twice on any path; session auto-resolution and the one-OPEN-per-type index enforced; undo-delivery restores liability, balances and stock exactly; **KOK-073 deployed before the first real purchase**; full-page forms show total and affected account without scrolling on a 375px viewport |
-| **P3.5** | KOK-191…208 complete; catalog/count reads pass staging-scale and >100-item coverage; ADR-022's independent cash, multiple receipts/refunds, cash-free transitions, historical backfill, order-only delivered debts and separately labelled product margin/cash result satisfy the replacement acceptance above; KOK-197…202 surfaces reconciled, dedicated order page and legacy deep links verified; `pnpm check`, invariant tests, browser and staging smoke tests green; owner approves go-live. The earlier KOK-204/205 provider-session and single-deposit gates are superseded. |
+| **P3.5** | KOK-191…208 complete; catalog/count reads pass staging-scale and >100-item coverage; ADR-022's independent cash, multiple receipts/refunds, cash-free transitions, documented non-production data reset, order-only delivered debts and separately labelled product margin/cash result satisfy the replacement acceptance above; KOK-197…201 surfaces reconciled, KOK-202 absorbed by KOK-208, dedicated order page and legacy deep links verified; `pnpm check`, invariant tests, browser and staging smoke tests green; owner approves go-live. The earlier KOK-204/205 provider-session and single-deposit gates are superseded. |
 | P4 | Capture eval pass ≥ 90% at launch (target G7 95% after tuning); INV-2/4 enforced by tests; digest delivered to staging chat |
 | P5 | Query evals pass; Bs/h numbers match golden spreadsheet; dashboard v2 numbers reconcile with reports |
 | P6 | Full E2E suite green; restore drill executed and documented; a11y checklist complete |

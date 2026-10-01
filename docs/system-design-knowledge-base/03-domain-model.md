@@ -426,13 +426,21 @@ interpreted as implementing O-8 until those backlog tasks ship.
   separate from the order relationship. Purchase/provider expenses can also be associated with
   the order without altering their source or changing the customer's debt. The relationship uses
   IDs, not the display code as a database key.
-  Historical order-generated cash rows retain their original source and no independent code,
-  but have a dedicated guarded order-cash correction path in `core/finance`; they must not be
-  stranded read-only merely because they were created by the old lifecycle.
+  An order-linked OTHER_INCOME is available for other cash associated with the order: it
+  appears in cash result but, unlike ORDER_DEPOSIT/ORDER_BALANCE, does not settle order debt.
+  A tip paid as part of a customer installment can be captured in ORDER_BALANCE and shown as
+  excess receipts once the customer price has been covered.
+  The order page launches the familiar income/expense/refund forms with its order ID fixed by
+  context (KOK-208). The Finance table shows those same movements and their related PED link,
+  but Finance does not offer a picker for creating or reassigning order-linked transactions.
+  An incorrect manual association is corrected by soft-deleting the row and recording it from
+  the correct order page. Source-owned purchase expenses remain editable through purchasing.
+  Existing old-model rows are disposable test data and are not migrated or corrected through
+  a special legacy finance path; reset those datasets at the coordinated cutover.
 - `customer_amount = agreed_total + additional_charge`, both nonnegative integer centavos; the
   charge is independently quoted and need not equal a provider expense. `receipts` is the sum of
-  active order-linked ORDER_DEPOSIT/ORDER_BALANCE transactions only, including legacy order-linked
-  DEBT_COLLECTION receipts after migration. `outstanding = max(customer_amount - receipts, 0)`;
+  active directly order-linked manual ORDER_DEPOSIT/ORDER_BALANCE transactions only.
+  `outstanding = max(customer_amount - receipts, 0)`;
   `excess = max(receipts - customer_amount, 0)`. Null agreement means no computable outstanding.
   Only DELIVERED orders with positive outstanding appear as order receivables; before delivery the
   same difference is an expected balance, never an account receivable; CANCELLED orders have no

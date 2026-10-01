@@ -110,14 +110,18 @@ would mean rewriting historical `unit_cost_snapshot` values — precisely what R
 **Revised order/finance target (ADR-022; KOK-204…208).** The phase narrative below records
 the already delivered or in-review KOK-196…203 baseline. It is superseded for custom-order
 payments: receipt/refund/expense events are independent of order transitions; delivery/undo
-only alter the sale/stock snapshot. Implement in order: KOK-204 (forward-only schema and
-independent finance capture/backfill) → KOK-205 (cash-free order transitions and guarded
+only alter the sale/stock snapshot. Implement in order: KOK-204 (forward-only direct
+finance/purchase association and shared commands) → KOK-205 (cash-free order transitions,
+additional-charge schema/form/sale snapshot and guarded
 pre-delivery edits) + KOK-207 (derived debt, exposure and historical cutover) → KOK-206
 (reconcile built/in-review KOK-197…201 APIs/screens/jobs) → KOK-208 (dedicated order page
 and the valid, never-implemented KOK-202 detail requirements). KOK-202 is not a parallel
 drawer implementation or a dependency for these tasks.
 KOK-205/206/207 require a coordinated rollout: a partial release would double-count or
-silently hide receivables. Keep catalog-sale collections unchanged. KOK-203's URL links
+silently hide receivables. Existing data is non-production test data: use a documented dev/staging
+reset before switching models, not historical order-cash/provider-session backfills. KOK-204's
+API foundation is consumed by KOK-208's order-page forms; no Finance order picker or
+interim session-based delivery workflow. Keep catalog-sale collections unchanged. KOK-203's URL links
 remain supported by a redirect after KOK-208. Re-estimate the release gate against the new
 dependency chain, not the previous external-delivery-session pass-through estimate.
 
@@ -151,7 +155,7 @@ inventory replay; multiple partial receipts, excess/tips and explicit refunds re
 delivered-only receivables and the Panel/Finance/SC-21 totals; KOK-197…202 consumers no longer
 derive custom-order debt from sale payment status or `deposit_paid`; product gross margin and
 cash result remain separately correct; KOK-202's valid detail evidence ships in KOK-208,
-not in a separate drawer; historical data cut over without cash reposting, and
+not in a separate drawer; disposable test data resets without cash reposting, and
 the dedicated order page works on staging/mobile. The previous order-specific criteria in the
 legacy gate below are replaced by these ADR-022 criteria; catalog/count criteria remain.
 

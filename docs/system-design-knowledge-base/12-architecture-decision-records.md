@@ -674,9 +674,17 @@ the frozen inventory/COGS record but is not the payment ledger. Additional custo
 to the order and need not equal any external provider expense. Product gross margin and net
 order-linked cash result are separate measures.
 
+**Capture surface.** The dedicated order page supplies the order ID directly when launching
+income/expense/refund forms. Finance displays the resulting rows and their PED association;
+it does not provide an order picker for creating or reassigning order-linked cash. The
+association is a direct FK from the financial transaction to the order, not a provider-session
+join. Sessions are never created automatically by an order status change.
+
 **Consequences.** Confirmation/cancellation/undo no longer post or reverse money; existing
-receivables, liability and snapshot projections need a coordinated versioned cutover. Preserve
-historic payment rows, source identities, codes and balances in a forward-only migration; do not
-replay old order transitions. A cancelled order has no collectible debt even if money was retained;
+receivables, liability and snapshot projections need a coordinated versioned cutover. The
+app is pre-production with disposable test data: ship new forward-only schema migrations,
+then reset affected dev/staging datasets at the coordinated model cutover rather than
+backfilling old-model order receipts or provider expenses. Applied migration files remain
+immutable. A cancelled order has no collectible debt even if money was retained;
 an overpayment is visible separately rather than becoming a negative debt. Physical cash can
 remain after an undone delivery or cancelled order without silently changing its category.
