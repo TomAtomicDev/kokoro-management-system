@@ -6,7 +6,7 @@
 // or out of derived debt/exposure, so they invalidate every consumer of KOK-207's projection.
 //
 // deliverOrder is the only transition that writes kardex movements (Doc 03 O-8), so it's the only
-// one wrapped with the R-5 replay-confirmation dance at the UI layer (OrderDetailDrawer composes it
+// one wrapped with the R-5 replay-confirmation dance at the UI layer (OrderDetailPage composes it
 // with useReplayConfirmableMutation, same precedent as SaleForm's edit path) — the plain mutation
 // exposed here just posts the command and lets the caller catch the 409.
 
@@ -17,6 +17,7 @@ import type {
   ConfirmOrderResult,
   DeliverOrderCommand,
   DeliverOrderResult,
+  ListOrderSalesResult,
   ListOrdersFilters,
   ListOrdersResult,
   OrderDto,
@@ -46,6 +47,10 @@ function ordersListKey(filters: ListOrdersFilters) {
 
 function orderDetailKey(id: string) {
   return [...ORDERS_ROOT_KEY, "detail", id] as const;
+}
+
+function orderSalesKey(id: string) {
+  return [...ORDERS_ROOT_KEY, "sales", id] as const;
 }
 
 function filtersToQueryString(filters: ListOrdersFilters): string {
@@ -92,6 +97,15 @@ export function useOrder(id: string | undefined) {
   return useQuery({
     queryKey: orderDetailKey(id ?? ""),
     queryFn: () => api.get<OrderDto>(`/orders/${id}`),
+    enabled: Boolean(id),
+  });
+}
+
+/** Delivered order COGS snapshots, including soft-deleted sales from undone deliveries. */
+export function useOrderSales(id: string | undefined) {
+  return useQuery({
+    queryKey: orderSalesKey(id ?? ""),
+    queryFn: () => api.get<ListOrderSalesResult>(`/orders/${id}/sales`),
     enabled: Boolean(id),
   });
 }

@@ -133,6 +133,8 @@ export type PurchaseImpactRequest = z.input<typeof purchaseImpactRequestSchema>;
 /** GET /purchases query filters — mirrors listTransactionsFiltersSchema's shape (finance.ts). */
 export const listPurchasesFiltersSchema = z.object({
   accountId: z.string().min(1).optional(),
+  /** KOK-208: read direct purchase/cash evidence for one order without scanning the global list. */
+  customOrderId: z.string().min(1).optional(),
   fromDate: businessDateSchema.optional(),
   toDate: businessDateSchema.optional(),
   limit: z.coerce.number().int().positive().max(500).optional(),

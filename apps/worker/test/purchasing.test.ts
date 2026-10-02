@@ -1075,11 +1075,14 @@ describe("reads: getPurchase / listPurchases", () => {
   it("listPurchases filters by accountId and orders businessDate/createdAt desc", async () => {
     const db = createDb(env.DB);
     const item = await seedItem(db, "List purchase item");
+    const orderId = await seedOrder(db);
+    const otherOrderId = await seedOrder(db);
 
     await recordPurchase(
       db,
       {
         accountId: "acc_bank",
+        customOrderId: orderId,
         occurredAt: "2026-07-14T10:00:00.000Z",
         businessDate: "2026-07-14",
         lines: [{ itemId: item.id, qty: 1000, lineTotal: 1000 }],
@@ -1090,6 +1093,7 @@ describe("reads: getPurchase / listPurchases", () => {
       db,
       {
         accountId: "acc_bank",
+        customOrderId: orderId,
         occurredAt: "2026-07-16T10:00:00.000Z",
         businessDate: "2026-07-16",
         lines: [{ itemId: item.id, qty: 1000, lineTotal: 1000 }],
@@ -1100,6 +1104,7 @@ describe("reads: getPurchase / listPurchases", () => {
       db,
       {
         accountId: "acc_cash",
+        customOrderId: otherOrderId,
         occurredAt: "2026-07-15T10:00:00.000Z",
         businessDate: "2026-07-15",
         lines: [{ itemId: item.id, qty: 1000, lineTotal: 1000 }],
@@ -1111,6 +1116,11 @@ describe("reads: getPurchase / listPurchases", () => {
     expect(purchases).toHaveLength(2);
     expect(purchases.map((p) => p.businessDate)).toEqual(["2026-07-16", "2026-07-14"]);
     expect(purchases.every((p) => p.accountId === "acc_bank")).toBe(true);
+    const orderPurchases = await listPurchases(db, { customOrderId: orderId });
+    expect(orderPurchases.purchases).toHaveLength(2);
+    expect(orderPurchases.purchases.every((purchase) => purchase.customOrderId === orderId)).toBe(
+      true,
+    );
   });
 });
 

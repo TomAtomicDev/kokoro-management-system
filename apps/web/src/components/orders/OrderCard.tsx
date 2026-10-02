@@ -1,5 +1,5 @@
 // One card in the OrderBoard (Doc 07 SC-04): customer, delivery date/place, merchandise subtotal.
-// Click opens OrderDetailDrawer (composed by the caller).
+// Click navigates to the canonical `/orders/:id` detail page (composed by the caller).
 
 import type { OrderDto } from "@kokoro/shared";
 import { formatMoney, toCentavos } from "@kokoro/shared";

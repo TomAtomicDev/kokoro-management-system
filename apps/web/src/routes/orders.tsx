@@ -2,9 +2,10 @@
 
 import type { CustomOrderStatus, ListOrdersFilters, OrderDto } from "@kokoro/shared";
 import { getRouteApi, Link } from "@tanstack/react-router";
+import { useEffect, useMemo } from "react";
 
 import { OrderBoard } from "@/components/orders/OrderBoard";
-import { OrderDetailDrawer } from "@/components/orders/OrderDetailDrawer";
+import { OrderDetailPage } from "@/components/orders/OrderDetailPage";
 import { QuoteOrderForm } from "@/components/orders/QuoteOrderForm";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,6 +15,7 @@ import { filterOrdersByHistoryFilter } from "@/lib/order-history";
 
 const routeApi = getRouteApi("/_authenticated/orders");
 const editRouteApi = getRouteApi("/_authenticated/orders/$orderId/edit");
+const detailRouteApi = getRouteApi("/_authenticated/orders/$orderId");
 
 const ACTIVE_ORDER_STATUSES: CustomOrderStatus[] = [
   "QUOTING",
@@ -29,6 +31,7 @@ export function OrderRecordRoute() {
 
 export function OrderEditRoute() {
   const { orderId } = editRouteApi.useParams();
+  const returnSearch = editRouteApi.useSearch();
   const orderQuery = useOrder(orderId);
   if (orderQuery.isLoading) {
     return <p className="text-muted-foreground text-sm">{ordersLabels.loading}</p>;
@@ -40,6 +43,14 @@ export function OrderEditRoute() {
         <Button type="button" variant="outline" onClick={() => void orderQuery.refetch()}>
           {ordersLabels.retry}
         </Button>
+        <Link
+          to="/orders/$orderId"
+          params={{ orderId }}
+          search={returnSearch}
+          className={buttonVariants({ variant: "ghost" })}
+        >
+          {ordersLabels.detailBackToBoard}
+        </Link>
       </div>
     );
   }
@@ -47,13 +58,41 @@ export function OrderEditRoute() {
     return (
       <div className="flex flex-col gap-3">
         <p className="text-muted-foreground text-sm">{ordersLabels.terminalOrderNotEditable}</p>
-        <Link to="/orders" className={buttonVariants({ variant: "outline" })}>
+        <Link
+          to="/orders/$orderId"
+          params={{ orderId }}
+          search={returnSearch}
+          className={buttonVariants({ variant: "outline" })}
+        >
+          {ordersLabels.detailBackToBoard}
+        </Link>
+      </div>
+    );
+  }
+  return <QuoteOrderForm order={orderQuery.data} backSearch={returnSearch} />;
+}
+
+export function OrderDetailRoute() {
+  const { orderId } = detailRouteApi.useParams();
+  const returnSearch = detailRouteApi.useSearch();
+  const orderQuery = useOrder(orderId);
+  if (orderQuery.isLoading) {
+    return <p className="text-muted-foreground text-sm">{ordersLabels.loading}</p>;
+  }
+  if (orderQuery.isError || !orderQuery.data) {
+    return (
+      <div className="flex flex-col gap-3" role="alert">
+        <p className="text-negative text-sm">{ordersLabels.loadError}</p>
+        <Button type="button" variant="outline" onClick={() => void orderQuery.refetch()}>
+          {ordersLabels.retry}
+        </Button>
+        <Link to="/orders" search={returnSearch} className={buttonVariants({ variant: "ghost" })}>
           {ordersLabels.backToOrders}
         </Link>
       </div>
     );
   }
-  return <QuoteOrderForm order={orderQuery.data} />;
+  return <OrderDetailPage order={orderQuery.data} returnSearch={returnSearch} />;
 }
 
 export function OrdersRoute() {
@@ -63,6 +102,28 @@ export function OrdersRoute() {
   const historyFilter = search.historyFilter ?? "all";
   const isHistory = view === "history";
   const selectedOrderId = search.open ?? null;
+
+  const detailSearch = useMemo(
+    () => ({
+      ordersView: view,
+      historyFilter,
+      fromDate: search.fromDate,
+      toDate: search.toDate,
+    }),
+    [historyFilter, search.fromDate, search.toDate, view],
+  );
+
+  // Compatibility for existing `/orders?open=<id>` bookmarks (SC-04/KOK-203). Replace the old
+  // drawer URL so browser Back returns to the board state from which it was opened.
+  useEffect(() => {
+    if (!selectedOrderId) return;
+    void navigate({
+      to: "/orders/$orderId",
+      params: { orderId: selectedOrderId },
+      search: detailSearch,
+      replace: true,
+    });
+  }, [detailSearch, navigate, selectedOrderId]);
 
   const listFilters: ListOrdersFilters = {
     ...(isHistory
@@ -116,6 +177,10 @@ export function OrdersRoute() {
     void navigate({
       search: (previous) => ({ ...previous, fromDate: undefined, toDate: undefined }),
     });
+  }
+
+  if (selectedOrderId) {
+    return <p className="text-muted-foreground text-sm">{ordersLabels.loading}</p>;
   }
 
   return (
@@ -223,24 +288,12 @@ export function OrdersRoute() {
         error={ordersQuery.isError}
         onRetry={() => void ordersQuery.refetch()}
         onSelect={(order) =>
-          void navigate({ search: (previous) => ({ ...previous, open: order.id }) })
+          void navigate({
+            to: "/orders/$orderId",
+            params: { orderId: order.id },
+            search: detailSearch,
+          })
         }
-      />
-
-      <OrderDetailDrawer
-        orderId={selectedOrderId}
-        open={selectedOrderId !== null}
-        onOpenChange={(open) => {
-          if (!open) {
-            // Replace the open entry when the owner explicitly closes the drawer. Back/forward
-            // can still traverse an open performed from the board, but won't resurrect a drawer
-            // that was deliberately dismissed.
-            void navigate({
-              replace: true,
-              search: (previous) => ({ ...previous, open: undefined }),
-            });
-          }
-        }}
       />
     </div>
   );

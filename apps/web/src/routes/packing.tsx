@@ -8,7 +8,7 @@ import {
   WHOLE_UNIT_MILLI_UNITS,
 } from "@kokoro/shared";
 import { getRouteApi, Link } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import {
   type DateRange,
@@ -28,6 +28,7 @@ import {
 } from "@/features/assemblies/api";
 import { useAssemblyDefinitions } from "@/features/assembly-definitions/api";
 import { useItemsQuery } from "@/features/catalog/api";
+import { useOrder } from "@/features/orders/api";
 import { useSessions } from "@/features/sessions/api";
 import { useReplayConfirmableMutation } from "@/hooks/useReplayConfirmableMutation";
 import { assembliesLabels } from "@/lib/i18n-assemblies";
@@ -43,12 +44,21 @@ export function PackingRoute() {
   const search = routeApi.useSearch();
   const navigate = routeApi.useNavigate();
   const defaults = getDefaultDateRange();
-  const fromDate = search.fromDate ?? defaults.fromDate;
-  const toDate = search.toDate ?? defaults.toDate;
-  const assembliesQuery = useAssemblies({ fromDate, toDate });
+  const fromDate = search.customOrderId ? search.fromDate : (search.fromDate ?? defaults.fromDate);
+  const toDate = search.customOrderId ? search.toDate : (search.toDate ?? defaults.toDate);
+  const assembliesQuery = useAssemblies({
+    ...(search.customOrderId ? { customOrderId: search.customOrderId } : {}),
+    ...(fromDate ? { fromDate } : {}),
+    ...(toDate ? { toDate } : {}),
+  });
+  const relatedOrderQuery = useOrder(search.customOrderId);
   const itemsQuery = useItemsQuery();
   const sessionsQuery = useSessions({ fromDate, toDate });
   const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  useEffect(() => {
+    setSelectedId(search.open ?? null);
+  }, [search.open]);
 
   const itemById = useMemo(
     () => new Map((itemsQuery.data?.items ?? []).map((item) => [item.id, item])),
@@ -136,12 +146,35 @@ export function PackingRoute() {
           </Link>
         </div>
       </div>
-      <DateRangeFilter fromDate={fromDate} toDate={toDate} onChange={updateDateRange} />
+      {search.customOrderId ? (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-muted px-3 py-2 text-sm">
+          <span className="text-foreground">
+            {assembliesLabels.orderFilter}:{" "}
+            {relatedOrderQuery.data?.code ?? assembliesLabels.orderFilterWithoutCode}
+          </span>
+          <Link
+            to="/packing"
+            search={() => ({})}
+            className={buttonVariants({ variant: "ghost", size: "sm" })}
+          >
+            {assembliesLabels.clearOrderFilter}
+          </Link>
+        </div>
+      ) : (
+        <DateRangeFilter
+          fromDate={fromDate ?? defaults.fromDate}
+          toDate={toDate ?? defaults.toDate}
+          onChange={updateDateRange}
+        />
+      )}
       <EventTable
         columns={columns}
         rows={assembliesQuery.data?.assemblies ?? []}
         getRowId={(row) => row.id}
-        onRowClick={(row) => setSelectedId(row.id)}
+        onRowClick={(row) => {
+          setSelectedId(row.id);
+          void navigate({ search: (previous) => ({ ...previous, open: row.id }) });
+        }}
         emptyMessage={assembliesLabels.noAssemblies}
         loading={assembliesQuery.isLoading}
         loadingMessage={assembliesLabels.loading}
@@ -150,7 +183,13 @@ export function PackingRoute() {
         assemblyId={selectedId}
         open={selectedId !== null}
         onOpenChange={(open) => {
-          if (!open) setSelectedId(null);
+          if (!open) {
+            setSelectedId(null);
+            void navigate({
+              replace: true,
+              search: (previous) => ({ ...previous, open: undefined }),
+            });
+          }
         }}
         itemById={itemById}
         sessionById={sessionById}

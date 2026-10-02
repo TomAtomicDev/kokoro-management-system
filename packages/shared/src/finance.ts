@@ -158,6 +158,8 @@ export type DeleteTransactionCommand = z.infer<typeof deleteTransactionCommandSc
 export const listTransactionsFiltersSchema = z.object({
   accountId: z.string().min(1).optional(),
   category: financialTransactionCategorySchema.optional(),
+  /** KOK-208: bounded order timeline / Finance deep-link filter. */
+  customOrderId: z.string().min(1).optional(),
   fromDate: calendarDateSchema.optional(),
   toDate: calendarDateSchema.optional(),
   limit: z.coerce.number().int().positive().max(500).optional(),

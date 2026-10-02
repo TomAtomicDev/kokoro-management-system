@@ -46,6 +46,7 @@ import type {
   CustomOrderStatus,
   DeliverOrderCommand,
   DeliverOrderResult,
+  ListOrderSalesResult,
   ListOrdersFilters,
   ListOrdersResult,
   MilliCentavosPerUnit,
@@ -1331,6 +1332,36 @@ export async function cancelOrder(
 
 export async function getOrder(db: Db, id: string): Promise<OrderDto> {
   return readOrderDto(db, id);
+}
+
+/** All delivery snapshots for one order, preserving undone sales as historical evidence. */
+export async function listOrderSales(db: Db, id: string): Promise<ListOrderSalesResult> {
+  await loadOrderRowOrThrow(db, id);
+  const saleRows = await db.query.sales.findMany({
+    where: (t, { eq: eqOp }) => eqOp(t.customOrderId, id),
+    orderBy: (t, { desc }) => [desc(t.occurredAt), desc(t.createdAt), desc(t.id)],
+  });
+  const saleIds = saleRows.map((sale) => sale.id);
+  const lineBatches = await Promise.all(
+    chunkValues(saleIds, ORDER_READ_BATCH_SIZE).map((batch) =>
+      db.query.saleLines.findMany({
+        where: (t, { inArray: inArrayOp }) => inArrayOp(t.saleId, batch),
+      }),
+    ),
+  );
+  const lineRows = lineBatches.flat();
+  const linesBySaleId = new Map<string, SaleLineRow[]>();
+  for (const line of lineRows) {
+    const existing = linesBySaleId.get(line.saleId);
+    if (existing) existing.push(line);
+    else linesBySaleId.set(line.saleId, [line]);
+  }
+  return {
+    sales: saleRows.map((sale) => ({
+      sale: toSaleDto(sale, linesBySaleId.get(sale.id) ?? []),
+      deletedAt: sale.deletedAt,
+    })),
+  };
 }
 
 /**

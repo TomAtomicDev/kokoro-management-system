@@ -31,7 +31,7 @@ import { FinanceRoute } from "@/routes/finance";
 import { InventoryCountDetailRoute, InventoryRoute } from "@/routes/inventory";
 import { LoginRoute } from "@/routes/login";
 import { OnboardingRoute } from "@/routes/onboarding";
-import { OrderEditRoute, OrderRecordRoute, OrdersRoute } from "@/routes/orders";
+import { OrderDetailRoute, OrderEditRoute, OrderRecordRoute, OrdersRoute } from "@/routes/orders";
 import { PackingRoute } from "@/routes/packing";
 import { PackingDefinitionsRoute } from "@/routes/packing-definitions";
 import { PanelRoute } from "@/routes/panel";
@@ -91,6 +91,8 @@ interface OrdersSearch {
 interface PackingSearch {
   fromDate?: string;
   toDate?: string;
+  customOrderId?: string;
+  open?: string;
 }
 
 interface SessionsSearch {
@@ -117,7 +119,9 @@ interface ProductionSearch extends TableSortSearch {
 interface PurchasesSearch extends TableSortSearch {
   open?: string;
 }
-type FinanceSearch = TableSortSearch;
+interface FinanceSearch extends TableSortSearch {
+  customOrderId?: string;
+}
 type CatalogSearch = TableSortSearch;
 
 function dateRangeDefaults<T extends { fromDate?: string; toDate?: string }>(
@@ -241,7 +245,35 @@ const ordersRecordRoute = createRoute({
 const ordersEditRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: "/orders/$orderId/edit",
+  validateSearch: (search: Record<string, unknown>): OrdersSearch => ({
+    ordersView: search.ordersView === "history" ? "history" : "active",
+    historyFilter:
+      search.historyFilter === "outstanding" ||
+      search.historyFilter === "paid" ||
+      search.historyFilter === "cancelled"
+        ? search.historyFilter
+        : "all",
+    fromDate: typeof search.fromDate === "string" ? search.fromDate : undefined,
+    toDate: typeof search.toDate === "string" ? search.toDate : undefined,
+  }),
   component: OrderEditRoute,
+});
+
+const orderDetailRoute = createRoute({
+  getParentRoute: () => authenticatedRoute,
+  path: "/orders/$orderId",
+  validateSearch: (search: Record<string, unknown>): OrdersSearch => ({
+    ordersView: search.ordersView === "history" ? "history" : "active",
+    historyFilter:
+      search.historyFilter === "outstanding" ||
+      search.historyFilter === "paid" ||
+      search.historyFilter === "cancelled"
+        ? search.historyFilter
+        : "all",
+    fromDate: typeof search.fromDate === "string" ? search.fromDate : undefined,
+    toDate: typeof search.toDate === "string" ? search.toDate : undefined,
+  }),
+  component: OrderDetailRoute,
 });
 
 const productionRoute = createRoute({
@@ -309,8 +341,15 @@ const packingRoute = createRoute({
   path: "/packing",
   validateSearch: (search: Record<string, unknown>): PackingSearch => {
     const parsed = listAssembliesFiltersSchema.parse(search);
-    const range = dateRangeDefaults(parsed);
-    return { fromDate: range.fromDate, toDate: range.toDate };
+    const range = parsed.customOrderId
+      ? { fromDate: parsed.fromDate, toDate: parsed.toDate }
+      : dateRangeDefaults(parsed);
+    return {
+      fromDate: range.fromDate,
+      toDate: range.toDate,
+      customOrderId: parsed.customOrderId,
+      open: typeof search.open === "string" ? search.open : undefined,
+    };
   },
   component: PackingRoute,
 });
@@ -395,7 +434,10 @@ const sessionsRoute = createRoute({
 const financeRoute = createRoute({
   getParentRoute: () => authenticatedRoute,
   path: "/finance",
-  validateSearch: (search: Record<string, unknown>): FinanceSearch => parseTableSortSearch(search),
+  validateSearch: (search: Record<string, unknown>): FinanceSearch => ({
+    ...parseTableSortSearch(search),
+    customOrderId: typeof search.customOrderId === "string" ? search.customOrderId : undefined,
+  }),
   component: FinanceRoute,
 });
 
@@ -465,6 +507,7 @@ const routeTree = rootRoute.addChildren([
     ordersRoute,
     ordersRecordRoute,
     ordersEditRoute,
+    orderDetailRoute,
     productionRoute,
     productionRecordRoute,
     productionEditRoute,

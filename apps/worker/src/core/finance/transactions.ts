@@ -251,6 +251,8 @@ export async function listTransactions(
   const conditions = [isNull(financialTransactions.deletedAt)];
   if (filters.accountId) conditions.push(eq(financialTransactions.accountId, filters.accountId));
   if (filters.category) conditions.push(eq(financialTransactions.category, filters.category));
+  if (filters.customOrderId)
+    conditions.push(eq(financialTransactions.customOrderId, filters.customOrderId));
   if (filters.fromDate) conditions.push(gte(financialTransactions.businessDate, filters.fromDate));
   if (filters.toDate) conditions.push(lte(financialTransactions.businessDate, filters.toDate));
 

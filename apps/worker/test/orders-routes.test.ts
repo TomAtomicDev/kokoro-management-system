@@ -1,4 +1,4 @@
-// Authenticated route coverage for order balance reads, KOK-205 edits, and independent receipts.
+// Authenticated route coverage for order balance reads, sale history, and independent receipts.
 import { env, SELF } from "cloudflare:test";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -102,6 +102,13 @@ describe("KOK-205/206 order routes", () => {
       qualifyingReceipts: 2_000,
       hasEverQualifyingReceipt: true,
     });
+
+    const saleHistoryResponse = await SELF.fetch(
+      `https://example.com/api/orders/${order.id}/sales`,
+      { headers: { cookie: auth.cookie } },
+    );
+    expect(saleHistoryResponse.status).toBe(200);
+    expect(await saleHistoryResponse.json()).toEqual({ sales: [] });
 
     const command = {
       expectedUpdatedAt: order.updatedAt,

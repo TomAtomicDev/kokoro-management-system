@@ -22,6 +22,7 @@ import {
   deliverOrder,
   getOrder,
   getOrderReceiptSummary,
+  listOrderSales,
   listOrders,
   markOrderReady,
   previewOrderImpact,
@@ -1093,6 +1094,33 @@ describe("cash-free order lifecycle (O-8)", () => {
 });
 
 describe("reads and order link guards", () => {
+  it("keeps undone delivery sale snapshots in the order's dated sale history", async () => {
+    const db = createDb(env.DB);
+    const { orderId } = await seedOrderInStatus(db, "DELIVERED");
+
+    const firstDelivery = await listOrderSales(db, orderId);
+    expect(firstDelivery.sales).toHaveLength(1);
+    expect(firstDelivery.sales[0]).toMatchObject({
+      sale: {
+        customOrderId: orderId,
+        channel: "CUSTOM_ORDER",
+        code: expect.stringMatching(/^VTA-/),
+      },
+      deletedAt: null,
+    });
+    const firstSaleId = firstDelivery.sales[0]?.sale.id;
+
+    await undoDeliverOrder(db, orderId, {}, ACTOR);
+    await deliverOrder(db, orderId, { occurredAt: NOW, businessDate: BUSINESS_DATE }, ACTOR);
+
+    const redelivered = await listOrderSales(db, orderId);
+    expect(redelivered.sales).toHaveLength(2);
+    expect(redelivered.sales.filter((entry) => entry.deletedAt === null)).toHaveLength(1);
+    expect(redelivered.sales.find((entry) => entry.sale.id === firstSaleId)?.deletedAt).toEqual(
+      expect.any(String),
+    );
+  });
+
   it("keeps an unpriced quote's balance components null instead of inventing zero debt", async () => {
     const db = createDb(env.DB);
     const customer = await seedCustomer(db);
