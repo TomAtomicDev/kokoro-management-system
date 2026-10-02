@@ -1,9 +1,8 @@
-// KOK-205 order agreement editing and cash-free lifecycle coverage against the real Worker API.
+// KOK-205/KOK-208 order agreement, canonical detail, and cash-free lifecycle coverage against the real Worker API.
 
 import { type OrderDto, toBusinessDate } from "@kokoro/shared";
 import { expect, type Page, test } from "@playwright/test";
 
-import { catalogLabels } from "../src/lib/i18n-catalog";
 import { ordersLabels } from "../src/lib/i18n-orders";
 import { authenticatedHeaders, postJson, selectFromPicker, uniqueName } from "./helpers";
 
@@ -167,45 +166,62 @@ test("the active board loads every bounded page beyond 500 orders", async ({ pag
   expect(requestedCursors[1]).not.toBeNull();
 });
 
-test("the order drawer follows its URL through direct links and browser navigation", async ({
+test("legacy order links resolve to the canonical page and preserve browser navigation", async ({
   page,
 }) => {
   const customer = await createCustomer(page, uniqueName("Cliente enlace pedido e2e"));
   const description = uniqueName("Pedido enlace URL e2e");
-  const { order } = await postJson<{ order: { id: string } }>(page, "/api/orders", {
+  const { order } = await postJson<{ order: { id: string; code: string } }>(page, "/api/orders", {
     customerId: customer.id,
     description,
   });
-  const search = new URLSearchParams({
-    ordersView: "active",
+
+  const boardSearch = new URLSearchParams({
+    ordersView: "history",
     historyFilter: "paid",
     fromDate: "2026-09-01",
     toDate: "2026-09-30",
+  });
+  const legacySearch = new URLSearchParams({
+    ...Object.fromEntries(boardSearch.entries()),
     open: order.id,
   });
 
-  await page.goto(`/orders?${search.toString()}`, { timeout: 15_000 });
-  const orderDrawer = page.getByRole("dialog", { name: ordersLabels.detailTitle });
-  await expect(orderDrawer).toBeVisible();
-  await expect(orderDrawer).toContainText(description);
-  await expect(page).toHaveURL(/ordersView=active/);
+  await page.goto(`/orders?${boardSearch.toString()}`, { timeout: 15_000 });
+  await page.goto(`/orders?${legacySearch.toString()}`, { timeout: 15_000 });
+  const orderDetail = page.getByRole("main");
+  await expect(orderDetail.getByRole("heading", { name: order.code, exact: true })).toBeVisible();
+  await expect(
+    orderDetail.getByRole("heading", { name: ordersLabels.detailTitle, exact: true }),
+  ).toBeVisible();
+  await expect(orderDetail).toContainText(description);
+  await expect(page).toHaveURL(new RegExp(`/orders/${order.id}(?:\\?|$)`));
+  await expect(page).not.toHaveURL(/(?:\?|&)open=/);
+  await expect(page).toHaveURL(/ordersView=history/);
   await expect(page).toHaveURL(/historyFilter=paid/);
   await expect(page).toHaveURL(/fromDate=2026-09-01/);
   await expect(page).toHaveURL(/toDate=2026-09-30/);
 
   await page.reload({ timeout: 15_000 });
-  await expect(page.getByRole("dialog", { name: ordersLabels.detailTitle })).toBeVisible();
-  await orderDrawer.getByRole("button", { name: catalogLabels.close, exact: true }).click();
-  await expect(page.getByRole("dialog", { name: ordersLabels.detailTitle })).toHaveCount(0);
-  await expect(page).not.toHaveURL(/(?:\?|&)open=/);
+  await expect(
+    page.getByRole("main").getByRole("heading", { name: order.code, exact: true }),
+  ).toBeVisible();
   await page.goBack({ timeout: 15_000 });
+  await expect(page).toHaveURL(/ordersView=history/);
+  await expect(page).toHaveURL(/historyFilter=paid/);
+  await expect(page).toHaveURL(/fromDate=2026-09-01/);
+  await expect(page).toHaveURL(/toDate=2026-09-30/);
   await expect(page).not.toHaveURL(/(?:\?|&)open=/);
   await page.goForward({ timeout: 15_000 });
-  await expect(page).toHaveURL(new RegExp(`open=${order.id}`));
-  await expect(page.getByRole("dialog", { name: ordersLabels.detailTitle })).toBeVisible();
+  await expect(page).toHaveURL(new RegExp(`/orders/${order.id}(?:\\?|$)`));
+  await expect(
+    page.getByRole("main").getByRole("heading", { name: order.code, exact: true }),
+  ).toBeVisible();
 });
 
-test("edit order agreement, preview excess, and run cash-free delivery/undo", async ({ page }) => {
+test("edit order agreement, preview excess, and run cash-free delivery/undo on the detail page", async ({
+  page,
+}) => {
   test.setTimeout(120_000);
   const customerName = uniqueName("Cliente ciclo efectivo e2e");
   const description = uniqueName("Pedido efectivo e2e");
@@ -245,9 +261,13 @@ test("edit order agreement, preview excess, and run cash-free delivery/undo", as
   expect(receipt.transaction.amount).toBe(13_000);
 
   await page.getByRole("button", { name: new RegExp(description) }).click();
-  const orderDrawer = page.getByRole("dialog", { name: ordersLabels.detailTitle });
-  await expect(orderDrawer).toBeVisible();
-  await orderDrawer.getByRole("button", { name: ordersLabels.actionEdit, exact: true }).click();
+  const orderDetail = page.getByRole("main");
+  await expect(
+    orderDetail.getByRole("heading", { name: quote.order.code, exact: true }),
+  ).toBeVisible();
+  await orderDetail
+    .getByRole("link", { name: ordersLabels.actionEditAgreement, exact: true })
+    .click();
   await expect(page).toHaveURL(new RegExp(`/orders/${quote.order.id}/edit`));
   await expect(page.getByText(ordersLabels.qualifyingReceipts)).toBeVisible();
   await expect(page.getByText("Bs 130,00", { exact: true })).toBeVisible();
@@ -280,31 +300,41 @@ test("edit order agreement, preview excess, and run cash-free delivery/undo", as
 
   await page.goto("/orders");
   await page.getByRole("button", { name: new RegExp(description) }).click();
-  const freshDrawer = page.getByRole("dialog", { name: ordersLabels.detailTitle });
-  await freshDrawer.getByRole("button", { name: ordersLabels.actionConfirm, exact: true }).click();
+  const orderDetailPage = page.getByRole("main");
+  await expect(
+    orderDetailPage.getByRole("heading", { name: quote.order.code, exact: true }),
+  ).toBeVisible();
+  await orderDetailPage
+    .getByRole("button", { name: ordersLabels.actionConfirm, exact: true })
+    .click();
   const confirmationDialog = page.getByRole("dialog", { name: ordersLabels.confirmDialogTitle });
   await expect(confirmationDialog.getByText("Bs 110,00", { exact: true })).toBeVisible();
   await confirmationDialog
     .getByRole("button", { name: ordersLabels.confirmSubmit, exact: true })
     .click();
   await expect(
-    freshDrawer.getByText(ordersLabels.statusLabels.CONFIRMED, { exact: true }),
+    orderDetailPage.getByText(ordersLabels.statusLabels.CONFIRMED, { exact: true }),
   ).toBeVisible();
-  await freshDrawer
+  await orderDetailPage
     .getByRole("button", { name: ordersLabels.actionStartProduction, exact: true })
     .click();
   await expect(
-    freshDrawer.getByText(ordersLabels.statusLabels.IN_PRODUCTION, { exact: true }),
+    orderDetailPage.getByText(ordersLabels.statusLabels.IN_PRODUCTION, { exact: true }),
   ).toBeVisible();
-  await freshDrawer
+  await orderDetailPage
     .getByRole("button", { name: ordersLabels.actionMarkReady, exact: true })
     .click();
-  await page.getByRole("dialog").getByRole("button", { name: "Confirmar", exact: true }).click();
+  await page
+    .getByRole("dialog", { name: ordersLabels.actionMarkReady })
+    .getByRole("button", { name: "Confirmar", exact: true })
+    .click();
   await expect(
-    freshDrawer.getByText(ordersLabels.statusLabels.READY, { exact: true }),
+    orderDetailPage.getByText(ordersLabels.statusLabels.READY, { exact: true }),
   ).toBeVisible();
 
-  await freshDrawer.getByRole("button", { name: ordersLabels.actionDeliver, exact: true }).click();
+  await orderDetailPage
+    .getByRole("button", { name: ordersLabels.actionDeliver, exact: true })
+    .click();
   await expect(page.getByLabel(ordersLabels.deliverFieldDate, { exact: true })).toBeVisible();
   await expect(
     page.getByRole("dialog", { name: ordersLabels.deliverDialogTitle }).getByRole("combobox"),
@@ -327,15 +357,18 @@ test("edit order agreement, preview excess, and run cash-free delivery/undo", as
     sale: { total: 11_000, additionalCharge: 2_000, paymentStatus: "ON_CREDIT" },
   });
   await expect(
-    freshDrawer.getByText(ordersLabels.statusLabels.DELIVERED, { exact: true }),
+    orderDetailPage.getByText(ordersLabels.statusLabels.DELIVERED, { exact: true }),
   ).toBeVisible();
 
-  await freshDrawer
+  await orderDetailPage
     .getByRole("button", { name: ordersLabels.actionUndoDeliver, exact: true })
     .click();
-  await page.getByRole("dialog").getByRole("button", { name: "Confirmar", exact: true }).click();
+  await page
+    .getByRole("dialog", { name: ordersLabels.actionUndoDeliver })
+    .getByRole("button", { name: "Confirmar", exact: true })
+    .click();
   await expect(
-    freshDrawer.getByText(ordersLabels.statusLabels.READY, { exact: true }),
+    orderDetailPage.getByText(ordersLabels.statusLabels.READY, { exact: true }),
   ).toBeVisible();
   expect(await accountBalances(page)).toEqual(balancesBeforeTransitions);
   expect(await orderReceiptRows(page, quote.order.id)).toEqual(receiptRowsBeforeTransitions);
@@ -355,7 +388,9 @@ test("edit order agreement, preview excess, and run cash-free delivery/undo", as
       response.request().method() === "POST",
     { timeout: 10_000 },
   );
-  await freshDrawer.getByRole("button", { name: ordersLabels.actionDeliver, exact: true }).click();
+  await orderDetailPage
+    .getByRole("button", { name: ordersLabels.actionDeliver, exact: true })
+    .click();
   await page.getByRole("button", { name: ordersLabels.deliverSubmit, exact: true }).click();
   const redeliveryResponse = await redeliveryResponsePromise;
   const redelivered = (await redeliveryResponse.json()) as {
