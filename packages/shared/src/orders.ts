@@ -25,12 +25,7 @@
 import { z } from "zod";
 import { confirmFlagSchema } from "./costing.js";
 import { businessDateSchema, calendarDateSchema, occurredAtSchema } from "./dates.js";
-import {
-  type CancelResolution,
-  type CustomOrderStatus,
-  customOrderStatusSchema,
-  type PaymentStatus,
-} from "./enums.js";
+import { type CustomOrderStatus, customOrderStatusSchema } from "./enums.js";
 import {
   addMoney,
   allocateLargestRemainder,
@@ -302,44 +297,33 @@ export interface OrderDto {
   agreedTotal: number | null;
   /** Separately quoted customer charge; not allocated onto merchandise lines. */
   additionalCharge: number;
-  /** Legacy quote guidance; never a receipt or source of current order balances. */
-  depositRequired: number | null;
-  /** Legacy pre-cutover value; current receipts are independent finance rows. */
-  depositPaid: number;
-  /** Legacy pre-cutover transaction reference; current receipts link directly through finance. */
-  depositTxId: string | null;
+  /** Current ADR-022 receipt projection. Never derived from the generated sale's payment status. */
+  balance: OrderBalanceDto;
   deliveryDate: string | null;
   deliveryPlace: string | null;
   /** Set on delivery: the order-owned `CUSTOM_ORDER` inventory/COGS snapshot sale. */
   saleId: string | null;
-  /** Legacy sale compatibility state; never use as order payment state under O-8. */
-  salePaymentStatus: PaymentStatus | null;
-  /** Legacy sale projection retained until KOK-207/206 replace the order debt reads. */
-  outstandingAmount: number | null;
-  cancelResolution: CancelResolution | null;
   /** KOK-185: human-readable code (PED-NNNN-YYYY) — see packages/shared/src/sales.ts's
    * SaleDto.code for the full contract. */
   code: string | null;
   notes: string | null;
   lines: OrderLineDto[];
-  /** Legacy expected-balance projection retained until KOK-207/206 replace the order debt reads. */
-  balanceDue: number | null;
   createdAt: string;
   updatedAt: string;
 }
 
-/**
- * The current remainder for a delivered custom-order sale. PAID includes a later UC-04 collection
- * and always means zero outstanding. For ON_CREDIT, subtract the already-received deposit from the
- * full sale total (which may include a future delivery pass-through fee, KOK-204).
- */
-export function deriveOrderOutstandingAmount(
-  paymentStatus: PaymentStatus,
-  saleTotal: number,
-  depositPaid: number,
-): number {
-  if (paymentStatus === "PAID") return toCentavos(0);
-  return subMoney(toCentavos(saleTotal), toCentavos(depositPaid));
+/** Read-time balance components for a custom order, in integer centavos. */
+export interface OrderBalanceDto {
+  /** `agreedTotal + additionalCharge`, or null until an agreement subtotal exists. */
+  customerAmount: number | null;
+  /** Active directly linked ORDER_DEPOSIT / ORDER_BALANCE receipts. */
+  qualifyingReceipts: number;
+  /** Pre-delivery estimate only; null for delivered/cancelled orders or no agreement. */
+  expectedBalance: number | null;
+  /** Delivered-order debt only; zero means fully covered and null means not delivered. */
+  receivableBalance: number | null;
+  /** Positive receipts above customer price; null until an agreement subtotal exists. */
+  excess: number | null;
 }
 
 export interface QuoteOrderResult {

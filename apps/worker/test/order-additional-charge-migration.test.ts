@@ -57,6 +57,14 @@ describe("KOK-205 migration 0027", () => {
       expect(normalizedSql).toContain("check (additional_charge >= 0)");
     }
 
+    const orderBalanceMigration = migrations.find(
+      (candidate) => candidate.name === "0028_derived_order_balances.sql",
+    );
+    if (!orderBalanceMigration) {
+      throw new Error("KOK-207 migration 0028 was not included in TEST_MIGRATIONS");
+    }
+    await applyD1Migrations(fixtureDb, [orderBalanceMigration]);
+
     // Populate the customer→order and order→sale relationships through core factories. The
     // resulting FK check verifies the additive migration leaves both existing graphs intact.
     const db = createDb(fixtureDb);

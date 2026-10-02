@@ -6,8 +6,11 @@ Two surfaces, one design language:
 - **Web app (desktop-first, responsive)** — tables, charts, editing, configuration, analytical
   chat. Usable on mobile browser as read-mostly fallback.
 
-UI language: **Spanish (es-BO)**. All UI strings live in `packages/shared/i18n/es.ts` (single
-locale file; the indirection exists for consistency and future locales, not translation now).
+UI language: **Spanish (es-BO)**. The current web app keeps strings in feature-local
+`apps/web/src/lib/i18n-*.ts` modules; add or revise copy in the nearest existing feature module.
+There is no shared `packages/shared/i18n/es.ts` file today, so do not import or document that
+unimplemented locale path as an existing contract. Consolidating strings into a shared locale is a
+separate coordinated change.
 Currency `Bs 1.234,50` (space, comma decimals); dates `lun 6 jul` / `06/07/2026`.
 
 > **Source of truth for the design language:** `.design/foundations/DESIGN_BRIEF.md` (experience

@@ -2,8 +2,8 @@
 // sales/api.ts's shape: a root key + list/detail key helpers, a query hook per resource, and a
 // mutation whose onSuccess invalidates the root key.
 //
-// Order lifecycle and agreement mutations invalidate order reads only; cash/account writes belong
-// to Finance. Finance mutations separately invalidate the order-scoped receipt-summary query.
+// Agreement/lifecycle mutations invalidate order reads. Delivery/undo/cancel also move orders into
+// or out of derived debt/exposure, so they invalidate every consumer of KOK-207's projection.
 //
 // deliverOrder is the only transition that writes kardex movements (Doc 03 O-8), so it's the only
 // one wrapped with the R-5 replay-confirmation dance at the UI layer (OrderDetailDrawer composes it
@@ -34,6 +34,8 @@ import type {
 import { serializeOrderListCursor } from "@kokoro/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import { DASHBOARD_SUMMARY_KEY } from "@/features/dashboard/api";
+import { FINANCE_SUMMARY_KEY, RECEIVABLES_KEY } from "@/features/finance/api";
 import { ORDERS_ROOT_KEY, orderReceiptSummaryKey } from "@/features/orders/query-keys";
 import { api } from "@/lib/api";
 import { FORM_SAVE_ERROR_META } from "@/lib/form-save-errors";
@@ -107,6 +109,15 @@ function useInvalidateOrders() {
   return () => queryClient.invalidateQueries({ queryKey: ORDERS_ROOT_KEY });
 }
 
+function useInvalidateOrderFinanceReads() {
+  const queryClient = useQueryClient();
+  return () => {
+    queryClient.invalidateQueries({ queryKey: FINANCE_SUMMARY_KEY });
+    queryClient.invalidateQueries({ queryKey: RECEIVABLES_KEY });
+    queryClient.invalidateQueries({ queryKey: DASHBOARD_SUMMARY_KEY });
+  };
+}
+
 export function useQuoteOrder() {
   const invalidate = useInvalidateOrders();
   return useMutation({
@@ -174,30 +185,42 @@ export function useUndoMarkOrderReady(id: string) {
 
 export function useDeliverOrder(id: string) {
   const invalidate = useInvalidateOrders();
+  const invalidateFinanceReads = useInvalidateOrderFinanceReads();
   return useMutation({
     meta: FORM_SAVE_ERROR_META,
     mutationFn: (command: DeliverOrderCommand) =>
       api.post<DeliverOrderResult>(`/orders/${id}/deliver`, command),
-    onSuccess: invalidate,
+    onSuccess: () => {
+      invalidate();
+      invalidateFinanceReads();
+    },
   });
 }
 
 // The order-owned sale is soft-deleted and stock is reversed; finance rows and accounts stay intact.
 export function useUndoDeliverOrder(id: string) {
   const invalidate = useInvalidateOrders();
+  const invalidateFinanceReads = useInvalidateOrderFinanceReads();
   return useMutation({
     mutationFn: (command: UndoDeliverOrderCommand) =>
       api.post<OrderTransitionResult>(`/orders/${id}/undo-deliver`, command),
-    onSuccess: invalidate,
+    onSuccess: () => {
+      invalidate();
+      invalidateFinanceReads();
+    },
   });
 }
 
 export function useCancelOrder(id: string) {
   const invalidate = useInvalidateOrders();
+  const invalidateFinanceReads = useInvalidateOrderFinanceReads();
   return useMutation({
     mutationFn: (command: CancelOrderCommand) =>
       api.post<CancelOrderResult>(`/orders/${id}/cancel`, command),
-    onSuccess: invalidate,
+    onSuccess: () => {
+      invalidate();
+      invalidateFinanceReads();
+    },
   });
 }
 

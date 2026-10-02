@@ -49,6 +49,7 @@ import type {
   ListOrdersFilters,
   ListOrdersResult,
   MilliCentavosPerUnit,
+  OrderBalanceDto,
   OrderDto,
   OrderImpactRequest,
   OrderLineDto,
@@ -67,17 +68,16 @@ import {
   addMoney,
   allocateAgreedTotalToOrderLines,
   businessDateRangeToUtcWindow,
+  calculateOrderReceiptBalance,
   cancelOrderCommandSchema,
   confirmOrderCommandSchema,
   DEFAULT_DEPOSIT_PCT_BP,
   deliverOrderCommandSchema,
-  deriveOrderOutstandingAmount,
   generateUuidV7,
   mulMoneyByBasisPoints,
   nowIso,
   quoteOrderCommandSchema,
   REPLAY_CONFIRMATION_REQUIRED,
-  subMoney,
   toBasisPoints,
   toCentavos,
   toMilliCentavosPerUnit,
@@ -101,6 +101,7 @@ import type { CostingReplayPlan } from "../costing/replay.js";
 import { planCostingReplay } from "../costing/replay.js";
 import { snapshotUnitCost } from "../costing/wac.js";
 import { conflict, DomainError, notFound, validationError } from "../errors.js";
+import { getOrderFinanceBalances, type OrderFinanceBalance } from "../finance/index.js";
 import {
   buildReplaceMovementsForSourceStatements,
   buildStockMovementStatements,
@@ -192,36 +193,24 @@ function toOrderLineDto(row: OrderLineRow): OrderLineDto {
   };
 }
 
-function missingActiveLinkedSale(order: OrderRow): DomainError {
-  return new DomainError(
-    "INTERNAL",
-    "El pedido entregado no tiene una venta activa vinculada; revisa los datos del pedido.",
-    { orderId: order.id, saleId: order.saleId },
-  );
-}
-
 function toOrderDto(
   row: OrderRow,
   lineRows: readonly OrderLineRow[],
   customerName: string | null,
-  linkedSale?: SaleRow,
+  financeBalance: OrderFinanceBalance,
 ): OrderDto {
-  if (row.status === "DELIVERED" && linkedSale === undefined) {
-    throw missingActiveLinkedSale(row);
-  }
-
-  const outstandingAmount =
-    linkedSale === undefined
-      ? null
-      : deriveOrderOutstandingAmount(linkedSale.paymentStatus, linkedSale.total, row.depositPaid);
-  if (linkedSale !== undefined && outstandingAmount !== null && outstandingAmount < 0) {
-    throw new DomainError("INTERNAL", "El saldo de la venta vinculada no puede ser negativo.", {
-      orderId: row.id,
-      saleId: linkedSale.id,
-      saleTotal: linkedSale.total,
-      depositPaid: row.depositPaid,
-    });
-  }
+  const isPreDelivery =
+    row.status === "QUOTING" ||
+    row.status === "CONFIRMED" ||
+    row.status === "IN_PRODUCTION" ||
+    row.status === "READY";
+  const balance: OrderBalanceDto = {
+    customerAmount: financeBalance.customerAmount,
+    qualifyingReceipts: financeBalance.qualifyingReceipts,
+    expectedBalance: isPreDelivery ? financeBalance.expected : null,
+    receivableBalance: row.status === "DELIVERED" ? financeBalance.expected : null,
+    excess: financeBalance.excess,
+  };
 
   return {
     id: row.id,
@@ -231,24 +220,13 @@ function toOrderDto(
     description: row.description,
     agreedTotal: row.agreedTotal,
     additionalCharge: row.additionalCharge,
-    depositRequired: row.depositRequired,
-    depositPaid: row.depositPaid,
-    depositTxId: row.depositTxId,
+    balance,
     deliveryDate: row.deliveryDate,
     deliveryPlace: row.deliveryPlace,
     saleId: row.saleId,
-    salePaymentStatus: linkedSale?.paymentStatus ?? null,
-    outstandingAmount,
-    cancelResolution: row.cancelResolution,
     code: row.code,
     notes: row.notes,
     lines: lineRows.map(toOrderLineDto),
-    // Before terminal state, this is the expected merchandise remainder only. After delivery the
-    // linked sale determines current payment state and outstanding amount instead.
-    balanceDue:
-      row.agreedTotal === null || row.status === "DELIVERED" || row.status === "CANCELLED"
-        ? null
-        : subMoney(toCentavos(row.agreedTotal), toCentavos(row.depositPaid)),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -322,54 +300,19 @@ async function loadCustomerName(db: Db, customerId: string): Promise<string | nu
   return row?.name ?? null;
 }
 
-/**
- * Fetch the active generated sales for delivered orders in bounded, set-based batches. Every
- * delivered order must have exactly the active sale it points at; a missing, deleted, or mismatched
- * link is a data-integrity failure rather than a zero-balance fallback.
- */
-async function loadActiveSalesByOrderId(
-  db: Db,
-  orders: readonly OrderRow[],
-): Promise<Map<string, SaleRow>> {
-  const deliveredOrders = orders.filter((order) => order.status === "DELIVERED");
-  if (deliveredOrders.length === 0) return new Map();
-
-  for (const order of deliveredOrders) {
-    if (order.saleId === null) throw missingActiveLinkedSale(order);
-  }
-
-  const linkedSaleIds = deliveredOrders.map((order) => order.saleId as string);
-  const saleById = new Map<string, SaleRow>();
-  for (let offset = 0; offset < linkedSaleIds.length; offset += ORDER_READ_BATCH_SIZE) {
-    const saleIdBatch = linkedSaleIds.slice(offset, offset + ORDER_READ_BATCH_SIZE);
-    const activeSales = await db.query.sales.findMany({
-      where: (t, { and, inArray: inArrayOp, isNull }) =>
-        and(inArrayOp(t.id, saleIdBatch), isNull(t.deletedAt)),
-    });
-    for (const sale of activeSales) saleById.set(sale.id, sale);
-  }
-
-  const saleByOrderId = new Map<string, SaleRow>();
-  for (const order of deliveredOrders) {
-    const sale = saleById.get(order.saleId as string);
-    if (sale === undefined || sale.channel !== "CUSTOM_ORDER" || sale.customOrderId !== order.id) {
-      throw missingActiveLinkedSale(order);
-    }
-    saleByOrderId.set(order.id, sale);
-  }
-
-  return saleByOrderId;
-}
-
 /** Reads back the order exactly as it now stands, for the result DTO every command returns. */
 async function readOrderDto(db: Db, id: string): Promise<OrderDto> {
   const row = await loadOrderRowOrThrow(db, id);
-  const [lineRows, customerName, saleByOrderId] = await Promise.all([
+  const [lineRows, customerName, financeBalances] = await Promise.all([
     loadOrderLineRows(db, id),
     loadCustomerName(db, row.customerId),
-    loadActiveSalesByOrderId(db, [row]),
+    getOrderFinanceBalances(db, [id]),
   ]);
-  return toOrderDto(row, lineRows, customerName, saleByOrderId.get(row.id));
+  const financeBalance = financeBalances.get(id);
+  if (financeBalance === undefined) {
+    throw new DomainError("INTERNAL", "No se pudo derivar el saldo del pedido.", { orderId: id });
+  }
+  return toOrderDto(row, lineRows, customerName, financeBalance);
 }
 
 /** Read only the manual receipt rows that qualify for the pre-delivery agreement preview. */
@@ -576,16 +519,29 @@ export async function quoteOrder(
 
   await db.batch(statements as [Statement, ...Statement[]]);
 
-  const codeRow = await db.query.customOrders.findFirst({
-    where: (t, { eq: eqOp }) => eqOp(t.id, orderId),
-    columns: { code: true },
-  });
+  const [codeRow, customerName] = await Promise.all([
+    db.query.customOrders.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.id, orderId),
+      columns: { code: true },
+    }),
+    loadCustomerName(db, command.customerId),
+  ]);
+  const initialBalance = calculateOrderReceiptBalance(agreedTotal, additionalCharge, 0);
+  const financeBalance: OrderFinanceBalance = {
+    orderId,
+    status: "QUOTING",
+    customerAmount: initialBalance.customerAmount,
+    qualifyingReceipts: 0,
+    expected: initialBalance.expected,
+    excess: initialBalance.excess,
+  };
 
   return {
     order: toOrderDto(
       { ...orderRow, code: codeRow?.code ?? null },
       lineRows,
-      await loadCustomerName(db, command.customerId),
+      customerName,
+      financeBalance,
     ),
   };
 }
@@ -1459,7 +1415,7 @@ export async function listOrders(
     else bucket.push(line);
   }
   const nameById = new Map(customerRows.map((c) => [c.id, c.name]));
-  const saleByOrderId = await loadActiveSalesByOrderId(db, rows);
+  const financeBalancesByOrderId = await getOrderFinanceBalances(db, orderIds);
   const lastOrder = rows[rows.length - 1];
   const nextCursor: OrderListCursor | null =
     hasMore && lastOrder !== undefined
@@ -1472,13 +1428,19 @@ export async function listOrders(
 
   return {
     nextCursor,
-    orders: rows.map((row) =>
-      toOrderDto(
+    orders: rows.map((row) => {
+      const financeBalance = financeBalancesByOrderId.get(row.id);
+      if (financeBalance === undefined) {
+        throw new DomainError("INTERNAL", "No se pudo derivar el saldo del pedido.", {
+          orderId: row.id,
+        });
+      }
+      return toOrderDto(
         row,
         linesByOrder.get(row.id) ?? [],
         nameById.get(row.customerId) ?? null,
-        saleByOrderId.get(row.id),
-      ),
-    ),
+        financeBalance,
+      );
+    }),
   };
 }

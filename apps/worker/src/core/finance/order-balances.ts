@@ -1,6 +1,6 @@
 // Read-time custom-order balances and pre-delivery cash exposure (Doc 04 §3.4.1 / ADR-022).
 
-import type { ReceivablesSaleDto } from "@kokoro/shared";
+import type { CustomOrderReceivableDto } from "@kokoro/shared";
 import {
   addMoney,
   calculateOrderReceiptBalance,
@@ -13,7 +13,7 @@ import { sql } from "drizzle-orm";
 import type { Db } from "../../db/index.js";
 import { DomainError } from "../errors.js";
 
-interface OrderFinanceProjectionRow {
+export interface OrderFinanceProjectionRow {
   order_id: string;
   order_status: string;
   customer_id: string;
@@ -34,21 +34,25 @@ interface OrderFinanceProjectionRow {
 }
 
 export interface OrderFinanceProjection {
-  balances: {
-    orderId: string;
-    status: string;
-    customerAmount: number | null;
-    qualifyingReceipts: number;
-    expected: number | null;
-    excess: number | null;
-  }[];
+  balances: OrderFinanceBalance[];
   receivables: {
     customerId: string;
     customerName: string | null;
-    sale: ReceivablesSaleDto;
+    receivable: CustomOrderReceivableDto;
   }[];
   preDeliveryOrderCashExposure: number;
 }
+
+export interface OrderFinanceBalance {
+  orderId: string;
+  status: string;
+  customerAmount: number | null;
+  qualifyingReceipts: number;
+  expected: number | null;
+  excess: number | null;
+}
+
+const ORDER_FINANCE_READ_BATCH_SIZE = 90;
 
 function readNonnegativeCentavos(value: number | null, field: string): number {
   if (value === null || !Number.isSafeInteger(value) || value < 0) {
@@ -82,10 +86,10 @@ function missingDeliveredSale(row: OrderFinanceProjectionRow): DomainError {
   );
 }
 
-function projectOrderFinanceRows(
+export function projectOrderFinanceRows(
   rows: readonly OrderFinanceProjectionRow[],
 ): OrderFinanceProjection {
-  const balances: OrderFinanceProjection["balances"] = [];
+  const balances: OrderFinanceBalance[] = [];
   const receivables: OrderFinanceProjection["receivables"] = [];
   let preDeliveryOrderCashExposure = toCentavos(0);
 
@@ -139,7 +143,7 @@ function projectOrderFinanceRows(
         receivables.push({
           customerId: row.customer_id,
           customerName: row.customer_name,
-          sale: {
+          receivable: {
             sourceType: "CUSTOM_ORDER",
             saleId: row.active_sale_id,
             code: row.order_code,
@@ -148,8 +152,6 @@ function projectOrderFinanceRows(
             businessDate: row.active_sale_business_date,
             channel: "CUSTOM_ORDER",
             saleTotal,
-            // O-8 receipts are independent cash events, not amounts applied to this sale.
-            depositApplied: 0,
             customerPrice: balance.customerAmount ?? 0,
             qualifyingReceipts,
             excess: balance.excess ?? 0,
@@ -185,4 +187,30 @@ export async function getOrderFinanceProjection(db: Db): Promise<OrderFinancePro
     SELECT * FROM v_order_finance_projection ORDER BY order_id
   `);
   return projectOrderFinanceRows(rows);
+}
+
+/** Read bounded order balances from the canonical KOK-207 projection without scanning unrelated orders. */
+export async function getOrderFinanceBalances(
+  db: Db,
+  orderIds: readonly string[],
+): Promise<Map<string, OrderFinanceBalance>> {
+  const balancesByOrderId = new Map<string, OrderFinanceBalance>();
+  for (let offset = 0; offset < orderIds.length; offset += ORDER_FINANCE_READ_BATCH_SIZE) {
+    const batch = orderIds.slice(offset, offset + ORDER_FINANCE_READ_BATCH_SIZE);
+    if (batch.length === 0) continue;
+    const ids = sql.join(
+      batch.map((orderId) => sql`${orderId}`),
+      sql`, `,
+    );
+    const rows = await db.all<OrderFinanceProjectionRow>(sql`
+      SELECT *
+      FROM v_order_finance_projection
+      WHERE order_id IN (${ids})
+      ORDER BY order_id
+    `);
+    for (const balance of projectOrderFinanceRows(rows).balances) {
+      balancesByOrderId.set(balance.orderId, balance);
+    }
+  }
+  return balancesByOrderId;
 }
