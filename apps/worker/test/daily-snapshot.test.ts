@@ -22,6 +22,7 @@ import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { createItem } from "../src/core/catalog/index.js";
+import { buildDailySnapshotUpsert } from "../src/core/jobs.js";
 import { recordPurchase } from "../src/core/purchasing/index.js";
 import { createDb } from "../src/db/index.js";
 import {
@@ -112,7 +113,8 @@ describe("runDailySnapshot (KOK-021)", () => {
     expect(snapshot?.bankBalance).toBe(-2500); // the purchase's SUPPLY_PURCHASE expense debited acc_bank
     expect(snapshot?.cashBalance).toBe(0);
     expect(snapshot?.accountsReceivable).toBe(0); // no sales fixtures seeded
-    expect(snapshot?.customerDeposits).toBe(0);
+    expect(snapshot?.customerDepositsAdr012).toBeNull();
+    expect(snapshot?.preDeliveryOrderCashExposure).toBe(0);
 
     const jobRunRows = await db.query.jobRuns.findMany({
       where: (t, { eq: eqOp }) => eqOp(t.job, "daily-snapshot"),
@@ -158,6 +160,48 @@ describe("runDailySnapshot (KOK-021)", () => {
     });
     expect(jobRunRows).toHaveLength(2);
     expect(jobRunRows.every((r) => r.ok === 1)).toBe(true);
+  });
+
+  it("keeps historical ADR-012 deposits separate from the new exposure snapshot", async () => {
+    const db = createDb(env.DB);
+    const historicalBusinessDate = toBusinessDate(new Date(Date.now() - 86_400_000));
+    const cutoverBusinessDate = toBusinessDate(new Date());
+    await db.batch([
+      buildDailySnapshotUpsert(db, {
+        businessDate: historicalBusinessDate,
+        stockValue: 0,
+        bankBalance: 0,
+        cashBalance: 0,
+        accountsReceivable: 0,
+        customerDepositsAdr012: 500,
+        preDeliveryOrderCashExposure: null,
+        createdAt: new Date().toISOString(),
+      }),
+      buildDailySnapshotUpsert(db, {
+        businessDate: cutoverBusinessDate,
+        stockValue: 0,
+        bankBalance: 0,
+        cashBalance: 0,
+        accountsReceivable: 0,
+        customerDepositsAdr012: 300,
+        preDeliveryOrderCashExposure: null,
+        createdAt: new Date().toISOString(),
+      }),
+    ]);
+
+    await runDailySnapshot(db);
+
+    const historicalSnapshot = await db.query.dailySnapshots.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.businessDate, historicalBusinessDate),
+    });
+    expect(historicalSnapshot?.customerDepositsAdr012).toBe(500);
+    expect(historicalSnapshot?.preDeliveryOrderCashExposure).toBeNull();
+
+    const currentSnapshot = await db.query.dailySnapshots.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.businessDate, cutoverBusinessDate),
+    });
+    expect(currentSnapshot?.customerDepositsAdr012).toBe(300);
+    expect(currentSnapshot?.preDeliveryOrderCashExposure).toBe(0);
   });
 
   it("detects a drifted item's WAC (R-2 backstop) and reports it WITHOUT repairing it", async () => {

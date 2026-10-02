@@ -1208,10 +1208,9 @@ interface ReceivableRow {
 }
 
 /**
- * SC-02's "Por cobrar" preset (KOK-031): every ON_CREDIT, non-deleted sale with its age in days,
- * oldest first. This is also the read the future alerts job (KOK-046, Doc 10 — still 📋 To Do at
- * the time this was written) will consume for its "receivables aging >7 days" line; wiring it into
- * that cron job is KOK-046's own scope, not this one's.
+ * SC-02's catalog-sale "Por cobrar" collection read (KOK-031): every ON_CREDIT, non-deleted
+ * CATALOG sale with its age in days, oldest first. KOK-207's core/finance projection is the
+ * canonical unpaged source for delivered-order debt and the future KOK-046 aging alert.
  */
 export async function listReceivables(db: Db): Promise<ListReceivablesResult> {
   const rows = await db.all<ReceivableRow>(sql`

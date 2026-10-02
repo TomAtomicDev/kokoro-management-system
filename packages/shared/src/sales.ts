@@ -285,10 +285,9 @@ export interface CollectPaymentResult {
 }
 
 /**
- * One row of `v_receivables` (Doc 04 §4): an ON_CREDIT, non-deleted sale with its age in days.
- * `daysOutstanding` is computed by the view itself (`julianday('now') - julianday(occurred_at)`),
- * not recomputed client-side, so every consumer (this screen, and later KOK-046's alerts job)
- * agrees on the same number.
+ * One catalog row of `v_receivables` (Doc 04 §4): an ON_CREDIT, non-deleted sale with its age in
+ * days. The view computes `daysOutstanding` from `occurred_at`; order debts and the future KOK-046
+ * alert use `core/finance`'s combined `getReceivablesProjection` instead.
  */
 export interface ReceivableDto {
   saleId: string;

@@ -319,8 +319,10 @@ triggers shared-cost allocation (S-3) and shows the resulting per-run cost updat
 ## SC-10 · Finance — `/finance` (UC-11, UC-12, UC-13)
 
 Header: account cards (Banco, Caja chica) with balances + "Transferir" + "Retiro personal"
-actions; liability strip: Anticipos de clientes (v_liability) + Por cobrar (v_receivables). The
-Por cobrar amount is a link to SC-21 and displays the same global outstanding total as the Panel.
+actions; a pre-delivery order cash-exposure strip (active order receipts less explicit refunds,
+floored per order) + Por cobrar. The first is an operational measure, not a legal liability or
+recognized revenue. Por cobrar links to SC-21 and displays the same global outstanding total as the
+Panel.
 **KOK-204:** Finance shows a direct PED association in its own column, separate from "Origen";
 the latter still identifies a purchase, sale or session that owns a derived transaction. **Target
 KOK-206:** label the first metric as pre-delivery order cash exposure (Doc 04 §3.4.1), not a
@@ -517,14 +519,15 @@ definition graph).
 
 **Target KOK-206 (supersedes the custom-order portions below):** include each delivered
 custom order with derived positive outstanding, grouped by customer alongside unpaid catalog
-sales without double counting its generated sale. Show PED code, delivered sale date for aging,
-customer price, cumulative qualifying receipts and remaining debt; subsequent partial
+sales without double counting its generated sale. Show PED code, delivered sale `business_date` for
+aging, customer price, cumulative qualifying receipts and remaining debt; subsequent partial
 ORDER_BALANCE receipts reduce it immediately. Order collection opens the order-linked manual
 receipt flow, accepting any positive amount (including a tip/excess); catalog-sale collection
 retains the full-balance `collectPayment` flow. Cancelled/pre-delivery orders never appear as
 receivables. The global unfiltered total, dashboard, Finance summary and alert job share this
 projection. Link an order row to `/orders/:id` (KOK-208); preserve date/search filters and
-loading/error/empty distinctions. Source sales retain their own code for inventory history.
+loading/error/empty distinctions. Overpayment/excess is displayed separately on the order detail,
+including when debt is zero. Source sales retain their own code for inventory history.
 
 **Purpose:** manage every sale balance customers still owe, independent of sale date. The owner can
 answer “¿quién me debe, cuánto y por cuáles ventas?” and collect the complete balance from the same
@@ -533,28 +536,32 @@ remainders in `v_receivables`, never the full sale totals for custom orders when
 already received.
 
 **Header summary:** Por cobrar total (all active receivables/all dates), clientes con deuda and
-ventas pendientes. Search by customer name or sale code; sort customer groups by highest balance or
+receivables pending. Search by customer name or source code (VTA/PED); sort customer groups by highest balance or
 oldest debt, and optionally narrow by age in days. Search/age filters affect the list, not the
-global summary figures. Age means days since the sale's `occurred_at`; the app has no due-date rule,
-so copy must not call a debt “vencida”.
+global summary figures. Age means days since a catalog sale's `occurred_at`, or the delivered order
+sale's `business_date` (America/La_Paz); the app has no due-date rule, so copy must not call a debt
+“vencida”.
 
 **Customer groups:** each group shows the customer name, their aggregate outstanding balance and
-number of unpaid sales. Expanding it reveals each source sale: code, date, channel (Venta or Pedido),
-sale total, deposit applied, remaining balance and days outstanding. A row opens the source sale
-detail (`GET /api/sales/:id`) or linked custom-order detail (`GET /api/orders/:id`). Sales without
-an identified customer appear as individual rows in a separate **Sin cliente** group; they are
-never combined into a fictitious customer balance.
+number of receivable sources. Expanding it distinguishes catalog sales from custom orders. Order
+rows show PED code, linked sale date/code, customer price, qualifying receipt total, remaining debt
+and age from delivered sale `business_date`; excess remains visible on the order detail even after
+debt reaches zero. A catalog row opens its source sale and
+an order row opens its custom-order detail. Sales/orders without an identified customer appear as
+individual rows in a separate **Sin cliente** group; they are never combined into a fictitious
+customer balance.
 
-**Collection:** **Cobrar saldo** opens the existing UC-04 collection flow for that exact sale,
-credits the selected account for the full outstanding amount and marks that sale paid. Partial
-collection is not supported. On success, the debt disappears and totals refresh. A group's total is
-not itself collectible because it may contain several separate sales.
+**Collection:** catalog **Cobrar saldo** remains the existing UC-04 full-balance collection flow.
+Custom-order collection records an independent order-linked receipt; partial amounts and tips are
+allowed and do not mark the generated sale paid. A group's total is not itself collectible because
+it may contain several receivable sources.
 
-**Data contract:** `GET /api/receivables` (KOK-197) reads the existing `v_receivables` view through
-`core/`; it accepts customer/code search, a minimum-age filter, and pagination over customer groups.
+**Data contract:** `GET /api/receivables` combines catalog rows from `v_receivables` with the
+set-based custom-order projection through `core/`; it accepts customer/source-code search, a
+minimum-age filter, and pagination over customer groups.
 The response includes an unfiltered global summary plus filtered group totals and each group's
-source receivables in integer centavos. A direct collection reuses the existing
-`POST /api/sales/:id/collect-payment`; no new write endpoint or stored customer balance is introduced.
+source receivables in integer centavos. Catalog collection uses `POST /api/sales/:id/collect-payment`;
+order collection uses the order-linked finance command. No stored customer balance is introduced.
 Filters persist in the URL. Loading, request-error, no-debts, and no-filter-matches states are
 distinct. On mobile, the summary stays first and customer groups collapse to readable cards with
 the balance and collection action visible without horizontal scrolling.

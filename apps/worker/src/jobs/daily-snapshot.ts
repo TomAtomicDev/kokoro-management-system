@@ -41,7 +41,7 @@ import type { WacDrift } from "../core/costing/index.js";
 import { detectWacDrift } from "../core/costing/index.js";
 import {
   getBalanceConsistencyMismatches,
-  getLiabilityReceivableSummary,
+  getOrderCashReceivableSummary,
   listAccounts,
 } from "../core/finance/index.js";
 import {
@@ -68,22 +68,22 @@ export async function runDailySnapshot(db: Db): Promise<void> {
       stockValue,
       activeStock,
       accounts,
-      liabilityReceivables,
+      orderCashReceivables,
       stockMismatches,
       balanceMismatches,
     ] = await Promise.all([
       getStockValueTotal(db),
       listStock(db), // v_stock, already filtered to is_active = 1 (Doc 04 §4) — source of the item-id list below
       listAccounts(db),
-      getLiabilityReceivableSummary(db),
+      getOrderCashReceivableSummary(db),
       getStockConsistencyMismatches(db),
       getBalanceConsistencyMismatches(db),
     ]);
 
     const bankBalance = accounts.accounts.find((a) => a.type === "BANK")?.balance ?? 0;
     const cashBalance = accounts.accounts.find((a) => a.type === "CASH")?.balance ?? 0;
-    const accountsReceivable = liabilityReceivables.receivablesTotal;
-    const customerDeposits = liabilityReceivables.liability;
+    const accountsReceivable = orderCashReceivables.receivablesTotal;
+    const preDeliveryOrderCashExposure = orderCashReceivables.preDeliveryOrderCashExposure;
 
     // R-2 backstop (KOK-024/ADR-016): detect WAC drift, once per active item — never repair it.
     // `items.wac_mc` is corrected exclusively by the synchronous replay now; a drift found here means
@@ -105,7 +105,8 @@ export async function runDailySnapshot(db: Db): Promise<void> {
         bankBalance,
         cashBalance,
         accountsReceivable,
-        customerDeposits,
+        customerDepositsAdr012: null,
+        preDeliveryOrderCashExposure,
         createdAt: finishedAt,
       }),
       buildJobRunInsert(db, { job: JOB_NAME, startedAt, finishedAt, ok: 1, detail }),

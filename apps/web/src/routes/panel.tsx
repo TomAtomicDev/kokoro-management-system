@@ -54,10 +54,10 @@ export function PanelRoute() {
     summaryQuery.isLoading || !summary
       ? dashboardLabels.loading
       : formatMoney(toCentavos(summary.stockValue));
-  const liabilityValue =
+  const preDeliveryOrderCashExposureValue =
     summaryQuery.isLoading || !summary
       ? dashboardLabels.loading
-      : formatMoney(toCentavos(summary.liability));
+      : formatMoney(toCentavos(summary.preDeliveryOrderCashExposure));
   const receivablesValue =
     summaryQuery.isLoading || !summary
       ? dashboardLabels.loading
@@ -81,7 +81,11 @@ export function PanelRoute() {
       </div>
 
       <div className="flex flex-col gap-3 sm:flex-row">
-        <StatCard label={dashboardLabels.liabilityTotal} value={liabilityValue} href="/finance" />
+        <StatCard
+          label={dashboardLabels.preDeliveryOrderCashExposure}
+          value={preDeliveryOrderCashExposureValue}
+          href="/finance"
+        />
         <StatCard
           label={dashboardLabels.receivablesTotal}
           value={receivablesValue}

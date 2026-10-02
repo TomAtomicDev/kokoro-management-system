@@ -419,8 +419,13 @@ read views must not be interpreted as implementing O-8 until those backlog tasks
   Only DELIVERED orders with positive outstanding appear as order receivables; before delivery the
   same difference is an expected balance, never an account receivable; CANCELLED orders have no
   receivable. Refunds/expenses are excluded from this debt equation. Unfulfilled order receipts
-  are still real cash, but are not recognized product revenue; the liability projection must not
-  treat a payment labeled ORDER_BALANCE as automatically earned merely because of its label.
+  are still real cash, but are not recognized product revenue; the operational pre-delivery cash
+  exposure projection is separate from debt and must not treat a payment labeled ORDER_BALANCE as
+  automatically earned merely because of its label. For each active, non-cancelled order before
+  delivery, exposure is `max(active ORDER_DEPOSIT/ORDER_BALANCE receipts − active ORDER_REFUND, 0)`;
+  floor each order before summing, so one order's refund excess never offsets another order's
+  exposure. This is an operational cash measure, not a legally settled liability or recognized
+  revenue. Delivered and cancelled orders contribute no pre-delivery exposure.
 - Delivered **product gross margin** equals the current active delivered sale's merchandise
   subtotal less its frozen sale-line COGS. Separately, **order cash result** equals all active
   linked receipts and other income minus all active linked expenses (including refunds and linked

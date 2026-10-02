@@ -15,7 +15,7 @@ import { Hono } from "hono";
 
 import {
   deleteTransaction,
-  getLiabilityReceivableSummary,
+  getOrderCashReceivableSummary,
   listAccounts,
   listTransactions,
   recordTransaction,
@@ -39,7 +39,7 @@ export const financeRoute = new Hono<{ Bindings: Env; Variables: Variables }>()
   })
   .get("/finance/summary", async (c) => {
     const db = createDb(c.env.DB);
-    const summary: FinanceSummaryDto = await getLiabilityReceivableSummary(db);
+    const summary: FinanceSummaryDto = await getOrderCashReceivableSummary(db);
     return c.json(summary);
   })
   .get("/finance/transactions", async (c) => {

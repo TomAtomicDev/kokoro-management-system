@@ -6,9 +6,13 @@ export {
   listAccounts,
   setOpeningBalances,
 } from "./accounts.js";
-export { getLiabilityReceivableSummary } from "./liability-receivables.js";
+export type { OrderFinanceProjection } from "./order-balances.js";
+export { getOrderFinanceProjection } from "./order-balances.js";
+export { getOrderCashReceivableSummary } from "./order-cash-summary.js";
+export type { ReceivableProjectionEntry, ReceivablesProjection } from "./receivables.js";
 export {
   calculateReceivableAmounts,
+  getReceivablesProjection,
   groupReceivableSales,
   listGroupedReceivables,
 } from "./receivables.js";

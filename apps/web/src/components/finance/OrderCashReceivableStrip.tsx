@@ -1,5 +1,4 @@
-// Liability/receivable strip - SC-10: "Anticipos de clientes (v_liability) + Por cobrar
-// (v_receivables)". Values are read from the Finance summary endpoint.
+// SC-10 order cash exposure/receivable strip. Values come from the shared Finance summary read.
 
 import { formatMoney, toCentavos } from "@kokoro/shared";
 import { Link } from "@tanstack/react-router";
@@ -52,14 +51,14 @@ function SummaryStat({
   );
 }
 
-export function LiabilityReceivableStrip() {
+export function OrderCashReceivableStrip() {
   const summaryQuery = useFinanceSummary();
   const summary = summaryQuery.data;
 
   if (summaryQuery.isLoading || summary === undefined) {
     return (
       <div className="flex flex-col gap-3 sm:flex-row">
-        <PendingStat label={financeLabels.liabilityLabel} />
+        <PendingStat label={financeLabels.preDeliveryOrderCashExposureLabel} />
         <PendingStat label={financeLabels.receivableLabel} />
       </div>
     );
@@ -68,9 +67,9 @@ export function LiabilityReceivableStrip() {
   return (
     <div className="flex flex-col gap-3 sm:flex-row">
       <SummaryStat
-        label={financeLabels.liabilityLabel}
-        value={formatMoney(toCentavos(summary.liability))}
-        hint={financeLabels.liabilityHint}
+        label={financeLabels.preDeliveryOrderCashExposureLabel}
+        value={formatMoney(toCentavos(summary.preDeliveryOrderCashExposure))}
+        hint={financeLabels.preDeliveryOrderCashExposureHint}
       />
       <SummaryStat
         label={financeLabels.receivableLabel}

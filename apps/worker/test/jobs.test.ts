@@ -20,7 +20,8 @@ describe("buildDailySnapshotUpsert", () => {
         bankBalance: 2000,
         cashBalance: 300,
         accountsReceivable: 0,
-        customerDeposits: 0,
+        customerDepositsAdr012: null,
+        preDeliveryOrderCashExposure: 0,
         createdAt: "2026-07-18T09:00:00.000Z",
       }),
     ]);
@@ -41,7 +42,8 @@ describe("buildDailySnapshotUpsert", () => {
         bankBalance: 1000,
         cashBalance: 1000,
         accountsReceivable: 0,
-        customerDeposits: 0,
+        customerDepositsAdr012: null,
+        preDeliveryOrderCashExposure: 0,
         createdAt: "2026-07-19T09:00:00.000Z",
       }),
     ]);
@@ -52,7 +54,8 @@ describe("buildDailySnapshotUpsert", () => {
         bankBalance: 6000,
         cashBalance: 7000,
         accountsReceivable: 100,
-        customerDeposits: 50,
+        customerDepositsAdr012: null,
+        preDeliveryOrderCashExposure: 50,
         createdAt: "2026-07-19T09:05:00.000Z",
       }),
     ]);
@@ -66,7 +69,8 @@ describe("buildDailySnapshotUpsert", () => {
       bankBalance: 6000,
       cashBalance: 7000,
       accountsReceivable: 100,
-      customerDeposits: 50,
+      customerDepositsAdr012: null,
+      preDeliveryOrderCashExposure: 50,
     });
   });
 });

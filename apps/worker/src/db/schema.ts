@@ -4,7 +4,7 @@
 // cannot express are appended by hand to the generated migration file afterward: the CREATE VIEW
 // statements (Doc 04 Ãƒâ€šÃ‚Â§4) and the seed INSERTs (Doc 04 Ãƒâ€šÃ‚Â§7) ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â see the migration file's own header.
 //
-// Views (v_stock, v_kardex, v_price_health, v_receivables, v_liability, v_cashflow_daily,
+// Views (v_stock, v_kardex, v_price_health, v_receivables, v_order_finance_projection, v_cashflow_daily,
 // v_session_hours, v_waste) are defined only in the SQL migration ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Drizzle's SQLite view
 // support does not model window functions/partial-aggregate views well, so `core/` services
 // query them via `db.all(sql\`SELECT * FROM v_x ...\`)` with a hand-written result type instead
@@ -881,7 +881,8 @@ export const dailySnapshots = sqliteTable("daily_snapshots", {
   bankBalance: integer("bank_balance").notNull(),
   cashBalance: integer("cash_balance").notNull(),
   accountsReceivable: integer("accounts_receivable").notNull(),
-  customerDeposits: integer("customer_deposits").notNull(),
+  customerDepositsAdr012: integer("customer_deposits_adr012"),
+  preDeliveryOrderCashExposure: integer("pre_delivery_order_cash_exposure"),
   createdAt: text("created_at").notNull(),
 });
 
