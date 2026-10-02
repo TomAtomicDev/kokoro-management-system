@@ -1,5 +1,5 @@
-// Route-level coverage for KOK-146. Service tests own balance/pair invariants; this file proves
-// the authenticated PATCH/DELETE/restore wiring and its empty-body handling.
+// Finance route coverage for manual rows. Service tests own balance/pair invariants; this file
+// proves the authenticated order-context capture, read filter, edit/delete/restore wiring.
 import { env, SELF } from "cloudflare:test";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -139,6 +139,17 @@ describe("KOK-146 finance transaction routes", () => {
       sourceEventId: null,
       relatedOrder: { id: order.id, code: order.code },
     });
+
+    const orderTimelineResponse = await SELF.fetch(
+      `https://example.com/api/finance/transactions?customOrderId=${order.id}`,
+      { headers: { cookie: auth.cookie } },
+    );
+    expect(orderTimelineResponse.status).toBe(200);
+    const orderTimeline = (await orderTimelineResponse.json()) as {
+      transactions: { customOrderId: string }[];
+    };
+    expect(orderTimeline.transactions).toHaveLength(1);
+    expect(orderTimeline.transactions[0]?.customOrderId).toBe(order.id);
   });
 
   it("updates, soft-deletes, and restores a manual transaction", async () => {

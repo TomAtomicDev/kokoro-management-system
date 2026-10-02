@@ -85,7 +85,13 @@ function formStateFromOrder(order: OrderDto): QuoteOrderFormState {
   };
 }
 
-export function QuoteOrderForm({ order }: { order?: OrderDto }) {
+export function QuoteOrderForm({
+  order,
+  backSearch,
+}: {
+  order?: OrderDto;
+  backSearch?: Record<string, unknown>;
+}) {
   const isEdit = order !== undefined;
   const navigate = useNavigate();
 
@@ -340,6 +346,7 @@ export function QuoteOrderForm({ order }: { order?: OrderDto }) {
       title={isEdit ? ordersLabels.editTitle : ordersLabels.quoteTitle}
       backTo="/orders"
       backLabel={ordersLabels.backToOrders}
+      backSearch={backSearch}
       footer={
         <PinnedSummaryFooter
           contentClassName="max-w-3xl px-0"
@@ -375,7 +382,9 @@ export function QuoteOrderForm({ order }: { order?: OrderDto }) {
                 onClick={() => {
                   if (!isEdit) clearPersistentDraft(DRAFT_KEY);
                   unsavedChangesGuard.markClean();
-                  void navigate({ to: "/orders" });
+                  void navigate(
+                    backSearch ? { to: "/orders", search: backSearch } : { to: "/orders" },
+                  );
                 }}
                 disabled={disabled}
               >

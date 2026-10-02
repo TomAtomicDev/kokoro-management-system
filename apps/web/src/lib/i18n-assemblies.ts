@@ -6,6 +6,9 @@ export const assembliesLabels = {
   recordTitle: "Nuevo envasado",
   editTitle: "Editar envasado",
   backToPacking: "Envasar",
+  orderFilter: "Armados vinculados a",
+  orderFilterWithoutCode: "el pedido",
+  clearOrderFilter: "Ver todo Envasar",
 
   fieldDefinition: "Definición",
   definitionPlaceholder: "Sin plantilla — cargar componentes a mano",

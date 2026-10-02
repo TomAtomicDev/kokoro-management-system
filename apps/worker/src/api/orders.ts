@@ -26,6 +26,7 @@ import {
   deliverOrder,
   getOrder,
   getOrderReceiptSummary,
+  listOrderSales,
   listOrders,
   markOrderReady,
   previewOrderImpact,
@@ -67,6 +68,10 @@ export const ordersRoute = new Hono<{ Bindings: Env; Variables: Variables }>()
   .get("/orders/:id/receipt-summary", async (c) => {
     const db = createDb(c.env.DB);
     return c.json(await getOrderReceiptSummary(db, c.req.param("id")));
+  })
+  .get("/orders/:id/sales", async (c) => {
+    const db = createDb(c.env.DB);
+    return c.json(await listOrderSales(db, c.req.param("id")));
   })
   .patch("/orders/:id", async (c) => {
     const db = createDb(c.env.DB);

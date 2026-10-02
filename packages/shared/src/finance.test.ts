@@ -62,6 +62,12 @@ describe("listTransactionsFiltersSchema date range (KOK-168 / F-17)", () => {
       listTransactionsFiltersSchema.safeParse({ fromDate: future, toDate: future }).success,
     ).toBe(true);
   });
+
+  it("accepts an order association filter for Finance deep links", () => {
+    expect(listTransactionsFiltersSchema.parse({ customOrderId: "order-1" }).customOrderId).toBe(
+      "order-1",
+    );
+  });
 });
 
 describe("independent order finance command contracts (KOK-204 / O-8)", () => {

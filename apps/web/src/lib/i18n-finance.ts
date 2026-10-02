@@ -50,6 +50,9 @@ export const financeLabels = {
   columnSource: "Origen",
   columnOrder: "Pedido",
   relatedOrderWithoutCode: "Pedido relacionado",
+  orderContext: "Asociado al pedido",
+  filteredOrder: "Movimientos de",
+  clearOrderFilter: "Quitar filtro del pedido",
 
   sourceEventTypeLabels: {
     purchase: "Compra",
@@ -100,11 +103,14 @@ export const financeLabels = {
   cancel: "Cancelar",
   submitExpense: "Registrar gasto",
   submitIncome: "Registrar ingreso",
+  submitRefund: "Registrar devolución",
   submitTransfer: "Transferir",
   submitWithdraw: "Retirar",
 
   recordExpenseTitle: "Registrar gasto",
   recordIncomeTitle: "Registrar otro ingreso",
+  recordOrderIncomeTitle: "Registrar ingreso del pedido",
+  recordRefundTitle: "Registrar devolución del pedido",
   transferTitle: "Transferir entre cuentas",
   withdrawTitle: "Retiro personal",
 

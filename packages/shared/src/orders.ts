@@ -312,6 +312,16 @@ export interface OrderDto {
   updatedAt: string;
 }
 
+/** Delivered inventory/COGS snapshots retained for the order, including soft-deleted undeliveries. */
+export interface OrderSaleHistoryDto {
+  sale: SaleDto;
+  deletedAt: string | null;
+}
+
+export interface ListOrderSalesResult {
+  sales: OrderSaleHistoryDto[];
+}
+
 /** Read-time balance components for a custom order, in integer centavos. */
 export interface OrderBalanceDto {
   /** `agreedTotal + additionalCharge`, or null until an agreement subtotal exists. */

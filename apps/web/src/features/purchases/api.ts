@@ -2,11 +2,8 @@
 // shape: a root key + list/detail key helpers, a query hook per resource, and a mutation whose
 // onSuccess invalidates the root key.
 //
-// recordPurchase also moves stock (item_stock) and an account balance (financial_accounts) on the
-// server, but there's no shared "inventory"/"finance" query-key invalidation surface yet for this
-// mutation to plug into — KOK-017 (inventory screen) and Finance's account balances don't expose
-// one today. useRecordPurchase only invalidates the purchases keys below; once those screens exist
-// and share a cross-feature invalidation helper, this hook should call into it too.
+// Purchase mutations also update the account balance and the source-owned Finance row. Invalidate
+// those reads together with order detail: a linked purchase contributes to the order cash result.
 
 import type {
   DeletePurchaseCommand,
@@ -22,7 +19,9 @@ import type {
   UpdatePurchaseResult,
 } from "@kokoro/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-
+import { DASHBOARD_SUMMARY_KEY } from "@/features/dashboard/api";
+import { ACCOUNTS_KEY, TRANSACTIONS_ROOT_KEY } from "@/features/finance/api";
+import { ORDERS_ROOT_KEY } from "@/features/orders/query-keys";
 import { ApiError, api, asNetworkApiError } from "@/lib/api";
 import { FORM_SAVE_ERROR_META } from "@/lib/form-save-errors";
 
@@ -39,6 +38,7 @@ function purchaseDetailKey(id: string) {
 function filtersToQueryString(filters: ListPurchasesFilters): string {
   const params = new URLSearchParams();
   if (filters.accountId) params.set("accountId", filters.accountId);
+  if (filters.customOrderId) params.set("customOrderId", filters.customOrderId);
   if (filters.fromDate) params.set("fromDate", filters.fromDate);
   if (filters.toDate) params.set("toDate", filters.toDate);
   if (filters.limit !== undefined) params.set("limit", String(filters.limit));
@@ -63,7 +63,13 @@ export function usePurchase(id: string | undefined) {
 
 function useInvalidatePurchases() {
   const queryClient = useQueryClient();
-  return () => queryClient.invalidateQueries({ queryKey: PURCHASES_ROOT_KEY });
+  return () => {
+    queryClient.invalidateQueries({ queryKey: PURCHASES_ROOT_KEY });
+    queryClient.invalidateQueries({ queryKey: ACCOUNTS_KEY });
+    queryClient.invalidateQueries({ queryKey: TRANSACTIONS_ROOT_KEY });
+    queryClient.invalidateQueries({ queryKey: ORDERS_ROOT_KEY });
+    queryClient.invalidateQueries({ queryKey: DASHBOARD_SUMMARY_KEY });
+  };
 }
 
 export function useRecordPurchase() {
