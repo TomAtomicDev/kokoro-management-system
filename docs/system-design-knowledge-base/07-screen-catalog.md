@@ -521,12 +521,14 @@ definition graph).
 custom order with derived positive outstanding, grouped by customer alongside unpaid catalog
 sales without double counting its generated sale. Show PED code, delivered sale `business_date` for
 aging, customer price, cumulative qualifying receipts and remaining debt; subsequent partial
-ORDER_BALANCE receipts reduce it immediately. Order collection opens the order-linked manual
-receipt flow, accepting any positive amount (including a tip/excess); catalog-sale collection
-retains the full-balance `collectPayment` flow. Cancelled/pre-delivery orders never appear as
-receivables. The global unfiltered total, dashboard, Finance summary and alert job share this
-projection. Link an order row to `/orders/:id` (KOK-208); preserve date/search filters and
-loading/error/empty distinctions. Overpayment/excess is displayed separately on the order detail,
+ORDER_BALANCE receipts reduce it immediately. Order collection uses the order-linked manual receipt
+flow, accepting any positive amount (including a tip/excess); catalog-sale collection retains the
+full-balance `collectPayment` flow. Until KOK-208 ships that capture flow, KOK-206's order row only
+opens the existing `/orders?open=<id>` detail; do not add a temporary drawer collection action.
+KOK-208 changes the row/deep-link destination to `/orders/:id` and makes that page the order receipt
+surface. Cancelled/pre-delivery orders never appear as receivables. The global unfiltered total,
+dashboard, Finance summary and future alert job share this projection. Preserve date/search filters
+and loading/error/empty distinctions. Overpayment/excess is displayed separately on the order detail,
 including when debt is zero. Source sales retain their own code for inventory history.
 
 **Purpose:** manage every sale balance customers still owe, independent of sale date. The owner can

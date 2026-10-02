@@ -1,4 +1,4 @@
-// ADR-022/KOK-205 order agreement and cash-free lifecycle integration tests against real D1.
+// ADR-022 order agreement, derived reads, and cash-free lifecycle integration tests against real D1.
 import { env } from "cloudflare:test";
 import type { CustomOrderStatus, OrderDto, UpdateOrderCommand } from "@kokoro/shared";
 import {
@@ -987,6 +987,13 @@ describe("cash-free order lifecycle (O-8)", () => {
     const before = await financialSnapshot(db);
     const result = await cancelOrder(db, orderId, {}, ACTOR);
     expect(result.order.status).toBe("CANCELLED");
+    expect(result.order.balance).toEqual({
+      customerAmount: 30_000,
+      qualifyingReceipts: 4_500,
+      expectedBalance: null,
+      receivableBalance: null,
+      excess: 0,
+    });
     expect(await financialSnapshot(db)).toBe(before);
     await expect(cancelOrder(db, orderId, {}, ACTOR)).rejects.toMatchObject({ code: "CONFLICT" });
   });
@@ -1086,6 +1093,92 @@ describe("cash-free order lifecycle (O-8)", () => {
 });
 
 describe("reads and order link guards", () => {
+  it("keeps an unpriced quote's balance components null instead of inventing zero debt", async () => {
+    const db = createDb(env.DB);
+    const customer = await seedCustomer(db);
+    const { order } = await quoteOrder(
+      db,
+      { customerId: customer.id, description: "Pedido sin precio todavía" },
+      ACTOR,
+    );
+
+    expect(order.balance).toEqual({
+      customerAmount: null,
+      qualifyingReceipts: 0,
+      expectedBalance: null,
+      receivableBalance: null,
+      excess: null,
+    });
+  });
+
+  it("projects receipts, expected balance, delivered debt and excess independently of sale status", async () => {
+    const db = createDb(env.DB);
+    const { orderId } = await seedOrderInStatus(db, "QUOTING", {
+      agreedTotal: 20_000,
+      additionalCharge: 1_000,
+    });
+    await recordOrderReceipt(db, orderId, 5_000);
+
+    const quoted = await getOrder(db, orderId);
+    expect(quoted.balance).toEqual({
+      customerAmount: 21_000,
+      qualifyingReceipts: 5_000,
+      expectedBalance: 16_000,
+      receivableBalance: null,
+      excess: 0,
+    });
+
+    await confirmOrder(db, orderId, {}, ACTOR);
+    await startOrderProduction(db, orderId, ACTOR);
+    await markOrderReady(db, orderId, ACTOR);
+    await deliverOrder(db, orderId, { occurredAt: NOW, businessDate: BUSINESS_DATE }, ACTOR);
+    expect((await getOrder(db, orderId)).balance).toEqual({
+      customerAmount: 21_000,
+      qualifyingReceipts: 5_000,
+      expectedBalance: null,
+      receivableBalance: 16_000,
+      excess: 0,
+    });
+
+    await recordOrderReceipt(db, orderId, 10_000, "ORDER_BALANCE");
+    expect((await getOrder(db, orderId)).balance).toMatchObject({
+      qualifyingReceipts: 15_000,
+      receivableBalance: 6_000,
+    });
+    await recordOrderReceipt(db, orderId, 6_000, "ORDER_BALANCE");
+    expect((await getOrder(db, orderId)).balance).toMatchObject({
+      qualifyingReceipts: 21_000,
+      receivableBalance: 0,
+      excess: 0,
+    });
+    await recordOrderReceipt(db, orderId, 500, "ORDER_BALANCE");
+    const overpaid = await getOrder(db, orderId);
+    expect(overpaid.balance).toMatchObject({
+      qualifyingReceipts: 21_500,
+      receivableBalance: 0,
+      excess: 500,
+    });
+    expect(Object.hasOwn(overpaid, "salePaymentStatus")).toBe(false);
+    expect(Object.hasOwn(overpaid, "balanceDue")).toBe(false);
+
+    await undoDeliverOrder(db, orderId, {}, ACTOR);
+    expect((await getOrder(db, orderId)).balance).toEqual({
+      customerAmount: 21_000,
+      qualifyingReceipts: 21_500,
+      expectedBalance: 0,
+      receivableBalance: null,
+      excess: 500,
+    });
+    await deliverOrder(db, orderId, { occurredAt: NOW, businessDate: BUSINESS_DATE }, ACTOR);
+    expect((await getOrder(db, orderId)).balance).toEqual({
+      customerAmount: 21_000,
+      qualifyingReceipts: 21_500,
+      expectedBalance: null,
+      receivableBalance: 0,
+      excess: 500,
+    });
+  });
+
   it("returns bounded orders and refuses links only for terminal orders", async () => {
     const db = createDb(env.DB);
     const quoted = await seedOrderInStatus(db, "QUOTING");
@@ -1262,22 +1355,4 @@ describe("reads and order link guards", () => {
       vi.useRealTimers();
     }
   }, 90_000);
-
-  it("fails explicitly when a delivered order has no active linked sale", async () => {
-    const db = createDb(env.DB);
-    const { orderId } = await seedOrderInStatus(db, "DELIVERED");
-    const order = await getOrder(db, orderId);
-    const saleId = order.saleId;
-    expect(saleId).not.toBeNull();
-    vi.spyOn(db.query.sales, "findMany").mockResolvedValue([]);
-
-    await expect(getOrder(db, orderId)).rejects.toMatchObject({
-      code: "INTERNAL",
-      details: { orderId, saleId },
-    });
-    await expect(listOrders(db, { status: "DELIVERED" })).rejects.toMatchObject({
-      code: "INTERNAL",
-      details: { orderId, saleId },
-    });
-  });
 });

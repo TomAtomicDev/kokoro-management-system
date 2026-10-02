@@ -2,9 +2,9 @@
 
 import type {
   ListReceivablesQuery,
+  ReceivableSourceDto,
   ReceivablesGroupDto,
   ReceivablesResponseDto,
-  ReceivablesSaleDto,
 } from "@kokoro/shared";
 import { addMoney, toCentavos } from "@kokoro/shared";
 import { sql } from "drizzle-orm";
@@ -18,26 +18,23 @@ interface ReceivableQueryRow {
   code: string | null;
   occurred_at: string | null;
   business_date: string | null;
-  channel: "CATALOG" | "CUSTOM_ORDER" | null;
+  channel: "CATALOG" | null;
   sale_total: number | null;
-  deposit_applied: number | null;
   view_total: number | null;
   age_days: number | null;
-  custom_order_id: string | null;
   customer_id: string | null;
   customer_name: string | null;
 }
 
 interface ReceivableAmounts {
   saleTotal: number;
-  depositApplied: number;
   outstandingAmount: number;
 }
 
 export interface ReceivableProjectionEntry {
   customerId: string | null;
   customerName: string | null;
-  sale: ReceivablesSaleDto;
+  receivable: ReceivableSourceDto;
 }
 
 export interface ReceivablesProjection {
@@ -45,13 +42,13 @@ export interface ReceivablesProjection {
   entries: readonly ReceivableProjectionEntry[];
   receivablesTotal: number;
   debtorCount: number;
-  pendingSaleCount: number;
+  pendingReceivableCount: number;
   preDeliveryOrderCashExposure: number;
 }
 
 function assertCentavos(value: number, label: string): void {
   if (!Number.isSafeInteger(value) || value < 0) {
-    throw new DomainError("INTERNAL", "No se pudo leer el saldo de una venta.", {
+    throw new DomainError("INTERNAL", "No se pudo leer el saldo de una deuda.", {
       field: label,
       value,
     });
@@ -82,11 +79,11 @@ export function calculateReceivableAmounts(
     });
   }
 
-  return { saleTotal, depositApplied: 0, outstandingAmount: saleTotal };
+  return { saleTotal, outstandingAmount: saleTotal };
 }
 
-/** Groups source sales without collapsing unassigned debts into a fictitious customer. */
-export function groupReceivableSales(
+/** Groups receivable sources without collapsing unassigned debts into a fictitious customer. */
+export function groupReceivableSources(
   rows: readonly ReceivableProjectionEntry[],
 ): ReceivablesGroupDto[] {
   const groups = new Map<string, ReceivablesGroupDto>();
@@ -102,23 +99,23 @@ export function groupReceivableSales(
               customerId: null,
               customerName: null,
               outstandingTotal: 0,
-              pendingSaleCount: 0,
-              sales: [],
+              receivableCount: 0,
+              receivables: [],
             }
           : {
               groupType: "CUSTOMER",
               customerId: row.customerId,
               customerName: row.customerName,
               outstandingTotal: 0,
-              pendingSaleCount: 0,
-              sales: [],
+              receivableCount: 0,
+              receivables: [],
             };
       groups.set(key, group);
     }
 
-    group.outstandingTotal = addCentavos(group.outstandingTotal, row.sale.outstandingAmount);
-    group.pendingSaleCount += 1;
-    group.sales.push(row.sale);
+    group.outstandingTotal = addCentavos(group.outstandingTotal, row.receivable.outstandingAmount);
+    group.receivableCount += 1;
+    group.receivables.push(row.receivable);
   }
 
   return [...groups.values()];
@@ -129,9 +126,8 @@ function mapReceivableRow(row: ReceivableQueryRow): ReceivableProjectionEntry | 
     row.sale_id === null ||
     row.occurred_at === null ||
     row.business_date === null ||
-    row.channel === null ||
+    row.channel !== "CATALOG" ||
     row.sale_total === null ||
-    row.deposit_applied === null ||
     row.view_total === null ||
     row.age_days === null
   ) {
@@ -143,20 +139,17 @@ function mapReceivableRow(row: ReceivableQueryRow): ReceivableProjectionEntry | 
   return {
     customerId: row.customer_id,
     customerName: row.customer_name,
-    sale: {
+    receivable: {
       sourceType: "CATALOG_SALE",
       saleId: row.sale_id,
       code: row.code,
       saleCode: row.code,
       occurredAt: row.occurred_at,
       businessDate: row.business_date,
-      channel: row.channel,
+      channel: "CATALOG",
       ...amounts,
-      customerPrice: row.sale_total,
-      qualifyingReceipts: 0,
-      excess: 0,
       ageDays: row.age_days,
-      customOrderId: row.custom_order_id,
+      customOrderId: null,
     },
   };
 }
@@ -166,7 +159,7 @@ function groupSortValue(
   sortBy: ListReceivablesQuery["sortBy"],
 ): number {
   if (sortBy === "highestBalance") return group.outstandingTotal;
-  return group.sales.reduce((oldest, sale) => Math.max(oldest, sale.ageDays), 0);
+  return group.receivables.reduce((oldest, receivable) => Math.max(oldest, receivable.ageDays), 0);
 }
 
 const CUSTOMER_COLLATOR = new Intl.Collator("es-BO", { sensitivity: "base" });
@@ -186,10 +179,8 @@ export async function getReceivablesProjection(db: Db): Promise<ReceivablesProje
         vr.business_date,
         vr.channel,
         s.total AS sale_total,
-        0 AS deposit_applied,
         vr.total AS view_total,
         vr.days_outstanding AS age_days,
-        vr.custom_order_id,
         vr.customer_id,
         vr.customer_name
       FROM v_receivables vr
@@ -207,23 +198,23 @@ export async function getReceivablesProjection(db: Db): Promise<ReceivablesProje
     ...orderProjection.receivables.map((row) => ({
       customerId: row.customerId,
       customerName: row.customerName,
-      sale: row.sale,
+      receivable: row.receivable,
     })),
   ];
 
   const receivablesTotal = allRows.reduce(
-    (total, row) => addCentavos(total, row.sale.outstandingAmount),
+    (total, row) => addCentavos(total, row.receivable.outstandingAmount),
     0,
   );
   const debtorIds = new Set(allRows.flatMap((row) => (row.customerId ? [row.customerId] : [])));
   const debtorCount = debtorIds.size;
-  const pendingSaleCount = allRows.length;
+  const pendingReceivableCount = allRows.length;
   assertCentavos(receivablesTotal, "globalReceivablesTotal");
   if (
     !Number.isSafeInteger(debtorCount) ||
     debtorCount < 0 ||
-    !Number.isSafeInteger(pendingSaleCount) ||
-    pendingSaleCount < 0
+    !Number.isSafeInteger(pendingReceivableCount) ||
+    pendingReceivableCount < 0
   ) {
     throw new DomainError("INTERNAL", "No se pudo leer el resumen de deudas.");
   }
@@ -232,7 +223,7 @@ export async function getReceivablesProjection(db: Db): Promise<ReceivablesProje
     entries: allRows,
     receivablesTotal,
     debtorCount,
-    pendingSaleCount,
+    pendingReceivableCount,
     preDeliveryOrderCashExposure: orderProjection.preDeliveryOrderCashExposure,
   };
 }
@@ -244,10 +235,15 @@ export async function listGroupedReceivables(
 ): Promise<ReceivablesResponseDto> {
   const projection = await getReceivablesProjection(db);
   const filteredRows = projection.entries.filter((row) => {
-    if (query.minAgeDays !== undefined && row.sale.ageDays < query.minAgeDays) return false;
+    if (query.minAgeDays !== undefined && row.receivable.ageDays < query.minAgeDays) return false;
     if (query.search) {
       const search = query.search.toLocaleLowerCase("es-BO");
-      const haystack = [row.customerName, row.sale.code, row.sale.saleCode, row.sale.customOrderId]
+      const haystack = [
+        row.customerName,
+        row.receivable.code,
+        row.receivable.saleCode,
+        row.receivable.sourceType === "CUSTOM_ORDER" ? row.receivable.customOrderId : null,
+      ]
         .filter((value): value is string => value !== null)
         .join("\n")
         .toLocaleLowerCase("es-BO");
@@ -258,11 +254,11 @@ export async function listGroupedReceivables(
   const groupedRows = filteredRows.map((row) => ({
     customerId: row.customerId,
     customerName: row.customerName,
-    sale: row.sale,
+    receivable: row.receivable,
   }));
-  const filteredGroups = groupReceivableSales(groupedRows);
+  const filteredGroups = groupReceivableSources(groupedRows);
   for (const group of filteredGroups) {
-    group.sales.sort(
+    group.receivables.sort(
       (left, right) =>
         left.occurredAt.localeCompare(right.occurredAt) || left.saleId.localeCompare(right.saleId),
     );
@@ -288,7 +284,7 @@ export async function listGroupedReceivables(
     globalSummary: {
       receivablesTotal: projection.receivablesTotal,
       debtorCount: projection.debtorCount,
-      pendingSaleCount: projection.pendingSaleCount,
+      pendingReceivableCount: projection.pendingReceivableCount,
     },
     groups,
     pagination: {

@@ -10,6 +10,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useOrder, useOrders } from "@/features/orders/api";
 import { type OrdersHistoryFilter, ordersLabels } from "@/lib/i18n-orders";
+import { filterOrdersByHistoryFilter } from "@/lib/order-history";
 
 const routeApi = getRouteApi("/_authenticated/orders");
 const editRouteApi = getRouteApi("/_authenticated/orders/$orderId/edit");
@@ -76,12 +77,9 @@ export function OrdersRoute() {
   };
   const ordersQuery = useOrders(listFilters);
   const orders = ordersQuery.data?.orders ?? [];
-  const visibleOrders: OrderDto[] =
-    isHistory && historyFilter === "outstanding"
-      ? orders.filter((order) => order.outstandingAmount !== null && order.outstandingAmount > 0)
-      : isHistory && historyFilter === "paid"
-        ? orders.filter((order) => order.outstandingAmount === 0)
-        : orders;
+  const visibleOrders: OrderDto[] = isHistory
+    ? filterOrdersByHistoryFilter(orders, historyFilter)
+    : orders;
 
   function setView(nextView: "active" | "history"): void {
     void navigate({

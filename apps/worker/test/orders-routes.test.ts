@@ -1,4 +1,4 @@
-// Authenticated route coverage for KOK-205's edit command and per-order receipt summary.
+// Authenticated route coverage for order balance reads, KOK-205 edits, and independent receipts.
 import { env, SELF } from "cloudflare:test";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -60,7 +60,7 @@ beforeEach(async () => {
   }
 });
 
-describe("KOK-205 order routes", () => {
+describe("KOK-205/206 order routes", () => {
   it("exposes qualifying receipts and applies the shared optimistic update contract", async () => {
     const auth = await login();
     const db = createDb(env.DB);
@@ -85,7 +85,7 @@ describe("KOK-205 order routes", () => {
         accountId: "acc_cash",
         type: "INCOME",
         category: "ORDER_DEPOSIT",
-        amount: 12_000,
+        amount: 2_000,
         customOrderId: order.id,
         occurredAt: OCCURRED_AT,
         businessDate: BUSINESS_DATE,
@@ -99,7 +99,7 @@ describe("KOK-205 order routes", () => {
     );
     expect(summaryResponse.status).toBe(200);
     expect(await summaryResponse.json()).toEqual({
-      qualifyingReceipts: 12_000,
+      qualifyingReceipts: 2_000,
       hasEverQualifyingReceipt: true,
     });
 
@@ -124,6 +124,67 @@ describe("KOK-205 order routes", () => {
       (await updateResponse.json()) as { order: { agreedTotal: number; additionalCharge: number } },
     ).toMatchObject({
       order: { agreedTotal: 8_000, additionalCharge: 1_000 },
+    });
+
+    const orderReadResponse = await SELF.fetch(`https://example.com/api/orders/${order.id}`, {
+      headers: { cookie: auth.cookie },
+    });
+    expect(orderReadResponse.status).toBe(200);
+    const orderRead = (await orderReadResponse.json()) as {
+      balance: {
+        customerAmount: number;
+        qualifyingReceipts: number;
+        expectedBalance: number | null;
+        receivableBalance: number | null;
+        excess: number | null;
+      };
+    };
+    expect(orderRead.balance).toEqual({
+      customerAmount: 9_000,
+      qualifyingReceipts: 2_000,
+      expectedBalance: 7_000,
+      receivableBalance: null,
+      excess: 0,
+    });
+
+    for (const amount of [2_000, 3_000, 2_500]) {
+      const receiptResponse = await SELF.fetch(
+        `https://example.com/api/orders/${order.id}/transactions`,
+        {
+          method: "POST",
+          headers: headers(auth),
+          body: JSON.stringify({
+            accountId: "acc_cash",
+            type: "INCOME",
+            category: "ORDER_BALANCE",
+            amount,
+            occurredAt: OCCURRED_AT,
+            businessDate: BUSINESS_DATE,
+          }),
+        },
+      );
+      expect(receiptResponse.status).toBe(201);
+    }
+
+    const afterReceiptsResponse = await SELF.fetch(`https://example.com/api/orders/${order.id}`, {
+      headers: { cookie: auth.cookie },
+    });
+    expect(afterReceiptsResponse.status).toBe(200);
+    const afterReceipts = (await afterReceiptsResponse.json()) as {
+      balance: {
+        customerAmount: number;
+        qualifyingReceipts: number;
+        expectedBalance: number | null;
+        receivableBalance: number | null;
+        excess: number | null;
+      };
+    };
+    expect(afterReceipts.balance).toEqual({
+      customerAmount: 9_000,
+      qualifyingReceipts: 9_500,
+      expectedBalance: 0,
+      receivableBalance: null,
+      excess: 500,
     });
 
     const staleResponse = await SELF.fetch(`https://example.com/api/orders/${order.id}`, {

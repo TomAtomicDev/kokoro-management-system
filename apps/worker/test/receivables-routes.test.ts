@@ -37,7 +37,7 @@ describe("GET /api/receivables (KOK-197)", () => {
       globalSummary: {
         receivablesTotal: expect.any(Number),
         debtorCount: expect.any(Number),
-        pendingSaleCount: expect.any(Number),
+        pendingReceivableCount: expect.any(Number),
       },
       groups: expect.any(Array),
       pagination: {

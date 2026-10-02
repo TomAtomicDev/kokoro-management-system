@@ -16,7 +16,7 @@ These constraints are non-negotiable. Every code change must respect them.
 | D-6  | **Schema changes ship with docs.** A migration PR updates Doc 04 (and Doc 03 if rules changed) in the same commit.                                                                                                      |
 | D-7  | **Prompt/tool changes run the eval suite** (Doc 05 §8) before merge; acceptance-rate-critical fixtures may not regress.                                                                                                 |
 | D-8  | **Soft delete only** for business events (INV-10); hard DELETE is reserved for derived rows regeneration inside services.                                                                                               |
-| D-9  | **UI strings in `i18n/es.ts`**, Spanish; identifiers/comments/commits in English.                                                                                                                                       |
+| D-9  | **UI strings in the existing Spanish feature modules** (`apps/web/src/lib/i18n-*.ts`; no shared `i18n/es.ts` exists yet); identifiers/comments/commits in English.                                                                 |
 | D-10 | **No new dependencies without an ADR note.** Prefer stdlib/platform (Web Crypto, Intl) over packages.                                                                                                                   |
 
 ## Repository Conventions

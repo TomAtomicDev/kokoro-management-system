@@ -391,7 +391,7 @@ describe("getOrderCashReceivableSummary (KOK-207)", () => {
       excess: 2_000,
     });
     expect(
-      projection.receivables.some((receivable) => receivable.sale.customOrderId === orderId),
+      projection.receivables.some((receivable) => receivable.receivable.customOrderId === orderId),
     ).toBe(false);
     await expect(getOrderCashReceivableSummary(db)).resolves.toMatchObject({
       receivablesTotal: 0,
@@ -446,8 +446,11 @@ describe("getOrderCashReceivableSummary (KOK-207)", () => {
     expect(grouped.globalSummary.receivablesTotal).toBe(2_500);
     expect(
       grouped.groups
-        .flatMap((group) => group.sales)
-        .some((sale) => sale.customOrderId === lastOrderId),
+        .flatMap((group) => group.receivables)
+        .some(
+          (receivable) =>
+            receivable.sourceType === "CUSTOM_ORDER" && receivable.customOrderId === lastOrderId,
+        ),
     ).toBe(true);
   }, 90_000);
 });

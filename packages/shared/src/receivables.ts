@@ -35,55 +35,67 @@ export const listReceivablesQuerySchema = z
   });
 export type ListReceivablesQuery = z.infer<typeof listReceivablesQuerySchema>;
 
-/** One catalog sale or delivered order in a customer's debt group. Monetary values are centavos. */
-export interface ReceivablesSaleDto {
-  /** Identifies which source record the row represents, even though an order has a linked sale. */
-  sourceType: "CATALOG_SALE" | "CUSTOM_ORDER";
+/** Shared identity/date fields for a catalog sale or delivered custom order receivable. */
+interface ReceivableSourceBaseDto {
   saleId: string;
-  /** The source record code (VTA for catalog sales, PED for custom orders). */
+  /** Source code: VTA for catalog sales, PED for custom orders. */
   code: string | null;
   /** The linked inventory/COGS sale code; differs from `code` for a custom order. */
   saleCode: string | null;
   occurredAt: string;
   businessDate: string;
-  channel: "CATALOG" | "CUSTOM_ORDER";
+  ageDays: number;
+}
+
+/** CATALOG sale receivables preserve UC-04's full-balance collection contract. */
+export interface CatalogSaleReceivableDto extends ReceivableSourceBaseDto {
+  sourceType: "CATALOG_SALE";
+  channel: "CATALOG";
   /** Full sale amount, including any delivery pass-through. */
   saleTotal: number;
-  /** Legacy compatibility field; zero for custom orders because receipts are not applied to sale. */
-  depositApplied: number;
+  /** Catalog debt remains the full ON_CREDIT sale total. */
+  outstandingAmount: number;
+  customOrderId: null;
+}
+
+/** Custom-order receivables are keyed by the order, not by its inventory/COGS sale snapshot. */
+export interface CustomOrderReceivableDto extends ReceivableSourceBaseDto {
+  sourceType: "CUSTOM_ORDER";
+  channel: "CUSTOM_ORDER";
+  /** Generated sale total, retained as source-sale context; not the debt oracle. */
+  saleTotal: number;
   /** Customer price (merchandise subtotal + additional charge), in centavos. */
   customerPrice: number;
   /** Active directly linked manual ORDER_DEPOSIT/ORDER_BALANCE receipts. */
   qualifyingReceipts: number;
   /** Receipt excess above the customer price; never a negative receivable. */
   excess: number;
-  /** Positive unpaid remainder; catalog sale behavior remains unchanged. */
+  /** Positive delivered-order remainder. Zero-debt orders are not included in this response. */
   outstandingAmount: number;
-  /** Days since sale occurredAt for catalog sales, delivered businessDate for orders. */
-  ageDays: number;
-  /** Non-null only when this receivable represents a delivered custom order. */
-  customOrderId: string | null;
+  customOrderId: string;
 }
+
+export type ReceivableSourceDto = CatalogSaleReceivableDto | CustomOrderReceivableDto;
 
 export interface ReceivablesCustomerGroupDto {
   groupType: "CUSTOMER";
   customerId: string;
   customerName: string | null;
-  /** Sum of the listed sales' outstandingAmount values, in integer centavos. */
+  /** Sum of the listed receivables' outstandingAmount values, in integer centavos. */
   outstandingTotal: number;
-  pendingSaleCount: number;
-  sales: ReceivablesSaleDto[];
+  receivableCount: number;
+  receivables: ReceivableSourceDto[];
 }
 
-/** Sales without a customer share this distinct group but remain separate, identified sale rows. */
+/** Sources without a customer share this distinct group but remain separate identified rows. */
 export interface ReceivablesNoCustomerGroupDto {
   groupType: "NO_CUSTOMER";
   customerId: null;
   customerName: null;
-  /** Sum of the listed sales' outstandingAmount values, in integer centavos. */
+  /** Sum of the listed receivables' outstandingAmount values, in integer centavos. */
   outstandingTotal: number;
-  pendingSaleCount: number;
-  sales: ReceivablesSaleDto[];
+  receivableCount: number;
+  receivables: ReceivableSourceDto[];
 }
 
 export type ReceivablesGroupDto = ReceivablesCustomerGroupDto | ReceivablesNoCustomerGroupDto;
@@ -94,7 +106,7 @@ export interface ReceivablesGlobalSummaryDto {
   /** Distinct identified customers with an active receivable; excludes unassigned sources. */
   debtorCount: number;
   /** Active receivable sources (catalog sales + delivered orders), including unassigned rows. */
-  pendingSaleCount: number;
+  pendingReceivableCount: number;
 }
 
 export interface ReceivablesPaginationDto {
