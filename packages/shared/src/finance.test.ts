@@ -3,8 +3,10 @@ import { describe, expect, it } from "vitest";
 import { toBusinessDate } from "./dates";
 import {
   listTransactionsFiltersSchema,
+  recordOrderTransactionCommandSchema,
   recordTransactionCommandSchema,
   transferCommandSchema,
+  updateTransactionCommandSchema,
   withdrawCommandSchema,
 } from "./finance";
 
@@ -59,5 +61,71 @@ describe("listTransactionsFiltersSchema date range (KOK-168 / F-17)", () => {
     expect(
       listTransactionsFiltersSchema.safeParse({ fromDate: future, toDate: future }).success,
     ).toBe(true);
+  });
+
+  it("accepts an order association filter for Finance deep links", () => {
+    expect(listTransactionsFiltersSchema.parse({ customOrderId: "order-1" }).customOrderId).toBe(
+      "order-1",
+    );
+  });
+});
+
+describe("independent order finance command contracts (KOK-204 / O-8)", () => {
+  const base = {
+    accountId: "acc_bank",
+    amount: 1250,
+    businessDate: toBusinessDate(new Date()),
+    occurredAt: new Date().toISOString(),
+  };
+
+  it.each([
+    ["ORDER_DEPOSIT", "INCOME"],
+    ["ORDER_BALANCE", "INCOME"],
+    ["ORDER_REFUND", "EXPENSE"],
+  ] as const)("requires an order association for %s", (category, type) => {
+    expect(recordTransactionCommandSchema.safeParse({ ...base, category, type }).success).toBe(
+      false,
+    );
+    expect(
+      recordTransactionCommandSchema.safeParse({
+        ...base,
+        category,
+        type,
+        customOrderId: "order-1",
+      }).success,
+    ).toBe(true);
+  });
+
+  it("keeps the order-scoped body free of an association field for the route to supply", () => {
+    const parsed = recordOrderTransactionCommandSchema.parse({
+      ...base,
+      type: "INCOME",
+      category: "ORDER_BALANCE",
+      customOrderId: "forged-order-id",
+    });
+
+    expect(parsed).not.toHaveProperty("customOrderId");
+  });
+
+  it("still enforces income/expense category pairing for order categories", () => {
+    expect(
+      recordTransactionCommandSchema.safeParse({
+        ...base,
+        type: "INCOME",
+        category: "ORDER_REFUND",
+        customOrderId: "order-1",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("keeps Finance transaction edits from accepting an association change", () => {
+    const parsed = updateTransactionCommandSchema.parse({
+      ...base,
+      type: "INCOME",
+      category: "ORDER_BALANCE",
+      customOrderId: "forged-order-id",
+    });
+
+    expect(parsed).not.toHaveProperty("customOrderId");
   });
 });

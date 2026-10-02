@@ -1,15 +1,15 @@
 ---
 name: verify-ui
-description: Build and run this project's local dev server (Wrangler on :8787), log in with the dev password, and drive the UI with Playwright to verify a change actually works. Use before reporting any apps/web UI task as done, or whenever a change needs to be checked in a real browser against a real local backend.
+description: Build and run this project's local dev server (Wrangler on :8787), log in with the dev password, and verify the UI with Playwright MCP (preferred in OpenCode; CLI fallback). Use before reporting any apps/web UI task as done, or whenever a change needs to be checked in a real browser against a real local backend.
 allowed-tools: Bash(pnpm --filter @kokoro/web build) Bash(pnpm --filter @kokoro/worker dev*) Bash(pnpm --filter @kokoro/worker db:migrate:dev) Skill(playwright-cli)
 ---
 
 # Verify a UI change in the local dev app
 
-This is a runbook for actually exercising a UI change end-to-end — build the SPA, run it behind
-the real Worker (API + assets on one origin), log in, and drive it with Playwright. Any coding
-agent with shell + Node access can follow it; Codex additionally gets the `playwright-cli`
-skill as the preferred automation path (see step 3).
+This is a runbook for exercising a UI change end-to-end — build the SPA, run it behind the real
+Worker (API + assets on one origin), log in, and drive it with Playwright. In OpenCode, use the
+project's `playwright` MCP server as the primary browser automation path. Use the CLI only as a
+fallback when the MCP tools are unavailable.
 
 ## 1. Start the server
 
@@ -45,13 +45,37 @@ or regeneration of any value. See the guardrail in step 2 for what NOT to do wit
 
 ## 3. Drive the browser
 
-In order of preference:
+**Preferred: Playwright MCP in OpenCode.** The project config starts Microsoft's
+`@playwright/mcp` server in headless, isolated mode. Use its tools (prefixed `playwright_` in
+OpenCode) instead of invoking `playwright-cli` through the shell; this avoids the CLI process
+hang reported in [OpenCode issue #36384](https://github.com/anomalyco/opencode/issues/36384).
 
-**(a) `playwright-cli` skill** (Codex) — if it's available, invoke it via the Skill tool by
-name and drive the flow with its commands (`open`, `goto`, `fill --submit`, `snapshot`,
-`screenshot`, ...). See that skill's own SKILL.md for the full command reference.
+1. Navigate to `http://localhost:8787/` with `playwright_browser_navigate`.
+2. On that same origin, log in with `playwright_browser_evaluate`:
 
-**(b) Fallback: a throwaway Playwright script** (any agent with Node + shell) — `@playwright/test`
+   ```js
+   async () => {
+     const response = await fetch("/api/auth/login", {
+       method: "POST",
+       headers: { "Content-Type": "application/json" },
+       credentials: "include",
+       body: JSON.stringify({ password: "test-password-123" }),
+     });
+     return { status: response.status, body: await response.text() };
+   }
+   ```
+
+   Confirm a `200` response, then navigate to the app again and use
+   `playwright_browser_snapshot` to inspect it. Interact with snapshot targets through
+   `playwright_browser_click`, `playwright_browser_type`, or `playwright_browser_fill_form`;
+   use `playwright_browser_take_screenshot` when a visual check is useful. Close the browser
+   with `playwright_browser_close` when done.
+
+**Fallback: `playwright-cli` skill.** If the MCP server is unavailable or the client does not
+support MCP, invoke the `playwright-cli` skill and use its commands (`open`, `goto`, `snapshot`,
+`screenshot`, ...). Avoid shelling out to the CLI in OpenCode when the MCP is available.
+
+**Last fallback: a throwaway Playwright script** (any agent with Node + shell) — `@playwright/test`
 is already an installed dependency. Launch Chromium, authenticate via a direct API request rather
 than filling a login form (faster and avoids depending on form markup), then navigate normally:
 

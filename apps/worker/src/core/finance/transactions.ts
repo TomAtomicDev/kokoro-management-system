@@ -12,6 +12,7 @@ import type {
   DeleteTransactionCommand,
   DeleteTransactionResult,
   FinancialTransactionCategory,
+  FinancialTransactionOrderDto,
   ListTransactionsFilters,
   ListTransactionsResult,
   RecordTransactionCommand,
@@ -27,15 +28,16 @@ import {
   addMoney,
   generateUuidV7,
   nowIso,
+  ORDER_LINK_REQUIRED_TRANSACTION_CATEGORIES,
   RECORD_TRANSACTION_CATEGORIES_BY_TYPE,
   subMoney,
   toCentavos,
 } from "@kokoro/shared";
-import { eq } from "drizzle-orm";
+import { and, desc, eq, gte, isNull, lte } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 
 import type { Db } from "../../db/index.js";
-import { financialTransactions } from "../../db/schema.js";
+import { customOrders, financialTransactions } from "../../db/schema.js";
 import { buildAuditLogInsert } from "../audit.js";
 import { conflict, notFound, validationError } from "../errors.js";
 import { buildAccountBalanceDelta, findActiveAccountRowOrThrow } from "./accounts.js";
@@ -63,6 +65,7 @@ const TRANSACTION_BALANCE_DIRECTION: Record<FinancialTransactionRow["type"], 1 |
 function assertLegalCategoryForType(
   type: "INCOME" | "EXPENSE",
   category: FinancialTransactionCategory,
+  customOrderId?: string | null,
 ): void {
   const allowed = RECORD_TRANSACTION_CATEGORIES_BY_TYPE[type];
   if (!allowed.includes(category)) {
@@ -71,6 +74,26 @@ function assertLegalCategoryForType(
       { type, category },
     );
   }
+  if (
+    ORDER_LINK_REQUIRED_TRANSACTION_CATEGORIES.includes(
+      category as (typeof ORDER_LINK_REQUIRED_TRANSACTION_CATEGORIES)[number],
+    ) &&
+    !customOrderId
+  ) {
+    throw validationError("Esta categoría requiere un pedido relacionado.", { category });
+  }
+}
+
+async function loadRelatedOrder(
+  db: Db,
+  customOrderId: string,
+): Promise<FinancialTransactionOrderDto> {
+  const row = await db.query.customOrders.findFirst({
+    where: (t, { eq: eqOp }) => eqOp(t.id, customOrderId),
+    columns: { id: true, code: true },
+  });
+  if (!row) throw notFound("No se encontró el pedido relacionado.", { customOrderId });
+  return row;
 }
 
 function assertValidTransactionAmount(amount: number): void {
@@ -91,17 +114,20 @@ export function signedTransactionBalanceEffect(
   return TRANSACTION_BALANCE_DIRECTION[type] * amount;
 }
 
-/** UC-11: a standalone expense or "other income" transaction (never system-owned — sourceEventId
- * is always null here; purchases/sales/orders write their own system-owned rows in their own
- * later services). */
+/** UC-11/O-8: a manual income or expense, optionally associated directly with an order. Manual
+ * rows always have a NULL sourceEventId; purchase-owned derived rows use the regeneration primitive. */
 export async function recordTransaction(
   db: Db,
   command: RecordTransactionCommand,
   actor: AuditActor,
 ): Promise<RecordTransactionResult> {
-  assertLegalCategoryForType(command.type, command.category);
+  assertLegalCategoryForType(command.type, command.category, command.customOrderId);
   assertValidTransactionAmount(command.amount);
   const account = await findActiveAccountRowOrThrow(db, command.accountId);
+  const relatedOrder =
+    command.customOrderId === null || command.customOrderId === undefined
+      ? undefined
+      : await loadRelatedOrder(db, command.customOrderId);
 
   const now = nowIso();
   const row = {
@@ -115,6 +141,7 @@ export async function recordTransaction(
     counterpartTxId: null,
     sourceEventType: null,
     sourceEventId: null,
+    customOrderId: command.customOrderId ?? null,
     // KOK-185: assigned by an AFTER INSERT trigger (migration 0024) — never by core/. `category`
     // is one of the manual, non-TRANSFER categories here (assertLegalCategoryForType only allows
     // INCOME/EXPENSE), so the trigger always fires for this row.
@@ -152,7 +179,7 @@ export async function recordTransaction(
   });
 
   return {
-    transaction: toTransactionDto({ ...row, code: codeRow?.code ?? null }),
+    transaction: toTransactionDto({ ...row, code: codeRow?.code ?? null }, undefined, relatedOrder),
     account: toAccountDto({ ...account, balance: newBalance }),
   };
 }
@@ -178,6 +205,7 @@ export async function withdraw(
     counterpartTxId: null,
     sourceEventType: null,
     sourceEventId: null,
+    customOrderId: null,
     // KOK-185: assigned by an AFTER INSERT trigger (migration 0024) — see recordTransaction above.
     code: null,
     description: command.description ?? null,
@@ -220,26 +248,37 @@ export async function listTransactions(
   db: Db,
   filters: ListTransactionsFilters = {},
 ): Promise<ListTransactionsResult> {
-  const rows = await db.query.financialTransactions.findMany({
-    where: (t, { and, eq: eqOp, gte, lte, isNull }) => {
-      const conditions = [isNull(t.deletedAt)];
-      if (filters.accountId) conditions.push(eqOp(t.accountId, filters.accountId));
-      if (filters.category) conditions.push(eqOp(t.category, filters.category));
-      if (filters.fromDate) conditions.push(gte(t.businessDate, filters.fromDate));
-      if (filters.toDate) conditions.push(lte(t.businessDate, filters.toDate));
-      return and(...conditions);
-    },
-    orderBy: (t, { desc }) => [desc(t.businessDate), desc(t.createdAt)],
-    limit: filters.limit ?? 200,
-  });
+  const conditions = [isNull(financialTransactions.deletedAt)];
+  if (filters.accountId) conditions.push(eq(financialTransactions.accountId, filters.accountId));
+  if (filters.category) conditions.push(eq(financialTransactions.category, filters.category));
+  if (filters.customOrderId)
+    conditions.push(eq(financialTransactions.customOrderId, filters.customOrderId));
+  if (filters.fromDate) conditions.push(gte(financialTransactions.businessDate, filters.fromDate));
+  if (filters.toDate) conditions.push(lte(financialTransactions.businessDate, filters.toDate));
+
+  // The direct association is read through a join rather than a list of bound order IDs: Finance
+  // accepts up to 500 rows, while D1 has a much lower bound-parameter limit.
+  const rowsWithOrders = await db
+    .select({
+      transaction: financialTransactions,
+      relatedOrderId: customOrders.id,
+      relatedOrderCode: customOrders.code,
+    })
+    .from(financialTransactions)
+    .leftJoin(customOrders, eq(financialTransactions.customOrderId, customOrders.id))
+    .where(and(...conditions))
+    .orderBy(desc(financialTransactions.businessDate), desc(financialTransactions.createdAt))
+    .limit(filters.limit ?? 200);
+  const rows = rowsWithOrders.map((row) => row.transaction);
   const sourceEvents = await loadTransactionSourceEvents(db, rows);
   return {
-    transactions: rows.map((row) =>
+    transactions: rowsWithOrders.map(({ transaction, relatedOrderId, relatedOrderCode }) =>
       toTransactionDto(
-        row,
-        row.sourceEventType !== null && row.sourceEventId !== null
-          ? sourceEvents.get(`${row.sourceEventType}\u0000${row.sourceEventId}`)
+        transaction,
+        transaction.sourceEventType !== null && transaction.sourceEventId !== null
+          ? sourceEvents.get(`${transaction.sourceEventType}\u0000${transaction.sourceEventId}`)
           : undefined,
+        relatedOrderId === null ? undefined : { id: relatedOrderId, code: relatedOrderCode },
       ),
     ),
   };
@@ -440,7 +479,7 @@ function buildStandaloneUpdateRow(
       updatedAt: now,
     };
   }
-  assertLegalCategoryForType(command.type, command.category);
+  assertLegalCategoryForType(command.type, command.category, current.customOrderId);
   assertValidTransactionAmount(command.amount);
   return {
     ...current,

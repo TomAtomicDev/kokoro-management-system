@@ -8,6 +8,7 @@ import type {
   UpdateTransactionCommand,
 } from "@kokoro/shared";
 import {
+  FINANCE_FORM_TRANSACTION_CATEGORIES_BY_TYPE,
   formatMoney,
   RECORD_TRANSACTION_CATEGORIES_BY_TYPE,
   toCentavos,
@@ -166,6 +167,14 @@ export function TransactionDetailDrawer({
   const transferPairReady = !isTransfer || counterpart !== null;
   const transferOut = transaction.type === "TRANSFER_OUT" ? transaction : counterpart;
   const transferIn = transaction.type === "TRANSFER_IN" ? transaction : counterpart;
+  let editableCategories: FinancialTransactionCategory[] = [];
+  if (draft?.kind === "standalone") {
+    editableCategories = [
+      ...(transaction.customOrderId !== null
+        ? RECORD_TRANSACTION_CATEGORIES_BY_TYPE[draft.type]
+        : FINANCE_FORM_TRANSACTION_CATEGORIES_BY_TYPE[draft.type]),
+    ];
+  }
 
   function setDraftField(
     key: Exclude<keyof StandaloneDraft | keyof TransferDraft, "kind">,
@@ -368,7 +377,9 @@ export function TransactionDetailDrawer({
                                   ...current,
                                   type,
                                   category:
-                                    RECORD_TRANSACTION_CATEGORIES_BY_TYPE[type][0] ??
+                                    (transaction.customOrderId !== null
+                                      ? RECORD_TRANSACTION_CATEGORIES_BY_TYPE[type][0]
+                                      : FINANCE_FORM_TRANSACTION_CATEGORIES_BY_TYPE[type][0]) ??
                                     "OTHER_EXPENSE",
                                 }
                               : current,
@@ -396,7 +407,7 @@ export function TransactionDetailDrawer({
                         }
                         disabled={mutationPending}
                       >
-                        {RECORD_TRANSACTION_CATEGORIES_BY_TYPE[draft.type].map((category) => (
+                        {editableCategories.map((category) => (
                           <option key={category} value={category}>
                             {financeLabels.categoryLabels[category]}
                           </option>

@@ -15,6 +15,9 @@ export default defineConfig({
       wrangler: { configPath: "./wrangler.toml" },
       miniflare: {
         bindings: { TEST_MIGRATIONS: migrations },
+        // A second isolated D1 lets the migration upgrade fixture apply migrations through 0025,
+        // seed realistic pre-KOK-204 rows through core services, then run 0026 over them.
+        d1Databases: { MIGRATION_FIXTURE_DB: "kok204-migration-fixture" },
       },
     }),
   ],

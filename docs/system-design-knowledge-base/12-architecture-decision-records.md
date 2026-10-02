@@ -216,6 +216,9 @@ debugging (mitigated by formatting helpers everywhere) and explicit rounding rul
 
 ## ADR-012 · Customer deposits are liabilities (derived, not a stored balance)
 
+**Superseded for custom orders by ADR-022 (target KOK-204…208).** This section records the
+currently deployed implementation, not the post-migration order-cash rule.
+
 **Context.** 50% advances currently distort perceived cash; the core anti-decapitalization
 requirement (INV-7).
 
@@ -645,3 +648,43 @@ render path was audited — React escapes all free text and the codebase contain
 `dangerouslySetInnerHTML` or raw-HTML render — so **there is no XSS today**. Length caps and
 control-character sanitizing (KOK-120) ship as defense in depth and better error messages, not as a
 vulnerability fix.
+
+## ADR-022 · Order cash events independent of lifecycle and sale collection
+
+**Status: Accepted target; implementation tracked by KOK-204…208.** Supersedes ADR-012's
+order-state-based deposit release/forfeit mechanism and O-2/O-3's auto-posted cash. It does not
+change catalog-sale collection or inventory cost accounting.
+
+**Context.** A delivery can be undone after a provider was paid or after one or more customer
+receipts. The old model creates a single deposit on confirmation, optionally creates a single
+balance receipt on delivery, ties debts to PAID/ON_CREDIT on the generated sale, and prevents undo
+after collection. That makes a physical status correction implicitly reverse real money and cannot
+represent multiple advances, installments, tips, manual refunds or repeated delivery expenses.
+
+**Decision.** Order transitions own agreement, sale snapshots and stock only. Each cash receipt or
+expense is an independently editable (or source-owned) event explicitly associated by immutable
+order ID, regardless of order status. The label `ORDER_DEPOSIT` or `ORDER_BALANCE` remains fixed
+when a delivery is undone; it describes how cash was recorded, not whether a sale currently exists.
+Only explicit finance commands move account balances. Order receivables are a read-time projection
+from the order's customer price and active qualifying receipts, limited to delivered orders.
+Refunds are separate expenses and do not recreate debt. The previous status-based `v_liability`
+calculation is replaced by a separately labelled pre-delivery cash exposure projection (Doc 04
+§3.4.1); it is not a claim of automatic legal revenue recognition. A generated order sale retains
+the frozen inventory/COGS record but is not the payment ledger. Additional customer charges belong
+to the order and need not equal any external provider expense. Product gross margin and net
+order-linked cash result are separate measures.
+
+**Capture surface.** The dedicated order page supplies the order ID directly when launching
+income/expense/refund forms. Finance displays the resulting rows and their PED association;
+it does not provide an order picker for creating or reassigning order-linked cash. The
+association is a direct FK from the financial transaction to the order, not a provider-session
+join. Sessions are never created automatically by an order status change.
+
+**Consequences.** Confirmation/cancellation/undo no longer post or reverse money; existing
+receivables, liability and snapshot projections need a coordinated versioned cutover. The
+app is pre-production with disposable test data: ship new forward-only schema migrations,
+then reset affected dev/staging datasets at the coordinated model cutover rather than
+backfilling old-model order receipts or provider expenses. Applied migration files remain
+immutable. A cancelled order has no collectible debt even if money was retained;
+an overpayment is visible separately rather than becoming a negative debt. Physical cash can
+remain after an undone delivery or cancelled order without silently changing its category.

@@ -111,6 +111,7 @@ function toPurchaseDto(row: PurchaseRow, lineRows: readonly PurchaseLineRow[]): 
     businessDate: row.businessDate,
     supplierName: row.supplierName,
     sessionId: row.sessionId,
+    customOrderId: row.customOrderId,
     accountId: row.accountId,
     total: row.total,
     receiptPhotoKey: row.receiptPhotoKey,
@@ -120,6 +121,18 @@ function toPurchaseDto(row: PurchaseRow, lineRows: readonly PurchaseLineRow[]): 
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
+}
+
+async function assertPurchaseOrderExists(
+  db: Db,
+  customOrderId: string | null | undefined,
+): Promise<void> {
+  if (customOrderId === null || customOrderId === undefined) return;
+  const order = await db.query.customOrders.findFirst({
+    where: (t, { eq: eqOp }) => eqOp(t.id, customOrderId),
+    columns: { id: true },
+  });
+  if (!order) throw notFound("No se encontró el pedido relacionado.", { customOrderId });
 }
 
 /**
@@ -176,6 +189,7 @@ async function buildPurchaseCreateMovements(db: Db, command: RecordPurchaseComma
   }
 
   const account = await findActiveAccountRowOrThrow(db, command.accountId);
+  await assertPurchaseOrderExists(db, command.customOrderId);
   const resolvedSession = await resolveSessionForEvent(db, {
     type: "PURCHASE_TRIP",
     occurredAt: command.occurredAt,
@@ -247,6 +261,7 @@ async function buildPurchaseCreateMovements(db: Db, command: RecordPurchaseComma
     businessDate: command.businessDate,
     supplierName: command.supplierName ?? null,
     sessionId: resolvedSession.sessionId,
+    customOrderId: command.customOrderId ?? null,
     accountId: command.accountId,
     total,
     receiptPhotoKey: command.receiptPhotoKey ?? null,
@@ -397,6 +412,7 @@ export async function recordPurchase(
             counterpartTxId: null,
             sourceEventType: "purchase",
             sourceEventId: purchaseId,
+            customOrderId: purchaseRow.customOrderId,
             description: null,
             deletedAt: null,
             createdAt: now,
@@ -903,6 +919,7 @@ async function commitPurchaseMutation(db: Db, plan: PurchaseMutationPlan): Promi
         businessDate: newRow.businessDate,
         supplierName: newRow.supplierName,
         sessionId: newRow.sessionId,
+        customOrderId: newRow.customOrderId,
         accountId: newRow.accountId,
         total: newRow.total,
         receiptPhotoKey: newRow.receiptPhotoKey,
@@ -982,6 +999,7 @@ function buildPurchaseTransactionInputs(row: PurchaseRow): FinancialTransactionI
       description: null,
       sourceEventType: "purchase",
       sourceEventId: row.id,
+      customOrderId: row.customOrderId,
     },
   ];
 }
@@ -1052,6 +1070,7 @@ async function buildPurchaseUpdateMutationInputs(
   // NOT checked: money already left it, and refusing to correct an invoice because the account it
   // was booked against has since been archived would strand the error permanently.
   await findActiveAccountRowOrThrow(db, command.accountId);
+  await assertPurchaseOrderExists(db, command.customOrderId);
   const resolvedSession = await resolveSessionForEvent(db, {
     type: "PURCHASE_TRIP",
     occurredAt: command.occurredAt,
@@ -1068,6 +1087,7 @@ async function buildPurchaseUpdateMutationInputs(
     businessDate: command.businessDate,
     supplierName: command.supplierName ?? null,
     sessionId: resolvedSession.sessionId,
+    customOrderId: command.customOrderId ?? null,
     accountId: command.accountId,
     total,
     receiptPhotoKey: command.receiptPhotoKey ?? null,
@@ -1300,6 +1320,7 @@ export async function listPurchases(
     where: (t, { and, eq: eqOp, gte, lte, isNull }) => {
       const conditions = [isNull(t.deletedAt)];
       if (filters.accountId) conditions.push(eqOp(t.accountId, filters.accountId));
+      if (filters.customOrderId) conditions.push(eqOp(t.customOrderId, filters.customOrderId));
       if (filters.fromDate) conditions.push(gte(t.businessDate, filters.fromDate));
       if (filters.toDate) conditions.push(lte(t.businessDate, filters.toDate));
       return and(...conditions);

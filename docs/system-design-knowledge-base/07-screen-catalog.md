@@ -36,11 +36,16 @@ opens it in thirty seconds between batches.
 ## SC-02 · Sales list — `/sales` (UC-03, UC-04, UC-18)
 
 Table: código (KOK-185, Doc 04 §3.6), fecha, canal, cliente, items resumen, total, margen (from
-`unit_cost_snapshot`), estado pago (badge POR COBRAR), método. Actions: new sale, mark paid
-(account + method inline), edit/delete. The date-range filter remains a sales-period view; the old
+`unit_cost_snapshot`), catalog-sale payment state (badge POR COBRAR), método. Actions: new sale,
+mark a CATALOG sale paid (account + method inline), edit/delete catalog sales. The date-range filter remains a sales-period view; the old
 "Por cobrar" preset is replaced by a **Gestionar deudas** link to SC-21 so outstanding balances
 from earlier dates are not hidden by the current month's range. The debt-management screen is the
 primary place to review receivables by customer and source sale.
+
+For CATALOG rows, payment state and mark-paid remain the catalog `collectPayment` flow. An order-owned
+CUSTOM_ORDER sale is only the delivered inventory/COGS snapshot: do not present its compatibility
+`payment_status` as order payment state or offer collection here. Order receipts and additional charge
+belong to the order relationship and its separate finance rows (O-8/KOK-205).
 
 This margin is historical — the WAC frozen at sale time, not the item's current replacement cost —
 so it is a plain neutral figure, deliberately **not** `MarginBadge`/C-5-thresholded (KOK-036):
@@ -70,11 +75,22 @@ duplicate it.
 
 ## SC-04 · Orders board — `/orders` (UC-05…UC-08)
 
+**Implementation note:** the following board/drawer paragraphs document the pre-KOK-204
+payment-coupled screen. The **target contract** below supersedes them where they refer to
+single deposits, automatic collection/refund, sale-based order debt, matched provider expense,
+payment-based undo restrictions and the three O-7 edit flows. KOK-206 revises the shipped or
+in-review KOK-197…201 surfaces; unimplemented KOK-202 is superseded, with its valid detail
+evidence requirements incorporated into KOK-208's dedicated order page.
+
 `OrderBoard` has two views. **Activos** is the default and shows every nonterminal order without a
 creation-date limit, in four full-width vertical lanes from top to bottom: QUOTING, CONFIRMED,
 IN_PRODUCTION, READY. Cards show code (KOK-185, Doc 04 §3.6), customer, delivery date/place, agreed
-merchandise subtotal (`agreed_total`), deposit and the correct balance/payment label. Within each
-  lane, sort by promised `delivery_date` descending (latest date leftmost); undated orders last,
+merchandise subtotal (`agreed_total`), deposit and the correct balance/payment label. Before
+delivery, the displayed balance is the expected merchandise remainder at handoff
+(`agreed_total − deposit_paid`), labelled **Saldo previsto al entregar**; it is not a receivable.
+Delivered cards instead show the linked sale's current **Pagado / Por cobrar** state and actual
+outstanding remainder, which becomes zero after collection. Cancelled orders have no balance. Within each
+  lane, sort by promised `delivery_date` descending (latest date first, top to bottom); undated orders last,
   breaking ties by creation time then ID descending. Load further bounded pages when needed so
   active orders beyond the first 500 are not silently omitted. Give
 cards a status-colored
@@ -82,8 +98,11 @@ border and retain the text status chip; do not rely on color alone. On narrow sc
 wrap without nested horizontal scrolling.
 
 **Historial** contains DELIVERED and CANCELLED orders, with **Todos** and quick filters for **Por cobrar**,
-**Pagados** and **Cancelados**, plus an optional date filter labelled **Fecha de creación**. It has
-  an explicit date range that can be cleared to review all history. History uses bounded continuation
+**Pagados** and **Cancelados**. **Por cobrar** means a delivered sale whose current outstanding
+remainder is greater than zero; **Pagados** includes every delivered sale with zero outstanding,
+including one paid later through collection. An optional, initially empty date range is labelled
+**Fecha de creación** and can be cleared to review all history. Switching back to **Activos** clears
+that history-only date range. History uses bounded continuation
   too; **Todos** must not silently stop at the first 500 closed orders. History rows open the order detail
 but do not show links to the deposit, production, assembly, delivery-session or sale events. Delivered
 payment filters use the linked sale's current payment state, so a later collection moves an order
@@ -122,29 +141,63 @@ Loading, query error, verified empty and available data are distinct states. Kee
 producción”** (status change) distinct from **“Registrar producción”** (creates work). The drawer's
 `open` state is synchronized with `/orders?open=<id>` for refresh and browser back/forward.
 
-**Corrections (O-7, KOK-205):** QUOTING has **Editar cotización**, a full-page form that may update
-the quote fields and lines. CONFIRMED/IN_PRODUCTION/READY offer **Ajustar entrega** for date, place
-and notes, and **Renegociar pedido** for description, merchandise lines/quantities (including adding
-the first line to an empty quote) and merchandise subtotal. Renegotiation is a separate full-page
-form with a before/after summary; it never silently
-changes the paid deposit or rewrites linked production/assembly events. The customer cannot change
-once a positive deposit is paid; a zero-deposit order requires a renewed risk acknowledgment and
-audit if its customer changes. A new merchandise subtotal below the deposit already paid is refused
-with a clear message; resolve it by cancelling/refunding and recording a new order (partial deposit
-  refunds on an active order are unsupported). The form rejects line shares that cannot reproduce the
-  agreed subtotal on delivery, offers explicit clearing for optional fields, and reports a stale-edit
-  conflict rather than overwriting newer work. DELIVERED remains editable only through O-6's guarded
-Deshacer entrega path; CANCELLED remains terminal.
+**Pre-delivery agreement edit (O-7/O-8, KOK-205):** every active status
+(QUOTING/CONFIRMED/IN_PRODUCTION/READY) opens the same full-page **Editar pedido** form and the same
+`updateOrder` command. It edits customer, description, merchandise subtotal, additional charge,
+lines, promised date/place and notes; nullable fields have explicit clear values. The form shows
+active qualifying ORDER_DEPOSIT/ORDER_BALANCE receipts and previews the draft customer amount,
+expected balance and excess using the shared integer-centavo calculation. With no agreed subtotal it
+shows no numeric balance preview. Previewing excess is informational: an agreement may be reduced
+below receipts, and the customer remains locked once any receipt has ever been linked, including a
+soft-deleted receipt. Receipt/refund/expense corrections remain Finance commands; this form never
+changes money. Pinned line shares must fit and every nonempty line set must reproduce the merchandise
+subtotal exactly. A stale `updated_at` returns a conflict instead of overwriting newer work.
+DELIVERED remains editable only through O-6's guarded Deshacer entrega path; CANCELLED remains
+terminal. Updating the agreement never rewrites linked production or assembly events.
 
-**Backward actions (Phase 3.2, KOK-136, O-6):** a **Volver atrás** action in the detail of orders
-in CONFIRMED/IN_PRODUCTION/READY (one step, simple confirmation, no money moves), and **Deshacer
-entrega** in the detail of a DELIVERED order — explicit confirmation plus an `ImpactConfirmDialog`,
-because it deletes the sale delivery created and returns the deposit to the liability. It is
-**disabled with an explanation when that sale has already been collected**: the money really
-arrived, and the owner must reverse the collection first (O-6). CANCELLED orders carry no backward
-action: that state is terminal by decision. Also shown: a warning when **Marcar listo** is pressed
-on an order with no linked production run ("este pedido no tiene producción vinculada — ¿continuar?")
-— a warning, never a block (O-4).
+**Backward actions (Phase 3.2, KOK-136, O-6/O-8):** a **Volver atrás** action in CONFIRMED,
+IN_PRODUCTION and READY remains a one-step audited status change. **Deshacer entrega** is available
+from DELIVERED with explicit confirmation and an `ImpactConfirmDialog`; it soft-deletes the
+order-owned sale, reverses stock and applies R-2/R-5, even after any number of order receipts. It
+never changes finance rows or account balances, and the UI does not disable it because of a payment.
+CANCELLED has no backward action. Still show the nonblocking O-4 warning before **Marcar listo**
+when the order has no linked production run ("este pedido no tiene producción vinculada — ¿continuar?").
+
+**Target order UI (KOK-204…208):** keep the existing active/history board and its bounded
+pagination, but use `/orders/:id` as the canonical detail with a stable deep link, full edit
+form, lifecycle actions, related-work references, linked cash-event timeline and separate
+amounts for merchandise agreement, additional customer charge, receipts, expected/actual debt,
+excess, product gross margin and order cash result. Keep `/orders?open=<id>` as a compatibility
+redirect to the same page. A drawer is not the primary editing/detail surface after KOK-208.
+KOK-204 provides shared finance commands and the relationship in Finance reads, but does
+not add a Finance order picker or an interim drawer-based order payment flow. KOK-208 makes
+the page the creation surface: its expense/income/refund buttons open the familiar Finance
+forms with the current PED already fixed as context; income categories include deposit,
+order balance and other income (the last does not settle debt). Saved rows appear in both the order
+timeline and the Finance movements table. Backend commands take the order ID directly,
+without any session intermediary or reliance on the current drawer.
+
+The customer amount is merchandise `agreed_total + additional_charge`; the charge does not
+require a provider payment and may differ from one or several order-linked delivery expenses.
+Order receipt actions accept multiple manual ORDER_DEPOSIT and ORDER_BALANCE incomes with
+independent account/date/amount and their own ING codes; refunds are separately captured
+ORDER_REFUND expenses. Finance edits/delete/restore are available for those manual rows in any
+order status. Purchases and their derived expense retain the purchase as the editable source;
+an order relationship is an additional association. Do not show a standalone edit action on a
+purchase-owned finance row. Do not automatically create money on confirm/deliver/cancel/undo.
+Undo delivery always presents the stock/cost impact preview (R-5), including after collection,
+and never changes finance rows or account balances. Cancelled orders retain cash history, show
+no collectible debt and permit explicit refunds without reopening the agreement.
+
+Before delivery, label `max(customer amount − qualifying receipts, 0)` as expected balance, not
+a receivable. Only delivered orders with a positive derived balance appear in the history's
+"to collect" filter and SC-21; a later partial receipt refreshes that balance immediately.
+Show overpayment/tips separately even when debt is zero. Show product gross margin after delivery
+from the active sale's frozen line COGS, and show order cash result (all linked active income minus
+all linked active expenses) independently; never call the latter gross margin. An agreement edit
+is permitted in QUOTING/CONFIRMED/IN_PRODUCTION/READY even below receipts, displaying excess;
+the customer is locked once any receipt exists. DELIVERED requires undo before agreement/line
+edits; CANCELLED is terminal. Product production and purchase links remain visible across states.
 
 ## SC-05 · Production list — `/production` (UC-02)
 
@@ -199,7 +252,9 @@ detail drawer with Editar/Eliminar (KOK-024). Form (full page in Phase 3.2, shar
 edit, `PurchaseForm`), with the computed total and "se descontará X de la cuenta Y" pinned to the
 footer (KOK-112) and one `PaymentAccountPicker` instead of separate method/account fields:
 `LineEditor` (item, qty, line total → unit cost preview + Δ vs previous replacement cost
-highlighted, the inflation signal), account, supplier, photo upload, session. Eliminar commits
+highlighted, the inflation signal), account, supplier, optional order association (KOK-204; any
+order status), photo upload and session. The purchase remains the finance row's source owner; its
+optional PED association is separate and follows purchase edits/regeneration. Eliminar commits
 immediately (R-3, principle 6) with a 10s "Deshacer" undo toast; both edit and delete fall back to
 an impact-confirmation dialog instead of the toast when the change would move already-booked cost
 (R-5) — see UC-18 and Doc 06 principle 6 for the general pattern this and SC-08's Salidas tab
@@ -264,8 +319,16 @@ triggers shared-cost allocation (S-3) and shows the resulting per-run cost updat
 ## SC-10 · Finance — `/finance` (UC-11, UC-12, UC-13)
 
 Header: account cards (Banco, Caja chica) with balances + "Transferir" + "Retiro personal"
-actions; liability strip: Anticipos de clientes (v_liability) + Por cobrar (v_receivables). The
-Por cobrar amount is a link to SC-21 and displays the same global outstanding total as the Panel.
+actions; a pre-delivery order cash-exposure strip (active order receipts less explicit refunds,
+floored per order) + Por cobrar. The first is an operational measure, not a legal liability or
+recognized revenue. Por cobrar links to SC-21 and displays the same global outstanding total as the
+Panel.
+**KOK-204:** Finance shows a direct PED association in its own column, separate from "Origen";
+the latter still identifies a purchase, sale or session that owns a derived transaction. **Target
+KOK-206:** label the first metric as pre-delivery order cash exposure (Doc 04 §3.4.1), not a
+status-released deposit liability, and reconcile the independent payments across Finance consumers.
+Finance has no order picker to create or reassign order-linked finance rows: order-page actions
+(KOK-208) supply the direct association, while Finance remains a list and manual-row editor.
 Table: all financial_transactions (fecha, código, cuenta, tipo, categoría, monto signed-colored,
 descripción, source-event link). System-owned rows (with source_event) are read-only here with
 "editar el evento origen" link (Doc 04 §5). Forms: gasto operativo / otro ingreso; transfer
@@ -454,6 +517,20 @@ definition graph).
 
 ## SC-21 · Deudas por cobrar — `/receivables` (UC-25; UC-04 collection)
 
+**Target KOK-206 (supersedes the custom-order portions below):** include each delivered
+custom order with derived positive outstanding, grouped by customer alongside unpaid catalog
+sales without double counting its generated sale. Show PED code, delivered sale `business_date` for
+aging, customer price, cumulative qualifying receipts and remaining debt; subsequent partial
+ORDER_BALANCE receipts reduce it immediately. Order collection uses the order-linked manual receipt
+flow, accepting any positive amount (including a tip/excess); catalog-sale collection retains the
+full-balance `collectPayment` flow. Until KOK-208 ships that capture flow, KOK-206's order row only
+opens the existing `/orders?open=<id>` detail; do not add a temporary drawer collection action.
+KOK-208 changes the row/deep-link destination to `/orders/:id` and makes that page the order receipt
+surface. Cancelled/pre-delivery orders never appear as receivables. The global unfiltered total,
+dashboard, Finance summary and future alert job share this projection. Preserve date/search filters
+and loading/error/empty distinctions. Overpayment/excess is displayed separately on the order detail,
+including when debt is zero. Source sales retain their own code for inventory history.
+
 **Purpose:** manage every sale balance customers still owe, independent of sale date. The owner can
 answer “¿quién me debe, cuánto y por cuáles ventas?” and collect the complete balance from the same
 place. The global total reconciles to the Panel and Finanzas; it is the sum of outstanding
@@ -461,28 +538,32 @@ remainders in `v_receivables`, never the full sale totals for custom orders when
 already received.
 
 **Header summary:** Por cobrar total (all active receivables/all dates), clientes con deuda and
-ventas pendientes. Search by customer name or sale code; sort customer groups by highest balance or
+receivables pending. Search by customer name or source code (VTA/PED); sort customer groups by highest balance or
 oldest debt, and optionally narrow by age in days. Search/age filters affect the list, not the
-global summary figures. Age means days since the sale's `occurred_at`; the app has no due-date rule,
-so copy must not call a debt “vencida”.
+global summary figures. Age means days since a catalog sale's `occurred_at`, or the delivered order
+sale's `business_date` (America/La_Paz); the app has no due-date rule, so copy must not call a debt
+“vencida”.
 
 **Customer groups:** each group shows the customer name, their aggregate outstanding balance and
-number of unpaid sales. Expanding it reveals each source sale: code, date, channel (Venta or Pedido),
-sale total, deposit applied, remaining balance and days outstanding. A row opens the source sale
-detail (`GET /api/sales/:id`) or linked custom-order detail (`GET /api/orders/:id`). Sales without
-an identified customer appear as individual rows in a separate **Sin cliente** group; they are
-never combined into a fictitious customer balance.
+number of receivable sources. Expanding it distinguishes catalog sales from custom orders. Order
+rows show PED code, linked sale date/code, customer price, qualifying receipt total, remaining debt
+and age from delivered sale `business_date`; excess remains visible on the order detail even after
+debt reaches zero. A catalog row opens its source sale and
+an order row opens its custom-order detail. Sales/orders without an identified customer appear as
+individual rows in a separate **Sin cliente** group; they are never combined into a fictitious
+customer balance.
 
-**Collection:** **Cobrar saldo** opens the existing UC-04 collection flow for that exact sale,
-credits the selected account for the full outstanding amount and marks that sale paid. Partial
-collection is not supported. On success, the debt disappears and totals refresh. A group's total is
-not itself collectible because it may contain several separate sales.
+**Collection:** catalog **Cobrar saldo** remains the existing UC-04 full-balance collection flow.
+Custom-order collection records an independent order-linked receipt; partial amounts and tips are
+allowed and do not mark the generated sale paid. A group's total is not itself collectible because
+it may contain several receivable sources.
 
-**Data contract:** `GET /api/receivables` (KOK-197) reads the existing `v_receivables` view through
-`core/`; it accepts customer/code search, a minimum-age filter, and pagination over customer groups.
+**Data contract:** `GET /api/receivables` combines catalog rows from `v_receivables` with the
+set-based custom-order projection through `core/`; it accepts customer/source-code search, a
+minimum-age filter, and pagination over customer groups.
 The response includes an unfiltered global summary plus filtered group totals and each group's
-source receivables in integer centavos. A direct collection reuses the existing
-`POST /api/sales/:id/collect-payment`; no new write endpoint or stored customer balance is introduced.
+source receivables in integer centavos. Catalog collection uses `POST /api/sales/:id/collect-payment`;
+order collection uses the order-linked finance command. No stored customer balance is introduced.
 Filters persist in the URL. Loading, request-error, no-debts, and no-filter-matches states are
 distinct. On mobile, the summary stays first and customer groups collapse to readable cards with
 the balance and collection action visible without horizontal scrolling.

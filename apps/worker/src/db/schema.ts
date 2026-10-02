@@ -4,7 +4,7 @@
 // cannot express are appended by hand to the generated migration file afterward: the CREATE VIEW
 // statements (Doc 04 Ãƒâ€šÃ‚Â§4) and the seed INSERTs (Doc 04 Ãƒâ€šÃ‚Â§7) ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â see the migration file's own header.
 //
-// Views (v_stock, v_kardex, v_price_health, v_receivables, v_liability, v_cashflow_daily,
+// Views (v_stock, v_kardex, v_price_health, v_receivables, v_order_finance_projection, v_cashflow_daily,
 // v_session_hours, v_waste) are defined only in the SQL migration ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â Drizzle's SQLite view
 // support does not model window functions/partial-aggregate views well, so `core/` services
 // query them via `db.all(sql\`SELECT * FROM v_x ...\`)` with a hand-written result type instead
@@ -265,6 +265,9 @@ export const purchases = sqliteTable(
     sessionId: text("session_id")
       .notNull()
       .references(() => sessions.id, { onDelete: "restrict" }),
+    customOrderId: text("custom_order_id").references((): AnySQLiteColumn => customOrders.id, {
+      onDelete: "restrict",
+    }),
     // Forward reference ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â financial_accounts is declared later (Doc 04 Ãƒâ€šÃ‚Â§3.4).
     accountId: text("account_id")
       .notNull()
@@ -279,6 +282,7 @@ export const purchases = sqliteTable(
     updatedAt: text("updated_at").notNull(),
   },
   (t) => ({
+    ixOrder: index("ix_purchases_order").on(t.customOrderId),
     uxCode: uniqueIndex("ux_purchases_code").on(t.code),
   }),
 );
@@ -443,6 +447,7 @@ export const sales = sqliteTable(
     customerId: text("customer_id").references(() => customers.id, { onDelete: "restrict" }),
     sessionId: text("session_id").references(() => sessions.id, { onDelete: "restrict" }),
     total: integer("total").notNull(),
+    additionalCharge: integer("additional_charge").notNull().default(0),
     paymentStatus: text("payment_status", { enum: ["PAID", "ON_CREDIT"] }).notNull(),
     paidAt: text("paid_at"),
     paymentMethod: text("payment_method", { enum: ["CASH", "BANK_QR"] }),
@@ -459,6 +464,7 @@ export const sales = sqliteTable(
   },
   (t) => ({
     channelCheck: check("sales_channel_check", sql`${t.channel} IN ('CATALOG','CUSTOM_ORDER')`),
+    additionalChargeCheck: check("sales_additional_charge_check", sql`${t.additionalCharge} >= 0`),
     paymentStatusCheck: check(
       "sales_payment_status_check",
       sql`${t.paymentStatus} IN ('PAID','ON_CREDIT')`,
@@ -506,6 +512,7 @@ export const customOrders = sqliteTable(
       .references(() => customers.id, { onDelete: "restrict" }),
     description: text("description").notNull(),
     agreedTotal: integer("agreed_total"),
+    additionalCharge: integer("additional_charge").notNull().default(0),
     depositRequired: integer("deposit_required"),
     depositPaid: integer("deposit_paid").notNull().default(0),
     // Forward reference ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â financial_transactions is declared later (Doc 04 Ãƒâ€šÃ‚Â§3.4).
@@ -528,6 +535,10 @@ export const customOrders = sqliteTable(
     statusCheck: check(
       "custom_orders_status_check",
       sql`${t.status} IN ('QUOTING','CONFIRMED','IN_PRODUCTION','READY','DELIVERED','CANCELLED')`,
+    ),
+    additionalChargeCheck: check(
+      "custom_orders_additional_charge_check",
+      sql`${t.additionalCharge} >= 0`,
     ),
     cancelResolutionCheck: check(
       "custom_orders_cancel_resolution_check",
@@ -728,6 +739,7 @@ export const financialTransactions = sqliteTable(
         "OPERATING_EXPENSE",
         "EQUIPMENT",
         "DEPOSIT_REFUND",
+        "ORDER_REFUND",
         "OWNER_WITHDRAWAL",
         "TRANSFER",
         "OTHER_EXPENSE",
@@ -740,12 +752,14 @@ export const financialTransactions = sqliteTable(
     ),
     sourceEventType: text("source_event_type"),
     sourceEventId: text("source_event_id"),
-    // KOK-185: human-readable code (GTO-/ING-/RET-/TRF-NNNN-YYYY), assigned only for MANUAL rows
-    // (source_event_id IS NULL) - system-owned rows (SALE, SUPPLY_PURCHASE, DEBT_COLLECTION,
-    // ORDER_DEPOSIT, ORDER_BALANCE, DEPOSIT_REFUND) inherit their source event's code instead and
-    // stay NULL here. A TRANSFER's two legs (TRANSFER_OUT/TRANSFER_IN) share one code - see
-    // migration 0024's header for the AFTER UPDATE trigger that makes that possible despite
-    // core/finance/transfer.ts inserting both rows with counterpart_tx_id initially NULL.
+    customOrderId: text("custom_order_id").references((): AnySQLiteColumn => customOrders.id, {
+      onDelete: "restrict",
+    }),
+    // KOK-185/KOK-204: human-readable code (GTO-/ING-/RET-/TRF-NNNN-YYYY), assigned only for
+    // MANUAL rows (source_event_id IS NULL), including independent order receipts/refunds. Legacy
+    // source-owned rows inherit their source event's code instead and stay NULL here. A TRANSFER's
+    // two legs (TRANSFER_OUT/TRANSFER_IN) share one code - see migrations 0024/0026 for the AFTER
+    // UPDATE trigger that makes that possible despite counterpart_tx_id starting NULL.
     code: text("code"),
     description: text("description"),
     deletedAt: text("deleted_at"),
@@ -759,12 +773,21 @@ export const financialTransactions = sqliteTable(
     ),
     categoryCheck: check(
       "financial_transactions_category_check",
-      sql`${t.category} IN ('SALE','ORDER_DEPOSIT','ORDER_BALANCE','DEBT_COLLECTION','OTHER_INCOME','SUPPLY_PURCHASE','OPERATING_EXPENSE','EQUIPMENT','DEPOSIT_REFUND','OWNER_WITHDRAWAL','TRANSFER','OTHER_EXPENSE')`,
+      sql`${t.category} IN ('SALE','ORDER_DEPOSIT','ORDER_BALANCE','DEBT_COLLECTION','OTHER_INCOME','SUPPLY_PURCHASE','OPERATING_EXPENSE','EQUIPMENT','DEPOSIT_REFUND','ORDER_REFUND','OWNER_WITHDRAWAL','TRANSFER','OTHER_EXPENSE')`,
     ),
     amountCheck: check("financial_transactions_amount_check", sql`${t.amount} > 0`),
+    orderReceiptCheck: check(
+      "financial_transactions_order_receipt_check",
+      sql`${t.category} NOT IN ('ORDER_DEPOSIT','ORDER_BALANCE') OR (${t.type} = 'INCOME' AND (${t.sourceEventId} IS NOT NULL OR ${t.customOrderId} IS NOT NULL))`,
+    ),
+    orderRefundCheck: check(
+      "financial_transactions_order_refund_check",
+      sql`${t.category} != 'ORDER_REFUND' OR (${t.type} = 'EXPENSE' AND ${t.sourceEventId} IS NULL AND ${t.customOrderId} IS NOT NULL)`,
+    ),
     ixAccountDate: index("ix_tx_account_date").on(t.accountId, t.businessDate),
     ixSource: index("ix_tx_source").on(t.sourceEventType, t.sourceEventId),
     ixCategoryDate: index("ix_tx_category_date").on(t.category, t.businessDate),
+    ixCustomOrderDate: index("ix_tx_custom_order_date").on(t.customOrderId, t.businessDate, t.id),
     // Partial: excludes TRANSFER_IN, whose code is a deliberate mirror of its TRANSFER_OUT
     // counterpart's (migration 0024's header) — see that migration for the full reasoning.
     uxCode: uniqueIndex("ux_financial_transactions_code")
@@ -858,7 +881,8 @@ export const dailySnapshots = sqliteTable("daily_snapshots", {
   bankBalance: integer("bank_balance").notNull(),
   cashBalance: integer("cash_balance").notNull(),
   accountsReceivable: integer("accounts_receivable").notNull(),
-  customerDeposits: integer("customer_deposits").notNull(),
+  customerDepositsAdr012: integer("customer_deposits_adr012"),
+  preDeliveryOrderCashExposure: integer("pre_delivery_order_cash_exposure"),
   createdAt: text("created_at").notNull(),
 });
 

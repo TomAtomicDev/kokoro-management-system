@@ -90,6 +90,8 @@ export interface FinancialTransactionInput {
    */
   amount: number;
   description?: string | null;
+  /** Optional direct order association; independent from the event that owns this derived row. */
+  customOrderId?: string | null;
   /** e.g. 'purchase' | 'sale' | 'custom_order' — free text, no FK by design (INV-9). */
   sourceEventType: string;
   sourceEventId: string;
@@ -147,6 +149,7 @@ function buildTransactionInsert(
     counterpartTxId: null,
     sourceEventType: input.sourceEventType,
     sourceEventId: input.sourceEventId,
+    customOrderId: input.customOrderId ?? null,
     description: input.description ?? null,
     deletedAt: null,
     createdAt,

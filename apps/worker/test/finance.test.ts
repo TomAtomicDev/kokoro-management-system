@@ -10,12 +10,13 @@
 // https://developers.cloudflare.com/workers/testing/vitest-integration/migration-guides/migrate-from-vitest-3-to-vitest-4/).
 // The `beforeEach` below restores the per-test guarantee this file's tests were written against:
 // both seeded accounts back at balance 0, with no leftover transactions/audit rows from prior tests.
-import { env } from "cloudflare:test";
+import { applyD1Migrations, env } from "cloudflare:test";
+import { addMoney, calculateOrderReceiptBalance, subMoney, toCentavos } from "@kokoro/shared";
 import { eq, inArray } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import fc from "fast-check";
 import { beforeEach, describe, expect, it } from "vitest";
-
+import { createCustomer } from "../src/core/customers/index.js";
 import type { FinancialTransactionInput } from "../src/core/finance/accounts.js";
 import { buildReplaceTransactionsForSourceStatements } from "../src/core/finance/accounts.js";
 import {
@@ -31,6 +32,7 @@ import {
   updateTransaction,
   withdraw,
 } from "../src/core/finance/index.js";
+import { cancelOrder, quoteOrder } from "../src/core/orders/index.js";
 import { createDb } from "../src/db/index.js";
 import { auditLog, financialAccounts, financialTransactions } from "../src/db/schema.js";
 
@@ -57,6 +59,23 @@ const NOW = "2026-07-16T10:00:00.000Z";
 const BUSINESS_DATE = "2026-07-16";
 
 type TestDb = ReturnType<typeof createDb>;
+
+async function createOrder(db: TestDb, cancel = false): Promise<string> {
+  const customer = await createCustomer(
+    db,
+    { name: `Finance order customer ${crypto.randomUUID()}` },
+    ACTOR,
+  );
+  const { order } = await quoteOrder(
+    db,
+    { customerId: customer.id, description: "Pedido para probar pagos independientes" },
+    ACTOR,
+  );
+  if (cancel) {
+    await cancelOrder(db, order.id, {}, ACTOR);
+  }
+  return order.id;
+}
 
 async function seedSystemOwnedTransaction(db: TestDb): Promise<string> {
   const { statements } = await buildReplaceTransactionsForSourceStatements(
@@ -220,6 +239,28 @@ describe("recordTransaction (UC-11)", () => {
     ).rejects.toMatchObject({ code: "VALIDATION" });
   });
 
+  it.each([
+    { type: "INCOME" as const, category: "ORDER_DEPOSIT" as const },
+    { type: "INCOME" as const, category: "ORDER_BALANCE" as const },
+    { type: "EXPENSE" as const, category: "ORDER_REFUND" as const },
+  ])("rejects $type/$category without a direct order ID at the core boundary", async (command) => {
+    const db = createDb(env.DB);
+    await expect(
+      recordTransaction(
+        db,
+        {
+          accountId: "acc_bank",
+          amount: 100,
+          businessDate: BUSINESS_DATE,
+          occurredAt: NOW,
+          ...command,
+        },
+        ACTOR,
+      ),
+    ).rejects.toMatchObject({ code: "VALIDATION" });
+    expect(await getAccount(db, "acc_bank")).toMatchObject({ balance: 0 });
+  });
+
   it("rejects EXPENSE paired with a fixed category reserved for withdraw() (OWNER_WITHDRAWAL)", async () => {
     const db = createDb(env.DB);
     await expect(
@@ -236,6 +277,146 @@ describe("recordTransaction (UC-11)", () => {
         ACTOR,
       ),
     ).rejects.toMatchObject({ code: "VALIDATION" });
+  });
+
+  it("records repeatable linked receipts/refunds with manual codes in a cancelled order's history", async () => {
+    const db = createDb(env.DB);
+    const customOrderId = await createOrder(db, true);
+    const receipt = await recordTransaction(
+      db,
+      {
+        accountId: "acc_bank",
+        type: "INCOME",
+        category: "ORDER_DEPOSIT",
+        amount: 12_500,
+        customOrderId,
+        businessDate: BUSINESS_DATE,
+        occurredAt: NOW,
+      },
+      ACTOR,
+    );
+    const balance = await recordTransaction(
+      db,
+      {
+        accountId: "acc_cash",
+        type: "INCOME",
+        category: "ORDER_BALANCE",
+        amount: 3_500,
+        customOrderId,
+        businessDate: BUSINESS_DATE,
+        occurredAt: NOW,
+      },
+      ACTOR,
+    );
+    const otherIncome = await recordTransaction(
+      db,
+      {
+        accountId: "acc_bank",
+        type: "INCOME",
+        category: "OTHER_INCOME",
+        amount: 700,
+        customOrderId,
+        businessDate: BUSINESS_DATE,
+        occurredAt: NOW,
+      },
+      ACTOR,
+    );
+    const refund = await recordTransaction(
+      db,
+      {
+        accountId: "acc_cash",
+        type: "EXPENSE",
+        category: "ORDER_REFUND",
+        amount: 2_000,
+        customOrderId,
+        businessDate: BUSINESS_DATE,
+        occurredAt: NOW,
+      },
+      ACTOR,
+    );
+    const ordinaryOrderExpense = await recordTransaction(
+      db,
+      {
+        accountId: "acc_bank",
+        type: "EXPENSE",
+        category: "OPERATING_EXPENSE",
+        amount: 1_000,
+        customOrderId,
+        businessDate: BUSINESS_DATE,
+        occurredAt: NOW,
+      },
+      ACTOR,
+    );
+
+    expect(receipt.transaction).toMatchObject({
+      category: "ORDER_DEPOSIT",
+      customOrderId,
+      sourceEventType: null,
+      sourceEventId: null,
+      code: expect.stringMatching(/^ING-\d{4}-\d{4}$/),
+    });
+    expect(balance.transaction.code).toMatch(/^ING-\d{4}-\d{4}$/);
+    expect(otherIncome.transaction.customOrderId).toBe(customOrderId);
+    expect(refund.transaction).toMatchObject({
+      type: "EXPENSE",
+      category: "ORDER_REFUND",
+      customOrderId,
+      sourceEventId: null,
+      code: expect.stringMatching(/^GTO-\d{4}-\d{4}$/),
+    });
+    expect(ordinaryOrderExpense.transaction.customOrderId).toBe(customOrderId);
+    expect(await getAccount(db, "acc_bank")).toMatchObject({ balance: 12_200 });
+    expect(await getAccount(db, "acc_cash")).toMatchObject({ balance: 1_500 });
+    expect(await getBalanceConsistencyMismatches(db)).toHaveLength(0);
+  });
+
+  it("keeps a manual transaction's order association fixed through edit, delete, and restore", async () => {
+    const db = createDb(env.DB);
+    const customOrderId = await createOrder(db);
+    const created = await recordTransaction(
+      db,
+      {
+        accountId: "acc_bank",
+        type: "INCOME",
+        category: "OTHER_INCOME",
+        amount: 2_500,
+        customOrderId,
+        businessDate: BUSINESS_DATE,
+        occurredAt: NOW,
+      },
+      ACTOR,
+    );
+
+    const updated = await updateTransaction(
+      db,
+      created.transaction.id,
+      {
+        accountId: "acc_cash",
+        type: "INCOME",
+        category: "ORDER_BALANCE",
+        amount: 800,
+        businessDate: BUSINESS_DATE,
+        occurredAt: NOW,
+        description: "Saldo corregido",
+      },
+      ACTOR,
+    );
+    expect(updated.transactions[0]).toMatchObject({
+      customOrderId,
+      category: "ORDER_BALANCE",
+      amount: 800,
+    });
+    expect(await getAccount(db, "acc_bank")).toMatchObject({ balance: 0 });
+    expect(await getAccount(db, "acc_cash")).toMatchObject({ balance: 800 });
+
+    const deleted = await deleteTransaction(db, created.transaction.id, {}, ACTOR);
+    expect(deleted.transactions[0]?.customOrderId).toBe(customOrderId);
+    expect(await getAccount(db, "acc_cash")).toMatchObject({ balance: 0 });
+
+    const restored = await restoreTransaction(db, created.transaction.id, {}, ACTOR);
+    expect(restored.transactions[0]?.customOrderId).toBe(customOrderId);
+    expect(await getAccount(db, "acc_cash")).toMatchObject({ balance: 800 });
+    expect(await getBalanceConsistencyMismatches(db)).toHaveLength(0);
   });
 
   it("rejects a nonexistent account with NOT_FOUND", async () => {
@@ -295,6 +476,7 @@ describe("withdraw (UC-13)", () => {
     expect(result.transaction.type).toBe("EXPENSE");
     expect(result.transaction.category).toBe("OWNER_WITHDRAWAL");
     expect(result.transaction.sourceEventId).toBeNull();
+    expect(result.transaction.code).toMatch(/^RET-\d{4}-\d{4}$/);
     expect(result.account.balance).toBe(-2500);
 
     const auditRow = await db.query.auditLog.findFirst({
@@ -539,6 +721,267 @@ describe("property: manual balance netting (KOK-146 / INV-5)", () => {
         },
       ),
     );
+  });
+});
+
+describe("property: independent order cash centavo conservation (KOK-204 / O-8)", () => {
+  type LedgerRow = {
+    type: "INCOME" | "EXPENSE" | "TRANSFER_IN" | "TRANSFER_OUT";
+    category:
+      | "ORDER_DEPOSIT"
+      | "ORDER_BALANCE"
+      | "OTHER_INCOME"
+      | "ORDER_REFUND"
+      | "OPERATING_EXPENSE"
+      | "TRANSFER";
+    amount: number;
+    customOrderId: string | null;
+    deleted: boolean;
+  };
+  const amountArb = fc.integer({ min: 1, max: 1_000_000_000 });
+  const ledgerRowArb: fc.Arbitrary<LedgerRow> = fc.oneof(
+    fc.record({
+      type: fc.constant("INCOME" as const),
+      category: fc.constantFrom("ORDER_DEPOSIT" as const, "ORDER_BALANCE" as const),
+      amount: amountArb,
+      customOrderId: fc.constant("order-1"),
+      deleted: fc.boolean(),
+    }),
+    fc.record({
+      type: fc.constant("INCOME" as const),
+      category: fc.constant("OTHER_INCOME" as const),
+      amount: amountArb,
+      customOrderId: fc.constantFrom("order-1", null),
+      deleted: fc.boolean(),
+    }),
+    fc.record({
+      type: fc.constant("EXPENSE" as const),
+      category: fc.constant("ORDER_REFUND" as const),
+      amount: amountArb,
+      customOrderId: fc.constant("order-1"),
+      deleted: fc.boolean(),
+    }),
+    fc.record({
+      type: fc.constant("EXPENSE" as const),
+      category: fc.constant("OPERATING_EXPENSE" as const),
+      amount: amountArb,
+      customOrderId: fc.constantFrom("order-1", null),
+      deleted: fc.boolean(),
+    }),
+    fc.record({
+      type: fc.constantFrom("TRANSFER_IN" as const, "TRANSFER_OUT" as const),
+      category: fc.constant("TRANSFER" as const),
+      amount: amountArb,
+      customOrderId: fc.constant(null),
+      deleted: fc.boolean(),
+    }),
+  );
+
+  it("conserves account centavos across any edit/delete replacement and keeps refunds/other income out of receipts", () => {
+    fc.assert(
+      fc.property(
+        fc.array(ledgerRowArb, { maxLength: 40 }),
+        fc.array(ledgerRowArb, { maxLength: 40 }),
+        fc.integer({ min: 1, max: 1_000_000_000 }),
+        fc.integer({ min: -1_000_000_000, max: 1_000_000_000 }),
+        (oldRows, newRows, customerPrice, openingBalance) => {
+          const effect = (rows: LedgerRow[]): number =>
+            addMoney(
+              ...rows
+                .filter((row) => !row.deleted)
+                .map((row) => toCentavos(signedTransactionBalanceEffect(row.type, row.amount))),
+            );
+          const oldEffect = effect(oldRows);
+          const newEffect = effect(newRows);
+          expect(
+            addMoney(
+              toCentavos(openingBalance),
+              toCentavos(oldEffect),
+              toCentavos(-oldEffect),
+              toCentavos(newEffect),
+            ),
+          ).toBe(addMoney(toCentavos(openingBalance), toCentavos(newEffect)));
+
+          const receipts = newRows
+            .filter(
+              (row) =>
+                !row.deleted &&
+                row.customOrderId === "order-1" &&
+                row.type === "INCOME" &&
+                (row.category === "ORDER_DEPOSIT" || row.category === "ORDER_BALANCE"),
+            )
+            .map((row) => toCentavos(row.amount));
+          const receiptTotal = addMoney(...receipts);
+          const summary = calculateOrderReceiptBalance(customerPrice, 0, receiptTotal);
+          const expected = toCentavos(summary.expected ?? 0);
+          const excess = toCentavos(summary.excess ?? 0);
+          const difference = subMoney(toCentavos(customerPrice), receiptTotal);
+          expect(expected).toBeGreaterThanOrEqual(0);
+          expect(excess).toBeGreaterThanOrEqual(0);
+          expect(subMoney(expected, excess)).toBe(difference);
+        },
+      ),
+    );
+  });
+});
+
+describe("KOK-204 migration integrity", () => {
+  it("keeps linked finance FKs, manual code triggers, transfer pairs, and indexes valid", async () => {
+    const db = createDb(env.DB);
+    const customOrderId = await createOrder(db);
+    const receipt = await recordTransaction(
+      db,
+      {
+        accountId: "acc_bank",
+        type: "INCOME",
+        category: "ORDER_DEPOSIT",
+        amount: 2500,
+        customOrderId,
+        businessDate: BUSINESS_DATE,
+        occurredAt: NOW,
+      },
+      ACTOR,
+    );
+    const refund = await recordTransaction(
+      db,
+      {
+        accountId: "acc_cash",
+        type: "EXPENSE",
+        category: "ORDER_REFUND",
+        amount: 400,
+        customOrderId,
+        businessDate: BUSINESS_DATE,
+        occurredAt: NOW,
+      },
+      ACTOR,
+    );
+    const transferResult = await transfer(
+      db,
+      {
+        fromAccountId: "acc_bank",
+        toAccountId: "acc_cash",
+        amount: 200,
+        businessDate: BUSINESS_DATE,
+        occurredAt: NOW,
+      },
+      ACTOR,
+    );
+
+    expect(receipt.transaction.code).toMatch(/^ING-\d{4}-\d{4}$/);
+    expect(refund.transaction.code).toMatch(/^GTO-\d{4}-\d{4}$/);
+    expect(transferResult.outTransaction.code).toBe(transferResult.inTransaction.code);
+    expect(transferResult.outTransaction.counterpartTxId).toBe(transferResult.inTransaction.id);
+
+    const foreignKeyCheck = await env.DB.prepare("PRAGMA foreign_key_check").all();
+    expect(foreignKeyCheck.results).toEqual([]);
+    const indexes = await env.DB.prepare(
+      "SELECT name FROM sqlite_master WHERE type = 'index' AND name IN ('ix_purchases_order', 'ix_tx_custom_order_date', 'ux_financial_transactions_code')",
+    ).all<{ name: string }>();
+    expect(indexes.results.map((row) => row.name).sort()).toEqual([
+      "ix_purchases_order",
+      "ix_tx_custom_order_date",
+      "ux_financial_transactions_code",
+    ]);
+  });
+
+  it("preserves pre-existing order rows and paired transfers across the 0026 rebuild", async () => {
+    const fixtureDb = (env as unknown as { MIGRATION_FIXTURE_DB: D1Database }).MIGRATION_FIXTURE_DB;
+    const migrations = env.TEST_MIGRATIONS;
+    const migrationIndex = migrations.findIndex(
+      (migration) => migration.name === "0026_independent_order_finance.sql",
+    );
+    const migration = migrations[migrationIndex];
+    if (migrationIndex < 0 || !migration) {
+      throw new Error("KOK-204 migration 0026 was not included in TEST_MIGRATIONS");
+    }
+
+    await applyD1Migrations(fixtureDb, migrations.slice(0, migrationIndex));
+    // Add the KOK-204 link and KOK-205 charge columns needed by current core factories while
+    // retaining the pre-0026 financial_transactions table. The rebuild/index work still runs below;
+    // business fixtures are written through core/.
+    await fixtureDb
+      .prepare(
+        "ALTER TABLE financial_transactions ADD custom_order_id TEXT REFERENCES custom_orders(id) ON UPDATE NO ACTION ON DELETE RESTRICT",
+      )
+      .run();
+    await fixtureDb
+      .prepare(
+        "ALTER TABLE purchases ADD custom_order_id TEXT REFERENCES custom_orders(id) ON UPDATE NO ACTION ON DELETE RESTRICT",
+      )
+      .run();
+    await fixtureDb
+      .prepare(
+        "ALTER TABLE custom_orders ADD additional_charge INTEGER NOT NULL DEFAULT 0 CHECK (additional_charge >= 0)",
+      )
+      .run();
+    await fixtureDb
+      .prepare(
+        "ALTER TABLE sales ADD additional_charge INTEGER NOT NULL DEFAULT 0 CHECK (additional_charge >= 0)",
+      )
+      .run();
+
+    const db = createDb(fixtureDb);
+    const customer = await createCustomer(
+      db,
+      { name: `Pre-migration order fixture ${crypto.randomUUID()}` },
+      ACTOR,
+    );
+    const { order } = await quoteOrder(
+      db,
+      {
+        customerId: customer.id,
+        description: "Transfer/order migration fixture",
+        agreedTotal: 10_000,
+      },
+      ACTOR,
+    );
+    const transferFixture = await transfer(
+      db,
+      {
+        fromAccountId: "acc_bank",
+        toAccountId: "acc_cash",
+        amount: 700,
+        businessDate: BUSINESS_DATE,
+        occurredAt: NOW,
+        description: "Pre-migration transfer fixture",
+      },
+      ACTOR,
+    );
+    const legacyTransferCode = transferFixture.outTransaction.code;
+
+    const rebuildMigration = {
+      ...migration,
+      queries: migration.queries.filter(
+        (query) =>
+          !query.includes("ALTER TABLE `purchases` ADD `custom_order_id`") &&
+          !query.includes("ALTER TABLE `financial_transactions` ADD `custom_order_id`"),
+      ),
+    };
+    await applyD1Migrations(fixtureDb, [rebuildMigration]);
+
+    const preservedOrder = await db.query.customOrders.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.id, order.id),
+    });
+    const preservedTransactions = await db.query.financialTransactions.findMany({
+      where: (t, { inArray: inArrayOp }) =>
+        inArrayOp(t.id, [transferFixture.outTransaction.id, transferFixture.inTransaction.id]),
+    });
+    const transactionById = new Map(preservedTransactions.map((row) => [row.id, row]));
+    const preservedOut = transactionById.get(transferFixture.outTransaction.id);
+    const preservedIn = transactionById.get(transferFixture.inTransaction.id);
+
+    expect(preservedOrder?.status).toBe("QUOTING");
+    expect(preservedOrder?.depositTxId).toBeNull();
+    expect(preservedOut).toMatchObject({
+      counterpartTxId: transferFixture.inTransaction.id,
+      code: legacyTransferCode,
+    });
+    expect(preservedIn).toMatchObject({
+      counterpartTxId: transferFixture.outTransaction.id,
+      code: legacyTransferCode,
+    });
+    expect(await getBalanceConsistencyMismatches(db)).toHaveLength(0);
+    expect((await fixtureDb.prepare("PRAGMA foreign_key_check").all()).results).toEqual([]);
   });
 });
 

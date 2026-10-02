@@ -1,7 +1,11 @@
 # 04 — Data Model
 
 Target: **Cloudflare D1 (SQLite)**, managed with Drizzle ORM migrations. This document is the
-authoritative schema; Drizzle definitions in `apps/worker/src/db/schema.ts` MUST mirror it 1:1.
+authoritative **target** schema; Drizzle definitions in `apps/worker/src/db/schema.ts` MUST mirror
+the applied-migration version 1:1 at every deployed step. KOK-204's independent finance association
+and ORDER_REFUND category are implemented by migration 0026; KOK-205's additional-charge columns are
+implemented by migration 0027. KOK-207's read-time projection and snapshot boundary are implemented
+by migration 0028. KOK-206/208 remain coordinated consumer work.
 
 ## 1. Conventions
 
@@ -211,6 +215,7 @@ CREATE TABLE purchases (
   id TEXT PRIMARY KEY,
   occurred_at TEXT NOT NULL, business_date TEXT NOT NULL,
   supplier_name TEXT,
+  custom_order_id TEXT REFERENCES custom_orders(id), -- KOK-204/migration 0026; optional cost/cash association
   session_id TEXT NOT NULL REFERENCES sessions(id),   -- Phase 3.2 (KOK-130): required (Doc 03 S-1).
                                                  -- Resolved by the service — link to the open
                                                  -- PURCHASE_TRIP session or create a minimal one
@@ -305,11 +310,10 @@ CREATE TABLE sales (
   channel TEXT NOT NULL CHECK (channel IN ('CATALOG','CUSTOM_ORDER')),
   custom_order_id TEXT REFERENCES custom_orders(id),
   customer_id TEXT REFERENCES customers(id),
-  session_id TEXT REFERENCES sessions(id),       -- optional delivery run; KOK-204 links the generated
-                                                  -- custom-order sale to its external-delivery session
-  total INTEGER NOT NULL,                        -- centavos; product lines + delivery_fee
-  delivery_fee INTEGER NOT NULL DEFAULT 0 CHECK (delivery_fee >= 0), -- centavos; exact external-
-                                                  -- delivery expense pass-through (custom orders only)
+  session_id TEXT REFERENCES sessions(id),       -- optional work session; no automatic provider session
+  total INTEGER NOT NULL,                        -- centavos; product lines + additional_charge
+  additional_charge INTEGER NOT NULL DEFAULT 0 CHECK (additional_charge >= 0),
+                                                   -- customer charge snapshot (KOK-205 migration)
   payment_status TEXT NOT NULL CHECK (payment_status IN ('PAID','ON_CREDIT')),
   paid_at TEXT,                                  -- set when receivable collected (UC-04)
   payment_method TEXT CHECK (payment_method IN ('CASH','BANK_QR')),
@@ -340,6 +344,7 @@ CREATE TABLE custom_orders (
   customer_id TEXT NOT NULL REFERENCES customers(id),
   description TEXT NOT NULL,                     -- free text of the request
   agreed_total INTEGER,                          -- centavos; agreed merchandise subtotal, required to confirm
+  additional_charge INTEGER NOT NULL DEFAULT 0 CHECK (additional_charge >= 0), -- KOK-205 migration
   deposit_required INTEGER,                      -- centavos, suggested default = 50%; zero is allowed
   deposit_paid INTEGER NOT NULL DEFAULT 0,         -- zero means no deposit was received
   deposit_tx_id TEXT REFERENCES financial_transactions(id), -- NULL when confirmed with zero deposit
@@ -454,12 +459,13 @@ CREATE TABLE financial_transactions (
   account_id TEXT NOT NULL REFERENCES financial_accounts(id),
   type TEXT NOT NULL CHECK (type IN ('INCOME','EXPENSE','TRANSFER_IN','TRANSFER_OUT')),
   category TEXT NOT NULL CHECK (category IN
-    ('SALE','ORDER_DEPOSIT','ORDER_BALANCE','DEBT_COLLECTION','OTHER_INCOME',
-     'SUPPLY_PURCHASE','OPERATING_EXPENSE','EQUIPMENT','DEPOSIT_REFUND',
+     ('SALE','ORDER_DEPOSIT','ORDER_BALANCE','DEBT_COLLECTION','OTHER_INCOME',
+      'SUPPLY_PURCHASE','OPERATING_EXPENSE','EQUIPMENT','DEPOSIT_REFUND','ORDER_REFUND',
      'OWNER_WITHDRAWAL','TRANSFER','OTHER_EXPENSE')),
   amount INTEGER NOT NULL CHECK (amount > 0),    -- always positive; direction from `type`
   counterpart_tx_id TEXT REFERENCES financial_transactions(id),  -- transfer pairing (UC-12)
   source_event_type TEXT, source_event_id TEXT,  -- NULL for standalone tx (UC-11/12/13)
+  custom_order_id TEXT REFERENCES custom_orders(id), -- KOK-204/migration 0026; independent of source
   description TEXT, deleted_at TEXT,
   created_at TEXT NOT NULL, updated_at TEXT NOT NULL
 );
@@ -500,16 +506,124 @@ runs exist (KOK-026) no replay ever touches one — the impact-preview DTO (`pac
 costing.ts`'s `ReplayImpactDto`) already carries `affectedProductionRunIds` for the day it does,
 but persisting them here is deferred to KOK-026 rather than added speculatively now.
 
-An order MAY be confirmed with `deposit_paid = 0`; that confirmation writes no ORDER_DEPOSIT row and
-does not affect account balances or deposit liability. The explicit no-deposit risk acknowledgment
-is validated by `orders.confirm` and recorded in its audit row; it is not a stored balance or a new
-column. The existing nullable `deposit_tx_id` and zero-default `deposit_paid` support this case, so
-no schema migration is required for zero-deposit confirmation.
+The following `deposit_paid`/`deposit_tx_id` behavior describes the superseded ADR-012 implementation
+only. Under O-8, confirming an order writes no deposit row and these fields are not a debt, cash, or
+exposure source. The original `customer_deposits` daily-snapshot measure is retained only as the
+versioned historical ADR-012 series; current operational order cash exposure is defined below.
 
-Deposit liability is derived, not a table:
-`customer_deposits = Σ deposits received − Σ released/refunded`, computed from ORDER_DEPOSIT /
-DEPOSIT_REFUND transactions and delivered orders; exposed via view `v_liability` and snapshotted
-daily.
+### 3.4.1 Target order-independent cash model (KOK-204…208; supersedes the payment-coupled parts above)
+
+The DDL in §3.3–3.4 is the **target logical schema**. KOK-204's order associations and ORDER_REFUND
+category are applied in migration 0026; KOK-205's additional-charge columns are applied in migration
+0027; KOK-207's read/snapshot changes are applied in migration 0028. The previously proposed
+`sales.delivery_fee` was never migrated or added to Drizzle. ADR-022 supersedes ADR-012's
+order-state-dependent liability mechanism. Any further schema changes must use **new forward-only
+migrations**; never rewrite applied migrations.
+
+- KOK-205 added `custom_orders.additional_charge INTEGER NOT NULL DEFAULT 0 CHECK (additional_charge >= 0)`
+  and `sales.additional_charge INTEGER NOT NULL DEFAULT 0 CHECK (additional_charge >= 0)` in
+  migration 0027 with matching shared command, order UI and Drizzle definitions;
+  do not add DB-only unused charge fields in KOK-204. No `sales.delivery_fee` column exists in
+  deployed migrations, so do not migrate from or depend on it.
+  `agreed_total` remains the merchandise subtotal. A generated CUSTOM_ORDER sale snapshots both:
+  `sales.total = agreed_total + additional_charge` and
+  `sales.additional_charge = custom_orders.additional_charge` (a separately disclosed
+  customer charge, NOT an amount constrained to equal provider expense). Catalog sales keep zero.
+  No additional-charge transaction is generated by delivery; a customer payment is a separate
+  receipt. Change the fee's descriptive naming in DTO/UI where necessary without duplicating the
+  stored amount. Once delivered, the order agreement/charge are immutable until undo.
+- KOK-204 adds `financial_transactions.custom_order_id TEXT REFERENCES custom_orders(id)` and the
+  `ix_tx_custom_order_date` index on `(custom_order_id, business_date, id)` in migration 0026. This
+  **association** is separate from
+  `source_event_type/id`: manual receipts/refunds/other expenses have a NULL source and an order ID,
+  and therefore keep their own code/editability; purchase-owned expenses keep their purchase source
+  and may also carry an order ID, remaining editable only through the purchase service. Do not
+  use a PED display code as a foreign key. Add nullable `purchases.custom_order_id` and maintain
+  the same order ID on its derived SUPPLY_PURCHASE transaction within the owning purchase batch;
+  edits/soft-deletes/restores keep the association and account/stock invariants consistent.
+  The order relationship is set when a finance command is launched from `/orders/:id` (KOK-208),
+  not by selecting or reassigning an order in a Finance form. Finance lists the relationship
+  and may edit non-link fields of manual rows; to correct a wrongly associated row, soft-delete
+  it and capture the corrected event from the right order page. Provider delivery costs are
+  ordinary manual order-linked expenses (multiple allowed), not
+  autogenerated DELIVERY_RUN costs; a user-created session can still be independently linked if
+  recorded for actual work. Never turn a source-owned row into a manual row to enable editing.
+- KOK-204 migration 0026 adds `ORDER_REFUND` to the transaction category CHECK/shared enum, allowed only for manual
+  EXPENSE with an order ID. Permit manual INCOME/`ORDER_DEPOSIT` and INCOME/`ORDER_BALANCE` only
+  with an order ID; existing `OTHER_INCOME`, `OPERATING_EXPENSE`, `OTHER_EXPENSE` and purchase
+  categories preserve their meanings. The code-allocation trigger must assign `ING` to manual
+  order receipts and `GTO` to manual ORDER_REFUND; source-owned rows retain NULL code and
+  their source reference. Rebuild the CHECK-bearing SQLite table safely if ALTER cannot
+  change the constraint; preserve IDs, timestamps, transfer pair FKs/codes, partial unique indexes,
+  triggers and all existing account balances. Validate the rebuild on D1/SQLite with
+  `foreign_key_check` across the circular order/deposit and transfer references; never silently
+  drop an FK, index or trigger to make the rebuild pass. Code allocation is still atomic and never
+  rewrites a historical code. No new package dependency.
+- `deposit_paid` and `deposit_tx_id` are **old-model fields** after cutover; do not use them as the
+  accounting read source. A forward migration may leave the columns nullable/untouched while all
+  new order commands stop writing them; reset disposable test data before cutover. Do not drop
+  either in a migration that would require a fragile circular-FK table rebuild.
+  `cancel_resolution` is likewise no longer a prerequisite for cancellation. Keep the stored sale payment status for catalog
+  sales; new order sales are operational sale/stock snapshots and must not drive receivables or
+  cash. Until a safe sale-table rebuild removes the legacy NOT NULL payment-status constraint,
+  write generated order sales with `payment_status='ON_CREDIT'` solely as a compatibility value,
+  `paid_at/payment_method/account_id=NULL`, regardless of actual receipts. Never display this
+  value as an order payment state or allow `collectPayment` on CUSTOM_ORDER sales.
+- **No historical provider-session or order-cash backfill is required.** The app has only
+  disposable test data, not production records; reset affected development/staging databases
+  at the coordinated ADR-022 cutover. Do not change applied migration files or skip a schema
+  migration merely because data is disposable. Keep fixture-based FK/trigger/account tests,
+  but no special service for correcting source-owned test receipts and no session-to-order
+  attribution logic. New cash commands link directly to the order ID; there is no session
+  intermediary. During the KOK-204-only development interval, old order transitions may still
+  create old-model test rows until KOK-205 replaces them; do not treat those rows as target data.
+- Derive order receipts from **active** (`deleted_at IS NULL`) linked manual INCOME rows in
+  `ORDER_DEPOSIT` and `ORDER_BALANCE` only; exclude other income,
+  purchase/provider expenses, refunds and unrelated sales. `expected = max(agreed_total +
+  additional_charge - receipts, 0)` and `excess = max(receipts - agreed_total -
+  additional_charge, 0)` in integer centavos; with NULL agreed_total both are NULL. A separate
+  signed difference can support audit without discarding overpayments. Show expected only for
+  active pre-delivery orders; expose **order receivables** only when status = DELIVERED and
+  expected > 0; cancelled orders have none. The relevant sale must exist and be active for a
+  delivered order, but its PAID/ON_CREDIT value is not the debt oracle. Debts for CATALOG sales
+  continue to use their existing view/payment flow. Aggregate in set-based reads (no per-order
+  query and no truncation at the board's page boundary); snapshot totals/alerts/dashboard all use
+  the same derivation. For aging, use the delivered sale's business date; collecting partial
+  amounts never resets the age. An order's refund does not increase expected/debt.
+  KOK-205 introduces the reusable integer-centavo expected/excess calculation and an
+  order-scoped receipt read for its pre-delivery agreement edit preview, using the draft
+  merchandise subtotal plus draft additional charge. KOK-207 reuses that calculation for
+  delivered-only order debt and aggregate consumers; do not derive a second formula in the web
+  form or a divergent SQL expression for the order portion. The edit preview is not a stored receivable or a
+  restriction on changing the agreement below receipts. Use the order-scoped read's historical
+  receipt-existence fact (including soft-deleted qualifying receipts) to enforce the customer lock;
+  only active rows contribute to the displayed total. Refresh after saving because
+  independent finance edits can change the qualifying receipts without changing order fields.
+- Replace the legacy status/deposit-based `v_liability` with a set-based
+  `v_order_finance_projection`. Core applies the shared order receipt helper to derive debt and
+  computes pre-delivery cash exposure as active ORDER_DEPOSIT/ORDER_BALANCE receipts net of active
+  explicit ORDER_REFUND expenses, floored at zero **per order before summing**. Only active orders
+  that are neither delivered nor cancelled contribute. On undo, an order returns to that exposure;
+  on cancellation it leaves the measure even if cash remains in the account. This operational
+  projection is not a legally settled liability or recognized revenue. Keep `v_cashflow_daily` tied
+  to actual transaction dates and categories, unaffected by transitions.
+- Preserve historical `customer_deposits` observations as `customer_deposits_adr012`. The forward
+  migration copies those values verbatim and does not backfill new exposure into them.
+  `pre_delivery_order_cash_exposure` is a separate nullable snapshot measure: historical rows remain
+  NULL in that column, and new snapshot dates write `customer_deposits_adr012 = NULL` while recording
+  the operational exposure. If the cutover-date snapshot already holds an ADR-012 observation, its
+  same-date upsert preserves that historical value. The first business date with a non-NULL exposure
+  is the dated definition boundary; reports must not join the series as one liability measure. Until
+  KOK-080's contract is explicitly revised, a NULL `customer_deposits_adr012` means net position is
+  unavailable for that date: do not substitute zero or operational exposure, and do not emit a
+  net-position observation. If post-cutover net position is a release criterion, this is a release
+  blocker until KOK-080's formula and label are explicitly amended. Operational exposure is never
+  silently substituted as a liability.
+- Keep `v_receivables` for catalog sales and migrate the order portion to the derived order
+  outstanding above, either by a carefully rebuilt union view with distinct sale/order keys or
+  by separate scoped reads combined in `core/finance`. No double counting a CUSTOM_ORDER sale as
+  both sale debt and order debt. Update the grouped receivables contract, daily snapshots, alerts,
+  order DTOs and totals together; never leave a partially switched consumer in production.
 
 ### 3.5 System & observability
 
@@ -524,7 +638,8 @@ CREATE TABLE daily_snapshots (
   stock_value INTEGER NOT NULL,                  -- Σ qty_on_hand×wac (centavos)
   bank_balance INTEGER NOT NULL, cash_balance INTEGER NOT NULL,
   accounts_receivable INTEGER NOT NULL,
-  customer_deposits INTEGER NOT NULL,
+  customer_deposits_adr012 INTEGER,              -- historical ADR-012 measure; NULL for post-cutover snapshots
+  pre_delivery_order_cash_exposure INTEGER,      -- ADR-022 measure; NULL before first cutover snapshot
   created_at TEXT NOT NULL
 );
 
@@ -606,13 +721,16 @@ invariant — see migration `0024_add_event_codes.sql`'s header for the full tra
 | `stock_exits` | `stock_exit` | `SAL` |
 | `financial_transactions`, category IN (`OPERATING_EXPENSE`,`EQUIPMENT`,`OTHER_EXPENSE`) | `expense` | `GTO` |
 | `financial_transactions`, category = `OTHER_INCOME` | `income` | `ING` |
+| `financial_transactions`, manual `ORDER_DEPOSIT`/`ORDER_BALANCE` (KOK-204/migration 0026) | `income` | `ING` |
+| `financial_transactions`, manual `ORDER_REFUND` (KOK-204/migration 0026) | `expense` | `GTO` |
 | `financial_transactions`, category = `OWNER_WITHDRAWAL` | `withdrawal` | `RET` |
 | `financial_transactions`, category = `TRANSFER` (both legs) | `transfer` | `TRF` |
 
 **Manual vs. system-owned `financial_transactions`.** Only rows with `source_event_id IS NULL`
-get a code — a system-owned row (`SALE`, `SUPPLY_PURCHASE`, `DEBT_COLLECTION`, `ORDER_DEPOSIT`,
-`ORDER_BALANCE`, `DEPOSIT_REFUND`) inherits its source event's code for display instead (§4 /
-Doc 07 SC-10), so a second code of its own would be redundant.
+get a code, including newly captured manual order receipts/refunds. Existing source-owned
+test rows (`SALE`, `SUPPLY_PURCHASE`, `DEBT_COLLECTION`, `ORDER_DEPOSIT`, `ORDER_BALANCE`,
+`DEPOSIT_REFUND`) retain their NULL code until disposable data is reset at cutover; no second
+display code is minted retroactively.
 
 **Transfer pairs share one code.** `core/finance/transfer.ts` inserts both legs
 (`TRANSFER_OUT`/`TRANSFER_IN`) with `counterpart_tx_id` still NULL, then links them via two
@@ -651,17 +769,19 @@ statement ever includes `code` in its `SET` list.
 | `v_stock` | items ⨝ item_stock + `stock_value = round(qty_on_hand × wac_mc / 1e6)`, low-stock flag. Also selects `replacement_cost_updated_at` (migration 0016) so `core/inventory/queries.ts`'s `listStock` can apply the same C-3c effective-replacement-cost fallback `toItemDto`/`price-health.ts` already do — the view exposes the raw column plus timestamp only, the fallback projection itself happens in `queries.ts`, not in SQL (same precedent as `v_price_health` below). |
 | `v_kardex` | stock_movements ⨝ items, ordered, with running balance via window function |
 | `v_price_health` | FINISHED items: id, name, sale_price_mc, wac_mc, replacement_cost_mc, replacement_cost_updated_at. Raw columns only — margins, the C-3c effective-replacement-cost fallback, and the alert-suppression rule are all computed in `core/costing/price-health.ts` (KOK-035, KOK-103), not in this view; the former SQL margin columns were removed in migration 0006 because they mixed per-whole-unit prices with per-milli-unit costs. |
-| `v_receivables` | sales WHERE payment_status='ON_CREDIT' AND deleted_at IS NULL, aged; `total` = **uncollected remainder**, i.e. `sales.total − custom_orders.deposit_paid` for a CUSTOM_ORDER sale (KOK-033, migration 0005; with no deposit, the full final sale total, including any KOK-204 delivery fee) and plain `sales.total` otherwise. Also selects `s.code` (migration 0024, KOK-185/§3.6). |
-| `v_liability` | current customer_deposits (see §3.4) |
+| `v_receivables` | Catalog sales WHERE `channel='CATALOG'` and `payment_status='ON_CREDIT'`; custom-order sales are excluded. `core/finance` combines these rows with a set-based delivered-order read from `v_order_finance_projection`, using the shared KOK-205 integer-centavo helper and including each order once. |
+| `v_order_finance_projection` | One set-based row per active order, with current active linked-sale identity and separate qualifying receipt/refund totals. Core applies the shared customer-price debt helper, excludes cancelled orders from debt/exposure, and applies the per-order exposure floor; the view does not calculate debt or net amounts. |
 | `v_cashflow_daily` | financial_transactions grouped by business_date × category |
 | `v_session_hours` | sessions with derived hours + linked event counts. Per-session hours only — S-5's **deduplicated** wall-clock total (the union of overlapping session intervals, for G3) is computed by a pure function in `core/`, not here, following the same rule as the business-health aggregates below: interval-union arithmetic belongs where property tests can reach it. Also selects `s.code` (migration 0024, KOK-185/§3.6). |
 | `v_waste` | stock_exits valued, grouped by reason × month |
 
-`GET /api/receivables` (KOK-197) is a derived read over `v_receivables`, not a new ledger or stored
-customer balance. It returns global, unfiltered summary totals and a searchable/age-filterable,
-paginated list grouped by customer; each debt retains its source sale code/date, channel, sale total,
-deposit applied, outstanding remainder, age and linked custom-order reference. Rows without a
-customer are listed individually in a distinct “Sin cliente” group. All amounts are centavos.
+`GET /api/receivables` (KOK-197/KOK-207) is a derived read, not a new ledger or stored customer
+balance. It returns global unfiltered totals and a searchable/age-filterable paginated list grouped
+by customer. Catalog rows retain their source sale data; custom-order rows retain PED identity,
+linked active sale identity/date, customer price, active qualifying receipts, excess and positive
+outstanding. Order age uses the delivered sale's `business_date`. No custom-order sale is counted as
+both a sale debt and an order debt. Rows without a customer remain individually identified in the
+distinct “Sin cliente” group. All amounts are integer centavos.
 
 **Business-health aggregates are NOT views.** Every metric in Phase 5.5 (money at risk, input
 cost index, contribution Pareto, Bs/h per product, real-vs-nominal position) is computed by a
@@ -708,45 +828,21 @@ error is invisible. Views stay for row-shaping and joins; they do no margin arit
   Deeper multi-item cycles (A's recipe uses B, B's recipe uses A) are not blocked at save time —
   they still surface later as the same refresh-time 409.
 - `purchases.total = Σ purchase_lines.line_total`; `sales.total = Σ sale-line merchandise amounts +
-  sales.delivery_fee` (recomputed server-side, client totals ignored). `delivery_fee` is zero for
-  ordinary sales; for a custom-order external-delivery pass-through it equals the actual
-  `DELIVERY_RUN` session cost. The pass-through is not a sale line, inventory item, stock movement,
-  or product COGS input. The customer balance and `v_receivables` use the full `sales.total`.
-- **External delivery (KOK-204, service-enforced):** a nonzero `sales.delivery_fee` is valid only
-  for a CUSTOM_ORDER sale linked to a closed `DELIVERY_RUN` session. That session has one real
-  (“not estimate”) shared-cost line for the external provider, paid from a selected account, and its
-  amount must equal `delivery_fee`. The order-delivery command creates the session, expense, sale,
-  pass-through amount, balance/receivable and order transition in one atomic batch. The application
-  creates a separate session per order as its normal capture convention, but the schema deliberately
-  does not enforce one-to-one ownership; `sales.session_id` remains many-to-one. Product gross margin
-  for the order uses product-line revenue only (`sales.total − sales.delivery_fee`) less frozen
-  product COGS, excluding both sides of the pass-through. The order detail shows the session and both
-  amounts separately. On O-6 undo, the sale/fee/receivable are reversed but the actual provider
-  expense and session remain; an external refund must be recorded separately.
-  While an active delivered sale links that session, generic session edit/delete cannot alter its
-  type, time or provider cost/account; a future explicit reconciliation command would be required.
-  After undo, re-delivery reuses the retained paid session when there is no second provider payment
-  (its timestamp remains that of the original service); a genuinely new provider payment instead
-  creates a new session and expense, preserving the previous one as history. The new sale charges
-  only the session cost of the service used for that delivery.
-- `custom_orders` transitions only along the state machine (O-1…O-3, **and O-6's backward
-  transitions** — Phase 3.2, KOK-136). There is no generic `updateOrder` command. O-7 permits only
-  the named `updateOrderQuote` (QUOTING), `updateOrderLogistics` (delivery date/place/notes in active
-  post-confirmation states), and `renegotiateOrder` (pre-delivery merchandise terms, including
-  adding lines to a confirmed empty quote) commands, each
-  with status/field guards, shared schemas, before/after audit and one atomic batch. Renegotiation
-  cannot change a positive paid deposit or customer identity, cannot set the merchandise subtotal
-  below `deposit_paid`, and never rewrites production, assembly or stock events. When a zero-deposit
-  order's customer changes, the command requires a renewed `acceptNoDepositRisk` acknowledgment and
-  audit. A below-deposit renegotiation requires cancel/refund and a new order; partial refunds on an
-  active order are not supported. There is no soft-delete/restore pair: `CANCELLED` is terminal and
-  `DELIVERED` is reversed only through guarded `undoDelivery` (O-6). Corrections compare the
-  supplied `updated_at` against the current order within the atomic batch, aborting on mismatch,
-  and refuse stale writes (409).
-  When a merchandise subtotal is set, pinned `line_total` values cannot exceed it and the resulting
-  nonempty lines must be allocatable by the same exact-centavo algorithm as delivery; without a subtotal in
-  QUOTING, this check is deferred to confirmation/renegotiation. Historical production/assembly
-  links remain independent of replaced order-agreement lines.
+  sales.additional_charge` (server-recomputed). In the target order model `sales.additional_charge` snapshots
+  `custom_orders.additional_charge`; it is not an assertion that provider cost equals customer
+  charge. Ordinary catalog sales retain zero. Provider payments are independently recorded
+  order-linked expenses, possibly multiple; neither delivering nor undoing the order alters them.
+  Product gross margin is the sale-line merchandise revenue minus frozen COGS; show the separate
+  cash result as linked income minus linked expenses, never as gross margin (O-8).
+- `custom_orders` retains the O-1…O-6 state graph, but target O-8 separates cash from every
+  transition. KOK-205's single `updateOrder` command accepts agreement corrections in QUOTING,
+  CONFIRMED, IN_PRODUCTION and READY; DELIVERED requires undo first, CANCELLED stays terminal.
+  Correcting agreement or charge never rewrites cash or linked production. Once any qualifying
+  receipt is ever linked, customer identity is fixed. Preserve the explicit `updated_at`
+  compare-and-fail inside the atomic batch and reject stale writes (409). The former O-7 split and
+  deposit-based minimum are superseded. A set subtotal and nonempty lines must be allocatable by
+  the shared exact-centavo algorithm; NULL subtotal has no numeric receipt preview. Historical
+  production/assembly links remain independent of replaced order-agreement lines.
 - **Every `custom_order_lines` row must carry an `item_id` before the order may be DELIVERED**
   (KOK-033). Item-less free-text lines are legal while QUOTING, but `sale_lines.item_id` is NOT
   NULL and FINISHED-only and the merchandise subtotal is recomputed from those lines, so a delivery
@@ -754,11 +850,9 @@ error is invisible. Views stay for row-shaping and joins; they do no margin arit
   revenue with no sale line to support it or skipping the `SALE_OUT` for goods that really shipped
   (drifting `item_stock` upward forever, INV-5, since O-4's ProductionRun already booked the
   matching PRODUCTION_IN).
-  `deliverOrder` therefore refuses with a 409 until every line is linked. **Amendment (KOK-034):**
-  the named `resolveOrderLine` command attaches a catalog item to one line's `item_id` (leaving
-  `description`/`qty`/`line_total` untouched) — legal on any non-terminal order (same set
-  `cancelOrder` accepts), so the Orders board can resolve a free-text line without a general-purpose
-  line editor. Other bounded correction commands are defined by O-7.
+  `deliverOrder` therefore refuses with a 409 until every line is linked. A free-text line can be
+  resolved as part of `updateOrder`'s full pre-delivery line replacement; there is no separate
+  line-resolution write path.
 - `agreed_total` is split across the delivered sale's lines by the largest-remainder method
   (`allocateAgreedTotalToOrderLines`): lines carrying an explicit `line_total` are pinned, the rest
   share what is left weighted by `qty`, and `Σ(qty × unit_price_mc / 1e6)` must reproduce `agreed_total` to
@@ -767,14 +861,14 @@ error is invisible. Views stay for row-shaping and joins; they do no margin arit
   `sales.total` separately and does not change those product prices.
 - The sale created by a delivery is owned by its order: `core/sales`' update/delete refuse
   (409 CONFLICT) for any `channel='CUSTOM_ORDER'` sale, since editing it would desynchronize
-  `custom_orders.sale_id`/`agreed_total` and rewrite the order's `ORDER_BALANCE` transaction.
+  `custom_orders.sale_id`/`agreed_total` and its stock/cost snapshot.
   This refusal is **not** relaxed by O-6: `orders.undoDelivery` does not call `updateSale` /
   `deleteSale` at all — it emits its own reversal statements from `core/orders`, the module that
-  owns the sale, in the same batch that clears `sale_id` and flips the status. Restoring the
-  deposit liability needs no row: `v_liability` is derived and resumes counting the order the
-  moment its status leaves `DELIVERED`. `undoDelivery` refuses (409) if the sale has since been
-  collected — `collectPayment` does not go through this guard and can add cash rows the delivery
-  never wrote.
+  owns the sale, in the same batch that clears `sale_id` and flips the status. The legacy
+  status-derived liability resumed on undo; target O-8 instead has no cash effect and cannot be
+  vetoed by an order-linked receipt. The operational pre-delivery exposure resumes because the
+  order is READY again, while every finance row stays unchanged. Order sales cannot use
+  `collectPayment`; catalog sales retain that endpoint and its protections.
 - A DRAFT `inventory_counts` row may be **deleted** (soft, audit-reversible) — that is what
   "cancel a count" means (Phase 3.2, KOK-141). No `CANCELLED` value is added to the status CHECK: a
   count that never committed produced no movements and has nothing to report as a state.
@@ -782,9 +876,10 @@ error is invisible. Views stay for row-shaping and joins; they do no margin arit
   Phase 3.2/KOK-130). This supersedes the previous soft "warn, allow override" rule. Sessions of
   different types may overlap; the resulting double-counted hours are handled by S-5's
   deduplicated wall-clock union, not by forbidding the overlap.
-- `financial_transactions` with `source_event_id` are system-owned: not editable directly (edit
-  the source event instead) — the owning SERVICE may still rewrite them as part of its own
-  transitions, which is how O-3's FORFEIT recategorizes a deposit row in place.
+- `financial_transactions` with `source_event_id` are system-owned: source event services own
+  edits. No special direct edit path or backfill is required for disposable old-model order
+  test rows; new independent receipts/refunds use NULL source plus `custom_order_id` and are
+  editable as manual rows. Purchase/session-owned rows retain source-only correction rules.
 
 ## 6. Indexes
 
@@ -794,9 +889,11 @@ CREATE INDEX ix_movements_source ON stock_movements(source_event_type, source_ev
 CREATE INDEX ix_tx_account_date ON financial_transactions(account_id, business_date);
 CREATE INDEX ix_tx_source ON financial_transactions(source_event_type, source_event_id);
 CREATE INDEX ix_tx_category_date ON financial_transactions(category, business_date);
+CREATE INDEX ix_tx_custom_order_date ON financial_transactions(custom_order_id, business_date, id); -- KOK-204
 CREATE INDEX ix_sales_date ON sales(business_date);
 CREATE INDEX ix_sales_status ON sales(payment_status) WHERE payment_status='ON_CREDIT';
 CREATE INDEX ix_purchases_date ON purchases(business_date);
+CREATE INDEX ix_purchases_order ON purchases(custom_order_id);               -- KOK-204
 CREATE INDEX ix_runs_date ON production_runs(business_date);
 CREATE INDEX ix_runs_order ON production_runs(custom_order_id);
 CREATE INDEX ix_assemblies_date ON assemblies(business_date);              -- Phase 3.2

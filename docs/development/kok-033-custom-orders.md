@@ -5,7 +5,7 @@ UI) must know before building against it. Business rules themselves live in the
 [System Design Knowledge Base](../system-design-knowledge-base/README.md): Doc 03 §5 (O-1…O-5),
 Doc 04 §3.3/§4/§5, ADR-012.
 
-> **Current-state note (Phase 3.5/KOK-196/KOK-204/KOK-205):** this task records the original delivery and
+> **Current-state note (Phase 3.5/KOK-196/KOK-199/KOK-204/KOK-205):** this task records the original delivery and
 > correction contracts. The current target adds an external-delivery pass-through separately as
 > `sales.delivery_fee` and named stage-specific correction commands while still prohibiting generic
 > `updateOrder`; see Doc 03 O-2/O-7 and Doc 04 §3.3/§5.
@@ -13,7 +13,8 @@ Doc 04 §3.3/§4/§5, ADR-012.
 > only with `acceptNoDepositRisk = true`; that branch needs no payment method/account and writes only
 > the order transition plus audit (no `ORDER_DEPOSIT`, account-balance change, or liability). The
 > suggested deposit remains 50% by default. The nullable `deposit_tx_id` and zero-default `deposit_paid`
-> require no migration; see the current O-1 rule in Doc 03 §5.
+> require no migration; see the current O-1 rule in Doc 03 §5. KOK-199 adds the independent
+> `acceptCreditRisk` acknowledgment to ON_CREDIT delivery; it is not a substitute for R-5's `confirm`.
 
 ## 1. Scope
 
@@ -88,8 +89,9 @@ transaction into a plain `SALE` one. Corrections go through the order.
   otherwise the owner gets a 409 she cannot act on. `orderLineCommandSchema` allows a null `itemId`
   precisely so quoting stays fast — resolving it is the drawer's job.
 - **Deliver** posts `balancePaymentStatus: 'PAID' | 'ON_CREDIT'`; PAID additionally needs
-  `paymentMethod` + `accountId`. When `balanceDue === 0` either branch is accepted and the sale is
-  marked PAID.
+  `paymentMethod` + `accountId`. ON_CREDIT requires a separate explicit risk acknowledgment; the UI
+  shows the exact remaining balance and the service audits acceptance. When `balanceDue === 0` either
+  branch is accepted and the sale is marked PAID.
 - **Backdated delivery** needs the same `useReplayConfirmableMutation` wrapper `SaleForm` uses:
   the 409 carries `{ reason: REPLAY_CONFIRMATION_REQUIRED, impact }`, and `POST /api/orders/impact`
   is the dry run.

@@ -36,9 +36,9 @@ export const financeLabels = {
   updatedAt: "Actualizado",
   transferPairUnavailable: "No se encontró la pareja de esta transferencia.",
 
-  liabilityLabel: "Anticipos de clientes",
+  preDeliveryOrderCashExposureLabel: "Efectivo expuesto en pedidos sin entregar",
   receivableLabel: "Por cobrar",
-  liabilityHint: "De tu caja, no es tuyo todavía",
+  preDeliveryOrderCashExposureHint: "Cobros vinculados menos devoluciones explícitas.",
 
   columnDate: "Fecha",
   columnCode: "Código",
@@ -48,6 +48,11 @@ export const financeLabels = {
   columnAmount: "Monto",
   columnDescription: "Descripción",
   columnSource: "Origen",
+  columnOrder: "Pedido",
+  relatedOrderWithoutCode: "Pedido relacionado",
+  orderContext: "Asociado al pedido",
+  filteredOrder: "Movimientos de",
+  clearOrderFilter: "Quitar filtro del pedido",
 
   sourceEventTypeLabels: {
     purchase: "Compra",
@@ -72,6 +77,7 @@ export const financeLabels = {
     OPERATING_EXPENSE: "Gasto operativo",
     EQUIPMENT: "Equipamiento",
     DEPOSIT_REFUND: "Devolución de anticipo",
+    ORDER_REFUND: "Devolución de pedido",
     OWNER_WITHDRAWAL: "Retiro personal",
     TRANSFER: "Transferencia",
     OTHER_EXPENSE: "Otro gasto",
@@ -97,11 +103,14 @@ export const financeLabels = {
   cancel: "Cancelar",
   submitExpense: "Registrar gasto",
   submitIncome: "Registrar ingreso",
+  submitRefund: "Registrar devolución",
   submitTransfer: "Transferir",
   submitWithdraw: "Retirar",
 
   recordExpenseTitle: "Registrar gasto",
   recordIncomeTitle: "Registrar otro ingreso",
+  recordOrderIncomeTitle: "Registrar ingreso del pedido",
+  recordRefundTitle: "Registrar devolución del pedido",
   transferTitle: "Transferir entre cuentas",
   withdrawTitle: "Retiro personal",
 

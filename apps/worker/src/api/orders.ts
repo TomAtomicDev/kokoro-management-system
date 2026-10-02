@@ -3,14 +3,8 @@
 // DomainErrors thrown by the service propagate to the global errorHandler, which maps CONFLICT to
 // 409 (every illegal state-machine transition) and VALIDATION to 400.
 //
-// The verbs ARE the state machine (Doc 04 §5): there is deliberately no PATCH /orders/:id that
-// free-edits columns, and no DELETE — `POST /orders/:id/cancel` is how an order stops existing.
-// `/orders/impact` is the R-5 dry run for delivery, the only transition that writes kardex rows;
-// it is registered before `/orders/:id` so the static segment reads unambiguously.
-//
-// `/orders/:id/lines/:lineId/resolve` (KOK-034) is the one exception, and a narrow one: it attaches
-// a catalog item to a single free-text line so `deliverOrder`'s item-linked-lines gate (Doc 04 §5)
-// can be satisfied without a generic line editor — see resolveOrderLine's own header.
+// Status transitions are named commands; PATCH /orders/:id is the one guarded agreement update.
+// `/orders/impact` is the R-5 dry run for delivery/undo, which alone change kardex rows.
 
 import {
   cancelOrderCommandSchema,
@@ -19,25 +13,29 @@ import {
   listOrdersFiltersSchema,
   orderImpactRequestSchema,
   quoteOrderCommandSchema,
-  resolveOrderLineCommandSchema,
+  recordOrderTransactionCommandSchema,
   undoDeliverOrderCommandSchema,
+  updateOrderCommandSchema,
 } from "@kokoro/shared";
 import { Hono } from "hono";
 
+import { recordTransaction } from "../core/finance/index.js";
 import {
   cancelOrder,
   confirmOrder,
   deliverOrder,
   getOrder,
+  getOrderReceiptSummary,
+  listOrderSales,
   listOrders,
   markOrderReady,
   previewOrderImpact,
   quoteOrder,
-  resolveOrderLine,
   startOrderProduction,
   undoDeliverOrder,
   undoMarkOrderReady,
   undoStartOrderProduction,
+  updateOrder,
 } from "../core/orders/index.js";
 import { createDb } from "../db/index.js";
 import type { Env, Variables } from "../env.js";
@@ -66,6 +64,25 @@ export const ordersRoute = new Hono<{ Bindings: Env; Variables: Variables }>()
   .get("/orders/:id", async (c) => {
     const db = createDb(c.env.DB);
     return c.json(await getOrder(db, c.req.param("id")));
+  })
+  .get("/orders/:id/receipt-summary", async (c) => {
+    const db = createDb(c.env.DB);
+    return c.json(await getOrderReceiptSummary(db, c.req.param("id")));
+  })
+  .get("/orders/:id/sales", async (c) => {
+    const db = createDb(c.env.DB);
+    return c.json(await listOrderSales(db, c.req.param("id")));
+  })
+  .patch("/orders/:id", async (c) => {
+    const db = createDb(c.env.DB);
+    const body = updateOrderCommandSchema.parse(await c.req.json());
+    return c.json(await updateOrder(db, c.req.param("id"), body, ACTOR));
+  })
+  .post("/orders/:id/transactions", async (c) => {
+    const db = createDb(c.env.DB);
+    const body = recordOrderTransactionCommandSchema.parse(await c.req.json());
+    const command = { ...body, customOrderId: c.req.param("id") };
+    return c.json(await recordTransaction(db, command, ACTOR), 201);
   })
   .post("/orders/:id/confirm", async (c) => {
     const db = createDb(c.env.DB);
@@ -103,11 +120,4 @@ export const ordersRoute = new Hono<{ Bindings: Env; Variables: Variables }>()
     const db = createDb(c.env.DB);
     const body = cancelOrderCommandSchema.parse(await c.req.json());
     return c.json(await cancelOrder(db, c.req.param("id"), body, ACTOR));
-  })
-  .post("/orders/:id/lines/:lineId/resolve", async (c) => {
-    const db = createDb(c.env.DB);
-    const body = resolveOrderLineCommandSchema.parse(await c.req.json());
-    return c.json(
-      await resolveOrderLine(db, c.req.param("id"), c.req.param("lineId"), body, ACTOR),
-    );
   });

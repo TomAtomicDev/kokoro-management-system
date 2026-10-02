@@ -11,7 +11,7 @@ export const dashboardLabels = {
   cashBank: "Banco",
   cashCash: "Caja chica",
   stockValue: "Valor de inventario",
-  liabilityTotal: "Anticipos de clientes",
+  preDeliveryOrderCashExposure: "Efectivo expuesto en pedidos sin entregar",
   receivablesTotal: "Por cobrar",
 
   // No glossary entry exists yet for "low stock" on the dashboard strip (judgment call): reuses

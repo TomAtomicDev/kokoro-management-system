@@ -44,9 +44,10 @@ describe("enums mirror Doc 04 DDL verbatim", () => {
   });
 
   it("financial transaction categories (all 12)", () => {
-    expect(FINANCIAL_TRANSACTION_CATEGORIES).toHaveLength(12);
+    expect(FINANCIAL_TRANSACTION_CATEGORIES).toHaveLength(13);
     expect(FINANCIAL_TRANSACTION_CATEGORIES).toContain("OWNER_WITHDRAWAL");
     expect(FINANCIAL_TRANSACTION_CATEGORIES).toContain("DEPOSIT_REFUND");
+    expect(FINANCIAL_TRANSACTION_CATEGORIES).toContain("ORDER_REFUND");
   });
 
   it("zod schemas accept valid values and reject junk", () => {

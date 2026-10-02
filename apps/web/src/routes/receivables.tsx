@@ -1,7 +1,7 @@
 import {
+  type CatalogSaleReceivableDto,
   formatMoney,
   listReceivablesQuerySchema,
-  type ReceivablesSaleDto,
   toCentavos,
 } from "@kokoro/shared";
 import { getRouteApi } from "@tanstack/react-router";
@@ -58,7 +58,8 @@ export function ReceivablesRoute() {
   const navigate = routeApi.useNavigate();
   const receivablesQuery = useGroupedReceivables(search);
   const accountsQuery = useAccounts();
-  const [collectingSale, setCollectingSale] = useState<ReceivablesSaleDto | null>(null);
+  const [collectingCatalogSale, setCollectingCatalogSale] =
+    useState<CatalogSaleReceivableDto | null>(null);
   const response = receivablesQuery.data;
   const summary = response?.globalSummary;
   const pagination = response?.pagination;
@@ -85,8 +86,8 @@ export function ReceivablesRoute() {
     void navigate({ search: (previous) => ({ ...previous, page }) });
   }
 
-  const selectedForCollection = collectingSale
-    ? { id: collectingSale.saleId, total: collectingSale.saleTotal }
+  const selectedForCollection = collectingCatalogSale
+    ? { id: collectingCatalogSale.saleId, total: collectingCatalogSale.saleTotal }
     : null;
 
   return (
@@ -107,8 +108,8 @@ export function ReceivablesRoute() {
             value={formatCount(summary.debtorCount)}
           />
           <SummaryCard
-            label={receivablesLabels.summarySales}
-            value={formatCount(summary.pendingSaleCount)}
+            label={receivablesLabels.summarySources}
+            value={formatCount(summary.pendingReceivableCount)}
           />
         </section>
       ) : receivablesQuery.isLoading ? (
@@ -218,7 +219,7 @@ export function ReceivablesRoute() {
           <>
             <ReceivablesGroups
               groups={response.groups}
-              onCollect={(sale) => setCollectingSale(sale)}
+              onCollectCatalogSale={(receivable) => setCollectingCatalogSale(receivable)}
             />
             {pagination && pagination.totalPages > 1 ? (
               <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
@@ -246,7 +247,7 @@ export function ReceivablesRoute() {
               </div>
             ) : null}
           </>
-        ) : summary?.pendingSaleCount === 0 ? (
+        ) : summary?.pendingReceivableCount === 0 ? (
           <div className="rounded-lg border border-border bg-card p-5">
             <h3 className="font-medium text-foreground text-sm">
               {receivablesLabels.noDebtsTitle}
@@ -269,11 +270,11 @@ export function ReceivablesRoute() {
 
       <CollectPaymentDialog
         sale={selectedForCollection}
-        outstandingAmount={collectingSale?.outstandingAmount}
+        outstandingAmount={collectingCatalogSale?.outstandingAmount}
         accounts={accountsQuery.data?.accounts ?? []}
-        open={collectingSale !== null}
+        open={collectingCatalogSale !== null}
         onOpenChange={(open) => {
-          if (!open) setCollectingSale(null);
+          if (!open) setCollectingCatalogSale(null);
         }}
       />
     </div>

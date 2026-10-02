@@ -2,19 +2,20 @@
 // personal actions; liability strip (placeholder until Phase 3); table of all financial
 // transactions.
 
-import { getRouteApi } from "@tanstack/react-router";
+import { getRouteApi, Link } from "@tanstack/react-router";
 import { useState } from "react";
 
 import type { EventTableSortState } from "@/components/data-table/EventTable";
 import { AccountCard } from "@/components/finance/AccountCard";
-import { LiabilityReceivableStrip } from "@/components/finance/LiabilityReceivableStrip";
+import { OrderCashReceivableStrip } from "@/components/finance/OrderCashReceivableStrip";
 import { RecordTransactionDialog } from "@/components/finance/RecordTransactionDialog";
 import { TransactionDetailDrawer } from "@/components/finance/TransactionDetailDrawer";
 import { TransactionsTable } from "@/components/finance/TransactionsTable";
 import { TransferDialog } from "@/components/finance/TransferDialog";
 import { WithdrawDialog } from "@/components/finance/WithdrawDialog";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { useAccounts, useTransactions } from "@/features/finance/api";
+import { useOrder } from "@/features/orders/api";
 import { financeLabels } from "@/lib/i18n-finance";
 
 const routeApi = getRouteApi("/_authenticated/finance");
@@ -23,7 +24,10 @@ export function FinanceRoute() {
   const search = routeApi.useSearch();
   const navigate = routeApi.useNavigate();
   const accountsQuery = useAccounts();
-  const transactionsQuery = useTransactions();
+  const relatedOrderQuery = useOrder(search.customOrderId);
+  const transactionsQuery = useTransactions({
+    ...(search.customOrderId ? { customOrderId: search.customOrderId } : {}),
+  });
 
   const [expenseOpen, setExpenseOpen] = useState(false);
   const [incomeOpen, setIncomeOpen] = useState(false);
@@ -87,7 +91,28 @@ export function FinanceRoute() {
         )}
       </div>
 
-      <LiabilityReceivableStrip />
+      <OrderCashReceivableStrip />
+
+      {search.customOrderId ? (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-muted px-3 py-2 text-sm">
+          <span className="text-foreground">
+            {financeLabels.filteredOrder}:{" "}
+            {relatedOrderQuery.data?.code ??
+              transactions[0]?.relatedOrder?.code ??
+              financeLabels.relatedOrderWithoutCode}
+          </span>
+          <Link
+            to="/finance"
+            search={(previous) => ({
+              sort: previous.sort,
+              sortDirection: previous.sortDirection,
+            })}
+            className={buttonVariants({ variant: "ghost", size: "sm" })}
+          >
+            {financeLabels.clearOrderFilter}
+          </Link>
+        </div>
+      ) : null}
 
       <TransactionsTable
         transactions={transactions}

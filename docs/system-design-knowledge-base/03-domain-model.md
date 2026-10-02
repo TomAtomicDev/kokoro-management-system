@@ -30,7 +30,7 @@ better correction ergonomics for a solo operator (ADR-009).
 | INV-4 | AI may draft events; only explicit human confirmation commits a write. |
 | INV-5 | `item_stock.qty_on_hand` = Σ `stock_movements.qty` per item; account `balance` = opening + Σ transactions. Checked nightly. |
 | INV-6 | One scale per concept (Doc 04 §2, ADR-017): money amounts are integer centavos (BOB); **every per-unit rate** — sale price, unit price, WAC, replacement cost, cost snapshots — is integer milli-centavos per WHOLE unit (`_mc` columns); quantities are integer milli-units of the item's canonical persisted unit (`KG`, `L`, `M`, or `UNIT`); percentages are basis points. No monetary value or per-unit rate uses `REAL`. Derived money is rounded half-up at the final step only, and guarded scale conversions live in `packages/shared/money.ts` and `packages/shared/qty.ts`. |
-| INV-7 | A custom-order deposit is a liability (`customer_deposits`) from receipt until delivery or refund; it never appears as revenue before delivery. |
+| INV-7 | Order-linked receipts are cash events independent of order status. `ORDER_DEPOSIT` and `ORDER_BALANCE` keep their categories across delivery, undo and cancellation; the order liability/receivable presentation is derived separately (O-8, ADR-022). Never create or reverse cash by transitioning an order. |
 | INV-8 | Stock MAY go negative (capture-first); negative stock raises a persistent reconciliation flag, never a blocking error. |
 | INV-9 | Derived rows always carry `source_event_type` + `source_event_id`; orphan derived rows are forbidden. |
 | INV-10 | Deleting an event soft-deletes it and removes/reverses its derived rows in the same batch; history stays in `audit_log`. |
@@ -47,12 +47,12 @@ product is packed, exactly like a bag or box, never a recipe input — so both f
 `category` for these items becomes `NOT_EATABLE` (labels/tape/cleaning supplies), the same
 non-food-raw-material bucket `LABEL` used to occupy. A PACKAGING item is purchased and stocked exactly like RAW_MATERIAL (WAC, replacement cost, `minStockQty`) but is **never a recipe input** — `recipes.ts`'s item-kind whitelist stays RAW_MATERIAL/SEMI_FINISHED-only, so a PACKAGING item cannot be added to a recipe even by mistake. **Amended by the Presentation/Combo model (Phase 3.2, KOK-121 — decided 2026-08-11, implementation pending; supersedes the "packaging is a second `sale_lines` row" rule shipped by KOK-100):** a PACKAGING item is consumed by an **Assembly** event (§3 *Assembly*, C-10) — the moment it is physically applied to a product — and **never by a sale**. The governing rule is now: *a packaging item leaves inventory when it is physically used, whether or not a sale exists.* A `ProductionRun` still never touches packaging stock (producing a loaf does not bag it); a sale never does either (the bag left stock when the loaf was packed, days earlier); a `StockExit` MAY, but only through its optional packaging lines and only for a product that was **not** already assembled (§3 *StockExit*). This is what decouples "was this unit produced" from "was this unit packaged", and it is what makes stock of "Kéfir 500 ml" a real, countable thing rather than a bulk litre figure plus a pile of bottles. Minor consumables still may be bought as OPERATING_EXPENSE with no item at all (hybrid, per original spec) when tracking them individually isn't worth it. **`salePriceMc`/`minStockQty` are kind-exclusive** (KOK-096, extended by KOK-1xx for PACKAGING): `salePriceMc` is required for FINISHED and forbidden (`null`) for RAW_MATERIAL/SEMI_FINISHED/PACKAGING. A PACKAGING item has **no list price and no sale line at all** under the Presentation/Combo model: its cost reaches the customer inside the WAC of the presentation or combo it was assembled into, which is where the price lives. (If an empty package is ever genuinely sold on its own — a loose gift box, a paid upgrade — it is catalogued as a FINISHED sellable item in its own right; that does not reopen packaging-as-product for the operational bags and labels. Phase 3.2, KOK-121/KOK-126.) `minStockQty` is required for RAW_MATERIAL/PACKAGING, optional for SEMI_FINISHED, and forbidden (`null`) for FINISHED. "Required" means non-null, not non-zero — `minStockQty: 0` is valid and means "track this item, never alert on it." For SEMI_FINISHED, `null` means no low-stock alert and a non-null value enables one for an internal intermediate that benefits from a threshold. Enforced by `superRefine` on the create/update item command schemas (D-4: one contract for the catalog form, the onboarding wizard, and any assistant draft tool), never by tightening `minStockQtySchema`'s `.nonnegative()` to `.positive()`. Accepted trade-off: this still rules out a low-stock alert on a finished good — a coherent thing to want, but it would require amending this rule rather than just filling in a field. **`isUnmetered` is RAW_MATERIAL-only** (C-9, KOK-1xx KB amendment, closes BI-15) — forbidden/false for every other kind. |
 | **Recipe** | recipe lines (item + qty), expected yield, est. labor minutes | One output item per recipe; an item MAY have several recipes (variants); one is `is_default`. Deletion is a soft **deactivate** (`is_active = 0`), mirroring `items.is_active` — never a hard DELETE (a recipe already referenced by a production run is protected by `ON DELETE RESTRICT` on `production_runs.recipe_id` regardless). **`name` must be unique among ACTIVE recipes (KOK-025 KB amendment, closes a duplicate-recipe bug)**: enforced by a partial unique index (`ux_recipes_name`, mirroring `ux_recipes_default`'s `WHERE is_active = 1` scoping) plus an app-level pre-check in `recordRecipe`/`updateRecipe`/`setRecipeActive` (reactivation) so the error surfaces as a 409 `message_es`, not a raw SQLite constraint violation. Scoped to active rows only — a deactivated recipe's name is free to reuse — so recipe history stays intact without permanently reserving a name. **Recipes are NOT widened to accept PACKAGING or FINISHED inputs (Phase 3.2, KOK-121).** A recipe answers "how is this food made"; how a product is presented or bundled is an **AssemblyDefinition** (below). Reusing recipes for both would reintroduce the duplicate-recipe-per-size problem the Presentation/Combo model exists to remove, and would entangle two different costing graphs. |
-| **Purchase** | purchase lines, payment info, **required** session link, photo | Creates PURCHASE_IN movements + expense transaction; updates WAC + replacement cost. A line's `lineTotal` may be 0 (free/promotional stock); if the purchase's total across all lines is 0, no `financial_transactions` row is created (no cash moved) — `financial_transactions.amount` is always > 0. Session link becomes required in Phase 3.2 (S-1, KOK-130) — resolved automatically, never blocking. |
+| **Purchase** | purchase lines, payment info, **required** session link, optional order association, photo | Creates PURCHASE_IN movements + expense transaction; updates WAC + replacement cost. A line's `lineTotal` may be 0 (free/promotional stock); if the purchase's total across all lines is 0, no `financial_transactions` row is created (no cash moved) — `financial_transactions.amount` is always > 0. Session link becomes required in Phase 3.2 (S-1, KOK-130) — resolved automatically, never blocking. KOK-204 adds the optional direct order association to the purchase and its derived expense without changing purchase ownership/editability. |
 | **ProductionRun** | consumed lines (actual), output (actual qty), indirect cost, **required** session link | Recipe is a template: consumption defaults from recipe × batches, editable before commit. Phase 3.2: `recipe_id` becomes **optional** (KOK-144) — real cost already comes from actual consumption, so a one-off run may pick its output item directly with no recipe; and the session link becomes required (S-1, KOK-130). `indirect_cost` never moves cash — it is an estimate that only raises the batch's cost (KOK-118 renames it and says so on screen). |
 | **AssemblyDefinition** | component lines (item + qty), output item, notes | Phase 3.2 (KOK-121/KOK-123). The reusable template for a **presentation** (a quantity of product + its packaging: "Kéfir natural 500 ml") or a **combo** (several finished presentations + outer packaging: "Desayuno Kokoro"). Components MAY be SEMI_FINISHED, FINISHED or PACKAGING — the one place FINISHED is a legal input. Output item is FINISHED with unit `UNIT` and its own price, stock, WAC and margin. **At most one ACTIVE definition per output item is `is_default`; setting an active definition as default atomically demotes the previous default at write time.** The default is a UX affordance for preselection and suggestions, not the test for whether an item is assembled: that is decided by the existence of **any ACTIVE definition** for the output item. **A definition may not contain itself directly or transitively** (cycle prohibition, enforced by a graph walk at save time). Deactivated, never hard-deleted, exactly like Recipe. |
 | **Assembly** | consumed lines (actual, with frozen costs), output (actual qty obtained), **required** session link | Phase 3.2 (KOK-124). The *Envasado/Armado* event: executes an AssemblyDefinition, moving value from components into the finished presentation/combo. Definition is a template exactly as a recipe is — consumption defaults from it × planned qty and stays editable before commit. Emits ASSEMBLY_OUT for every component and ASSEMBLY_IN for the output, updates the output's WAC (C-10), and **creates no financial transaction of any kind**: it is an inventory transformation, not a purchase, sale or expense. |
-| **Sale** | sale lines, `delivery_fee` (custom-order pass-through), channel (CATALOG / CUSTOM_ORDER), payment status, customer ref | Creates SALE_OUT movements (+ income transaction if paid). **Lines are FINISHED-only** — presentations and combos included, packaging never (Phase 3.2, KOK-126; this resolves the Doc 04 §3.3-vs-§5 contradiction in favour of §5). The line's `unit_cost_snapshot_mc` freezes the presentation's full WAC, so product gross margin contains every bag, label and box that went into it; the external delivery pass-through is separate and excluded from product gross margin. |
-| **CustomOrder** | merchandise subtotal and order items (item or free-text + agreed price), optional deposit, delivery date/place, linked production runs & sale | State machine in §5, including the Phase 3.2 backward transitions and undo-delivery (O-6). An external delivery fee is added to the generated sale at delivery, not to `agreed_total`. |
+| **Sale** | sale lines, `additional_charge` snapshot for custom orders, channel (CATALOG / CUSTOM_ORDER), payment status for catalog sales, customer ref | Creates SALE_OUT movements; paid CATALOG sales also post cash. A generated CUSTOM_ORDER sale never posts cash (O-8 target). **Lines are FINISHED-only** — presentations and combos included, packaging never. Frozen line cost includes their packaging; the order charge is separate from product gross margin. |
+| **CustomOrder** | merchandise subtotal and order items, additional customer charge, delivery date/place, linked work, sale and independent cash events | State machine in §5; O-8 supersedes the older payment-coupled O-1…O-7 passages. The additional charge belongs to the order, not to a provider session. |
 | **StockExit** | item, qty, reason (WASTE / SELF_CONSUMPTION / GIFT_SAMPLE / SPOILAGE / OTHER), optional packaging lines | Valued at current WAC; no financial transaction (cost already incurred) — reported as "invisible cost". Phase 3.2 (KOK-128) adds **optional packaging lines** for the case where an unassembled product physically consumes packaging on its way out (gifting an unbagged loaf in a bag with a label). Default is no packaging; packaging is suggested only when the exited item is *not* itself an assembled presentation; an exit of an assembled presentation never adds packaging, because its WAC already contains it. |
 | **InventoryCount** | count lines (expected vs counted) | `expected_qty` is frozen from stock at count start; `counted_qty` stays editable while DRAFT, and commit adjusts against that frozen expectation. Current item name and canonical unit are resolved from the catalog for count responses, not snapshotted. Commits ADJUST movements for variances. A line for an item with zero prior `stock_movements` and a positive counted qty commits OPENING_IN instead (C-8) — an opening balance, not a correction. A DRAFT count may be **cancelled, which means deleted** (soft, audit-reversible) — there is no "CANCELLED" count status (Phase 3.2, KOK-141). |
 | **FinancialTransaction** | — | Either derived (from sale/purchase/order/withdrawal) or standalone (operating expense, other income). Transfers are paired rows. |
@@ -253,15 +253,24 @@ non-food-raw-material bucket `LABEL` used to occupy. A PACKAGING item is purchas
 ## 5. Custom order lifecycle (Modality 2)
 
 ```
-QUOTING ──confirm(optional deposit)──► CONFIRMED ──start──► IN_PRODUCTION ──ready──► READY ──deliver──► DELIVERED
+QUOTING ──confirm (cash-free)──► CONFIRMED ──start──► IN_PRODUCTION ──ready──► READY ──deliver──► DELIVERED
    │                              │  ◄──back──┘  ◄──────back──────┘  ◄─ undo delivery ─┘   (terminal
    │                              │                    │                        │           unless undone)
    └────────────cancel────────────┴────────cancel──────┴──────cancel────────────┘
-                                    → CANCELLED (deposit refund or forfeit, owner decides)
-                                      TERMINAL — never reopened (O-6)
+                                     → CANCELLED (cash-free; any refund is separate)
+                                       TERMINAL — never reopened (O-6/O-8)
 ```
 
 Rules:
+
+**Superseding payment/edition contract (Phase 3.5, KOK-204…208; ADR-022).** Payment-coupled
+clauses in O-1…O-3 and the historic O-6 implementation describe shipped legacy behavior, not the
+target. O-7 and O-8 below define the KOK-205…208 edit/payment contract. Older external-delivery
+provider/session clauses are also not the target. O-8 supersedes legacy clauses wherever they
+require automatic cash posting, deposit release/recategorization, full-balance collection, a
+payment-based undo veto, or deposit-based restrictions on the agreed total. O-4's stock and costing
+rules and O-5's ordering rules still apply. Doc 04 §3.4 specifies the coordinated cutover; code and
+read views must not be interpreted as implementing O-8 until those backlog tasks ship.
 
 - **O-1** `CONFIRMED` requires the agreed merchandise subtotal. The deposit defaults to 50% of that
   subtotal (editable), but MAY be zero. An optional external-delivery pass-through is added only at
@@ -339,64 +348,102 @@ Rules:
   - Production and assembly forms offer orders in **every status except DELIVERED and CANCELLED**
     (KOK-137). Restricting the picker to CONFIRMED/IN_PRODUCTION hid legitimate work.
 - **O-5** Unlimited concurrent orders; the active Orders board sorts each status lane by
-  `delivery_date` **descending** (latest promised date first, leftmost; undated orders last; Phase
-  3.5/KOK-201). Tie-break by `created_at` descending and `id` descending; a bounded read must expose
-  continuation rather than silently omit active or historical orders beyond the per-request limit. `delivery_date`
-  is a promised calendar date and MAY be in the future. The
+  `delivery_date` **descending** (latest promised date first, topmost; undated orders last; Phase
+  3.5/KOK-201). Tie-break by `created_at` descending and `id` descending. A bounded keyset read must
+  expose continuation rather than silently omit active or historical orders beyond the per-request
+  limit. `delivery_date` is a promised calendar date and MAY be in the future. The
   no-future-date rule applies only to transaction `business_date` values; it explicitly does not
   apply to `custom_orders.delivery_date`.
 - **O-6 Backward transitions** (Phase 3.2, KOK-136 — decided 2026-08-11, shipped 2026-08-16).
-  A mis-clicked status was previously unrecoverable. Two mechanisms, deliberately different:
-  - **Free reversal** among `CONFIRMED` ↔ `IN_PRODUCTION` ↔ `READY`. No money moves in either
-    direction, so a simple confirmation is enough. `QUOTING` → `CONFIRMED` is **not** reversible
-    this way: it took a deposit, so undoing it is a cancellation with a refund/forfeit resolution
-    (O-3), not a status step.
-  - **Undo delivery** (`DELIVERED` → `READY`), with explicit confirmation and an R-5 impact
-    preview. In one atomic batch it soft-deletes the sale that O-2 created (releasing its
-    `SALE_OUT` movements and its income/receivable rows through the normal regenerate path),
-    clears `custom_orders.sale_id`, and **restores the deposit to the `customer_deposits`
-    liability** (INV-7) — revenue recognized at delivery is un-recognized here, and nowhere else.
-    Because this deletes a sale, it inherits R-2's replay and R-5's confirmation exactly as any
-    other sale deletion does.
-    - Mechanically (verified against the code 2026-08-11): `core/sales`' refusal to touch a
-      `channel='CUSTOM_ORDER'` sale **stands unchanged** — `undoDelivery` does not call
-      `updateSale`/`deleteSale`; it emits its own reversal statements from `core/orders`, the module
-      that owns the sale. Restoring the deposit liability needs no reversal row at all: the liability
-      is derived (ADR-012) and simply resumes counting the order once its status leaves `DELIVERED`.
-    - If delivery used an external provider, undo also removes the sale's pass-through fee and
-      associated customer balance, but preserves the closed delivery session and its real
-      operating-expense transaction: the provider was actually paid. A provider refund, if any, is
-      recorded as a separate financial event.
-    - **If the delivered sale has since been collected**, `undoDelivery` refuses with a 409.
-      Collection is real money that really arrived, on a path that deliberately nets the deposit;
-      silently reversing it would be worse than telling the owner to reverse the collection first.
-  - **`CANCELLED` stays terminal.** Reopening it would mean reversing a `DEPOSIT_REFUND` expense
-    or un-recognizing a FORFEIT already booked as `OTHER_INCOME` in a closed period — accounting
-    surface with no matching operational need. Record a new order instead.
-- **O-7 Stage-specific order correction (Phase 3.5/KOK-205):** there is no general-purpose
-  `updateOrder`. Corrections use named commands with status and field guards, preserve the immutable
-  `PED` code, audit before/after, and commit in one atomic batch:
-  - While `QUOTING`, `updateOrderQuote` may correct the full quote, including customer, description,
-    merchandise subtotal, lines, delivery date/place, notes and expected deposit.
-  - In `CONFIRMED`, `IN_PRODUCTION` and `READY`, `updateOrderLogistics` may change only delivery
-    date/place and notes; it moves no money or stock.
-  - In those same pre-delivery statuses, `renegotiateOrder` may change the description, merchandise
-    lines/quantities (including adding a line to an empty quote) and agreed merchandise subtotal. It
-    never rewrites `deposit_paid`, the deposit transaction, or existing production/assembly/stock events.
-    New subtotal must be at least
-    `deposit_paid`; if it would be lower, reject the renegotiation and require cancellation with
-    REFUND followed by a new order (partial deposit refunds on active orders are not supported).
-    Once any positive deposit has been received, customer identity is immutable. A confirmed
-    zero-deposit order may change customer only with a fresh explicit `acceptNoDepositRisk` and audit
-    entry for the new counterparty. When the quote has a subtotal, explicitly pinned line shares
-    must fit within it; if lines exist, delivery's largest-remainder allocation must be able to
-    reproduce the subtotal exactly. An unset QUOTING subtotal defers this check until it is agreed.
-    Keep empty lines legal before delivery but reject delivery with none. Every correction compares
-    the order's `updated_at` from the form at commit inside its atomic command, aborts the batch if it has changed,
-    and reports a stale edit with 409.
-  - `DELIVERED` corrections use O-6's guarded undo-delivery path; `CANCELLED` remains terminal.
-    Renegotiating order lines never rewrites already-recorded production or assembly events; if the
-    physical work itself was wrong, correct that source event separately through its guarded service.
+  A mis-clicked status is recoverable without changing cash:
+  - Free reversal among `CONFIRMED` ↔ `IN_PRODUCTION` ↔ `READY` remains a simple, audited status
+    change. Confirmation and cancellation are also cash-free under O-8.
+  - **Undo delivery** (`DELIVERED` → `READY`) requires explicit confirmation and the R-5 impact
+    preview. One atomic batch soft-deletes the order-owned sale, reverses its `SALE_OUT` movements,
+    clears `custom_orders.sale_id`, and runs the R-2/R-5 costing replay. It is allowed after any
+    number of independent receipts; all finance rows and account balances remain unchanged.
+  - **`CANCELLED` stays terminal.** Retained receipts are cash history, not an order transition to
+    reverse. Record a new order for a new agreement.
+- **O-7 Pre-delivery agreement correction (KOK-205):** one `updateOrder` command replaces the
+  stage-specific quote/logistics/renegotiation split. In QUOTING, CONFIRMED, IN_PRODUCTION and READY,
+  it edits customer, description, merchandise subtotal, lines, additional charge, promised
+  date/place and notes in one audited, optimistic-concurrency-guarded batch. It preserves the
+  immutable `PED` code and never rewrites linked production/assembly/stock work.
+  - A customer may change only before any qualifying order receipt has ever been linked, including
+    a subsequently soft-deleted receipt. `ORDER_DEPOSIT` and `ORDER_BALANCE` receipts remain owned by
+    finance and are never changed by agreement edits.
+  - The subtotal and additional charge are nonnegative centavos. A revised customer amount may be
+    below active qualifying receipts; show the informational excess and never reject the agreement
+    for that reason. A NULL subtotal has no numeric expected/excess preview.
+  - When a subtotal is set, pinned line shares must fit it and nonempty lines must be allocatable to
+    it exactly. Validate FINISHED-item eligibility and positive quantities. Empty lines remain legal
+    before delivery; delivery still requires at least one linked line.
+  - Every edit compares the form's `updated_at` inside the atomic command; stale edits return 409.
+    DELIVERED edits require undo first; CANCELLED remains terminal.
+
+**O-8 Independent order cash events and editable pre-delivery agreement (target; KOK-204…208).**
+
+- Confirmation, delivery, undo delivery, backward steps and cancellation never insert, edit, delete
+  or recategorize `financial_transactions`, nor change account balances. Confirmation no longer
+  requires collecting a deposit or a no-deposit risk acknowledgment. Delivery still creates the
+  order-owned CUSTOM_ORDER sale and `SALE_OUT` movements, with frozen line COGS and R-2/R-5 replay;
+  undo soft-deletes that sale, reverses its stock movements, and returns the order to READY even
+  after any number of payments. It never reverses a real cash event. Cancellation is terminal and
+  does not automatically refund or forfeit anything; refunds are separate explicit expenses.
+- An order may have any number of independently created, corrected or soft-deleted receipts in
+  category `ORDER_DEPOSIT` or `ORDER_BALANCE`, each with its own date, account, immutable manual
+  code and `custom_order_id`. These are cash-flow labels, not an application to a sale: a balance
+  receipt remains a balance receipt even after undo. `ORDER_REFUND` expenses reduce cash but do not
+  reinstate a delivered order's debt. A tip/overpayment remains recorded as a receipt; its excess
+  is displayed separately. Order status does not gate capture or correction of these cash events.
+  The finance service owns their mutations and account deltas; the source-event association stays
+  separate from the order relationship. Purchase/provider expenses can also be associated with
+  the order without altering their source or changing the customer's debt. The relationship uses
+  IDs, not the display code as a database key.
+  An order-linked OTHER_INCOME is available for other cash associated with the order: it
+  appears in cash result but, unlike ORDER_DEPOSIT/ORDER_BALANCE, does not settle order debt.
+  A tip paid as part of a customer installment can be captured in ORDER_BALANCE and shown as
+  excess receipts once the customer price has been covered.
+  The order page launches the familiar income/expense/refund forms with its order ID fixed by
+  context (KOK-208). The Finance table shows those same movements and their related PED link,
+  but Finance does not offer a picker for creating or reassigning order-linked transactions.
+  An incorrect manual association is corrected by soft-deleting the row and recording it from
+  the correct order page. Source-owned purchase expenses remain editable through purchasing.
+  Existing old-model rows are disposable test data and are not migrated or corrected through
+  a special legacy finance path; reset those datasets at the coordinated cutover.
+- `customer_amount = agreed_total + additional_charge`, both nonnegative integer centavos; the
+  charge is independently quoted and need not equal a provider expense. `receipts` is the sum of
+  active directly order-linked manual ORDER_DEPOSIT/ORDER_BALANCE transactions only.
+  `outstanding = max(customer_amount - receipts, 0)`;
+  `excess = max(receipts - customer_amount, 0)`. Null agreement means no computable outstanding.
+  Only DELIVERED orders with positive outstanding appear as order receivables; before delivery the
+  same difference is an expected balance, never an account receivable; CANCELLED orders have no
+  receivable. Refunds/expenses are excluded from this debt equation. Unfulfilled order receipts
+  are still real cash, but are not recognized product revenue; the operational pre-delivery cash
+  exposure projection is separate from debt and must not treat a payment labeled ORDER_BALANCE as
+  automatically earned merely because of its label. For each active, non-cancelled order before
+  delivery, exposure is `max(active ORDER_DEPOSIT/ORDER_BALANCE receipts − active ORDER_REFUND, 0)`;
+  floor each order before summing, so one order's refund excess never offsets another order's
+  exposure. This is an operational cash measure, not a legally settled liability or recognized
+  revenue. Delivered and cancelled orders contribute no pre-delivery exposure.
+- Delivered **product gross margin** equals the current active delivered sale's merchandise
+  subtotal less its frozen sale-line COGS. Separately, **order cash result** equals all active
+  linked receipts and other income minus all active linked expenses (including refunds and linked
+  purchase/provider expenses); it is not gross margin and may double-count inventory acquisition
+  if combined with COGS. Neither amount is silently substituted for the other.
+- `updateOrder` replaces stage-specific quote/logistics/renegotiation endpoints: QUOTING,
+  CONFIRMED, IN_PRODUCTION and READY allow editing agreement, lines, additional charge and
+  logistics in one guarded, audited batch. FINISHED-item eligibility, exact-centavo allocation,
+  stale-write protection and immutable PED code still apply. When any receipt has ever been linked
+  (including a subsequently corrected/soft-deleted receipt), customer
+  identity cannot change, but the agreed amount may change even below receipts: show the excess.
+  DELIVERED and CANCELLED orders cannot edit their agreement or delivered items; to correct a
+  delivered agreement, undo delivery first (with costing impact preview). A payment is corrected
+  through finance, never by editing an order. Linked historical work is not rewritten.
+- The generated sale remains the stock/COGS evidence; it snapshots the merchandise agreement and
+  additional charge (`sale.total = merchandise + charge`) but creates no payment. Its PAID/ON_CREDIT
+  fields are no longer the source of truth for custom-order debt; catalog sales retain their
+  existing collection workflow. Redelivery creates a fresh sale snapshot without reposting cash.
 
 ## 6. Sessions, shared costs, and time profitability
 
@@ -515,11 +562,11 @@ refresh only.
 | UC-01 | Record purchase (multi-line, account, photo, session — required but auto-resolved, S-1) | TG, Web | purchasing.recordPurchase |
 | UC-02 | Record production run (recipe → adjust actuals → commit) | TG, Web | production.recordRun |
 | UC-03 | Record catalog sale (items, qty, payment method/status) | TG, Web | sales.recordSale |
-| UC-04 | Collect receivable (mark sale paid) | TG, Web | sales.collectPayment |
+| UC-04 | Collect CATALOG sale receivable in full; custom-order partial receipts use UC-26 | TG, Web | sales.collectPayment (catalog only) |
 | UC-05 | Quote custom order | TG, Web | orders.quote |
-| UC-06 | Confirm order (optional deposit; zero requires risk acknowledgment) | TG, Web | orders.confirm |
-| UC-07 | Deliver order (auto-sale, balance settle) | TG, Web | orders.deliver |
-| UC-08 | Cancel order (refund/forfeit) | Web | orders.cancel |
+| UC-06 | Confirm order without posting cash (O-8 target) | TG, Web | orders.confirm |
+| UC-07 | Deliver order (sale/stock snapshot only; O-8 target) | TG, Web | orders.deliver |
+| UC-08 | Cancel order without posting cash (O-8 target) | Web | orders.cancel |
 | UC-09 | Record non-commercial exit | TG, Web | inventory.recordExit |
 | UC-10 | Inventory count & adjust | Web (TG single-item) | inventory.count |
 | UC-11 | Record expense / other income | TG, Web | finance.recordTransaction |
@@ -537,6 +584,8 @@ refresh only.
 | UC-23 | Revert an order's status / undo a delivery (O-6) | Web | orders.revertStatus / orders.undoDelivery |
 | UC-24 | Cancel (delete) a draft inventory count | Web | inventory.cancelCount |
 | UC-25 | Review receivables by customer and open the source sale/order | Web | finance.listReceivables |
+| UC-26 | Capture/correct repeatable order receipts, refunds and related expenses | Web | finance.recordOrderTransaction / finance.updateTransaction |
+| UC-27 | Edit pre-delivery agreement and additional customer charge | Web | orders.updateOrder |
 
 UC-21…UC-24 are Phase 3.2 additions (decided 2026-08-11); UC-25 is a Phase 3.5 addition. Their
 acceptance criteria land in Doc 11 with the tasks that build them.

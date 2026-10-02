@@ -25,7 +25,9 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { createItem } from "../src/core/catalog/index.js";
 import type { ReplayMovement } from "../src/core/costing/wac.js";
 import { recomputeWacFromMovements } from "../src/core/costing/wac.js";
+import { createCustomer } from "../src/core/customers/index.js";
 import { recordExit } from "../src/core/inventory/exits.js";
+import { cancelOrder, quoteOrder } from "../src/core/orders/index.js";
 import {
   deletePurchase,
   getPurchase,
@@ -94,6 +96,23 @@ async function seedItem(
   return createItem(db, { name, kind, category: "INGREDIENT", unit: "KG" }, ACTOR);
 }
 
+async function seedOrder(db: TestDb, cancelled = false): Promise<string> {
+  const customer = await createCustomer(
+    db,
+    { name: `Purchase order customer ${crypto.randomUUID()}` },
+    ACTOR,
+  );
+  const { order } = await quoteOrder(
+    db,
+    { customerId: customer.id, description: "Pedido asociado a una compra" },
+    ACTOR,
+  );
+  if (cancelled) {
+    await cancelOrder(db, order.id, {}, ACTOR);
+  }
+  return order.id;
+}
+
 /** Test-only fixture: an inactive account, mirroring finance.test.ts's identical helper. */
 async function seedInactiveAccount(db: TestDb, id: string): Promise<void> {
   await db.insert(financialAccounts).values({
@@ -126,6 +145,76 @@ beforeEach(async () => {
 });
 
 describe("recordPurchase (UC-01)", () => {
+  it("carries its optional order association through derived expense regeneration, delete, and restore", async () => {
+    const db = createDb(env.DB);
+    const item = await seedItem(db, "Purchase order association item");
+    const cancelledOrderId = await seedOrder(db, true);
+    const nextOrderId = await seedOrder(db);
+    const command = {
+      accountId: "acc_bank",
+      customOrderId: cancelledOrderId,
+      occurredAt: NOW,
+      businessDate: BUSINESS_DATE,
+      lines: [{ itemId: item.id, qty: 1000, lineTotal: 2500 }],
+    };
+
+    const created = await recordPurchase(db, command, ACTOR);
+    expect(created.purchase.customOrderId).toBe(cancelledOrderId);
+    let derived = await db.query.financialTransactions.findMany({
+      where: (t, { and: andOp, eq: eqOp }) =>
+        andOp(eqOp(t.sourceEventType, "purchase"), eqOp(t.sourceEventId, created.purchase.id)),
+    });
+    expect(derived).toHaveLength(1);
+    expect(derived[0]).toMatchObject({
+      sourceEventType: "purchase",
+      sourceEventId: created.purchase.id,
+      customOrderId: cancelledOrderId,
+      category: "SUPPLY_PURCHASE",
+    });
+    const originalTransactionId = derived[0]?.id;
+
+    const updated = await updatePurchase(
+      db,
+      created.purchase.id,
+      {
+        ...command,
+        customOrderId: nextOrderId,
+        lines: [{ itemId: item.id, qty: 1000, lineTotal: 3500 }],
+      },
+      ACTOR,
+    );
+    expect(updated.purchase.customOrderId).toBe(nextOrderId);
+    derived = await db.query.financialTransactions.findMany({
+      where: (t, { and: andOp, eq: eqOp }) =>
+        andOp(eqOp(t.sourceEventType, "purchase"), eqOp(t.sourceEventId, created.purchase.id)),
+    });
+    expect(derived).toHaveLength(1);
+    expect(derived[0]).toMatchObject({
+      sourceEventType: "purchase",
+      sourceEventId: created.purchase.id,
+      customOrderId: nextOrderId,
+      amount: 3500,
+    });
+    expect(derived[0]?.id).not.toBe(originalTransactionId);
+
+    const deleted = await deletePurchase(db, created.purchase.id, {}, ACTOR);
+    expect(deleted.purchase.customOrderId).toBe(nextOrderId);
+    expect(
+      await db.query.financialTransactions.findMany({
+        where: (t, { and: andOp, eq: eqOp }) =>
+          andOp(eqOp(t.sourceEventType, "purchase"), eqOp(t.sourceEventId, created.purchase.id)),
+      }),
+    ).toHaveLength(0);
+    const restored = await restorePurchase(db, created.purchase.id, {}, ACTOR);
+    expect(restored.purchase.customOrderId).toBe(nextOrderId);
+    const restoredTransaction = await db.query.financialTransactions.findFirst({
+      where: (t, { and: andOp, eq: eqOp }) =>
+        andOp(eqOp(t.sourceEventType, "purchase"), eqOp(t.sourceEventId, created.purchase.id)),
+    });
+    expect(restoredTransaction?.customOrderId).toBe(nextOrderId);
+    expect((await env.DB.prepare("PRAGMA foreign_key_check").all()).results).toEqual([]);
+  });
+
   it("links an existing PURCHASE_TRIP session, creates one when absent, and rejects the wrong type", async () => {
     const db = createDb(env.DB);
     const item = await seedItem(db, "Harina — session resolution");
@@ -986,11 +1075,14 @@ describe("reads: getPurchase / listPurchases", () => {
   it("listPurchases filters by accountId and orders businessDate/createdAt desc", async () => {
     const db = createDb(env.DB);
     const item = await seedItem(db, "List purchase item");
+    const orderId = await seedOrder(db);
+    const otherOrderId = await seedOrder(db);
 
     await recordPurchase(
       db,
       {
         accountId: "acc_bank",
+        customOrderId: orderId,
         occurredAt: "2026-07-14T10:00:00.000Z",
         businessDate: "2026-07-14",
         lines: [{ itemId: item.id, qty: 1000, lineTotal: 1000 }],
@@ -1001,6 +1093,7 @@ describe("reads: getPurchase / listPurchases", () => {
       db,
       {
         accountId: "acc_bank",
+        customOrderId: orderId,
         occurredAt: "2026-07-16T10:00:00.000Z",
         businessDate: "2026-07-16",
         lines: [{ itemId: item.id, qty: 1000, lineTotal: 1000 }],
@@ -1011,6 +1104,7 @@ describe("reads: getPurchase / listPurchases", () => {
       db,
       {
         accountId: "acc_cash",
+        customOrderId: otherOrderId,
         occurredAt: "2026-07-15T10:00:00.000Z",
         businessDate: "2026-07-15",
         lines: [{ itemId: item.id, qty: 1000, lineTotal: 1000 }],
@@ -1022,6 +1116,11 @@ describe("reads: getPurchase / listPurchases", () => {
     expect(purchases).toHaveLength(2);
     expect(purchases.map((p) => p.businessDate)).toEqual(["2026-07-16", "2026-07-14"]);
     expect(purchases.every((p) => p.accountId === "acc_bank")).toBe(true);
+    const orderPurchases = await listPurchases(db, { customOrderId: orderId });
+    expect(orderPurchases.purchases).toHaveLength(2);
+    expect(orderPurchases.purchases.every((purchase) => purchase.customOrderId === orderId)).toBe(
+      true,
+    );
   });
 });
 

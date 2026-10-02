@@ -1,55 +1,41 @@
-// Integration tests for core/orders (KOK-033, Doc 03 UC-05…UC-08 + §5's O-1…O-3, Doc 04 §3.3/§5,
-// ADR-012). Doc 11 §3 template: seed via createItem/recordPurchase/createCustomer -> run the
-// transition -> assert the custom_orders row + its derived rows (financial_transactions, sales,
-// sale_lines, stock_movements, item_stock) + the DERIVED liability/receivable views + audit_log,
-// against real D1 via @cloudflare/vitest-pool-workers.
-//
-// The most discriminating assertions in this file:
-//   - the FULL legal/illegal transition matrix (6 statuses × 5 transitions) is asserted by table,
-//     so no illegal jump can be added silently — this is the point of a state-machine task.
-//   - INV-7: a deposit is a LIABILITY, never revenue. `v_liability` is asserted directly (not the
-//     `deposit_paid` column) before and after every money-moving transition, and no INCOME row of
-//     a revenue category exists anywhere until delivery.
-//   - O-2: delivery creates the CUSTOM_ORDER sale for the FULL agreed total with real SALE_OUT
-//     movements and WAC snapshots, but books ONLY the balance as cash — the deposit is not
-//     re-credited — and the liability drops to zero for that order.
-//   - O-3 FORFEIT moves NO cash and writes NO new row: it recategorizes the deposit transaction in
-//     place, which is what releases the liability (see core/orders' header).
+// ADR-022 order agreement, derived reads, and cash-free lifecycle integration tests against real D1.
 import { env } from "cloudflare:test";
-import type { CustomOrderStatus } from "@kokoro/shared";
+import type { CustomOrderStatus, OrderDto, UpdateOrderCommand } from "@kokoro/shared";
 import {
   addMoney,
+  calculateOrderReceiptBalance,
   toBusinessDate,
-  toCentavos,
-  toDatetimeLocal,
   toMilliCentavosPerUnit,
   toMilliUnits,
   totalCentavos,
 } from "@kokoro/shared";
-import { eq, inArray, sql } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createItem } from "../src/core/catalog/index.js";
 import { createCustomer } from "../src/core/customers/index.js";
-import { recordExit } from "../src/core/inventory/exits.js";
+import { deleteTransaction, recordTransaction } from "../src/core/finance/index.js";
 import {
   assertOrderLinkable,
   cancelOrder,
   confirmOrder,
   deliverOrder,
   getOrder,
+  getOrderReceiptSummary,
+  listOrderSales,
   listOrders,
   markOrderReady,
+  previewOrderImpact,
   quoteOrder,
-  resolveOrderLine,
   startOrderProduction,
   undoDeliverOrder,
   undoMarkOrderReady,
   undoStartOrderProduction,
+  updateOrder,
 } from "../src/core/orders/index.js";
+import { getProductionRun, recordProductionRun } from "../src/core/production/index.js";
 import { recordPurchase } from "../src/core/purchasing/index.js";
-import { collectPayment, deleteSale, updateSale } from "../src/core/sales/index.js";
-import { setSetting } from "../src/core/settings/index.js";
+import { collectPayment, deleteSale, recordSale, updateSale } from "../src/core/sales/index.js";
 import { createDb } from "../src/db/index.js";
 import {
   auditLog,
@@ -57,6 +43,7 @@ import {
   customOrders,
   financialAccounts,
   financialTransactions,
+  productionRuns,
   saleLines,
   sales,
   stockMovements,
@@ -68,19 +55,20 @@ const BUSINESS_DATE = "2026-07-20";
 
 type TestDb = ReturnType<typeof createDb>;
 
-let seq = 0;
-/** Unique per call — `items.name` is UNIQUE, and every test seeds its own catalog. */
+let sequence = 0;
 function uniqueName(prefix: string): string {
-  seq += 1;
-  return `${prefix} ${seq}`;
+  sequence += 1;
+  return `${prefix} ${sequence}`;
 }
 
-/** A FINISHED item carrying stock and a known WAC (6_000_000 mc per whole unit), the same
- * recordPurchase seam sales.test.ts uses. */
-async function seedStockedItem(db: TestDb, qty = 10_000, lineTotal = 60_000) {
+async function seedCustomer(db: TestDb) {
+  return createCustomer(db, { name: uniqueName("Cliente pedido") }, ACTOR);
+}
+
+async function seedStockedItem(db: TestDb) {
   const item = await createItem(
     db,
-    { name: uniqueName("Pedido — ítem"), kind: "FINISHED", category: "BAKERY", unit: "UNIT" },
+    { name: uniqueName("Producto pedido"), kind: "FINISHED", category: "BAKERY", unit: "UNIT" },
     ACTOR,
   );
   await recordPurchase(
@@ -89,245 +77,216 @@ async function seedStockedItem(db: TestDb, qty = 10_000, lineTotal = 60_000) {
       accountId: "acc_bank",
       occurredAt: NOW,
       businessDate: BUSINESS_DATE,
-      lines: [{ itemId: item.id, qty, lineTotal }],
+      lines: [{ itemId: item.id, qty: 10_000, lineTotal: 60_000 }],
     },
     ACTOR,
   );
   return item;
 }
 
-async function seedCustomer(db: TestDb) {
-  return createCustomer(db, { name: uniqueName("Cliente") }, ACTOR);
-}
-
-async function accountBalance(db: TestDb, id: string): Promise<number> {
-  const row = await db.query.financialAccounts.findFirst({
-    where: (t, { eq: eqOp }) => eqOp(t.id, id),
-  });
-  return row?.balance ?? 0;
-}
-
-/** The DERIVED deposit liability (ADR-012) — asserted instead of `custom_orders.deposit_paid`,
- * because the view is what the dashboard and the daily snapshot actually report. */
-async function customerDeposits(db: TestDb): Promise<number> {
-  const rows = await db.all<{ customer_deposits: number }>(
-    sql`SELECT customer_deposits FROM v_liability`,
-  );
-  return rows[0]?.customer_deposits ?? 0;
-}
-
-async function receivableFor(db: TestDb, saleId: string): Promise<number | null> {
-  const rows = await db.all<{ sale_id: string; total: number }>(
-    sql`SELECT sale_id, total FROM v_receivables`,
-  );
-  return rows.find((r) => r.sale_id === saleId)?.total ?? null;
-}
-
-async function txsForOrder(db: TestDb, orderId: string) {
-  return db.query.financialTransactions.findMany({
-    where: (t, { and, eq: eqOp }) =>
-      and(eqOp(t.sourceEventType, "custom_order"), eqOp(t.sourceEventId, orderId)),
-  });
-}
-
-/** Quote → (optionally) confirm/start/ready/deliver/cancel, so a test can start from any status. */
 async function seedOrderInStatus(
   db: TestDb,
-  status: CustomOrderStatus,
-  opts: { agreedTotal?: number; depositAmount?: number } = {},
-) {
+  status: CustomOrderStatus = "QUOTING",
+  options: { agreedTotal?: number; additionalCharge?: number } = {},
+): Promise<{ orderId: string; itemId: string; customerId: string; code: string | null }> {
   const customer = await seedCustomer(db);
   const item = await seedStockedItem(db);
-  const agreedTotal = opts.agreedTotal ?? 30_000;
-  const depositAmount = opts.depositAmount ?? 15_000;
-
   const { order } = await quoteOrder(
     db,
     {
       customerId: customer.id,
       description: "Torta personalizada",
-      agreedTotal,
+      agreedTotal: options.agreedTotal ?? 30_000,
+      additionalCharge: options.additionalCharge ?? 0,
       deliveryDate: BUSINESS_DATE,
       lines: [{ itemId: item.id, qty: 1000 }],
     },
     ACTOR,
   );
-  if (status === "QUOTING")
-    return { orderId: order.id, itemId: item.id, agreedTotal, depositAmount };
-
+  if (status === "QUOTING") {
+    return { orderId: order.id, itemId: item.id, customerId: customer.id, code: order.code };
+  }
   if (status === "CANCELLED") {
-    await cancelOrder(db, order.id, { occurredAt: NOW, businessDate: BUSINESS_DATE }, ACTOR);
-    return { orderId: order.id, itemId: item.id, agreedTotal, depositAmount };
+    await cancelOrder(db, order.id, {}, ACTOR);
+    return { orderId: order.id, itemId: item.id, customerId: customer.id, code: order.code };
   }
 
-  await confirmOrder(
-    db,
-    order.id,
-    depositAmount === 0
-      ? {
-          occurredAt: NOW,
-          businessDate: BUSINESS_DATE,
-          depositAmount,
-          acceptNoDepositRisk: true,
-        }
-      : {
-          occurredAt: NOW,
-          businessDate: BUSINESS_DATE,
-          depositAmount,
-          paymentMethod: "CASH",
-          accountId: "acc_cash",
-        },
-    ACTOR,
-  );
-  if (status === "CONFIRMED")
-    return { orderId: order.id, itemId: item.id, agreedTotal, depositAmount };
-
+  await confirmOrder(db, order.id, {}, ACTOR);
+  if (status === "CONFIRMED") {
+    return { orderId: order.id, itemId: item.id, customerId: customer.id, code: order.code };
+  }
   await startOrderProduction(db, order.id, ACTOR);
-  if (status === "IN_PRODUCTION")
-    return { orderId: order.id, itemId: item.id, agreedTotal, depositAmount };
-
+  if (status === "IN_PRODUCTION") {
+    return { orderId: order.id, itemId: item.id, customerId: customer.id, code: order.code };
+  }
   await markOrderReady(db, order.id, ACTOR);
-  if (status === "READY") return { orderId: order.id, itemId: item.id, agreedTotal, depositAmount };
+  if (status === "READY") {
+    return { orderId: order.id, itemId: item.id, customerId: customer.id, code: order.code };
+  }
+  await deliverOrder(db, order.id, { occurredAt: NOW, businessDate: BUSINESS_DATE }, ACTOR);
+  return { orderId: order.id, itemId: item.id, customerId: customer.id, code: order.code };
+}
 
-  await deliverOrder(
+function updateCommandFromOrder(
+  order: OrderDto,
+  changes: Partial<UpdateOrderCommand> = {},
+): UpdateOrderCommand {
+  return {
+    expectedUpdatedAt: order.updatedAt,
+    customerId: order.customerId,
+    description: order.description,
+    agreedTotal: order.agreedTotal,
+    additionalCharge: order.additionalCharge,
+    deliveryDate: order.deliveryDate,
+    deliveryPlace: order.deliveryPlace,
+    notes: order.notes,
+    lines: order.lines.map((line) => ({
+      itemId: line.itemId,
+      description: line.description,
+      qty: line.qty,
+      lineTotal: line.lineTotal,
+    })),
+    ...changes,
+  };
+}
+
+async function recordOrderReceipt(
+  db: TestDb,
+  orderId: string,
+  amount: number,
+  category: "ORDER_DEPOSIT" | "ORDER_BALANCE" = "ORDER_DEPOSIT",
+) {
+  const result = await recordTransaction(
     db,
-    order.id,
     {
+      accountId: "acc_cash",
+      type: "INCOME",
+      category,
+      amount,
+      customOrderId: orderId,
       occurredAt: NOW,
       businessDate: BUSINESS_DATE,
-      balancePaymentStatus: "PAID",
-      paymentMethod: "CASH",
-      accountId: "acc_cash",
     },
     ACTOR,
   );
-  return { orderId: order.id, itemId: item.id, agreedTotal, depositAmount };
+  return result.transaction;
 }
+
+async function financialSnapshot(db: TestDb): Promise<string> {
+  const [transactions, accounts] = await Promise.all([
+    db.query.financialTransactions.findMany({ orderBy: (t, { asc }) => asc(t.id) }),
+    db.query.financialAccounts.findMany({
+      where: (t, { inArray: inArrayOp }) => inArrayOp(t.id, ["acc_bank", "acc_cash"]),
+      orderBy: (t, { asc }) => asc(t.id),
+    }),
+  ]);
+  return JSON.stringify({ transactions, accounts });
+}
+
+const lifecycleTransitions: Array<{
+  name: string;
+  allowed: readonly CustomOrderStatus[];
+  run: (db: TestDb, orderId: string) => Promise<unknown>;
+}> = [
+  { name: "confirm", allowed: ["QUOTING"], run: (db, id) => confirmOrder(db, id, {}, ACTOR) },
+  {
+    name: "start production",
+    allowed: ["CONFIRMED"],
+    run: (db, id) => startOrderProduction(db, id, ACTOR),
+  },
+  {
+    name: "mark ready",
+    allowed: ["IN_PRODUCTION"],
+    run: (db, id) => markOrderReady(db, id, ACTOR),
+  },
+  {
+    name: "deliver",
+    allowed: ["READY"],
+    run: (db, id) => deliverOrder(db, id, { occurredAt: NOW, businessDate: BUSINESS_DATE }, ACTOR),
+  },
+  {
+    name: "cancel",
+    allowed: ["QUOTING", "CONFIRMED", "IN_PRODUCTION", "READY"],
+    run: (db, id) => cancelOrder(db, id, {}, ACTOR),
+  },
+  {
+    name: "undo start production",
+    allowed: ["IN_PRODUCTION"],
+    run: (db, id) => undoStartOrderProduction(db, id, ACTOR),
+  },
+  {
+    name: "undo mark ready",
+    allowed: ["READY"],
+    run: (db, id) => undoMarkOrderReady(db, id, ACTOR),
+  },
+  {
+    name: "undo delivery",
+    allowed: ["DELIVERED"],
+    run: (db, id) => undoDeliverOrder(db, id, {}, ACTOR),
+  },
+];
+
+const illegalLifecycleAttempts = (
+  ["QUOTING", "CONFIRMED", "IN_PRODUCTION", "READY", "DELIVERED", "CANCELLED"] as const
+).flatMap((status) =>
+  lifecycleTransitions
+    .filter((transition) => !transition.allowed.includes(status))
+    .map((transition) => ({ status, name: transition.name, run: transition.run })),
+);
 
 beforeEach(async () => {
   const db = createDb(env.DB);
-  // custom_orders.sale_id and sales.custom_order_id reference each other with ON DELETE RESTRICT,
-  // and custom_orders.deposit_tx_id pins its transaction — unlink before deleting either side.
   await db.update(customOrders).set({ saleId: null, depositTxId: null });
-  await db.delete(auditLog).where(inArray(auditLog.entityType, ["custom_orders", "sales"]));
+  await db.update(financialTransactions).set({ counterpartTxId: null });
+  await db
+    .delete(auditLog)
+    .where(inArray(auditLog.entityType, ["custom_orders", "sales", "financial_transactions"]));
   await db.delete(stockMovements).where(eq(stockMovements.sourceEventType, "sale"));
   await db.delete(saleLines);
   await db.delete(sales);
+  await db.delete(financialTransactions);
+  await db.update(productionRuns).set({ customOrderId: null });
   await db.delete(customOrderLines);
   await db.delete(customOrders);
-  await db
-    .delete(financialTransactions)
-    .where(inArray(financialTransactions.sourceEventType, ["custom_order", "sale", "purchase"]));
   for (const id of ["acc_bank", "acc_cash"] as const) {
     await db.update(financialAccounts).set({ balance: 0 }).where(eq(financialAccounts.id, id));
   }
-  await setSetting(db, "default_deposit_pct", "5000");
 });
 
-// ============================================================================================
-// UC-05 quote
-// ============================================================================================
-
-describe("quoteOrder (UC-05)", () => {
-  it("opens the order at QUOTING with its lines, no money and no kardex", async () => {
+describe("quoteOrder and updateOrder", () => {
+  it("quotes merchandise and an independent additional charge without moving money", async () => {
     const db = createDb(env.DB);
     const customer = await seedCustomer(db);
     const item = await seedStockedItem(db);
-
+    const before = await financialSnapshot(db);
     const { order } = await quoteOrder(
       db,
       {
         customerId: customer.id,
-        description: "Torta de bodas 3 pisos",
-        agreedTotal: 50_000,
-        deliveryDate: "2026-08-01",
-        deliveryPlace: "Zona Sur",
-        lines: [{ itemId: item.id, qty: 2000 }, { description: "Decoración especial" }],
+        description: "Cotización separada",
+        agreedTotal: 12_000,
+        additionalCharge: 2_000,
+        lines: [{ itemId: item.id, qty: 1000 }],
       },
       ACTOR,
     );
 
     expect(order).toMatchObject({
       status: "QUOTING",
-      customerId: customer.id,
-      customerName: customer.name,
-      agreedTotal: 50_000,
-      depositPaid: 0,
-      depositTxId: null,
-      saleId: null,
-      balanceDue: 50_000,
+      agreedTotal: 12_000,
+      additionalCharge: 2_000,
+      code: expect.stringMatching(/^PED-\d{4}-\d{4}$/),
     });
-    expect(order.lines).toHaveLength(2);
-    // O-1's default 50% of the agreed total.
-    expect(order.depositRequired).toBe(25_000);
-
-    // A quote moves no cash and no stock.
-    expect(await customerDeposits(db)).toBe(0);
-    expect(await accountBalance(db, "acc_cash")).toBe(0);
-    const movements = await db.query.stockMovements.findMany({
-      where: (t, { eq: eqOp }) => eqOp(t.sourceEventType, "sale"),
-    });
-    expect(movements).toHaveLength(0);
-
-    const audit = await db.query.auditLog.findFirst({
-      where: (t, { and, eq: eqOp }) =>
-        and(eqOp(t.entityId, order.id), eqOp(t.entityType, "custom_orders")),
-    });
-    expect(audit).toMatchObject({ actor: ACTOR, action: "create" });
+    expect(await financialSnapshot(db)).toBe(before);
   });
 
-  it("derives depositRequired from the default_deposit_pct setting when present", async () => {
-    const db = createDb(env.DB);
-    await setSetting(db, "default_deposit_pct", "3000"); // 30%
-    const customer = await seedCustomer(db);
-
-    const { order } = await quoteOrder(
-      db,
-      { customerId: customer.id, description: "Pedido", agreedTotal: 20_000 },
-      ACTOR,
-    );
-    expect(order.depositRequired).toBe(6_000);
-  });
-
-  it("leaves agreedTotal and depositRequired null when the price is not settled yet", async () => {
-    const db = createDb(env.DB);
-    const customer = await seedCustomer(db);
-    const { order } = await quoteOrder(
-      db,
-      { customerId: customer.id, description: "Aún cotizando" },
-      ACTOR,
-    );
-    expect(order.agreedTotal).toBeNull();
-    expect(order.depositRequired).toBeNull();
-    expect(order.balanceDue).toBeNull();
-  });
-
-  it("rejects an unknown customer", async () => {
-    const db = createDb(env.DB);
-    await expect(
-      quoteOrder(db, { customerId: "nope", description: "Pedido" }, ACTOR),
-    ).rejects.toMatchObject({ code: "NOT_FOUND" });
-  });
-
-  it("rejects a line with neither an item nor a description", async () => {
-    const db = createDb(env.DB);
-    const customer = await seedCustomer(db);
-    await expect(
-      quoteOrder(
-        db,
-        { customerId: customer.id, description: "Pedido", lines: [{ qty: 1000 }] },
-        ACTOR,
-      ),
-    ).rejects.toMatchObject({ code: "VALIDATION" });
-  });
-
-  it("rejects an order line pointing at a non-FINISHED item (Doc 04 §5)", async () => {
+  it("keeps quote validation for customers, free-text lines and FINISHED item eligibility", async () => {
     const db = createDb(env.DB);
     const customer = await seedCustomer(db);
     const raw = await createItem(
       db,
       {
-        name: uniqueName("Harina"),
+        name: uniqueName("Insumo no vendible"),
         kind: "RAW_MATERIAL",
         category: "INGREDIENT",
         unit: "KG",
@@ -335,620 +294,559 @@ describe("quoteOrder (UC-05)", () => {
       ACTOR,
     );
     await expect(
+      quoteOrder(db, { customerId: "missing-customer", description: "Sin cliente" }, ACTOR),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(
       quoteOrder(
         db,
-        { customerId: customer.id, description: "Pedido", lines: [{ itemId: raw.id }] },
+        { customerId: customer.id, description: "Línea vacía", lines: [{ description: "" }] },
+        ACTOR,
+      ),
+    ).rejects.toMatchObject({ code: "VALIDATION" });
+    await expect(
+      quoteOrder(
+        db,
+        { customerId: customer.id, description: "Ítem inválido", lines: [{ itemId: raw.id }] },
         ACTOR,
       ),
     ).rejects.toMatchObject({ code: "VALIDATION" });
   });
-});
 
-// ============================================================================================
-// UC-06 confirm — O-1 + INV-7
-// ============================================================================================
-
-describe("confirmOrder (UC-06, O-1)", () => {
-  it("books a positive deposit as an ORDER_DEPOSIT liability, credits the account, and moves to CONFIRMED", async () => {
+  it("edits every active status, clears nullable fields, preserves PED code, and audits one batch", async () => {
     const db = createDb(env.DB);
-    const { orderId } = await seedOrderInStatus(db, "QUOTING");
+    for (const status of ["QUOTING", "CONFIRMED", "IN_PRODUCTION", "READY"] as const) {
+      const { orderId, customerId, code } = await seedOrderInStatus(db, status);
+      const replacementCustomer = await seedCustomer(db);
+      const order = await getOrder(db, orderId);
+      const beforeFinance = await financialSnapshot(db);
+      const result = await updateOrder(
+        db,
+        orderId,
+        updateCommandFromOrder(order, {
+          customerId: replacementCustomer.id,
+          description: `Ajustado ${status}`,
+          agreedTotal: status === "QUOTING" ? null : 10_000,
+          additionalCharge: 1_250,
+          deliveryDate: null,
+          deliveryPlace: null,
+          notes: null,
+          lines: [
+            {
+              itemId: order.lines[0]?.itemId ?? null,
+              description: null,
+              qty: 1000,
+              lineTotal: null,
+            },
+          ],
+        }),
+        ACTOR,
+      );
 
-    const result = await confirmOrder(
+      expect(result.order).toMatchObject({
+        status,
+        customerId: replacementCustomer.id,
+        description: `Ajustado ${status}`,
+        agreedTotal: status === "QUOTING" ? null : 10_000,
+        additionalCharge: 1_250,
+        deliveryDate: null,
+        deliveryPlace: null,
+        notes: null,
+        code,
+      });
+      expect(result.order.updatedAt).not.toBe(order.updatedAt);
+      expect(await financialSnapshot(db)).toBe(beforeFinance);
+      const audit = await db.query.auditLog.findFirst({
+        where: (t, { and: andOp, eq: eqOp }) =>
+          andOp(eqOp(t.entityId, orderId), eqOp(t.action, "update")),
+      });
+      expect(audit).toBeDefined();
+      expect(JSON.parse(audit?.beforeJson ?? "null")).toMatchObject({
+        customerId,
+        status,
+      });
+      expect(JSON.parse(audit?.afterJson ?? "null")).toMatchObject({
+        customerId: replacementCustomer.id,
+        additionalCharge: 1_250,
+      });
+    }
+  });
+
+  it("advances the optimistic version across same-millisecond lifecycle transitions", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-30T12:00:00.000Z"));
+
+    try {
+      const db = createDb(env.DB);
+      const { orderId } = await seedOrderInStatus(db, "QUOTING");
+      const quoted = await getOrder(db, orderId);
+
+      await confirmOrder(db, orderId, {}, ACTOR);
+      const confirmed = await getOrder(db, orderId);
+      expect(confirmed.updatedAt).not.toBe(quoted.updatedAt);
+      await expect(
+        updateOrder(
+          db,
+          orderId,
+          updateCommandFromOrder(quoted, { description: "Edición abierta antes de confirmar" }),
+          ACTOR,
+        ),
+      ).rejects.toMatchObject({ code: "CONFLICT" });
+
+      const versions = [quoted.updatedAt, confirmed.updatedAt];
+      const captureVersion = async () => {
+        versions.push((await getOrder(db, orderId)).updatedAt);
+      };
+      await startOrderProduction(db, orderId, ACTOR);
+      await captureVersion();
+      await undoStartOrderProduction(db, orderId, ACTOR);
+      await captureVersion();
+      await startOrderProduction(db, orderId, ACTOR);
+      await markOrderReady(db, orderId, ACTOR);
+      await captureVersion();
+      await undoMarkOrderReady(db, orderId, ACTOR);
+      await captureVersion();
+      await markOrderReady(db, orderId, ACTOR);
+      await deliverOrder(db, orderId, { occurredAt: NOW, businessDate: BUSINESS_DATE }, ACTOR);
+      await captureVersion();
+      await undoDeliverOrder(db, orderId, {}, ACTOR);
+      await captureVersion();
+      await cancelOrder(db, orderId, {}, ACTOR);
+      await captureVersion();
+
+      expect(
+        versions.slice(1).every((version, index) => {
+          const previousVersion = versions[index];
+          return previousVersion !== undefined && version > previousVersion;
+        }),
+      ).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("accepts an agreement below active receipts and reports draft excess without blocking", async () => {
+    const db = createDb(env.DB);
+    const { orderId } = await seedOrderInStatus(db, "CONFIRMED", { agreedTotal: 10_000 });
+    await recordOrderReceipt(db, orderId, 12_500);
+    const order = await getOrder(db, orderId);
+    const updated = await updateOrder(
       db,
       orderId,
+      updateCommandFromOrder(order, { agreedTotal: 8_000, additionalCharge: 1_000 }),
+      ACTOR,
+    );
+    const receipts = await getOrderReceiptSummary(db, orderId);
+    const preview = calculateOrderReceiptBalance(
+      updated.order.agreedTotal,
+      updated.order.additionalCharge,
+      receipts.qualifyingReceipts,
+    );
+
+    expect(receipts).toEqual({ qualifyingReceipts: 12_500, hasEverQualifyingReceipt: true });
+    expect(preview).toEqual({ customerAmount: 9_000, expected: 0, excess: 3_500 });
+    expect(updated.order.agreedTotal).toBe(8_000);
+  });
+
+  it("resolves free-text order lines through the same full update command", async () => {
+    const db = createDb(env.DB);
+    const customer = await seedCustomer(db);
+    const item = await seedStockedItem(db);
+    const { order } = await quoteOrder(
+      db,
       {
-        occurredAt: NOW,
-        businessDate: BUSINESS_DATE,
-        depositAmount: 15_000,
-        paymentMethod: "CASH",
-        accountId: "acc_cash",
+        customerId: customer.id,
+        description: "Línea inicialmente libre",
+        agreedTotal: 10_000,
+        lines: [{ description: "Producto descrito", qty: 1000 }],
       },
       ACTOR,
     );
-
-    expect(result.order).toMatchObject({
-      status: "CONFIRMED",
-      depositPaid: 15_000,
-      agreedTotal: 30_000,
-      balanceDue: 15_000,
-    });
-    expect(result.order.depositTxId).not.toBeNull();
-    expect(result.account?.balance).toBe(15_000);
-
-    // The cash physically arrived (ADR-012)...
-    expect(await accountBalance(db, "acc_cash")).toBe(15_000);
-    // ...but it is a LIABILITY, not revenue (INV-7), and the derived view is what says so.
-    expect(await customerDeposits(db)).toBe(15_000);
-
-    const txs = await txsForOrder(db, orderId);
-    expect(txs).toHaveLength(1);
-    expect(txs[0]).toMatchObject({
-      type: "INCOME",
-      category: "ORDER_DEPOSIT",
-      amount: 15_000,
-      accountId: "acc_cash",
-    });
-
-    // INV-7 stated the other way round: no revenue-recognizing row exists anywhere yet.
-    const revenue = await db.query.financialTransactions.findMany({
-      where: (t, { inArray: inArrayOp }) =>
-        inArrayOp(t.category, ["SALE", "ORDER_BALANCE", "OTHER_INCOME", "DEBT_COLLECTION"]),
-    });
-    expect(revenue).toHaveLength(0);
-
-    const audit = await db.query.auditLog.findFirst({
-      where: (t, { and, eq: eqOp }) => and(eqOp(t.entityId, orderId), eqOp(t.action, "confirm")),
-    });
-    expect(audit).toBeDefined();
-  });
-
-  it("accepts the agreed total at confirm time when the quote had none", async () => {
-    const db = createDb(env.DB);
-    const customer = await seedCustomer(db);
-    const { order } = await quoteOrder(
-      db,
-      { customerId: customer.id, description: "Sin precio aún" },
-      ACTOR,
-    );
-
-    const result = await confirmOrder(
+    const resolved = await updateOrder(
       db,
       order.id,
+      updateCommandFromOrder(order, {
+        lines: [{ itemId: item.id, description: "Producto descrito", qty: 1000, lineTotal: null }],
+      }),
+      ACTOR,
+    );
+    expect(resolved.order.lines).toMatchObject([
+      { itemId: item.id, description: "Producto descrito", qty: 1000 },
+    ]);
+  });
+
+  it("keeps linked production work unchanged when replacing agreement lines", async () => {
+    const db = createDb(env.DB);
+    const { orderId } = await seedOrderInStatus(db, "IN_PRODUCTION");
+    const rawItem = await createItem(
+      db,
       {
-        occurredAt: NOW,
-        businessDate: BUSINESS_DATE,
-        agreedTotal: 40_000,
-        depositAmount: 10_000,
-        paymentMethod: "BANK_QR",
-        accountId: "acc_bank",
+        name: uniqueName("Insumo trabajo histórico"),
+        kind: "RAW_MATERIAL",
+        category: "INGREDIENT",
+        unit: "KG",
       },
       ACTOR,
     );
-    expect(result.order).toMatchObject({ agreedTotal: 40_000, depositRequired: 20_000 });
-  });
-
-  it("refuses to confirm without an agreed total (Doc 04 §3.3: required to confirm)", async () => {
-    const db = createDb(env.DB);
-    const customer = await seedCustomer(db);
-    const { order } = await quoteOrder(
+    const output = await createItem(
       db,
-      { customerId: customer.id, description: "Sin precio" },
+      {
+        name: uniqueName("Producto trabajo histórico"),
+        kind: "SEMI_FINISHED",
+        category: "INGREDIENT",
+        unit: "KG",
+      },
       ACTOR,
     );
-
-    await expect(
-      confirmOrder(
-        db,
-        order.id,
-        {
-          occurredAt: NOW,
-          businessDate: BUSINESS_DATE,
-          depositAmount: 5_000,
-          paymentMethod: "CASH",
-          accountId: "acc_cash",
-        },
-        ACTOR,
-      ),
-    ).rejects.toMatchObject({ code: "VALIDATION" });
-  });
-
-  it("refuses zero without explicit risk acceptance and leaves the order and ledgers untouched", async () => {
-    const db = createDb(env.DB);
-    const { orderId } = await seedOrderInStatus(db, "QUOTING");
-
-    await expect(
-      confirmOrder(
-        db,
-        orderId,
-        {
-          occurredAt: NOW,
-          businessDate: BUSINESS_DATE,
-          depositAmount: 0,
-        },
-        ACTOR,
-      ),
-    ).rejects.toMatchObject({ code: "VALIDATION" });
-
-    // Nothing was written: still QUOTING, no liability, no cash.
-    expect((await getOrder(db, orderId)).status).toBe("QUOTING");
-    expect(await customerDeposits(db)).toBe(0);
-    expect(await accountBalance(db, "acc_cash")).toBe(0);
-    expect(await txsForOrder(db, orderId)).toHaveLength(0);
-  });
-
-  it("rejects a negative deposit in core even when called without the shared schema", async () => {
-    const db = createDb(env.DB);
-    const { orderId } = await seedOrderInStatus(db, "QUOTING");
-
-    await expect(
-      confirmOrder(
-        db,
-        orderId,
-        {
-          occurredAt: NOW,
-          businessDate: BUSINESS_DATE,
-          depositAmount: -1,
-        },
-        ACTOR,
-      ),
-    ).rejects.toMatchObject({ code: "VALIDATION" });
-
-    expect((await getOrder(db, orderId)).status).toBe("QUOTING");
-    expect(await customerDeposits(db)).toBe(0);
-    expect(await accountBalance(db, "acc_cash")).toBe(0);
-    expect(await txsForOrder(db, orderId)).toHaveLength(0);
-  });
-
-  it("confirms at zero only with acknowledgment and writes no deposit transaction, balance change, or liability", async () => {
-    const db = createDb(env.DB);
-    const { orderId } = await seedOrderInStatus(db, "QUOTING");
-
-    const result = await confirmOrder(
+    const production = await recordProductionRun(
+      db,
+      {
+        recipeId: null,
+        outputItemId: output.id,
+        customOrderId: orderId,
+        batches: 1,
+        actualOutputQty: 1000,
+        indirectCost: 500,
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        lines: [{ itemId: rawItem.id, qty: 1000 }],
+      },
+      ACTOR,
+    );
+    const beforeWork = await getProductionRun(db, production.productionRun.id);
+    const order = await getOrder(db, orderId);
+    const updated = await updateOrder(
       db,
       orderId,
-      {
-        occurredAt: NOW,
-        businessDate: BUSINESS_DATE,
-        depositAmount: 0,
-        acceptNoDepositRisk: true,
-      },
+      updateCommandFromOrder(order, {
+        description: "Acuerdo corregido después de iniciar el trabajo",
+        agreedTotal: 28_000,
+        additionalCharge: 1_000,
+        lines: [{ itemId: order.lines[0]?.itemId ?? null, qty: 2000, lineTotal: null }],
+      }),
       ACTOR,
     );
 
-    expect(result.order).toMatchObject({
-      status: "CONFIRMED",
-      agreedTotal: 30_000,
-      depositRequired: 15_000,
-      depositPaid: 0,
-      depositTxId: null,
-      balanceDue: 30_000,
-    });
-    expect(result.account).toBeNull();
-    expect(await accountBalance(db, "acc_cash")).toBe(0);
-    expect(await customerDeposits(db)).toBe(0);
-    expect(await txsForOrder(db, orderId)).toHaveLength(0);
+    const afterWork = await getProductionRun(db, production.productionRun.id);
+    expect(updated.order.description).toBe("Acuerdo corregido después de iniciar el trabajo");
+    expect(afterWork).toEqual(beforeWork);
+  });
 
-    const audit = await db.query.auditLog.findFirst({
-      where: (t, { and, eq: eqOp }) => and(eqOp(t.entityId, orderId), eqOp(t.action, "confirm")),
+  it("receipt summary counts only active manual order receipts and remembers soft-deleted receipt identity", async () => {
+    const db = createDb(env.DB);
+    const { orderId } = await seedOrderInStatus(db);
+    const { orderId: unrelatedOrderId } = await seedOrderInStatus(db);
+    const activeReceipt = await recordOrderReceipt(db, orderId, 3_000);
+    const activeBalanceReceipt = await recordOrderReceipt(db, orderId, 500, "ORDER_BALANCE");
+    const deletedReceipt = await recordOrderReceipt(db, orderId, 2_000, "ORDER_BALANCE");
+    await recordTransaction(
+      db,
+      {
+        accountId: "acc_cash",
+        type: "INCOME",
+        category: "OTHER_INCOME",
+        amount: 4_000,
+        customOrderId: orderId,
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+      },
+      ACTOR,
+    );
+    await recordTransaction(
+      db,
+      {
+        accountId: "acc_cash",
+        type: "EXPENSE",
+        category: "ORDER_REFUND",
+        amount: 1_500,
+        customOrderId: orderId,
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+      },
+      ACTOR,
+    );
+    await recordTransaction(
+      db,
+      {
+        accountId: "acc_cash",
+        type: "EXPENSE",
+        category: "OPERATING_EXPENSE",
+        amount: 800,
+        customOrderId: orderId,
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+      },
+      ACTOR,
+    );
+    await recordOrderReceipt(db, unrelatedOrderId, 7_000);
+    await deleteTransaction(db, deletedReceipt.id, {}, ACTOR);
+
+    expect(await getOrderReceiptSummary(db, orderId)).toEqual({
+      qualifyingReceipts: 3_500,
+      hasEverQualifyingReceipt: true,
     });
-    expect(JSON.parse(audit?.afterJson ?? "null")).toMatchObject({
-      depositPaid: 0,
-      depositTxId: null,
-      acceptedNoDepositRisk: true,
+    await deleteTransaction(db, activeReceipt.id, {}, ACTOR);
+    await deleteTransaction(db, activeBalanceReceipt.id, {}, ACTOR);
+    expect(await getOrderReceiptSummary(db, orderId)).toEqual({
+      qualifyingReceipts: 0,
+      hasEverQualifyingReceipt: true,
     });
   });
 
-  it("refuses a deposit larger than the agreed total", async () => {
+  it("locks customer after any qualifying receipt, including deleted ones, but permits a pre-receipt change", async () => {
     const db = createDb(env.DB);
-    const { orderId } = await seedOrderInStatus(db, "QUOTING");
+    const newCustomer = await seedCustomer(db);
+    const beforeReceipt = await seedOrderInStatus(db);
+    const beforeReceiptOrder = await getOrder(db, beforeReceipt.orderId);
     await expect(
-      confirmOrder(
+      updateOrder(
+        db,
+        beforeReceipt.orderId,
+        updateCommandFromOrder(beforeReceiptOrder, { customerId: newCustomer.id }),
+        ACTOR,
+      ),
+    ).resolves.toMatchObject({ order: { customerId: newCustomer.id } });
+
+    const afterReceipt = await seedOrderInStatus(db);
+    const receipt = await recordOrderReceipt(db, afterReceipt.orderId, 1_000);
+    await deleteTransaction(db, receipt.id, {}, ACTOR);
+    const lockedOrder = await getOrder(db, afterReceipt.orderId);
+    await expect(
+      updateOrder(
+        db,
+        afterReceipt.orderId,
+        updateCommandFromOrder(lockedOrder, { customerId: newCustomer.id }),
+        ACTOR,
+      ),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+  });
+
+  it("rejects bad items, non-positive quantities, impossible pinned shares, terminal edits, and stale writes", async () => {
+    const db = createDb(env.DB);
+    const { orderId } = await seedOrderInStatus(db);
+    const order = await getOrder(db, orderId);
+    const raw = await createItem(
+      db,
+      {
+        name: uniqueName("Materia prima"),
+        kind: "RAW_MATERIAL",
+        category: "INGREDIENT",
+        unit: "KG",
+      },
+      ACTOR,
+    );
+    const base = updateCommandFromOrder(order);
+
+    await expect(
+      updateOrder(db, orderId, { ...base, lines: [{ itemId: raw.id, qty: 1000 }] }, ACTOR),
+    ).rejects.toMatchObject({ code: "VALIDATION" });
+    await expect(
+      updateOrder(
+        db,
+        orderId,
+        { ...base, lines: [{ itemId: order.lines[0]?.itemId ?? null, qty: 0 }] },
+        ACTOR,
+      ),
+    ).rejects.toMatchObject({ code: "VALIDATION" });
+    await expect(
+      updateOrder(
         db,
         orderId,
         {
-          occurredAt: NOW,
-          businessDate: BUSINESS_DATE,
-          depositAmount: 30_001,
-          paymentMethod: "CASH",
-          accountId: "acc_cash",
+          ...base,
+          agreedTotal: 1_000,
+          lines: [{ itemId: order.lines[0]?.itemId ?? null, qty: 1000, lineTotal: 2_000 }],
         },
         ACTOR,
       ),
     ).rejects.toMatchObject({ code: "VALIDATION" });
-  });
-});
 
-// ============================================================================================
-// Pure transitions
-// ============================================================================================
+    const updated = await updateOrder(
+      db,
+      orderId,
+      { ...base, description: "Primer guardado" },
+      ACTOR,
+    );
+    const auditCount = (
+      await db.query.auditLog.findMany({
+        where: (t, { eq: eqOp }) => eqOp(t.entityId, orderId),
+      })
+    ).length;
+    await expect(
+      updateOrder(db, orderId, { ...base, description: "Escritura obsoleta" }, ACTOR),
+    ).rejects.toMatchObject({
+      code: "CONFLICT",
+    });
+    expect((await getOrder(db, orderId)).description).toBe("Primer guardado");
+    expect(
+      (await db.query.auditLog.findMany({ where: (t, { eq: eqOp }) => eqOp(t.entityId, orderId) }))
+        .length,
+    ).toBe(auditCount);
 
-describe("startOrderProduction / markOrderReady", () => {
-  it("moves CONFIRMED -> IN_PRODUCTION -> READY with no money and no kardex effect", async () => {
-    const db = createDb(env.DB);
-    const { orderId } = await seedOrderInStatus(db, "CONFIRMED");
-    const cashBefore = await accountBalance(db, "acc_cash");
-    const liabilityBefore = await customerDeposits(db);
-
-    expect((await startOrderProduction(db, orderId, ACTOR)).order.status).toBe("IN_PRODUCTION");
-    expect((await markOrderReady(db, orderId, ACTOR)).order.status).toBe("READY");
-
-    expect(await accountBalance(db, "acc_cash")).toBe(cashBefore);
-    // Still a liability: the goods have not been handed over (INV-7).
-    expect(await customerDeposits(db)).toBe(liabilityBefore);
-    const txs = await txsForOrder(db, orderId);
-    expect(txs).toHaveLength(1); // only the deposit
-  });
-
-  it("round-trips CONFIRMED <-> IN_PRODUCTION <-> READY", async () => {
-    const db = createDb(env.DB);
-    const { orderId } = await seedOrderInStatus(db, "CONFIRMED");
-
-    await startOrderProduction(db, orderId, ACTOR);
-    expect((await undoStartOrderProduction(db, orderId, ACTOR)).order.status).toBe("CONFIRMED");
-
+    await confirmOrder(db, orderId, {}, ACTOR);
     await startOrderProduction(db, orderId, ACTOR);
     await markOrderReady(db, orderId, ACTOR);
-    expect((await undoMarkOrderReady(db, orderId, ACTOR)).order.status).toBe("IN_PRODUCTION");
+    await deliverOrder(db, orderId, { occurredAt: NOW, businessDate: BUSINESS_DATE }, ACTOR);
+    const delivered = await getOrder(db, orderId);
+    await expect(
+      updateOrder(
+        db,
+        orderId,
+        updateCommandFromOrder(delivered, { description: "Inmutable" }),
+        ACTOR,
+      ),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(updated.order.code).toBe(order.code);
+  });
+
+  it("serializes racing optimistic edits: one update and audit commit, the stale batch rolls back", async () => {
+    const db = createDb(env.DB);
+    const { orderId } = await seedOrderInStatus(db);
+    const order = await getOrder(db, orderId);
+    const attempts = await Promise.allSettled([
+      updateOrder(db, orderId, updateCommandFromOrder(order, { description: "A" }), ACTOR),
+      updateOrder(db, orderId, updateCommandFromOrder(order, { description: "B" }), ACTOR),
+    ]);
+    expect(attempts.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect(attempts.filter((result) => result.status === "rejected")).toHaveLength(1);
+    const updates = await db.query.auditLog.findMany({
+      where: (t, { and: andOp, eq: eqOp }) =>
+        andOp(eqOp(t.entityId, orderId), eqOp(t.action, "update")),
+    });
+    expect(updates).toHaveLength(1);
   });
 });
 
-// ============================================================================================
-// UC-07 deliver — O-2
-// ============================================================================================
-
-describe("deliverOrder (UC-07, O-2)", () => {
-  it("creates the CUSTOM_ORDER sale for the full agreed total, books only the BALANCE, and releases the liability", async () => {
+describe("cash-free order lifecycle (O-8)", () => {
+  it("audits status reversals without changing any existing finance row or account byte", async () => {
     const db = createDb(env.DB);
-    const { orderId, itemId } = await seedOrderInStatus(db, "READY");
+    const { orderId } = await seedOrderInStatus(db, "QUOTING");
+    await recordOrderReceipt(db, orderId, 6_000);
+    const before = await financialSnapshot(db);
 
+    expect((await confirmOrder(db, orderId, {}, ACTOR)).order.status).toBe("CONFIRMED");
+    expect(await financialSnapshot(db)).toBe(before);
+    expect((await startOrderProduction(db, orderId, ACTOR)).order.status).toBe("IN_PRODUCTION");
+    expect(await financialSnapshot(db)).toBe(before);
+    expect((await markOrderReady(db, orderId, ACTOR)).order.status).toBe("READY");
+    expect(await financialSnapshot(db)).toBe(before);
+    expect((await undoMarkOrderReady(db, orderId, ACTOR)).order.status).toBe("IN_PRODUCTION");
+    expect(await financialSnapshot(db)).toBe(before);
+    expect((await undoStartOrderProduction(db, orderId, ACTOR)).order.status).toBe("CONFIRMED");
+    expect(await financialSnapshot(db)).toBe(before);
+
+    for (const action of [
+      "confirm",
+      "start_production",
+      "mark_ready",
+      "undo_mark_ready",
+      "undo_start_production",
+    ]) {
+      const audit = await db.query.auditLog.findFirst({
+        where: (t, { and: andOp, eq: eqOp }) =>
+          andOp(eqOp(t.entityId, orderId), eqOp(t.action, action)),
+      });
+      expect(audit).toBeDefined();
+    }
+  });
+
+  it("delivers an order-owned merchandise/charge sale and never writes cash", async () => {
+    const db = createDb(env.DB);
+    const { orderId, itemId } = await seedOrderInStatus(db, "READY", {
+      agreedTotal: 10_000,
+      additionalCharge: 2_000,
+    });
+    await recordOrderReceipt(db, orderId, 1_000);
+    const before = await financialSnapshot(db);
     const stockBefore = await db.query.itemStock.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.itemId, itemId),
     });
-    expect(await customerDeposits(db)).toBe(15_000);
-    const cashBefore = await accountBalance(db, "acc_cash");
 
-    const result = await deliverOrder(
+    const delivered = await deliverOrder(
       db,
       orderId,
-      {
-        occurredAt: NOW,
-        businessDate: BUSINESS_DATE,
-        balancePaymentStatus: "PAID",
-        paymentMethod: "CASH",
-        accountId: "acc_cash",
-      },
+      { occurredAt: NOW, businessDate: BUSINESS_DATE },
       ACTOR,
     );
-
-    // The sale is for the FULL agreed total (O-2), server-recomputed from its lines (Doc 04 §5).
-    expect(result.sale).toMatchObject({
+    expect(delivered.sale).toMatchObject({
       channel: "CUSTOM_ORDER",
       customOrderId: orderId,
-      total: 30_000,
-      paymentStatus: "PAID",
+      total: 12_000,
+      additionalCharge: 2_000,
+      paymentStatus: "ON_CREDIT",
+      paidAt: null,
+      paymentMethod: null,
+      accountId: null,
     });
-    expect(result.sale.lines).toHaveLength(1);
-    expect(result.sale.lines[0]).toMatchObject({ itemId, qty: 1000, unitPriceMc: 30_000_000 });
-    // WAC frozen at sale time (C-6): the seeded item's WAC is 6_000_000 milli-centavos per whole
-    // unit (ADR-017; recordPurchase's rateFromTotal(60000, 10000) = 6_000_000 exactly).
-    expect(result.sale.lines[0]?.unitCostSnapshotMc).toBe(6_000_000);
-    expect(result.sale.total).toBe(
+    expect(delivered.sale.lines).toHaveLength(1);
+    expect(
       totalCentavos(
-        toMilliCentavosPerUnit(result.sale.lines[0]?.unitPriceMc ?? 0),
-        toMilliUnits(result.sale.lines[0]?.qty ?? 0),
+        toMilliCentavosPerUnit(delivered.sale.lines[0]?.unitPriceMc ?? 0),
+        toMilliUnits(delivered.sale.lines[0]?.qty ?? 0),
       ),
-    );
-
-    expect(result.order).toMatchObject({ status: "DELIVERED", saleId: result.sale.id });
-
-    // Only the BALANCE moved cash — the deposit was banked at confirm time and is NOT re-credited.
-    expect(await accountBalance(db, "acc_cash")).toBe(cashBefore + 15_000);
-    expect(result.account?.balance).toBe(cashBefore + 15_000);
-    const txs = await txsForOrder(db, orderId);
-    expect(txs).toHaveLength(2);
-    const balanceTx = txs.find((t) => t.category === "ORDER_BALANCE");
-    expect(balanceTx).toMatchObject({ type: "INCOME", amount: 15_000 });
-
-    // O-2: the deposit liability is released against the sale.
-    expect(await customerDeposits(db)).toBe(0);
-
-    // The kardex really moved (this is what a free-text-only delivery would have skipped).
-    const movements = await db.query.stockMovements.findMany({
-      where: (t, { and, eq: eqOp }) =>
-        and(eqOp(t.sourceEventType, "sale"), eqOp(t.sourceEventId, result.sale.id)),
-    });
-    expect(movements).toHaveLength(1);
-    expect(movements[0]).toMatchObject({ type: "SALE_OUT", qty: -1000, itemId });
+    ).toBe(10_000);
+    expect(await financialSnapshot(db)).toBe(before);
     const stockAfter = await db.query.itemStock.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.itemId, itemId),
     });
     expect(stockAfter?.qtyOnHand).toBe((stockBefore?.qtyOnHand ?? 0) - 1000);
-
-    // Both the order transition and the sale it created are audited.
-    const orderAudit = await db.query.auditLog.findFirst({
-      where: (t, { and, eq: eqOp }) => and(eqOp(t.entityId, orderId), eqOp(t.action, "deliver")),
-    });
-    expect(orderAudit).toBeDefined();
-    const saleAudit = await db.query.auditLog.findFirst({
-      where: (t, { and, eq: eqOp }) =>
-        and(eqOp(t.entityId, result.sale.id), eqOp(t.entityType, "sales")),
-    });
-    expect(saleAudit).toBeDefined();
+    expect(
+      await db.query.auditLog.findFirst({
+        where: (t, { and: andOp, eq: eqOp }) =>
+          andOp(eqOp(t.entityId, delivered.sale.id), eqOp(t.action, "create")),
+      }),
+    ).toBeDefined();
   });
 
-  it("leaves the balance as a receivable NET OF THE DEPOSIT when taken ON_CREDIT", async () => {
-    const db = createDb(env.DB);
-    const { orderId } = await seedOrderInStatus(db, "READY");
-    const cashBefore = await accountBalance(db, "acc_cash");
-
-    const result = await deliverOrder(
-      db,
-      orderId,
-      { occurredAt: NOW, businessDate: BUSINESS_DATE, balancePaymentStatus: "ON_CREDIT" },
-      ACTOR,
-    );
-
-    expect(result.sale).toMatchObject({ paymentStatus: "ON_CREDIT", total: 30_000, paidAt: null });
-    expect(result.account).toBeNull();
-    // No cash moved at delivery, and no balance transaction was booked.
-    expect(await accountBalance(db, "acc_cash")).toBe(cashBefore);
-    const txs = await txsForOrder(db, orderId);
-    expect(txs).toHaveLength(1);
-    expect(txs[0]?.category).toBe("ORDER_DEPOSIT");
-
-    // The liability is released even though the balance is unpaid: the goods are delivered.
-    expect(await customerDeposits(db)).toBe(0);
-    // ...and the receivable is the BALANCE (Bs 150), not the full agreed total (migration 0005) —
-    // the deposit is already in the account and must not be counted as still-owed too.
-    expect(await receivableFor(db, result.sale.id)).toBe(15_000);
-  });
-
-  it("collects that receivable for the balance only, never the full sale total", async () => {
-    const db = createDb(env.DB);
-    const { orderId } = await seedOrderInStatus(db, "READY");
-    const { sale } = await deliverOrder(
-      db,
-      orderId,
-      { occurredAt: NOW, businessDate: BUSINESS_DATE, balancePaymentStatus: "ON_CREDIT" },
-      ACTOR,
-    );
-    const cashBefore = await accountBalance(db, "acc_cash");
-
-    const collected = await collectPayment(
-      db,
-      sale.id,
-      {
-        occurredAt: "2026-07-25T10:00:00.000Z",
-        businessDate: "2026-07-25",
-        paymentMethod: "CASH",
-        accountId: "acc_cash",
-      },
-      ACTOR,
-    );
-
-    expect(collected.sale.paymentStatus).toBe("PAID");
-    // Bs 150 (the balance), NOT Bs 300 — the deposit would otherwise be banked twice.
-    expect(await accountBalance(db, "acc_cash")).toBe(cashBefore + 15_000);
-    const debtTx = await db.query.financialTransactions.findFirst({
-      where: (t, { and, eq: eqOp }) =>
-        and(eqOp(t.sourceEventId, sale.id), eqOp(t.category, "DEBT_COLLECTION")),
-    });
-    expect(debtTx?.amount).toBe(15_000);
-    expect(await receivableFor(db, sale.id)).toBeNull();
-  });
-
-  it("marks a fully prepaid order PAID and books no balance transaction", async () => {
-    const db = createDb(env.DB);
-    const { orderId } = await seedOrderInStatus(db, "READY", {
-      agreedTotal: 30_000,
-      depositAmount: 30_000,
-    });
-    const cashBefore = await accountBalance(db, "acc_cash");
-
-    const result = await deliverOrder(
-      db,
-      orderId,
-      { occurredAt: NOW, businessDate: BUSINESS_DATE, balancePaymentStatus: "ON_CREDIT" },
-      ACTOR,
-    );
-
-    // Nothing is owed, so the sale is PAID whatever the caller said about the balance.
-    expect(result.sale.paymentStatus).toBe("PAID");
-    expect(await accountBalance(db, "acc_cash")).toBe(cashBefore);
-    expect(await txsForOrder(db, orderId)).toHaveLength(1); // the deposit only
-    expect(await customerDeposits(db)).toBe(0);
-    expect(await receivableFor(db, result.sale.id)).toBeNull();
-  });
-
-  it("splits the agreed total across several lines with no lost centavos (D-5)", async () => {
+  it("allocates a pinned multi-line merchandise subtotal exactly and snapshots charge separately", async () => {
     const db = createDb(env.DB);
     const customer = await seedCustomer(db);
     const itemA = await seedStockedItem(db);
     const itemB = await seedStockedItem(db);
-
     const { order } = await quoteOrder(
       db,
       {
         customerId: customer.id,
-        description: "Dos productos",
-        agreedTotal: 1_000, // Bs 10,00 across three equal single-unit lines
-        lines: [{ itemId: itemA.id }, { itemId: itemB.id }, { itemId: itemA.id }],
+        description: "Pedido con líneas fijadas",
+        agreedTotal: 10_001,
+        additionalCharge: 500,
+        lines: [
+          { itemId: itemA.id, qty: 1000, lineTotal: 3_000 },
+          { itemId: itemB.id, qty: 1000 },
+          { itemId: itemA.id, qty: 1000 },
+        ],
       },
       ACTOR,
     );
-    await confirmOrder(
-      db,
-      order.id,
-      {
-        occurredAt: NOW,
-        businessDate: BUSINESS_DATE,
-        depositAmount: 500,
-        paymentMethod: "CASH",
-        accountId: "acc_cash",
-      },
-      ACTOR,
-    );
+    await confirmOrder(db, order.id, {}, ACTOR);
     await startOrderProduction(db, order.id, ACTOR);
     await markOrderReady(db, order.id, ACTOR);
 
-    const { sale } = await deliverOrder(
+    const delivered = await deliverOrder(
       db,
       order.id,
-      {
-        occurredAt: NOW,
-        businessDate: BUSINESS_DATE,
-        balancePaymentStatus: "PAID",
-        paymentMethod: "CASH",
-        accountId: "acc_cash",
-      },
+      { occurredAt: NOW, businessDate: BUSINESS_DATE },
       ACTOR,
     );
-
-    expect(sale.total).toBe(1_000);
-    expect(sale.lines.map((l) => l.unitPriceMc).sort((a, b) => b - a)).toEqual([
-      334_000, 333_000, 333_000,
-    ]);
-    expect(
-      sale.lines.reduce(
-        (sum, line) =>
-          sum + totalCentavos(toMilliCentavosPerUnit(line.unitPriceMc), toMilliUnits(line.qty)),
-        0,
+    const merchandiseLinesTotal = addMoney(
+      ...delivered.sale.lines.map((line) =>
+        totalCentavos(toMilliCentavosPerUnit(line.unitPriceMc), toMilliUnits(line.qty)),
       ),
-    ).toBe(1_000);
+    );
+    expect(merchandiseLinesTotal).toBe(10_001);
+    expect(delivered.sale).toMatchObject({ total: 10_501, additionalCharge: 500 });
+    expect(delivered.sale.lines.map((line) => line.itemId)).toEqual([itemA.id, itemB.id, itemA.id]);
   });
 
-  it("REFUSES to deliver while any line is not linked to a catalog item (the O-2 / Doc 04 §5 rule)", async () => {
+  it("keeps the order-owned sale behind the order service", async () => {
     const db = createDb(env.DB);
-    const customer = await seedCustomer(db);
-    const item = await seedStockedItem(db);
-    const { order } = await quoteOrder(
-      db,
-      {
-        customerId: customer.id,
-        description: "Con línea libre",
-        agreedTotal: 30_000,
-        lines: [{ itemId: item.id }, { description: "Torta artesanal sin ítem" }],
-      },
-      ACTOR,
-    );
-    await confirmOrder(
-      db,
-      order.id,
-      {
-        occurredAt: NOW,
-        businessDate: BUSINESS_DATE,
-        depositAmount: 15_000,
-        paymentMethod: "CASH",
-        accountId: "acc_cash",
-      },
-      ACTOR,
-    );
-    await startOrderProduction(db, order.id, ACTOR);
-    await markOrderReady(db, order.id, ACTOR);
-
-    await expect(
-      deliverOrder(
-        db,
-        order.id,
-        {
-          occurredAt: NOW,
-          businessDate: BUSINESS_DATE,
-          balancePaymentStatus: "PAID",
-          paymentMethod: "CASH",
-          accountId: "acc_cash",
-        },
-        ACTOR,
-      ),
-    ).rejects.toMatchObject({ code: "CONFLICT" });
-
-    // Nothing was written: no sale, still READY, liability untouched.
-    expect((await getOrder(db, order.id)).status).toBe("READY");
-    expect(await db.query.sales.findMany()).toHaveLength(0);
-    expect(await customerDeposits(db)).toBe(15_000);
-  });
-
-  it("REFUSES to deliver an order with no lines at all", async () => {
-    const db = createDb(env.DB);
-    const customer = await seedCustomer(db);
-    const { order } = await quoteOrder(
-      db,
-      { customerId: customer.id, description: "Sin líneas", agreedTotal: 30_000 },
-      ACTOR,
-    );
-    await confirmOrder(
-      db,
-      order.id,
-      {
-        occurredAt: NOW,
-        businessDate: BUSINESS_DATE,
-        depositAmount: 15_000,
-        paymentMethod: "CASH",
-        accountId: "acc_cash",
-      },
-      ACTOR,
-    );
-    await startOrderProduction(db, order.id, ACTOR);
-    await markOrderReady(db, order.id, ACTOR);
-
-    await expect(
-      deliverOrder(
-        db,
-        order.id,
-        { occurredAt: NOW, businessDate: BUSINESS_DATE, balancePaymentStatus: "ON_CREDIT" },
-        ACTOR,
-      ),
-    ).rejects.toMatchObject({ code: "CONFLICT" });
-  });
-
-  it("uses milli-centavo rates to deliver a formerly indivisible agreed total", async () => {
-    const db = createDb(env.DB);
-    const customer = await seedCustomer(db);
-    const item = await seedStockedItem(db);
-    // Bs 1,00 over a single 3-unit line: no integer centavo per-unit price yields exactly 100.
-    const { order } = await quoteOrder(
-      db,
-      {
-        customerId: customer.id,
-        description: "Indivisible",
-        agreedTotal: 100,
-        lines: [{ itemId: item.id, qty: 3000 }],
-      },
-      ACTOR,
-    );
-    await confirmOrder(
-      db,
-      order.id,
-      {
-        occurredAt: NOW,
-        businessDate: BUSINESS_DATE,
-        depositAmount: 50,
-        paymentMethod: "CASH",
-        accountId: "acc_cash",
-      },
-      ACTOR,
-    );
-    await startOrderProduction(db, order.id, ACTOR);
-    await markOrderReady(db, order.id, ACTOR);
-
-    const result = await deliverOrder(
-      db,
-      order.id,
-      { occurredAt: NOW, businessDate: BUSINESS_DATE, balancePaymentStatus: "ON_CREDIT" },
-      ACTOR,
-    );
-    expect(result.sale.total).toBe(100);
-    expect(result.sale.lines[0]?.unitPriceMc).toBe(33_333);
-  });
-
-  it("protects the order-owned sale from being edited or deleted through core/sales", async () => {
-    const db = createDb(env.DB);
-    const { orderId } = await seedOrderInStatus(db, "READY");
+    const { orderId, itemId } = await seedOrderInStatus(db, "READY");
     const { sale } = await deliverOrder(
       db,
       orderId,
-      { occurredAt: NOW, businessDate: BUSINESS_DATE, balancePaymentStatus: "ON_CREDIT" },
+      { occurredAt: NOW, businessDate: BUSINESS_DATE },
       ACTOR,
     );
+    const before = await financialSnapshot(db);
 
     await expect(
       updateSale(
@@ -958,826 +856,531 @@ describe("deliverOrder (UC-07, O-2)", () => {
           paymentStatus: "ON_CREDIT",
           occurredAt: NOW,
           businessDate: BUSINESS_DATE,
-          lines: [{ itemId: sale.lines[0]?.itemId ?? "", qty: 1000, unitPriceMc: 1_000_000 }],
+          lines: [{ itemId, qty: 1000, unitPriceMc: toMilliCentavosPerUnit(10_000_000) }],
         },
         ACTOR,
       ),
     ).rejects.toMatchObject({ code: "CONFLICT" });
-
     await expect(deleteSale(db, sale.id, {}, ACTOR)).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(await financialSnapshot(db)).toBe(before);
   });
-});
 
-// ============================================================================================
-// UC-07 undo delivery — O-6
-// ============================================================================================
-
-describe("undoDeliverOrder (UC-07-undo, O-6)", () => {
-  it("returns a same-day delivery to READY and reverses only its sale and balance effects", async () => {
+  it("refuses to deliver empty or unresolved lines until updateOrder makes them deliverable", async () => {
     const db = createDb(env.DB);
-    const { orderId, itemId, depositAmount } = await seedOrderInStatus(db, "READY");
-    const stockBeforeDelivery = await db.query.itemStock.findFirst({
-      where: (t, { eq: eqOp }) => eqOp(t.itemId, itemId),
-    });
-    const cashBeforeDelivery = await accountBalance(db, "acc_cash");
-    const [depositTxBefore] = await txsForOrder(db, orderId);
-
-    const delivered = await deliverOrder(
+    const customer = await seedCustomer(db);
+    const item = await seedStockedItem(db);
+    const empty = await quoteOrder(
       db,
-      orderId,
+      { customerId: customer.id, description: "Sin líneas", agreedTotal: 1_000 },
+      ACTOR,
+    );
+    await confirmOrder(db, empty.order.id, {}, ACTOR);
+    await startOrderProduction(db, empty.order.id, ACTOR);
+    await markOrderReady(db, empty.order.id, ACTOR);
+    await expect(
+      deliverOrder(db, empty.order.id, { occurredAt: NOW, businessDate: BUSINESS_DATE }, ACTOR),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+
+    const unresolved = await quoteOrder(
+      db,
       {
-        occurredAt: NOW,
-        businessDate: BUSINESS_DATE,
-        balancePaymentStatus: "PAID",
-        paymentMethod: "CASH",
-        accountId: "acc_cash",
+        customerId: customer.id,
+        description: "Línea libre",
+        agreedTotal: 1_000,
+        lines: [{ description: "Producto especial", qty: 1000 }],
       },
       ACTOR,
     );
-    expect(await accountBalance(db, "acc_cash")).toBe(cashBeforeDelivery + 15_000);
+    await confirmOrder(db, unresolved.order.id, {}, ACTOR);
+    await startOrderProduction(db, unresolved.order.id, ACTOR);
+    await markOrderReady(db, unresolved.order.id, ACTOR);
+    await expect(
+      deliverOrder(
+        db,
+        unresolved.order.id,
+        { occurredAt: NOW, businessDate: BUSINESS_DATE },
+        ACTOR,
+      ),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    const order = await getOrder(db, unresolved.order.id);
+    await updateOrder(
+      db,
+      unresolved.order.id,
+      updateCommandFromOrder(order, {
+        lines: [{ itemId: item.id, description: "Producto especial", qty: 1000, lineTotal: null }],
+      }),
+      ACTOR,
+    );
+    expect(
+      (
+        await deliverOrder(
+          db,
+          unresolved.order.id,
+          { occurredAt: NOW, businessDate: BUSINESS_DATE },
+          ACTOR,
+        )
+      ).order.status,
+    ).toBe("DELIVERED");
+  });
 
-    const result = await undoDeliverOrder(db, orderId, { confirm: false }, ACTOR);
-
-    expect(result.order).toMatchObject({ status: "READY", saleId: null });
-    const saleRow = await db.query.sales.findFirst({
-      where: (t, { eq: eqOp }) => eqOp(t.id, delivered.sale.id),
+  it("undoes after independent receipts and redelivers without reposting money", async () => {
+    const db = createDb(env.DB);
+    const { orderId, itemId } = await seedOrderInStatus(db, "READY", {
+      agreedTotal: 10_000,
+      additionalCharge: 500,
     });
-    expect(saleRow?.deletedAt).toEqual(expect.any(String));
+    const deposit = await recordOrderReceipt(db, orderId, 3_000);
+    const firstDelivery = await deliverOrder(
+      db,
+      orderId,
+      { occurredAt: NOW, businessDate: BUSINESS_DATE },
+      ACTOR,
+    );
+    const balanceReceipt = await recordOrderReceipt(db, orderId, 2_000, "ORDER_BALANCE");
+    const beforeUndo = await financialSnapshot(db);
 
-    const movements = await db.query.stockMovements.findMany({
-      where: (t, { and, eq: eqOp }) =>
-        and(eqOp(t.sourceEventType, "sale"), eqOp(t.sourceEventId, delivered.sale.id)),
+    await expect(
+      collectPayment(
+        db,
+        firstDelivery.sale.id,
+        {
+          occurredAt: NOW,
+          businessDate: BUSINESS_DATE,
+          paymentMethod: "CASH",
+          accountId: "acc_cash",
+        },
+        ACTOR,
+      ),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(await financialSnapshot(db)).toBe(beforeUndo);
+
+    const stockBefore = await db.query.itemStock.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.itemId, itemId),
     });
-    expect(movements).toHaveLength(0);
+    expect((await undoDeliverOrder(db, orderId, {}, ACTOR)).order.status).toBe("READY");
+    expect(await financialSnapshot(db)).toBe(beforeUndo);
+    const deletedSale = await db.query.sales.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.id, firstDelivery.sale.id),
+    });
+    expect(deletedSale?.deletedAt).not.toBeNull();
     const stockAfterUndo = await db.query.itemStock.findFirst({
       where: (t, { eq: eqOp }) => eqOp(t.itemId, itemId),
     });
-    expect(stockAfterUndo?.qtyOnHand).toBe(stockBeforeDelivery?.qtyOnHand);
+    expect(stockAfterUndo?.qtyOnHand).toBe((stockBefore?.qtyOnHand ?? 0) + 1000);
 
-    expect(await accountBalance(db, "acc_cash")).toBe(cashBeforeDelivery);
-    const orderTxsAfter = await txsForOrder(db, orderId);
-    expect(orderTxsAfter).toHaveLength(1);
-    expect(orderTxsAfter[0]).toMatchObject({
-      id: depositTxBefore?.id,
-      category: "ORDER_DEPOSIT",
-      amount: depositAmount,
-      deletedAt: null,
-    });
-    expect(await customerDeposits(db)).toBe(depositAmount);
-  });
-
-  it("delivers and undoes a zero-deposit order without inventing a deposit row or liability", async () => {
-    const db = createDb(env.DB);
-    const { orderId, agreedTotal } = await seedOrderInStatus(db, "READY", { depositAmount: 0 });
-    const cashBeforeDelivery = await accountBalance(db, "acc_cash");
-
-    expect(await txsForOrder(db, orderId)).toHaveLength(0);
-    expect(await customerDeposits(db)).toBe(0);
-
-    const delivered = await deliverOrder(
+    const secondDelivery = await deliverOrder(
       db,
       orderId,
+      { occurredAt: NOW, businessDate: BUSINESS_DATE },
+      ACTOR,
+    );
+    expect(secondDelivery.sale.id).not.toBe(firstDelivery.sale.id);
+    expect(secondDelivery.sale.total).toBe(10_500);
+    expect(await financialSnapshot(db)).toBe(beforeUndo);
+    expect(deposit.customOrderId).toBe(orderId);
+    expect(balanceReceipt.customOrderId).toBe(orderId);
+  });
+
+  it("cancels terminally without resolving or mutating retained receipt cash", async () => {
+    const db = createDb(env.DB);
+    const { orderId } = await seedOrderInStatus(db, "CONFIRMED");
+    await recordOrderReceipt(db, orderId, 4_500);
+    const before = await financialSnapshot(db);
+    const result = await cancelOrder(db, orderId, {}, ACTOR);
+    expect(result.order.status).toBe("CANCELLED");
+    expect(result.order.balance).toEqual({
+      customerAmount: 30_000,
+      qualifyingReceipts: 4_500,
+      expectedBalance: null,
+      receivableBalance: null,
+      excess: 0,
+    });
+    expect(await financialSnapshot(db)).toBe(before);
+    await expect(cancelOrder(db, orderId, {}, ACTOR)).rejects.toMatchObject({ code: "CONFLICT" });
+  });
+
+  it("allows cancellation from every pre-delivery status without changing finance rows", async () => {
+    const db = createDb(env.DB);
+    for (const status of ["QUOTING", "CONFIRMED", "IN_PRODUCTION", "READY"] as const) {
+      const { orderId } = await seedOrderInStatus(db, status);
+      await recordOrderReceipt(db, orderId, 1_000);
+      const before = await financialSnapshot(db);
+      expect((await cancelOrder(db, orderId, {}, ACTOR)).order.status).toBe("CANCELLED");
+      expect(await financialSnapshot(db)).toBe(before);
+    }
+  });
+
+  it.each(illegalLifecycleAttempts)(
+    "rejects $name from $status without touching cash",
+    async ({ status, run }) => {
+      const db = createDb(env.DB);
+      const { orderId } = await seedOrderInStatus(db, status);
+      await recordOrderReceipt(db, orderId, 500);
+      const before = await financialSnapshot(db);
+      await expect(run(db, orderId)).rejects.toMatchObject({ code: "CONFLICT" });
+      expect(await financialSnapshot(db)).toBe(before);
+      expect((await getOrder(db, orderId)).status).toBe(status);
+    },
+  );
+
+  it("keeps catalog-sale collection available while refusing collection of order-owned sales", async () => {
+    const db = createDb(env.DB);
+    const catalogItem = await seedStockedItem(db);
+    const catalogSale = await recordSale(
+      db,
+      {
+        paymentStatus: "ON_CREDIT",
+        occurredAt: NOW,
+        businessDate: BUSINESS_DATE,
+        lines: [
+          { itemId: catalogItem.id, qty: 1000, unitPriceMc: toMilliCentavosPerUnit(8_000_000) },
+        ],
+      },
+      ACTOR,
+    );
+    const collected = await collectPayment(
+      db,
+      catalogSale.sale.id,
       {
         occurredAt: NOW,
         businessDate: BUSINESS_DATE,
-        balancePaymentStatus: "PAID",
         paymentMethod: "CASH",
         accountId: "acc_cash",
       },
       ACTOR,
     );
-
-    expect(delivered.sale.total).toBe(agreedTotal);
-    expect(delivered.sale.paymentStatus).toBe("PAID");
-    expect(await accountBalance(db, "acc_cash")).toBe(
-      addMoney(toCentavos(cashBeforeDelivery), toCentavos(agreedTotal)),
-    );
-    expect(await customerDeposits(db)).toBe(0);
-    const balanceTransactions = await db.query.financialTransactions.findMany({
-      where: (t, { and, eq: eqOp }) =>
-        and(eqOp(t.sourceEventType, "custom_order"), eqOp(t.sourceEventId, orderId)),
-    });
-    expect(balanceTransactions).toHaveLength(1);
-    expect(balanceTransactions[0]).toMatchObject({
-      category: "ORDER_BALANCE",
-      amount: agreedTotal,
-    });
-
-    const undone = await undoDeliverOrder(db, orderId, { confirm: false }, ACTOR);
-
-    expect(undone.order).toMatchObject({
-      status: "READY",
-      saleId: null,
-      depositPaid: 0,
-      depositTxId: null,
-      balanceDue: agreedTotal,
-    });
-    expect(await accountBalance(db, "acc_cash")).toBe(cashBeforeDelivery);
-    expect(await customerDeposits(db)).toBe(0);
-    expect(await txsForOrder(db, orderId)).toHaveLength(0);
+    expect(collected.sale.paymentStatus).toBe("PAID");
   });
 
-  it("refuses after collection with the exact sales guard message and writes nothing", async () => {
-    const db = createDb(env.DB);
-    const { orderId } = await seedOrderInStatus(db, "READY");
-    const { sale } = await deliverOrder(
-      db,
-      orderId,
-      { occurredAt: NOW, businessDate: BUSINESS_DATE, balancePaymentStatus: "ON_CREDIT" },
-      ACTOR,
-    );
-    await collectPayment(
-      db,
-      sale.id,
-      {
-        occurredAt: "2026-07-25T10:00:00.000Z",
-        businessDate: "2026-07-25",
-        paymentMethod: "CASH",
-        accountId: "acc_cash",
-      },
-      ACTOR,
-    );
-    const cashBeforeUndo = await accountBalance(db, "acc_cash");
-    const auditCountBefore = (await db.query.auditLog.findMany()).length;
-
-    await expect(undoDeliverOrder(db, orderId, { confirm: false }, ACTOR)).rejects.toMatchObject({
-      code: "CONFLICT",
-      message_es:
-        "Esta venta ya fue cobrada; no se puede editar ni eliminar. Corrige el cobro por separado.",
-    });
-
-    expect(await getOrder(db, orderId)).toMatchObject({ status: "DELIVERED", saleId: sale.id });
-    const saleAfter = await db.query.sales.findFirst({
-      where: (t, { eq: eqOp }) => eqOp(t.id, sale.id),
-    });
-    expect(saleAfter).toMatchObject({ paymentStatus: "PAID", deletedAt: null });
-    expect(await accountBalance(db, "acc_cash")).toBe(cashBeforeUndo);
-    expect(await db.query.auditLog.findMany()).toHaveLength(auditCountBefore);
-    const movements = await db.query.stockMovements.findMany({
-      where: (t, { eq: eqOp }) => eqOp(t.sourceEventId, sale.id),
-    });
-    expect(movements).toHaveLength(1);
-  });
-
-  it("requires R-5 confirmation when later movements depend on a backdated delivery", async () => {
+  it("keeps R-5 delivery and undo previews even when order receipts exist", async () => {
     const db = createDb(env.DB);
     const { orderId, itemId } = await seedOrderInStatus(db, "READY");
-    await deliverOrder(
-      db,
-      orderId,
-      {
-        occurredAt: "2026-07-20T15:00:00.000Z",
-        businessDate: BUSINESS_DATE,
-        balancePaymentStatus: "ON_CREDIT",
-      },
-      ACTOR,
-    );
-    await recordPurchase(
+    await recordOrderReceipt(db, orderId, 1_000);
+    await recordSale(
       db,
       {
-        accountId: "acc_bank",
-        occurredAt: "2026-07-21T10:00:00.000Z",
-        businessDate: "2026-07-21",
-        lines: [{ itemId, qty: 1000, lineTotal: 10_000 }],
-      },
-      ACTOR,
-    );
-    const laterExit = await recordExit(
-      db,
-      {
-        itemId,
-        qty: 1000,
-        reason: "WASTE",
-        occurredAt: "2026-07-22T10:00:00.000Z",
-        businessDate: "2026-07-22",
-      },
-      ACTOR,
-    );
-
-    await expect(undoDeliverOrder(db, orderId, { confirm: false }, ACTOR)).rejects.toMatchObject({
-      code: "CONFLICT",
-      details: {
-        reason: "REPLAY_CONFIRMATION_REQUIRED",
-        impact: { affectedStockExitIds: [laterExit.exit.id] },
-      },
-    });
-    expect((await getOrder(db, orderId)).status).toBe("DELIVERED");
-
-    const result = await undoDeliverOrder(db, orderId, { confirm: true }, ACTOR);
-    expect(result.order).toMatchObject({ status: "READY", saleId: null });
-  });
-});
-
-// ============================================================================================
-// UC-08 cancel — O-3
-// ============================================================================================
-
-describe("cancelOrder (UC-08, O-3)", () => {
-  it("REFUND: books a DEPOSIT_REFUND expense, debits the account, and clears the liability", async () => {
-    const db = createDb(env.DB);
-    const { orderId } = await seedOrderInStatus(db, "CONFIRMED");
-    expect(await customerDeposits(db)).toBe(15_000);
-    const cashBefore = await accountBalance(db, "acc_cash");
-
-    const result = await cancelOrder(
-      db,
-      orderId,
-      { occurredAt: NOW, businessDate: BUSINESS_DATE, resolution: "REFUND" },
-      ACTOR,
-    );
-
-    expect(result.order).toMatchObject({ status: "CANCELLED", cancelResolution: "REFUND" });
-    // The money genuinely left the account.
-    expect(await accountBalance(db, "acc_cash")).toBe(cashBefore - 15_000);
-    expect(result.account?.balance).toBe(cashBefore - 15_000);
-    expect(await customerDeposits(db)).toBe(0);
-
-    const txs = await txsForOrder(db, orderId);
-    const refund = txs.find((t) => t.category === "DEPOSIT_REFUND");
-    expect(refund).toMatchObject({ type: "EXPENSE", amount: 15_000, accountId: "acc_cash" });
-    // The original deposit row is untouched — a refund is a second, opposite movement.
-    expect(txs.find((t) => t.category === "ORDER_DEPOSIT")).toBeDefined();
-  });
-
-  it("FORFEIT: moves NO cash, writes NO new transaction, and recategorizes the deposit to OTHER_INCOME", async () => {
-    const db = createDb(env.DB);
-    const { orderId } = await seedOrderInStatus(db, "CONFIRMED");
-    const order = await getOrder(db, orderId);
-    const depositTxId = order.depositTxId ?? "";
-    const cashBefore = await accountBalance(db, "acc_cash");
-
-    const result = await cancelOrder(
-      db,
-      orderId,
-      { occurredAt: NOW, businessDate: BUSINESS_DATE, resolution: "FORFEIT" },
-      ACTOR,
-    );
-
-    expect(result.order).toMatchObject({ status: "CANCELLED", cancelResolution: "FORFEIT" });
-    // The cash is already in the account and stays there — booking a new income row would count
-    // the same money twice (ADR-012).
-    expect(result.account).toBeNull();
-    expect(await accountBalance(db, "acc_cash")).toBe(cashBefore);
-
-    const txs = await txsForOrder(db, orderId);
-    expect(txs).toHaveLength(1);
-    const tx = txs[0];
-    expect(tx?.id).toBe(depositTxId); // the SAME row, not a new one
-    expect(tx).toMatchObject({ type: "INCOME", category: "OTHER_INCOME", amount: 15_000 });
-    // It keeps its original cash date — the historical month's category mix shifts by design.
-    expect(tx?.businessDate).toBe(BUSINESS_DATE);
-
-    // ...and that single category flip is what releases the liability, with no view change.
-    expect(await customerDeposits(db)).toBe(0);
-  });
-
-  it("cancels a deposit-free quote with no resolution and no financial effect", async () => {
-    const db = createDb(env.DB);
-    const { orderId } = await seedOrderInStatus(db, "QUOTING");
-
-    const result = await cancelOrder(
-      db,
-      orderId,
-      { occurredAt: NOW, businessDate: BUSINESS_DATE },
-      ACTOR,
-    );
-
-    expect(result.order).toMatchObject({ status: "CANCELLED", cancelResolution: null });
-    expect(result.account).toBeNull();
-    expect(await txsForOrder(db, orderId)).toHaveLength(0);
-    expect(await customerDeposits(db)).toBe(0);
-  });
-
-  it("cancels a confirmed zero-deposit order without a resolution or money effect", async () => {
-    const db = createDb(env.DB);
-    const { orderId } = await seedOrderInStatus(db, "CONFIRMED", { depositAmount: 0 });
-    const cashBefore = await accountBalance(db, "acc_cash");
-
-    const result = await cancelOrder(
-      db,
-      orderId,
-      { occurredAt: NOW, businessDate: BUSINESS_DATE },
-      ACTOR,
-    );
-
-    expect(result.order).toMatchObject({
-      status: "CANCELLED",
-      cancelResolution: null,
-      depositPaid: 0,
-    });
-    expect(result.account).toBeNull();
-    expect(await txsForOrder(db, orderId)).toHaveLength(0);
-    expect(await accountBalance(db, "acc_cash")).toBe(cashBefore);
-    expect(await customerDeposits(db)).toBe(0);
-  });
-
-  it("requires a resolution when a deposit was taken", async () => {
-    const db = createDb(env.DB);
-    const { orderId } = await seedOrderInStatus(db, "CONFIRMED");
-    await expect(
-      cancelOrder(db, orderId, { occurredAt: NOW, businessDate: BUSINESS_DATE }, ACTOR),
-    ).rejects.toMatchObject({ code: "VALIDATION" });
-    // Untouched.
-    expect((await getOrder(db, orderId)).status).toBe("CONFIRMED");
-    expect(await customerDeposits(db)).toBe(15_000);
-  });
-
-  it("rejects a resolution when there is no deposit to resolve", async () => {
-    const db = createDb(env.DB);
-    const { orderId } = await seedOrderInStatus(db, "QUOTING");
-    await expect(
-      cancelOrder(
-        db,
-        orderId,
-        { occurredAt: NOW, businessDate: BUSINESS_DATE, resolution: "REFUND" },
-        ACTOR,
-      ),
-    ).rejects.toMatchObject({ code: "VALIDATION" });
-  });
-
-  it("refunds from a chosen account when the owner names one", async () => {
-    const db = createDb(env.DB);
-    const { orderId } = await seedOrderInStatus(db, "READY");
-    const bankBefore = await accountBalance(db, "acc_bank");
-
-    await cancelOrder(
-      db,
-      orderId,
-      {
+        paymentStatus: "ON_CREDIT",
         occurredAt: NOW,
         businessDate: BUSINESS_DATE,
-        resolution: "REFUND",
-        accountId: "acc_bank",
+        lines: [{ itemId, qty: 1000, unitPriceMc: toMilliCentavosPerUnit(8_000_000) }],
       },
       ACTOR,
     );
-    expect(await accountBalance(db, "acc_bank")).toBe(bankBefore - 15_000);
-    expect(await customerDeposits(db)).toBe(0);
-  });
-});
 
-// ============================================================================================
-// resolveOrderLine (KOK-034) — attaching a catalog item to a free-text line
-// ============================================================================================
-
-/** Quotes an order with ONE free-text line (no `itemId`) at the given non-terminal status. */
-async function seedOrderWithFreeTextLine(db: TestDb, status: CustomOrderStatus) {
-  const customer = await seedCustomer(db);
-  const { order } = await quoteOrder(
-    db,
-    {
-      customerId: customer.id,
-      description: "Torta personalizada",
-      agreedTotal: 30_000,
-      deliveryDate: BUSINESS_DATE,
-      lines: [{ description: "Torta de chocolate, sin especificar aún" }],
-    },
-    ACTOR,
-  );
-  const lineId = (await getOrder(db, order.id)).lines[0]?.id;
-  if (!lineId) throw new Error("seed line missing");
-
-  if (status === "QUOTING") return { orderId: order.id, lineId };
-
-  await confirmOrder(
-    db,
-    order.id,
-    {
-      occurredAt: NOW,
-      businessDate: BUSINESS_DATE,
-      depositAmount: 15_000,
-      paymentMethod: "CASH",
-      accountId: "acc_cash",
-    },
-    ACTOR,
-  );
-  if (status === "CONFIRMED") return { orderId: order.id, lineId };
-
-  await startOrderProduction(db, order.id, ACTOR);
-  if (status === "IN_PRODUCTION") return { orderId: order.id, lineId };
-
-  await markOrderReady(db, order.id, ACTOR);
-  return { orderId: order.id, lineId };
-}
-
-describe("resolveOrderLine (KOK-034)", () => {
-  it("attaches a catalog item to a free-text line while QUOTING", async () => {
-    const db = createDb(env.DB);
-    const { orderId, lineId } = await seedOrderWithFreeTextLine(db, "QUOTING");
-    const item = await seedStockedItem(db);
-
-    const { order } = await resolveOrderLine(db, orderId, lineId, { itemId: item.id }, ACTOR);
-    expect(order.lines[0]?.itemId).toBe(item.id);
-    // The description stays — it's the owner's original note, not overwritten by the link.
-    expect(order.lines[0]?.description).toBe("Torta de chocolate, sin especificar aún");
-  });
-
-  it("writes an audit_log row", async () => {
-    const db = createDb(env.DB);
-    const { orderId, lineId } = await seedOrderWithFreeTextLine(db, "QUOTING");
-    const item = await seedStockedItem(db);
-
-    await resolveOrderLine(db, orderId, lineId, { itemId: item.id }, ACTOR);
-
-    const rows = await db.query.auditLog.findMany({
-      where: (t, { and, eq: eqOp }) =>
-        and(eqOp(t.entityType, "custom_orders"), eqOp(t.action, "resolve_line")),
+    const backdated = { occurredAt: "2026-07-19T14:00:00.000Z", businessDate: "2026-07-19" };
+    await expect(deliverOrder(db, orderId, backdated, ACTOR)).rejects.toMatchObject({
+      code: "CONFLICT",
+      details: { reason: "REPLAY_CONFIRMATION_REQUIRED" },
     });
-    expect(rows).toHaveLength(1);
-  });
-
-  it.each(["CONFIRMED", "IN_PRODUCTION", "READY"] as const)(
-    "also works while %s",
-    async (status) => {
-      const db = createDb(env.DB);
-      const { orderId, lineId } = await seedOrderWithFreeTextLine(db, status);
-      const item = await seedStockedItem(db);
-
-      const { order } = await resolveOrderLine(db, orderId, lineId, { itemId: item.id }, ACTOR);
-      expect(order.lines[0]?.itemId).toBe(item.id);
-    },
-  );
-
-  it.each(["DELIVERED", "CANCELLED"] as const)("rejects once the order is %s", async (status) => {
-    const db = createDb(env.DB);
-    // DELIVERED requires every line linked already, so seed via the normal item-linked flow and
-    // just assert the terminal-status guard rejects a (hypothetical) further resolve call on it.
-    const { orderId } = await seedOrderInStatus(db, status);
-    const lineRows = await db.query.customOrderLines.findMany({
-      where: (t, { eq: eqOp }) => eqOp(t.customOrderId, orderId),
+    const delivered = await deliverOrder(db, orderId, { ...backdated, confirm: true }, ACTOR);
+    const impact = await previewOrderImpact(db, {
+      op: "undo_deliver",
+      id: orderId,
+      command: { confirm: true },
     });
-    const lineId = lineRows[0]?.id;
-    if (!lineId) throw new Error("seed line missing");
-    const item = await seedStockedItem(db);
-
-    await expect(
-      resolveOrderLine(db, orderId, lineId, { itemId: item.id }, ACTOR),
-    ).rejects.toMatchObject({ code: "CONFLICT" });
-  });
-
-  it("rejects an unknown line id", async () => {
-    const db = createDb(env.DB);
-    const { orderId } = await seedOrderWithFreeTextLine(db, "QUOTING");
-    const item = await seedStockedItem(db);
-
-    await expect(
-      resolveOrderLine(db, orderId, "nope", { itemId: item.id }, ACTOR),
-    ).rejects.toMatchObject({ code: "NOT_FOUND" });
-  });
-
-  it("rejects a line id belonging to a different order", async () => {
-    const db = createDb(env.DB);
-    const { orderId } = await seedOrderWithFreeTextLine(db, "QUOTING");
-    const other = await seedOrderWithFreeTextLine(db, "QUOTING");
-    const item = await seedStockedItem(db);
-
-    await expect(
-      resolveOrderLine(db, orderId, other.lineId, { itemId: item.id }, ACTOR),
-    ).rejects.toMatchObject({ code: "NOT_FOUND" });
-  });
-
-  it("rejects an unknown item id", async () => {
-    const db = createDb(env.DB);
-    const { orderId, lineId } = await seedOrderWithFreeTextLine(db, "QUOTING");
-
-    await expect(
-      resolveOrderLine(db, orderId, lineId, { itemId: "nope" }, ACTOR),
-    ).rejects.toMatchObject({ code: "NOT_FOUND" });
-  });
-
-  it("rejects a non-FINISHED item", async () => {
-    const db = createDb(env.DB);
-    const { orderId, lineId } = await seedOrderWithFreeTextLine(db, "QUOTING");
-    const rawMaterial = await createItem(
-      db,
-      { name: uniqueName("Insumo"), kind: "RAW_MATERIAL", category: "OTHER", unit: "UNIT" },
-      ACTOR,
+    expect(impact.requiresConfirmation).toBe(true);
+    expect(delivered.order.status).toBe("DELIVERED");
+    const financeBeforeUndo = await financialSnapshot(db);
+    await expect(undoDeliverOrder(db, orderId, {}, ACTOR)).rejects.toMatchObject({
+      code: "CONFLICT",
+      details: { reason: "REPLAY_CONFIRMATION_REQUIRED" },
+    });
+    expect(await financialSnapshot(db)).toBe(financeBeforeUndo);
+    expect((await undoDeliverOrder(db, orderId, { confirm: true }, ACTOR)).order.status).toBe(
+      "READY",
     );
-
-    await expect(
-      resolveOrderLine(db, orderId, lineId, { itemId: rawMaterial.id }, ACTOR),
-    ).rejects.toMatchObject({ code: "VALIDATION" });
+    expect(await financialSnapshot(db)).toBe(financeBeforeUndo);
   });
 });
 
-// ============================================================================================
-// The transition matrix — every legal move allowed, every illegal move a 409 (Doc 04 §5)
-// ============================================================================================
-
-const STATUSES: CustomOrderStatus[] = [
-  "QUOTING",
-  "CONFIRMED",
-  "IN_PRODUCTION",
-  "READY",
-  "DELIVERED",
-  "CANCELLED",
-];
-const TRANSITIONS = [
-  "confirm",
-  "start",
-  "ready",
-  "deliver",
-  "cancel",
-  "undoStart",
-  "undoReady",
-  "undoDeliver",
-] as const;
-type TransitionName = (typeof TRANSITIONS)[number];
-
-/** Doc 03 §5's diagram, transcribed. The service's own ALLOWED_FROM must agree with this table. */
-const LEGAL: Record<TransitionName, CustomOrderStatus[]> = {
-  confirm: ["QUOTING"],
-  start: ["CONFIRMED"],
-  ready: ["IN_PRODUCTION"],
-  deliver: ["READY"],
-  cancel: ["QUOTING", "CONFIRMED", "IN_PRODUCTION", "READY"],
-  undoStart: ["IN_PRODUCTION"],
-  undoReady: ["READY"],
-  undoDeliver: ["DELIVERED"],
-};
-
-async function runTransition(db: TestDb, orderId: string, transition: TransitionName) {
-  switch (transition) {
-    case "confirm":
-      return confirmOrder(
-        db,
-        orderId,
-        {
-          occurredAt: NOW,
-          businessDate: BUSINESS_DATE,
-          depositAmount: 15_000,
-          paymentMethod: "CASH",
-          accountId: "acc_cash",
-        },
-        ACTOR,
-      );
-    case "start":
-      return startOrderProduction(db, orderId, ACTOR);
-    case "ready":
-      return markOrderReady(db, orderId, ACTOR);
-    case "deliver":
-      return deliverOrder(
-        db,
-        orderId,
-        {
-          occurredAt: NOW,
-          businessDate: BUSINESS_DATE,
-          balancePaymentStatus: "PAID",
-          paymentMethod: "CASH",
-          accountId: "acc_cash",
-        },
-        ACTOR,
-      );
-    case "cancel": {
-      const order = await getOrder(db, orderId);
-      return cancelOrder(
-        db,
-        orderId,
-        {
-          occurredAt: NOW,
-          businessDate: BUSINESS_DATE,
-          // A deposit-bearing order must resolve it; a deposit-free one must NOT send a resolution.
-          resolution: order.depositPaid > 0 ? "FORFEIT" : undefined,
-        },
-        ACTOR,
-      );
-    }
-    case "undoStart":
-      return undoStartOrderProduction(db, orderId, ACTOR);
-    case "undoReady":
-      return undoMarkOrderReady(db, orderId, ACTOR);
-    case "undoDeliver":
-      return undoDeliverOrder(db, orderId, { confirm: false }, ACTOR);
-  }
-}
-
-describe("state machine — every legal and illegal transition (Doc 03 §5 / Doc 04 §5)", () => {
-  for (const transition of TRANSITIONS) {
-    for (const from of STATUSES) {
-      const legal = LEGAL[transition].includes(from);
-      it(`${legal ? "ALLOWS" : "REJECTS"} ${transition} from ${from}`, async () => {
-        const db = createDb(env.DB);
-        const { orderId } = await seedOrderInStatus(db, from);
-
-        if (legal) {
-          await expect(runTransition(db, orderId, transition)).resolves.toBeDefined();
-        } else {
-          // A state-machine violation is a CONFLICT (409), never a silent no-op.
-          await expect(runTransition(db, orderId, transition)).rejects.toMatchObject({
-            code: "CONFLICT",
-          });
-          // ...and the order is exactly where it was.
-          expect((await getOrder(db, orderId)).status).toBe(from);
-        }
-      });
-    }
-  }
-});
-
-// ============================================================================================
-// Reads
-// ============================================================================================
-
-describe("getOrder / listOrders", () => {
-  it("returns NOT_FOUND for an unknown order", async () => {
+describe("reads and order link guards", () => {
+  it("keeps undone delivery sale snapshots in the order's dated sale history", async () => {
     const db = createDb(env.DB);
-    await expect(getOrder(db, "nope")).rejects.toMatchObject({ code: "NOT_FOUND" });
+    const { orderId } = await seedOrderInStatus(db, "DELIVERED");
+
+    const firstDelivery = await listOrderSales(db, orderId);
+    expect(firstDelivery.sales).toHaveLength(1);
+    expect(firstDelivery.sales[0]).toMatchObject({
+      sale: {
+        customOrderId: orderId,
+        channel: "CUSTOM_ORDER",
+        code: expect.stringMatching(/^VTA-/),
+      },
+      deletedAt: null,
+    });
+    const firstSaleId = firstDelivery.sales[0]?.sale.id;
+
+    await undoDeliverOrder(db, orderId, {}, ACTOR);
+    await deliverOrder(db, orderId, { occurredAt: NOW, businessDate: BUSINESS_DATE }, ACTOR);
+
+    const redelivered = await listOrderSales(db, orderId);
+    expect(redelivered.sales).toHaveLength(2);
+    expect(redelivered.sales.filter((entry) => entry.deletedAt === null)).toHaveLength(1);
+    expect(redelivered.sales.find((entry) => entry.sale.id === firstSaleId)?.deletedAt).toEqual(
+      expect.any(String),
+    );
   });
 
-  it("filters by status and sorts by delivery date with undated orders last (O-5)", async () => {
+  it("keeps an unpriced quote's balance components null instead of inventing zero debt", async () => {
     const db = createDb(env.DB);
     const customer = await seedCustomer(db);
-
-    await quoteOrder(
+    const { order } = await quoteOrder(
       db,
-      { customerId: customer.id, description: "Sin fecha", agreedTotal: 1_000 },
-      ACTOR,
-    );
-    await quoteOrder(
-      db,
-      {
-        customerId: customer.id,
-        description: "Tarde",
-        agreedTotal: 1_000,
-        deliveryDate: "2026-09-01",
-      },
-      ACTOR,
-    );
-    await quoteOrder(
-      db,
-      {
-        customerId: customer.id,
-        description: "Pronto",
-        agreedTotal: 1_000,
-        deliveryDate: "2026-08-01",
-      },
+      { customerId: customer.id, description: "Pedido sin precio todavía" },
       ACTOR,
     );
 
-    const { orders } = await listOrders(db, { status: "QUOTING" });
-    expect(orders.map((o) => o.description)).toEqual(["Pronto", "Tarde", "Sin fecha"]);
-    expect(orders.every((o) => o.status === "QUOTING")).toBe(true);
-    expect(orders[0]?.customerName).toBe(customer.name);
+    expect(order.balance).toEqual({
+      customerAmount: null,
+      qualifyingReceipts: 0,
+      expectedBalance: null,
+      receivableBalance: null,
+      excess: null,
+    });
   });
 
-  it("filters by customer", async () => {
+  it("projects receipts, expected balance, delivered debt and excess independently of sale status", async () => {
     const db = createDb(env.DB);
-    const a = await seedCustomer(db);
-    const b = await seedCustomer(db);
-    await quoteOrder(db, { customerId: a.id, description: "De A" }, ACTOR);
-    await quoteOrder(db, { customerId: b.id, description: "De B" }, ACTOR);
+    const { orderId } = await seedOrderInStatus(db, "QUOTING", {
+      agreedTotal: 20_000,
+      additionalCharge: 1_000,
+    });
+    await recordOrderReceipt(db, orderId, 5_000);
 
-    const { orders } = await listOrders(db, { customerId: b.id });
-    expect(orders).toHaveLength(1);
-    expect(orders[0]?.description).toBe("De B");
+    const quoted = await getOrder(db, orderId);
+    expect(quoted.balance).toEqual({
+      customerAmount: 21_000,
+      qualifyingReceipts: 5_000,
+      expectedBalance: 16_000,
+      receivableBalance: null,
+      excess: 0,
+    });
+
+    await confirmOrder(db, orderId, {}, ACTOR);
+    await startOrderProduction(db, orderId, ACTOR);
+    await markOrderReady(db, orderId, ACTOR);
+    await deliverOrder(db, orderId, { occurredAt: NOW, businessDate: BUSINESS_DATE }, ACTOR);
+    expect((await getOrder(db, orderId)).balance).toEqual({
+      customerAmount: 21_000,
+      qualifyingReceipts: 5_000,
+      expectedBalance: null,
+      receivableBalance: 16_000,
+      excess: 0,
+    });
+
+    await recordOrderReceipt(db, orderId, 10_000, "ORDER_BALANCE");
+    expect((await getOrder(db, orderId)).balance).toMatchObject({
+      qualifyingReceipts: 15_000,
+      receivableBalance: 6_000,
+    });
+    await recordOrderReceipt(db, orderId, 6_000, "ORDER_BALANCE");
+    expect((await getOrder(db, orderId)).balance).toMatchObject({
+      qualifyingReceipts: 21_000,
+      receivableBalance: 0,
+      excess: 0,
+    });
+    await recordOrderReceipt(db, orderId, 500, "ORDER_BALANCE");
+    const overpaid = await getOrder(db, orderId);
+    expect(overpaid.balance).toMatchObject({
+      qualifyingReceipts: 21_500,
+      receivableBalance: 0,
+      excess: 500,
+    });
+    expect(Object.hasOwn(overpaid, "salePaymentStatus")).toBe(false);
+    expect(Object.hasOwn(overpaid, "balanceDue")).toBe(false);
+
+    await undoDeliverOrder(db, orderId, {}, ACTOR);
+    expect((await getOrder(db, orderId)).balance).toEqual({
+      customerAmount: 21_000,
+      qualifyingReceipts: 21_500,
+      expectedBalance: 0,
+      receivableBalance: null,
+      excess: 500,
+    });
+    await deliverOrder(db, orderId, { occurredAt: NOW, businessDate: BUSINESS_DATE }, ACTOR);
+    expect((await getOrder(db, orderId)).balance).toEqual({
+      customerAmount: 21_000,
+      qualifyingReceipts: 21_500,
+      expectedBalance: null,
+      receivableBalance: 0,
+      excess: 500,
+    });
   });
 
-  it("excludes terminal statuses", async () => {
+  it("returns bounded orders and refuses links only for terminal orders", async () => {
     const db = createDb(env.DB);
+    const quoted = await seedOrderInStatus(db, "QUOTING");
     await seedOrderInStatus(db, "QUOTING");
-    await seedOrderInStatus(db, "DELIVERED");
-    await seedOrderInStatus(db, "CANCELLED");
-
-    const { orders } = await listOrders(db, {
-      excludeStatuses: ["DELIVERED", "CANCELLED"],
+    const ready = await seedOrderInStatus(db, "READY");
+    const delivered = await seedOrderInStatus(db, "DELIVERED");
+    const cancelled = await seedOrderInStatus(db, "CANCELLED");
+    await expect(assertOrderLinkable(db, quoted.orderId)).resolves.toBeUndefined();
+    await expect(assertOrderLinkable(db, ready.orderId)).resolves.toBeUndefined();
+    await expect(assertOrderLinkable(db, delivered.orderId)).rejects.toMatchObject({
+      code: "VALIDATION",
+    });
+    await expect(assertOrderLinkable(db, cancelled.orderId)).rejects.toMatchObject({
+      code: "VALIDATION",
     });
 
-    expect(orders).toHaveLength(1);
-    expect(orders[0]?.status).toBe("QUOTING");
+    const page = await listOrders(db, { status: "QUOTING", limit: 1 });
+    expect(page.orders).toHaveLength(1);
+    expect(page.nextCursor).not.toBeNull();
+    const activeOrders = await listOrders(db, { excludeStatuses: ["DELIVERED", "CANCELLED"] });
+    expect(
+      activeOrders.orders.every(
+        (order) => order.status !== "DELIVERED" && order.status !== "CANCELLED",
+      ),
+    ).toBe(true);
   });
 
-  it("filters by creation date instead of delivery date", async () => {
+  it("retains order read not-found and customer/status filtering", async () => {
     const db = createDb(env.DB);
-    const customer = await seedCustomer(db);
+    const customerA = await seedCustomer(db);
+    const customerB = await seedCustomer(db);
     const first = await quoteOrder(
       db,
+      { customerId: customerA.id, description: "Filtrar pedido A", deliveryDate: "2026-07-20" },
+      ACTOR,
+    );
+    const latest = await quoteOrder(
+      db,
       {
-        customerId: customer.id,
-        description: "Creado hoy",
-        deliveryDate: "1900-01-01",
+        customerId: customerA.id,
+        description: "Filtrar pedido reciente",
+        deliveryDate: "2026-07-21",
       },
       ACTOR,
     );
-    await quoteOrder(
+    await quoteOrder(db, { customerId: customerB.id, description: "Filtrar pedido B" }, ACTOR);
+
+    await expect(getOrder(db, "missing-order")).rejects.toMatchObject({ code: "NOT_FOUND" });
+    const filtered = await listOrders(db, { customerId: customerA.id, status: "QUOTING" });
+    expect(filtered.orders.map((order) => order.id)).toEqual([latest.order.id, first.order.id]);
+    const firstPage = await listOrders(db, { customerId: customerA.id, limit: 1 });
+    expect(firstPage.orders[0]?.id).toBe(latest.order.id);
+    expect(firstPage.nextCursor).not.toBeNull();
+  });
+
+  it("sorts latest promised date first, puts undated orders last, and filters on creation date", async () => {
+    const db = createDb(env.DB);
+    const customer = await seedCustomer(db);
+    const latest = await quoteOrder(
       db,
-      {
-        customerId: customer.id,
-        description: "También creado hoy",
-        deliveryDate: "2099-12-31",
-      },
+      { customerId: customer.id, description: "Promesa reciente", deliveryDate: "2026-10-05" },
+      ACTOR,
+    );
+    const earliest = await quoteOrder(
+      db,
+      { customerId: customer.id, description: "Promesa anterior", deliveryDate: "2026-10-02" },
+      ACTOR,
+    );
+    const undated = await quoteOrder(
+      db,
+      { customerId: customer.id, description: "Sin promesa" },
       ACTOR,
     );
 
-    const creationDate = toBusinessDate(first.order.createdAt);
-    const { orders } = await listOrders(db, {
+    const listed = await listOrders(db, { customerId: customer.id, limit: 10 });
+    expect(listed.orders.map((order) => order.id)).toEqual([
+      latest.order.id,
+      earliest.order.id,
+      undated.order.id,
+    ]);
+    const creationDate = toBusinessDate(latest.order.createdAt);
+    const createdToday = await listOrders(db, {
+      customerId: customer.id,
       fromDate: creationDate,
       toDate: creationDate,
     });
-
-    expect(orders.map((order) => order.description)).toEqual(["Creado hoy", "También creado hoy"]);
+    expect(createdToday.orders.map((order) => order.id)).toHaveLength(3);
   });
 
-  it("keeps an evening La Paz order in the default business-date range", async () => {
+  it("breaks matching delivery-date ties by createdAt and then id descending", async () => {
     vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-07-21T02:30:00.000Z"));
+    vi.setSystemTime(new Date("2026-09-30T12:00:00.000Z"));
 
     try {
       const db = createDb(env.DB);
       const customer = await seedCustomer(db);
-      const { order } = await quoteOrder(
+      const first = await quoteOrder(
         db,
-        { customerId: customer.id, description: "Pedido nocturno" },
+        {
+          customerId: customer.id,
+          description: "Empate primero",
+          deliveryDate: "2026-10-05",
+        },
         ACTOR,
       );
-      const today = toBusinessDate(new Date());
-      const defaultRange = { fromDate: `${today.slice(0, 7)}-01`, toDate: today };
+      const second = await quoteOrder(
+        db,
+        {
+          customerId: customer.id,
+          description: "Empate segundo",
+          deliveryDate: "2026-10-05",
+        },
+        ACTOR,
+      );
+      vi.setSystemTime(new Date("2026-09-30T11:00:00.000Z"));
+      const earlier = await quoteOrder(
+        db,
+        {
+          customerId: customer.id,
+          description: "Empate creado antes",
+          deliveryDate: "2026-10-05",
+        },
+        ACTOR,
+      );
 
-      expect(toDatetimeLocal(order.createdAt)).toBe("2026-07-20T22:30");
-      expect(toBusinessDate(order.createdAt)).toBe(today);
-      const { orders } = await listOrders(db, defaultRange);
-      expect(orders.map((listedOrder) => listedOrder.id)).toContain(order.id);
-
-      vi.setSystemTime(new Date("2026-07-21T13:30:00.000Z"));
-      const nextMorning = toBusinessDate(new Date());
-      const nextMorningRange = { fromDate: `${nextMorning.slice(0, 7)}-01`, toDate: nextMorning };
-      const nextMorningOrders = await listOrders(db, nextMorningRange);
-      expect(nextMorningOrders.orders.map((listedOrder) => listedOrder.id)).toContain(order.id);
+      const orders = await listOrders(db, { customerId: customer.id });
+      expect(orders.orders.map((order) => order.id)).toEqual([
+        second.order.id,
+        first.order.id,
+        earlier.order.id,
+      ]);
     } finally {
       vi.useRealTimers();
     }
   });
-});
 
-describe("assertOrderLinkable", () => {
-  it.each(["QUOTING", "CONFIRMED", "IN_PRODUCTION", "READY"] as const)(
-    "accepts a %s order",
-    async (status) => {
+  it("continues after 500 active orders and retains an older order without a date filter", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2020-01-01T12:00:00.000Z"));
+
+    try {
       const db = createDb(env.DB);
-      const { orderId } = await seedOrderInStatus(db, status);
-
-      await expect(assertOrderLinkable(db, orderId)).resolves.toBeUndefined();
-    },
-  );
-
-  it.each(["DELIVERED", "CANCELLED"] as const)("rejects a %s order", async (status) => {
-    const db = createDb(env.DB);
-    const { orderId } = await seedOrderInStatus(db, status);
-
-    await expect(assertOrderLinkable(db, orderId)).rejects.toMatchObject({
-      code: "VALIDATION",
-      details: { id: orderId, status },
-    });
-  });
-});
-
-describe("payment method/account pairing (A-12)", () => {
-  it("rejects CASH routed to a BANK account before confirming an order", async () => {
-    const db = createDb(env.DB);
-    const { orderId } = await seedOrderInStatus(db, "QUOTING");
-
-    await expect(
-      confirmOrder(
+      const customer = await seedCustomer(db);
+      const oldOrder = await quoteOrder(
         db,
-        orderId,
-        {
-          occurredAt: NOW,
-          businessDate: BUSINESS_DATE,
-          depositAmount: 15_000,
-          paymentMethod: "CASH",
-          accountId: "acc_bank",
-        },
+        { customerId: customer.id, description: "Pedido activo antiguo" },
         ACTOR,
-      ),
-    ).rejects.toMatchObject({
-      code: "VALIDATION",
-      message_es: expect.stringContaining("método de pago"),
-    });
+      );
 
-    expect((await getOrder(db, orderId)).status).toBe("QUOTING");
-  });
+      vi.setSystemTime(new Date("2026-09-30T12:00:00.000Z"));
+      for (let index = 0; index < 504; index += 1) {
+        await quoteOrder(
+          db,
+          { customerId: customer.id, description: `Pedido activo ${index}` },
+          ACTOR,
+        );
+      }
 
-  it("rejects CASH routed to a BANK account before delivering an order", async () => {
-    const db = createDb(env.DB);
-    const { orderId } = await seedOrderInStatus(db, "READY");
+      const firstPage = await listOrders(db, { status: "QUOTING", limit: 500 });
+      expect(firstPage.orders).toHaveLength(500);
+      expect(firstPage.nextCursor).not.toBeNull();
+      const secondPage = await listOrders(db, {
+        status: "QUOTING",
+        limit: 500,
+        cursor: firstPage.nextCursor ?? undefined,
+      });
 
-    await expect(
-      deliverOrder(
-        db,
-        orderId,
-        {
-          occurredAt: NOW,
-          businessDate: BUSINESS_DATE,
-          balancePaymentStatus: "PAID",
-          paymentMethod: "CASH",
-          accountId: "acc_bank",
-        },
-        ACTOR,
-      ),
-    ).rejects.toMatchObject({
-      code: "VALIDATION",
-      message_es: expect.stringContaining("método de pago"),
-    });
-
-    expect((await getOrder(db, orderId)).status).toBe("READY");
-  });
+      expect(secondPage.orders).toHaveLength(5);
+      expect(secondPage.nextCursor).toBeNull();
+      const allOrders = [...firstPage.orders, ...secondPage.orders];
+      expect(new Set(allOrders.map((order) => order.id)).size).toBe(505);
+      expect(allOrders.some((order) => order.id === oldOrder.order.id)).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  }, 90_000);
 });

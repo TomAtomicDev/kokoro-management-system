@@ -11,16 +11,20 @@ import { describe, expect, it } from "vitest";
 import {
   addMoney,
   type MilliCentavosPerUnit,
-  mulMoneyByBasisPoints,
   subMoney,
-  toBasisPoints,
   toCentavos,
   totalCentavos,
 } from "./money.js";
 import {
   allocateAgreedTotalToOrderLines,
+  calculateOrderReceiptBalance,
+  calculatePreDeliveryOrderCashExposure,
   confirmOrderCommandSchema,
+  deliverOrderCommandSchema,
+  listOrdersFiltersSchema,
   orderLineCommandSchema,
+  serializeOrderListCursor,
+  updateOrderCommandSchema,
 } from "./orders.js";
 import { toMilliUnits, WHOLE_UNIT_MILLI_UNITS } from "./qty.js";
 
@@ -30,8 +34,8 @@ function reconstructTotal(
   lines: readonly { qty: number }[],
 ): number {
   return allocations.reduce(
-    (sum, a, i) => sum + totalCentavos(a.unitPriceMc, toMilliUnits(lines[i]?.qty ?? 0)),
-    0,
+    (sum, a, i) => addMoney(sum, totalCentavos(a.unitPriceMc, toMilliUnits(lines[i]?.qty ?? 0))),
+    toCentavos(0),
   );
 }
 
@@ -67,7 +71,9 @@ describe("allocateAgreedTotalToOrderLines", () => {
     const lines = [{ qty: 1000 }, { qty: 1000 }, { qty: 1000 }];
     const out = allocateAgreedTotalToOrderLines(toCentavos(1000), lines);
     expect(out?.map((a) => a.lineTotal)).toEqual([334, 333, 333]);
-    expect(out?.reduce((s, a) => s + a.lineTotal, 0)).toBe(1000);
+    expect(
+      out?.reduce((sum, allocation) => addMoney(sum, allocation.lineTotal), toCentavos(0)),
+    ).toBe(1000);
   });
 
   it("returns null when there are no lines at all (nothing to price)", () => {
@@ -144,16 +150,17 @@ describe("allocateAgreedTotalToOrderLines", () => {
         fc.integer({ min: 1, max: 100_000 }),
         fc.integer({ min: 1, max: 10 }),
         (pinned, residual, unpinnedCount) => {
+          const agreedTotal = addMoney(toCentavos(pinned), toCentavos(residual));
           const lines = [
             { qty: 1000, lineTotal: pinned },
             ...Array.from({ length: unpinnedCount }, () => ({ qty: 1000 })),
           ];
-          const out = allocateAgreedTotalToOrderLines(toCentavos(pinned + residual), lines);
+          const out = allocateAgreedTotalToOrderLines(agreedTotal, lines);
           expect(out).not.toBeNull();
           if (out === null) return;
           // Rule 1: a hand-priced line keeps exactly the price the owner typed.
           expect(out[0]?.lineTotal).toBe(pinned);
-          expect(reconstructTotal(out, lines)).toBe(pinned + residual);
+          expect(reconstructTotal(out, lines)).toBe(agreedTotal);
         },
       ),
     );
@@ -195,75 +202,189 @@ describe("allocateAgreedTotalToOrderLines", () => {
   });
 });
 
-describe("order deposit balance math (O-1/O-2)", () => {
-  it("property: deposit received plus delivery balance conserves the agreed total, including zero deposit", () => {
+describe("calculateOrderReceiptBalance (KOK-205/KOK-207)", () => {
+  it("property: customer amount, expected and excess conserve arbitrary integer centavos", () => {
     fc.assert(
       fc.property(
-        fc.integer({ min: 1, max: 100_000_000 }),
-        fc.integer({ min: 0, max: 10_000 }),
-        (agreedTotal, depositPercentBp) => {
-          const total = toCentavos(agreedTotal);
-          const deposit = mulMoneyByBasisPoints(total, toBasisPoints(depositPercentBp));
-          const balance = subMoney(total, deposit);
-
-          // O-1 allows 0% only with explicit acknowledgment; O-2 settles the full remainder at
-          // delivery. Regardless of the chosen deposit, every centavo is accounted for once.
-          expect(addMoney(deposit, balance)).toBe(total);
-          expect(Number.isInteger(balance)).toBe(true);
-          expect(balance).toBeGreaterThanOrEqual(0);
+        fc.integer({ min: 0, max: 2_000_000_000_000 }),
+        fc.integer({ min: 0, max: 2_000_000_000_000 }),
+        fc.array(fc.integer({ min: 0, max: 2_000_000_000_000 }), { maxLength: 20 }),
+        (merchandise, charge, receiptAmounts) => {
+          const receipts = receiptAmounts.reduce(
+            (total, amount) => addMoney(toCentavos(total), toCentavos(amount)),
+            toCentavos(0),
+          );
+          const result = calculateOrderReceiptBalance(merchandise, charge, receipts);
+          expect(result.customerAmount).not.toBeNull();
+          expect(result.expected).not.toBeNull();
+          expect(result.excess).not.toBeNull();
+          if (
+            result.customerAmount === null ||
+            result.expected === null ||
+            result.excess === null
+          ) {
+            return;
+          }
+          const signedDifference = subMoney(
+            toCentavos(result.customerAmount),
+            toCentavos(receipts),
+          );
+          expect(result.expected).toBeGreaterThanOrEqual(0);
+          expect(result.excess).toBeGreaterThanOrEqual(0);
+          expect(result.expected === 0 || result.excess === 0).toBe(true);
+          expect(subMoney(toCentavos(result.expected), toCentavos(result.excess))).toBe(
+            signedDifference,
+          );
         },
       ),
     );
   });
+
+  it("returns no numeric balance preview until a merchandise subtotal is agreed", () => {
+    expect(calculateOrderReceiptBalance(null, 500, 1_250)).toEqual({
+      customerAmount: null,
+      expected: null,
+      excess: null,
+    });
+  });
+
+  it("accepts subtotal reduction below receipts and exposes the excess", () => {
+    expect(calculateOrderReceiptBalance(1_000, 200, 1_500)).toEqual({
+      customerAmount: 1_200,
+      expected: 0,
+      excess: 300,
+    });
+  });
+
+  it("refuses customer amounts outside safe integer centavos", () => {
+    expect(() => calculateOrderReceiptBalance(Number.MAX_SAFE_INTEGER, 1, 0)).toThrow();
+  });
+
+  it("rejects negative agreement amounts and receipts defensively", () => {
+    expect(() => calculateOrderReceiptBalance(-1, 0, 0)).toThrow();
+    expect(() => calculateOrderReceiptBalance(0, -1, 0)).toThrow();
+    expect(() => calculateOrderReceiptBalance(0, 0, -1)).toThrow();
+    expect(() => calculateOrderReceiptBalance(null, -1, 0)).toThrow();
+  });
 });
 
-describe("confirmOrderCommandSchema (O-1)", () => {
+describe("calculatePreDeliveryOrderCashExposure (KOK-207)", () => {
+  it("property: each order's exposure is nonnegative and never offsets another order", () => {
+    fc.assert(
+      fc.property(
+        fc.array(
+          fc.tuple(
+            fc.integer({ min: 0, max: 2_000_000_000_000 }),
+            fc.integer({ min: 0, max: 2_000_000_000_000 }),
+          ),
+          { minLength: 0, maxLength: 20 },
+        ),
+        (transactionsByOrder) => {
+          const exposures = transactionsByOrder.map(([receipts, refunds]) =>
+            calculatePreDeliveryOrderCashExposure(receipts, refunds),
+          );
+          const totalExposure = exposures.reduce(
+            (total, exposure) => addMoney(toCentavos(total), toCentavos(exposure)),
+            toCentavos(0),
+          );
+          const portfolioReceipts = transactionsByOrder.reduce(
+            (total, [receipts]) => addMoney(toCentavos(total), toCentavos(receipts)),
+            toCentavos(0),
+          );
+          const portfolioRefunds = transactionsByOrder.reduce(
+            (total, [, refunds]) => addMoney(toCentavos(total), toCentavos(refunds)),
+            toCentavos(0),
+          );
+
+          expect(exposures.every((exposure) => exposure >= 0)).toBe(true);
+          expect(totalExposure).toBeGreaterThanOrEqual(
+            calculatePreDeliveryOrderCashExposure(portfolioReceipts, portfolioRefunds),
+          );
+        },
+      ),
+    );
+  });
+
+  it("floors a refund excess at zero for its order", () => {
+    expect(calculatePreDeliveryOrderCashExposure(250, 300)).toBe(0);
+    expect(calculatePreDeliveryOrderCashExposure(900, 250)).toBe(650);
+    const perOrderTotal = addMoney(
+      toCentavos(calculatePreDeliveryOrderCashExposure(250, 300)),
+      toCentavos(calculatePreDeliveryOrderCashExposure(1_000, 0)),
+    );
+    expect(perOrderTotal).toBe(1_000);
+    expect(perOrderTotal).toBeGreaterThan(calculatePreDeliveryOrderCashExposure(1_250, 300));
+  });
+
+  it("rejects non-centavo-safe or negative inputs", () => {
+    expect(() => calculatePreDeliveryOrderCashExposure(-1, 0)).toThrow();
+    expect(() => calculatePreDeliveryOrderCashExposure(0, -1)).toThrow();
+    expect(() => calculatePreDeliveryOrderCashExposure(Number.MAX_SAFE_INTEGER + 1, 0)).toThrow();
+  });
+});
+
+describe("cash-free order transition schemas (O-8)", () => {
   const dates = {
     occurredAt: "2026-07-20T14:00:00.000Z",
     businessDate: "2026-07-20",
   };
 
-  it("allows a zero deposit without payment fields only when risk is explicitly accepted", () => {
+  it("confirms without payment fields and rejects attempts to include them", () => {
+    expect(confirmOrderCommandSchema.safeParse({}).success).toBe(true);
     expect(
-      confirmOrderCommandSchema.safeParse({
-        ...dates,
-        agreedTotal: 30_000,
-        depositAmount: 0,
-        acceptNoDepositRisk: true,
-      }).success,
-    ).toBe(true);
-    expect(
-      confirmOrderCommandSchema.safeParse({
-        ...dates,
-        agreedTotal: 30_000,
-        depositAmount: 0,
-      }).success,
-    ).toBe(false);
-    expect(
-      confirmOrderCommandSchema.safeParse({
-        ...dates,
-        agreedTotal: 30_000,
-        depositAmount: 0,
-        acceptNoDepositRisk: false,
-      }).success,
+      confirmOrderCommandSchema.safeParse({ depositAmount: 100, accountId: "acc_cash" }).success,
     ).toBe(false);
   });
 
-  it("keeps the positive-deposit flow independent of the no-deposit acknowledgment", () => {
+  it("accepts delivery date and R-5 flag only; rejects payment and risk fields", () => {
     expect(
-      confirmOrderCommandSchema.safeParse({
+      deliverOrderCommandSchema.safeParse({
         ...dates,
-        agreedTotal: 30_000,
-        depositAmount: 15_000,
-        paymentMethod: "CASH",
-        accountId: "acc_cash",
+        confirm: true,
       }).success,
     ).toBe(true);
     expect(
-      confirmOrderCommandSchema.safeParse({
+      deliverOrderCommandSchema.safeParse({
         ...dates,
-        agreedTotal: 30_000,
-        depositAmount: 15_000,
+        balancePaymentStatus: "PAID",
+        accountId: "acc_cash",
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe("updateOrderCommandSchema (KOK-205)", () => {
+  const command = {
+    expectedUpdatedAt: "2026-07-20T14:00:00.000Z",
+    customerId: "cus_1",
+    description: "Pedido actualizado",
+    agreedTotal: 1_000,
+    additionalCharge: 125,
+    deliveryDate: null,
+    deliveryPlace: null,
+    notes: null,
+    lines: [{ itemId: "itm_1", qty: 1000, lineTotal: null }],
+  };
+
+  it("accepts explicit nullable clears and a zero subtotal", () => {
+    expect(updateOrderCommandSchema.safeParse({ ...command, agreedTotal: 0 }).success).toBe(true);
+  });
+
+  it("rejects negative charges and missing optimistic version", () => {
+    expect(updateOrderCommandSchema.safeParse({ ...command, additionalCharge: -1 }).success).toBe(
+      false,
+    );
+    expect(
+      updateOrderCommandSchema.safeParse({ ...command, expectedUpdatedAt: undefined }).success,
+    ).toBe(false);
+  });
+
+  it("rejects a customer amount that cannot be represented as safe integer centavos", () => {
+    expect(
+      updateOrderCommandSchema.safeParse({
+        ...command,
+        agreedTotal: Number.MAX_SAFE_INTEGER,
+        additionalCharge: 1,
       }).success,
     ).toBe(false);
   });
@@ -287,5 +408,27 @@ describe("orderLineCommandSchema", () => {
 
   it("defaults qty to one whole unit (1000 milli-units), matching the DDL", () => {
     expect(orderLineCommandSchema.parse({ itemId: "itm_1" }).qty).toBe(1000);
+  });
+});
+
+describe("listOrdersFiltersSchema cursor pagination (O-5)", () => {
+  it("parses the shared JSON cursor query representation", () => {
+    const cursor = {
+      deliveryDate: null,
+      createdAt: "2026-07-20T14:00:00.000Z",
+      id: "order-1",
+    };
+    const query = new URLSearchParams({ cursor: serializeOrderListCursor(cursor) });
+
+    expect(listOrdersFiltersSchema.parse(Object.fromEntries(query)).cursor).toEqual(cursor);
+  });
+
+  it("rejects malformed cursor values instead of restarting at the first page", () => {
+    expect(listOrdersFiltersSchema.safeParse({ cursor: "not-json" }).success).toBe(false);
+    expect(
+      listOrdersFiltersSchema.safeParse({
+        cursor: JSON.stringify({ deliveryDate: "2026-07-20", createdAt: "now" }),
+      }).success,
+    ).toBe(false);
   });
 });

@@ -4,6 +4,7 @@ import {
   addMoney,
   listReceivablesQuerySchema,
   rateFromTotal,
+  toBusinessDate,
   toCentavos,
   toMilliUnits,
 } from "@kokoro/shared";
@@ -12,8 +13,9 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { createItem } from "../src/core/catalog/index.js";
 import { createCustomer } from "../src/core/customers/index.js";
 import {
-  getLiabilityReceivableSummary,
+  getOrderCashReceivableSummary,
   listGroupedReceivables,
+  recordTransaction,
 } from "../src/core/finance/index.js";
 import {
   confirmOrder,
@@ -102,8 +104,9 @@ async function recordDeliveredOrder(
   customerId: string,
   itemId: string,
   agreedTotal: number,
-  depositAmount: number,
   occurredAt: string,
+  additionalCharge = 0,
+  businessDate = occurredAt.slice(0, 10),
 ) {
   const { order } = await quoteOrder(
     db,
@@ -111,40 +114,17 @@ async function recordDeliveredOrder(
       customerId,
       description: uniqueName("Receivable order"),
       agreedTotal,
+      additionalCharge,
       lines: [{ itemId, qty: 1_000 }],
     },
     ACTOR,
   );
-  const paymentFields = {
-    occurredAt,
-    businessDate: occurredAt.slice(0, 10),
-    depositAmount,
-  };
-
-  if (depositAmount === 0) {
-    await confirmOrder(db, order.id, { ...paymentFields, acceptNoDepositRisk: true }, ACTOR);
-  } else {
-    await confirmOrder(
-      db,
-      order.id,
-      { ...paymentFields, paymentMethod: "CASH", accountId: "acc_cash" },
-      ACTOR,
-    );
-  }
+  await confirmOrder(db, order.id, {}, ACTOR);
 
   await startOrderProduction(db, order.id, ACTOR);
   await markOrderReady(db, order.id, ACTOR);
-  const delivered = await deliverOrder(
-    db,
-    order.id,
-    {
-      occurredAt,
-      businessDate: occurredAt.slice(0, 10),
-      balancePaymentStatus: "ON_CREDIT",
-    },
-    ACTOR,
-  );
-  return { orderId: order.id, sale: delivered.sale };
+  const delivered = await deliverOrder(db, order.id, { occurredAt, businessDate }, ACTOR);
+  return { orderId: order.id, orderCode: order.code, sale: delivered.sale };
 }
 
 beforeEach(async () => {
@@ -155,12 +135,12 @@ beforeEach(async () => {
   await db.delete(saleLines);
   await db.delete(sales);
   await db.delete(customOrderLines);
-  await db.delete(customOrders);
-  await db.delete(financialTransactions);
-  await db.delete(stockMovements);
-  await db.delete(itemStock);
   await db.delete(purchaseLines);
   await db.delete(purchases);
+  await db.delete(financialTransactions);
+  await db.delete(customOrders);
+  await db.delete(stockMovements);
+  await db.delete(itemStock);
   for (const id of ["acc_bank", "acc_cash"] as const) {
     await db.update(financialAccounts).set({ balance: 0 }).where(eq(financialAccounts.id, id));
   }
@@ -201,8 +181,21 @@ describe("listGroupedReceivables (KOK-197)", () => {
       customerA.id,
       item.id,
       30_000,
-      10_000,
       "2026-09-01T12:00:00.000Z",
+      5_000,
+    );
+    await recordTransaction(
+      db,
+      {
+        customOrderId: depositedOrder.orderId,
+        accountId: "acc_cash",
+        type: "INCOME",
+        category: "ORDER_DEPOSIT",
+        amount: 12_500,
+        occurredAt: "2026-09-02T12:00:00.000Z",
+        businessDate: "2026-09-02",
+      },
+      ACTOR,
     );
     const recentA = await recordCreditSale(
       db,
@@ -217,8 +210,9 @@ describe("listGroupedReceivables (KOK-197)", () => {
       customerB.id,
       item.id,
       12_000,
+      "2026-09-30T02:00:00.000Z",
       0,
-      "2026-09-29T12:00:00.000Z",
+      "2026-09-29",
     );
 
     const result = await listGroupedReceivables(
@@ -226,11 +220,11 @@ describe("listGroupedReceivables (KOK-197)", () => {
       listReceivablesQuerySchema.parse({ pageSize: 100 }),
     );
     expect(result.globalSummary).toEqual({
-      receivablesTotal: 57_000,
+      receivablesTotal: 59_500,
       debtorCount: 2,
-      pendingSaleCount: 7,
+      pendingReceivableCount: 7,
     });
-    expect((await getLiabilityReceivableSummary(db)).receivablesTotal).toBe(
+    expect((await getOrderCashReceivableSummary(db)).receivablesTotal).toBe(
       result.globalSummary.receivablesTotal,
     );
     expect(result.groups).toHaveLength(3);
@@ -242,32 +236,54 @@ describe("listGroupedReceivables (KOK-197)", () => {
     const groupA = result.groups.find(
       (group) => group.groupType === "CUSTOMER" && group.customerId === customerA.id,
     );
-    expect(groupA).toMatchObject({ outstandingTotal: 25_000, pendingSaleCount: 3 });
-    const depositedSale = groupA?.sales.find((sale) => sale.saleId === depositedOrder.sale.id);
-    expect(depositedSale).toMatchObject({
-      code: depositedOrder.sale.code,
+    expect(groupA).toMatchObject({ outstandingTotal: 27_500, receivableCount: 3 });
+    const depositedOrderReceivable = groupA?.receivables.find(
+      (receivable) =>
+        receivable.sourceType === "CUSTOM_ORDER" &&
+        receivable.customOrderId === depositedOrder.orderId,
+    );
+    expect(depositedOrderReceivable).toMatchObject({
+      sourceType: "CUSTOM_ORDER",
+      code: depositedOrder.orderCode,
+      saleCode: depositedOrder.sale.code,
       occurredAt: "2026-09-01T12:00:00.000Z",
       businessDate: "2026-09-01",
       channel: "CUSTOM_ORDER",
-      saleTotal: 30_000,
-      depositApplied: 10_000,
-      outstandingAmount: 20_000,
+      saleTotal: 35_000,
+      customerPrice: 35_000,
+      qualifyingReceipts: 12_500,
+      excess: 0,
+      outstandingAmount: 22_500,
       customOrderId: depositedOrder.orderId,
     });
-    expect(depositedSale?.ageDays).toBeGreaterThanOrEqual(0);
+    expect(depositedOrderReceivable?.ageDays).toBeGreaterThanOrEqual(0);
 
-    const zeroDepositSale = result.groups
-      .flatMap((group) => group.sales)
-      .find((sale) => sale.saleId === zeroDepositOrder.sale.id);
-    expect(zeroDepositSale).toMatchObject({
+    const zeroDepositReceivable = result.groups
+      .flatMap((group) => group.receivables)
+      .find(
+        (receivable) =>
+          receivable.sourceType === "CUSTOM_ORDER" &&
+          receivable.customOrderId === zeroDepositOrder.orderId,
+      );
+    expect(zeroDepositReceivable).toMatchObject({
+      sourceType: "CUSTOM_ORDER",
       saleTotal: 12_000,
-      depositApplied: 0,
+      customerPrice: 12_000,
+      qualifyingReceipts: 0,
+      excess: 0,
       outstandingAmount: 12_000,
     });
+    expect(zeroDepositReceivable?.ageDays).toBe(
+      Math.floor(
+        (Date.parse(`${toBusinessDate(new Date())}T00:00:00.000Z`) -
+          Date.parse("2026-09-29T00:00:00.000Z")) /
+          86_400_000,
+      ),
+    );
 
     const noCustomerGroup = result.groups.find((group) => group.groupType === "NO_CUSTOMER");
-    expect(noCustomerGroup).toMatchObject({ outstandingTotal: 15_000, pendingSaleCount: 2 });
-    expect(noCustomerGroup?.sales.map((sale) => sale.saleId)).toEqual(
+    expect(noCustomerGroup).toMatchObject({ outstandingTotal: 15_000, receivableCount: 2 });
+    expect(noCustomerGroup?.receivables.map((receivable) => receivable.saleId)).toEqual(
       expect.arrayContaining([noCustomerOlder.sale.id, noCustomerRecent.sale.id]),
     );
 
@@ -276,7 +292,7 @@ describe("listGroupedReceivables (KOK-197)", () => {
       listReceivablesQuerySchema.parse({ search: customerA.name }),
     );
     expect(searchByCustomer.groups).toHaveLength(1);
-    expect(searchByCustomer.groups[0]?.pendingSaleCount).toBe(3);
+    expect(searchByCustomer.groups[0]?.receivableCount).toBe(3);
     expect(searchByCustomer.globalSummary).toEqual(result.globalSummary);
 
     const saleCode = olderA.sale.code;
@@ -286,15 +302,29 @@ describe("listGroupedReceivables (KOK-197)", () => {
       listReceivablesQuerySchema.parse({ search: saleCode ?? "" }),
     );
     expect(searchByCode.groups).toHaveLength(1);
-    expect(searchByCode.groups[0]?.sales.map((sale) => sale.saleId)).toEqual([olderA.sale.id]);
+    expect(searchByCode.groups[0]?.receivables.map((receivable) => receivable.saleId)).toEqual([
+      olderA.sale.id,
+    ]);
     expect(searchByCode.globalSummary).toEqual(result.globalSummary);
+
+    const orderCode = depositedOrder.orderCode;
+    expect(orderCode).not.toBeNull();
+    const searchByOrderCode = await listGroupedReceivables(
+      db,
+      listReceivablesQuerySchema.parse({ search: orderCode ?? "" }),
+    );
+    expect(searchByOrderCode.groups).toHaveLength(1);
+    expect(searchByOrderCode.groups[0]?.receivables).toMatchObject([
+      { sourceType: "CUSTOM_ORDER", customOrderId: depositedOrder.orderId },
+    ]);
+    expect(searchByOrderCode.globalSummary).toEqual(result.globalSummary);
 
     const ageFiltered = await listGroupedReceivables(
       db,
       listReceivablesQuerySchema.parse({ minAgeDays: 10, pageSize: 100 }),
     );
     const ageFilteredSaleIds = ageFiltered.groups.flatMap((group) =>
-      group.sales.map((sale) => sale.saleId),
+      group.receivables.map((receivable) => receivable.saleId),
     );
     expect(ageFilteredSaleIds).toContain(olderA.sale.id);
     expect(ageFilteredSaleIds).toContain(olderB.sale.id);

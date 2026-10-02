@@ -138,28 +138,30 @@ export function SaleDetailDrawer({ saleId, open, onOpenChange, accounts }: SaleD
           <p className="text-muted-foreground text-sm">{salesLabels.loading}</p>
         ) : (
           <div className="flex flex-col gap-5 text-sm">
-            <div className="flex items-center justify-end gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  void navigate({ to: "/sales/$saleId/edit", params: { saleId } });
-                  onOpenChange(false);
-                }}
-              >
-                {salesLabels.edit}
-              </Button>
-              <Button
-                type="button"
-                variant="destructive"
-                size="sm"
-                onClick={() => deleteReplay.execute({})}
-                disabled={deleteReplay.isPending}
-              >
-                {salesLabels.delete}
-              </Button>
-            </div>
+            {sale.channel === "CATALOG" ? (
+              <div className="flex items-center justify-end gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    void navigate({ to: "/sales/$saleId/edit", params: { saleId } });
+                    onOpenChange(false);
+                  }}
+                >
+                  {salesLabels.edit}
+                </Button>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => deleteReplay.execute({})}
+                  disabled={deleteReplay.isPending}
+                >
+                  {salesLabels.delete}
+                </Button>
+              </div>
+            ) : null}
 
             {deleteReplay.error ? (
               <p className="text-negative text-sm">
@@ -172,10 +174,24 @@ export function SaleDetailDrawer({ saleId, open, onOpenChange, accounts }: SaleD
             <div className="flex flex-col gap-1 rounded-md border border-border bg-muted px-3 py-2.5">
               <div className="flex items-center justify-between">
                 <span className="text-muted-foreground">{salesLabels.columnStatus}</span>
-                <Badge variant={sale.paymentStatus === "PAID" ? "default" : "warning"}>
-                  {salesLabels.paymentStatusLabels[sale.paymentStatus]}
-                </Badge>
+                {sale.channel === "CUSTOM_ORDER" ? (
+                  <span className="text-muted-foreground text-xs">
+                    {salesLabels.orderSalePaymentSeparate}
+                  </span>
+                ) : (
+                  <Badge variant={sale.paymentStatus === "PAID" ? "default" : "warning"}>
+                    {salesLabels.paymentStatusLabels[sale.paymentStatus]}
+                  </Badge>
+                )}
               </div>
+              {sale.channel === "CUSTOM_ORDER" && sale.additionalCharge > 0 ? (
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">{salesLabels.additionalCharge}</span>
+                  <span className="numeric-cell font-medium text-foreground">
+                    {formatMoney(toCentavos(sale.additionalCharge))}
+                  </span>
+                </div>
+              ) : null}
               {sale.customerId ? (
                 <div className="flex items-center justify-between">
                   <span className="text-muted-foreground">{salesLabels.fieldCustomer}</span>

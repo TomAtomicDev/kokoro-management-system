@@ -1,4 +1,8 @@
-import type { ReceivablesGroupDto, ReceivablesSaleDto } from "@kokoro/shared";
+import type {
+  CatalogSaleReceivableDto,
+  ReceivableSourceDto,
+  ReceivablesGroupDto,
+} from "@kokoro/shared";
 import { formatMoney, toCentavos } from "@kokoro/shared";
 import { Link } from "@tanstack/react-router";
 import { ChevronDown } from "lucide-react";
@@ -11,7 +15,7 @@ import { cn } from "@/lib/utils";
 
 export interface ReceivablesGroupsProps {
   groups: ReceivablesGroupDto[];
-  onCollect: (sale: ReceivablesSaleDto) => void;
+  onCollectCatalogSale: (receivable: CatalogSaleReceivableDto) => void;
 }
 
 function formatBalance(amount: number): string {
@@ -22,7 +26,7 @@ function groupKey(group: ReceivablesGroupDto): string {
   return group.groupType === "NO_CUSTOMER" ? "no-customer" : group.customerId;
 }
 
-function SaleBalance({ label, amount }: { label: string; amount: number }) {
+function ReceivableAmount({ label, amount }: { label: string; amount: number }) {
   return (
     <div className="flex min-w-0 flex-col gap-1 rounded-md bg-muted/60 px-3 py-2">
       <span className="text-muted-foreground text-xs">{label}</span>
@@ -33,71 +37,105 @@ function SaleBalance({ label, amount }: { label: string; amount: number }) {
   );
 }
 
-function ReceivableSaleRow({
-  sale,
-  onCollect,
+function ReceivableSourceRow({
+  receivable,
+  onCollectCatalogSale,
 }: {
-  sale: ReceivablesSaleDto;
-  onCollect: (sale: ReceivablesSaleDto) => void;
+  receivable: ReceivableSourceDto;
+  onCollectCatalogSale: (receivable: CatalogSaleReceivableDto) => void;
 }) {
+  const isOrder = receivable.sourceType === "CUSTOM_ORDER";
+
   return (
     <article className="flex flex-col gap-3 rounded-md border border-border bg-card p-3 sm:p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <Link
-            to="/sales"
-            search={{ open: sale.saleId }}
-            className="font-medium text-foreground underline-offset-4 hover:underline"
-          >
-            {sale.code ?? receivablesLabels.saleCodeFallback}
-          </Link>
-          <span className="rounded-full border border-border px-2 py-0.5 text-muted-foreground text-xs">
-            {salesLabels.channelLabels[sale.channel]}
-          </span>
-          {sale.customOrderId ? (
+          {isOrder ? (
             <Link
               to="/orders"
-              search={{ open: sale.customOrderId }}
+              search={{ open: receivable.customOrderId }}
+              className="font-medium text-foreground underline-offset-4 hover:underline"
+            >
+              {receivable.code ?? receivablesLabels.orderCodeFallback}
+            </Link>
+          ) : (
+            <Link
+              to="/sales"
+              search={{ open: receivable.saleId }}
+              className="font-medium text-foreground underline-offset-4 hover:underline"
+            >
+              {receivable.code ?? receivablesLabels.saleCodeFallback}
+            </Link>
+          )}
+          <span className="rounded-full border border-border px-2 py-0.5 text-muted-foreground text-xs">
+            {salesLabels.channelLabels[receivable.channel]}
+          </span>
+          {isOrder && receivable.saleCode ? (
+            <Link
+              to="/sales"
+              search={{ open: receivable.saleId }}
               className="text-muted-foreground text-xs underline-offset-4 hover:text-foreground hover:underline"
             >
-              {receivablesLabels.orderLink}
+              {receivablesLabels.linkedSaleCode(receivable.saleCode)}
             </Link>
           ) : null}
         </div>
         <div className="flex items-center gap-1 text-muted-foreground text-xs">
           <span>{receivablesLabels.age}:</span>
           <span className="numeric-cell font-medium text-foreground">
-            {receivablesLabels.ageValue(sale.ageDays)}
+            {receivablesLabels.ageValue(receivable.ageDays)}
           </span>
         </div>
       </div>
 
       <p className="text-muted-foreground text-xs">
-        {receivablesLabels.date}: <time dateTime={sale.occurredAt}>{sale.businessDate}</time>
+        {receivablesLabels.date}:{" "}
+        <time dateTime={receivable.occurredAt}>{receivable.businessDate}</time>
       </p>
 
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-        <SaleBalance label={receivablesLabels.saleTotal} amount={sale.saleTotal} />
-        <SaleBalance label={receivablesLabels.depositApplied} amount={sale.depositApplied} />
-        <SaleBalance label={receivablesLabels.outstandingBalance} amount={sale.outstandingAmount} />
-      </div>
+      {isOrder ? (
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+          <ReceivableAmount
+            label={receivablesLabels.customerPrice}
+            amount={receivable.customerPrice}
+          />
+          <ReceivableAmount
+            label={receivablesLabels.qualifyingReceipts}
+            amount={receivable.qualifyingReceipts}
+          />
+          <ReceivableAmount
+            label={receivablesLabels.outstandingBalance}
+            amount={receivable.outstandingAmount}
+          />
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <ReceivableAmount label={receivablesLabels.saleTotal} amount={receivable.saleTotal} />
+          <ReceivableAmount
+            label={receivablesLabels.outstandingBalance}
+            amount={receivable.outstandingAmount}
+          />
+        </div>
+      )}
 
-      <div className="flex justify-end">
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="min-h-11 w-full sm:w-auto"
-          onClick={() => onCollect(sale)}
-        >
-          {receivablesLabels.collectBalance}
-        </Button>
-      </div>
+      {!isOrder ? (
+        <div className="flex justify-end">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="min-h-11 w-full sm:w-auto"
+            onClick={() => onCollectCatalogSale(receivable)}
+          >
+            {receivablesLabels.collectBalance}
+          </Button>
+        </div>
+      ) : null}
     </article>
   );
 }
 
-export function ReceivablesGroups({ groups, onCollect }: ReceivablesGroupsProps) {
+export function ReceivablesGroups({ groups, onCollectCatalogSale }: ReceivablesGroupsProps) {
   const [expandedGroupKeys, setExpandedGroupKeys] = useState<Set<string>>(() => new Set());
 
   function toggleGroup(key: string): void {
@@ -142,7 +180,7 @@ export function ReceivablesGroups({ groups, onCollect }: ReceivablesGroupsProps)
                     {title}
                   </span>
                   <span className="block text-muted-foreground text-xs">
-                    {receivablesLabels.customerSalesCount(group.pendingSaleCount)}
+                    {receivablesLabels.customerReceivablesCount(group.receivableCount)}
                     {isNoCustomer ? ` · ${receivablesLabels.noCustomerDescription}` : null}
                   </span>
                 </span>
@@ -152,18 +190,26 @@ export function ReceivablesGroups({ groups, onCollect }: ReceivablesGroupsProps)
                   </span>
                 ) : null}
                 <span className="shrink-0 text-muted-foreground text-xs">
-                  {expanded ? receivablesLabels.hideSales : receivablesLabels.showSales}
+                  {expanded ? receivablesLabels.hideDetails : receivablesLabels.showDetails}
                 </span>
               </button>
             </h2>
             {expanded ? (
               <section
                 id={listId}
-                aria-label={`${title} · ${receivablesLabels.customerSalesCount(group.pendingSaleCount)}`}
+                aria-label={`${title} · ${receivablesLabels.customerReceivablesCount(group.receivableCount)}`}
                 className="flex flex-col gap-2 border-border border-t p-3 sm:p-4"
               >
-                {group.sales.map((sale) => (
-                  <ReceivableSaleRow key={sale.saleId} sale={sale} onCollect={onCollect} />
+                {group.receivables.map((receivable) => (
+                  <ReceivableSourceRow
+                    key={
+                      receivable.sourceType === "CUSTOM_ORDER"
+                        ? receivable.customOrderId
+                        : receivable.saleId
+                    }
+                    receivable={receivable}
+                    onCollectCatalogSale={onCollectCatalogSale}
+                  />
                 ))}
               </section>
             ) : null}

@@ -2,9 +2,10 @@
 // the API route and any future web form (KOK-015) / AI draft tool for finance events import
 // these same schemas — never redeclare field validation elsewhere.
 //
-// Scope (Doc 10 KOK-014/KOK-146): standalone (non-system-owned) financial transactions and
-// transfers can be created, edited, soft-deleted, and restored here. Event-owned rows still use
-// the derived-row regeneration primitive in core/finance/accounts.ts and are never direct targets.
+// Scope (Doc 10 KOK-014/KOK-146/KOK-204): manual (non-system-owned) financial transactions and
+// transfers can be created, edited, soft-deleted, and restored here. Independent order cash rows
+// use the same commands and keep their order relationship fixed during finance-side edits.
+// Event-owned rows still use the derived-row regeneration primitive in core/finance/accounts.ts.
 
 import { z } from "zod";
 import { businessDateSchema, calendarDateSchema, occurredAtSchema } from "./dates.js";
@@ -22,10 +23,10 @@ const amountSchema = z.number().int().positive("El monto debe ser un entero posi
 const descriptionSchema = z.string().trim().pipe(safeText(2000)).optional();
 
 /**
- * Legal `category` values per `type` for `recordTransaction` (UC-11). The rest of
- * `FINANCIAL_TRANSACTION_CATEGORIES` (SALE, ORDER_DEPOSIT, ORDER_BALANCE, DEBT_COLLECTION,
- * SUPPLY_PURCHASE, DEPOSIT_REFUND) belong to future event services (purchases/sales/orders) that
- * create system-owned rows with a `sourceEventId` — never this standalone command.
+ * Legal `category` values per `type` for `recordTransaction` (UC-11/O-8). System-owned categories
+ * remain reserved to their source services. Order receipts/refunds are manual rows: their category
+ * is allowed only when `customOrderId` is present, while ordinary order-linked income/expenses may
+ * use the same standalone categories as before.
  * `OWNER_WITHDRAWAL` and `TRANSFER` are excluded too: they are fixed, non-caller-supplied
  * categories that only `withdraw`/`transfer` may write.
  *
@@ -39,34 +40,73 @@ export const RECORD_TRANSACTION_CATEGORIES_BY_TYPE: Record<
   "INCOME" | "EXPENSE",
   readonly FinancialTransactionCategory[]
 > = {
-  INCOME: ["OTHER_INCOME"],
-  EXPENSE: ["OPERATING_EXPENSE", "EQUIPMENT", "OTHER_EXPENSE"],
+  INCOME: ["OTHER_INCOME", "ORDER_DEPOSIT", "ORDER_BALANCE"],
+  EXPENSE: ["OPERATING_EXPENSE", "EQUIPMENT", "OTHER_EXPENSE", "ORDER_REFUND"],
 };
 
-export const recordTransactionCommandSchema = z
-  .object({
-    accountId: z.string().min(1),
-    type: z.enum(["INCOME", "EXPENSE"]),
-    // Kept as the full category enum here (not narrowed to the legal subset) so a single Zod type
-    // covers both branches of `type`; the superRefine below enforces the actual pairing. Narrowing
-    // this field itself would require a discriminated union keyed on `type`, which reads worse for
-    // a 2-branch rule and would still need the same cross-field message.
-    category: financialTransactionCategorySchema,
-    amount: amountSchema,
-    businessDate: businessDateSchema,
-    occurredAt: occurredAtSchema,
-    description: descriptionSchema,
-  })
-  .superRefine((v, ctx) => {
-    const allowed = RECORD_TRANSACTION_CATEGORIES_BY_TYPE[v.type];
-    if (!allowed.includes(v.category)) {
+export const ORDER_LINK_REQUIRED_TRANSACTION_CATEGORIES = [
+  "ORDER_DEPOSIT",
+  "ORDER_BALANCE",
+  "ORDER_REFUND",
+] as const satisfies readonly FinancialTransactionCategory[];
+
+/** Categories exposed by Finance's standalone create/edit forms, which have no order context. */
+export const FINANCE_FORM_TRANSACTION_CATEGORIES_BY_TYPE = {
+  INCOME: ["OTHER_INCOME"],
+  EXPENSE: ["OPERATING_EXPENSE", "EQUIPMENT", "OTHER_EXPENSE"],
+} as const satisfies Record<"INCOME" | "EXPENSE", readonly FinancialTransactionCategory[]>;
+
+const transactionCommandFieldsSchema = z.object({
+  accountId: z.string().min(1),
+  type: z.enum(["INCOME", "EXPENSE"]),
+  // Kept as the full category enum here (not narrowed to the legal subset) so a single Zod type
+  // covers both branches of `type`; the superRefine below enforces the actual pairing. Narrowing
+  // this field itself would require a discriminated union keyed on `type`, which reads worse for
+  // a 2-branch rule and would still need the same cross-field message.
+  category: financialTransactionCategorySchema,
+  amount: amountSchema,
+  customOrderId: z.string().min(1).nullable().optional(),
+  businessDate: businessDateSchema,
+  occurredAt: occurredAtSchema,
+  description: descriptionSchema,
+});
+
+function validateRecordTransactionCategory(
+  value: { type: "INCOME" | "EXPENSE"; category: FinancialTransactionCategory },
+  ctx: z.RefinementCtx,
+): void {
+  const allowed = RECORD_TRANSACTION_CATEGORIES_BY_TYPE[value.type];
+  if (!allowed.includes(value.category)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["category"],
+      message: `Para type=${value.type} la categoría debe ser una de: ${allowed.join(", ")}.`,
+    });
+  }
+}
+
+export const recordTransactionCommandSchema = transactionCommandFieldsSchema.superRefine(
+  (v, ctx) => {
+    validateRecordTransactionCategory(v, ctx);
+    if (
+      ORDER_LINK_REQUIRED_TRANSACTION_CATEGORIES.includes(
+        v.category as (typeof ORDER_LINK_REQUIRED_TRANSACTION_CATEGORIES)[number],
+      ) &&
+      !v.customOrderId
+    ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        path: ["category"],
-        message: `Para type=${v.type} la categoría debe ser una de: ${allowed.join(", ")}.`,
+        path: ["customOrderId"],
+        message: "Esta categoría requiere un pedido relacionado.",
       });
     }
-  });
+  },
+);
+/** Order-page command body: the API obtains customOrderId from `/orders/:id`, never this body. */
+export const recordOrderTransactionCommandSchema = transactionCommandFieldsSchema
+  .omit({ customOrderId: true })
+  .superRefine(validateRecordTransactionCategory);
+export type RecordOrderTransactionCommand = z.infer<typeof recordOrderTransactionCommandSchema>;
 export type RecordTransactionCommand = z.infer<typeof recordTransactionCommandSchema>;
 
 export const transferCommandSchema = z
@@ -99,7 +139,9 @@ export type WithdrawCommand = z.infer<typeof withdrawCommandSchema>;
  * both legs from either row id without exposing counterpart ids as editable data.
  */
 export const updateTransactionCommandSchema = z.union([
-  recordTransactionCommandSchema,
+  transactionCommandFieldsSchema
+    .omit({ customOrderId: true })
+    .superRefine(validateRecordTransactionCategory),
   withdrawCommandSchema,
   transferCommandSchema,
 ]);
@@ -116,6 +158,8 @@ export type DeleteTransactionCommand = z.infer<typeof deleteTransactionCommandSc
 export const listTransactionsFiltersSchema = z.object({
   accountId: z.string().min(1).optional(),
   category: financialTransactionCategorySchema.optional(),
+  /** KOK-208: bounded order timeline / Finance deep-link filter. */
+  customOrderId: z.string().min(1).optional(),
   fromDate: calendarDateSchema.optional(),
   toDate: calendarDateSchema.optional(),
   limit: z.coerce.number().int().positive().max(500).optional(),
@@ -146,6 +190,12 @@ export interface FinancialTransactionSourceEventDto {
   businessDate: string;
 }
 
+/** Direct PED association, independent from the source event that owns a derived transaction. */
+export interface FinancialTransactionOrderDto {
+  id: string;
+  code: string | null;
+}
+
 export interface FinancialTransactionDto {
   id: string;
   occurredAt: string;
@@ -158,13 +208,14 @@ export interface FinancialTransactionDto {
   counterpartTxId: string | null;
   sourceEventType: string | null;
   sourceEventId: string | null;
+  customOrderId: string | null;
   /** Present for known system-owned sources; omitted for standalone/manual rows. */
   sourceEvent?: FinancialTransactionSourceEventDto;
-  /** KOK-185: human-readable code (GTO-/ING-/RET-/TRF-NNNN-YYYY) — assigned ONLY for manual rows
-   * (`sourceEventId === null`); a system-owned row (SALE, SUPPLY_PURCHASE, DEBT_COLLECTION,
-   * ORDER_DEPOSIT, ORDER_BALANCE, DEPOSIT_REFUND) always carries `code: null` here by design — it
-   * inherits its source event's own code for display instead (Doc 07). Both legs of a TRANSFER
-   * share the same code. */
+  /** Present when the direct order association resolves; displayed separately from `sourceEvent`. */
+  relatedOrder?: FinancialTransactionOrderDto;
+  /** KOK-185/KOK-204: manual rows (including independent ORDER_DEPOSIT/ORDER_BALANCE/ORDER_REFUND)
+   * carry a human-readable GTO-/ING-/RET-/TRF- code. Legacy source-owned rows retain code: null
+   * and inherit their source event's identity. Both legs of a TRANSFER share the same code. */
   code: string | null;
   description: string | null;
   createdAt: string;
@@ -213,10 +264,8 @@ export interface ListAccountsResult {
 }
 
 export interface FinanceSummaryDto {
-  /** Centavos (INV-6): current customer_deposits from v_liability (ADR-012 — cash the owner
-   * holds but doesn't own yet, until delivery/refund/forfeit). */
-  liability: number;
-  /** Centavos (INV-6): SUM(total) over v_receivables — every ON_CREDIT sale's uncollected
-   * remainder. */
+  /** Centavos (INV-6): active pre-delivery order receipts net of order refunds, floored per order. */
+  preDeliveryOrderCashExposure: number;
+  /** Centavos (INV-6): catalog-sale debt plus positive delivered-order outstanding. */
   receivablesTotal: number;
 }

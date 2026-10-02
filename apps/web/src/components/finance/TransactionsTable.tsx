@@ -7,6 +7,7 @@
 import type {
   FinancialAccountDto,
   FinancialTransactionDto,
+  FinancialTransactionOrderDto,
   FinancialTransactionSourceEventDto,
 } from "@kokoro/shared";
 import { formatMoney, toCentavos } from "@kokoro/shared";
@@ -33,6 +34,13 @@ export function formatSourceEventLabel(sourceEvent: FinancialTransactionSourceEv
     .filter((part): part is string => part !== null)
     .join(" ")
     .concat(` · ${shortDate}`);
+}
+
+export function formatRelatedOrderLabel(
+  relatedOrder: FinancialTransactionOrderDto | undefined,
+  customOrderId: string | null,
+): string {
+  return relatedOrder?.code ?? (customOrderId ? financeLabels.relatedOrderWithoutCode : "—");
 }
 
 function SourceEventLink({
@@ -74,8 +82,8 @@ function SourceEventLink({
     case "custom_order":
       return (
         <Link
-          to="/orders"
-          search={(previous) => ({ ...previous, open: sourceEvent.id })}
+          to="/orders/$orderId"
+          params={{ orderId: sourceEvent.id }}
           className={linkClassName}
           onClick={stopRowSelection}
           onKeyDown={stopRowSelection}
@@ -195,6 +203,26 @@ export function TransactionsTable({
         ),
       sortable: true,
       sortValue: (row) => (row.sourceEvent ? formatSourceEventLabel(row.sourceEvent) : "—"),
+    },
+    {
+      id: "relatedOrder",
+      header: financeLabels.columnOrder,
+      cell: (row) =>
+        row.relatedOrder ? (
+          <Link
+            to="/orders/$orderId"
+            params={{ orderId: row.relatedOrder.id }}
+            className="text-primary underline-offset-2 hover:underline"
+            onClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => event.stopPropagation()}
+          >
+            {formatRelatedOrderLabel(row.relatedOrder, row.customOrderId)}
+          </Link>
+        ) : (
+          formatRelatedOrderLabel(row.relatedOrder, row.customOrderId)
+        ),
+      sortable: true,
+      sortValue: (row) => formatRelatedOrderLabel(row.relatedOrder, row.customOrderId),
     },
   ];
 

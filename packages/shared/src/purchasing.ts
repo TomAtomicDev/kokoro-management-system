@@ -45,6 +45,8 @@ export const recordPurchaseCommandSchema = z.object({
   // sessions table here (no FK check beyond what the DB's own `ON DELETE restrict` FK enforces at
   // write time).
   sessionId: z.string().min(1).optional(),
+  /** Optional direct association for per-order cost/cash evidence; order status never gates it. */
+  customOrderId: z.string().min(1).nullable().optional(),
   receiptPhotoKey: z.string().min(1).optional(),
   notes: z.string().trim().pipe(safeText(PURCHASE_NOTES_MAX_LENGTH)).optional(),
   occurredAt: occurredAtSchema,
@@ -131,6 +133,8 @@ export type PurchaseImpactRequest = z.input<typeof purchaseImpactRequestSchema>;
 /** GET /purchases query filters — mirrors listTransactionsFiltersSchema's shape (finance.ts). */
 export const listPurchasesFiltersSchema = z.object({
   accountId: z.string().min(1).optional(),
+  /** KOK-208: read direct purchase/cash evidence for one order without scanning the global list. */
+  customOrderId: z.string().min(1).optional(),
   fromDate: businessDateSchema.optional(),
   toDate: businessDateSchema.optional(),
   limit: z.coerce.number().int().positive().max(500).optional(),
@@ -152,6 +156,7 @@ export interface PurchaseDto {
   businessDate: string;
   supplierName: string | null;
   sessionId: string | null;
+  customOrderId: string | null;
   accountId: string;
   /** Centavos (INV-6), server-recomputed as Σ lineTotal — never caller-supplied (Doc 04 §5). */
   total: number;

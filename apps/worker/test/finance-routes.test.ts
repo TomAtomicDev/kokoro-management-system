@@ -1,9 +1,11 @@
-// Route-level coverage for KOK-146. Service tests own balance/pair invariants; this file proves
-// the authenticated PATCH/DELETE/restore wiring and its empty-body handling.
+// Finance route coverage for manual rows. Service tests own balance/pair invariants; this file
+// proves the authenticated order-context capture, read filter, edit/delete/restore wiring.
 import { env, SELF } from "cloudflare:test";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 
+import { createCustomer } from "../src/core/customers/index.js";
+import { cancelOrder, quoteOrder } from "../src/core/orders/index.js";
 import { createDb } from "../src/db/index.js";
 import { auditLog, financialAccounts, financialTransactions } from "../src/db/schema.js";
 
@@ -44,6 +46,112 @@ beforeEach(async () => {
 });
 
 describe("KOK-146 finance transaction routes", () => {
+  it("creates an order receipt from route context and never reassigns its link through Finance edits", async () => {
+    const auth = await login();
+    const db = createDb(env.DB);
+    const customer = await createCustomer(
+      db,
+      { name: `Finance route order customer ${crypto.randomUUID()}` },
+      "OWNER_WEB",
+    );
+    const { order } = await quoteOrder(
+      db,
+      { customerId: customer.id, description: "Pedido de prueba de ruta" },
+      "OWNER_WEB",
+    );
+    const { order: forgedOrder } = await quoteOrder(
+      db,
+      { customerId: customer.id, description: "Pedido que no debe sustituir el contexto" },
+      "OWNER_WEB",
+    );
+    await cancelOrder(db, order.id, {}, "OWNER_WEB");
+
+    const createResponse = await SELF.fetch(
+      `https://example.com/api/orders/${order.id}/transactions`,
+      {
+        method: "POST",
+        headers: authHeaders(auth),
+        body: JSON.stringify({
+          accountId: "acc_bank",
+          type: "INCOME",
+          category: "ORDER_DEPOSIT",
+          amount: 3000,
+          customOrderId: forgedOrder.id,
+          businessDate: BUSINESS_DATE,
+          occurredAt: OCCURRED_AT,
+        }),
+      },
+    );
+    expect(createResponse.status).toBe(201);
+    const created = (await createResponse.json()) as {
+      transaction: {
+        id: string;
+        customOrderId: string;
+        sourceEventId: string | null;
+        code: string;
+      };
+    };
+    expect(created.transaction).toMatchObject({
+      customOrderId: order.id,
+      sourceEventId: null,
+      code: expect.stringMatching(/^ING-\d{4}-\d{4}$/),
+    });
+
+    const editResponse = await SELF.fetch(
+      `https://example.com/api/finance/transactions/${created.transaction.id}`,
+      {
+        method: "PATCH",
+        headers: authHeaders(auth),
+        body: JSON.stringify({
+          accountId: "acc_bank",
+          type: "INCOME",
+          category: "ORDER_BALANCE",
+          amount: 2500,
+          customOrderId: forgedOrder.id,
+          businessDate: BUSINESS_DATE,
+          occurredAt: OCCURRED_AT,
+        }),
+      },
+    );
+    expect(editResponse.status).toBe(200);
+    const edited = (await editResponse.json()) as {
+      transactions: [{ customOrderId: string; category: string }];
+    };
+    expect(edited.transactions[0]).toMatchObject({
+      customOrderId: order.id,
+      category: "ORDER_BALANCE",
+    });
+
+    const listResponse = await SELF.fetch("https://example.com/api/finance/transactions", {
+      headers: { cookie: auth.cookie },
+    });
+    const listed = (await listResponse.json()) as {
+      transactions: [
+        {
+          customOrderId: string;
+          sourceEventId: string | null;
+          relatedOrder: { id: string; code: string | null };
+        },
+      ];
+    };
+    expect(listed.transactions[0]).toMatchObject({
+      customOrderId: order.id,
+      sourceEventId: null,
+      relatedOrder: { id: order.id, code: order.code },
+    });
+
+    const orderTimelineResponse = await SELF.fetch(
+      `https://example.com/api/finance/transactions?customOrderId=${order.id}`,
+      { headers: { cookie: auth.cookie } },
+    );
+    expect(orderTimelineResponse.status).toBe(200);
+    const orderTimeline = (await orderTimelineResponse.json()) as {
+      transactions: { customOrderId: string }[];
+    };
+    expect(orderTimeline.transactions).toHaveLength(1);
+    expect(orderTimeline.transactions[0]?.customOrderId).toBe(order.id);
+  });
+
   it("updates, soft-deletes, and restores a manual transaction", async () => {
     const auth = await login();
     const headers = authHeaders(auth);

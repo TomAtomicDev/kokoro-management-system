@@ -12,6 +12,7 @@ import type {
   ListTransactionsFilters,
   ListTransactionsResult,
   ReceivablesResponseDto,
+  RecordOrderTransactionCommand,
   RecordTransactionCommand,
   RecordTransactionResult,
   RestoreTransactionResult,
@@ -24,6 +25,8 @@ import type {
 } from "@kokoro/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import { DASHBOARD_SUMMARY_KEY } from "@/features/dashboard/api";
+import { ORDER_RECEIPTS_ROOT_KEY, ORDERS_ROOT_KEY } from "@/features/orders/query-keys";
 import { api } from "@/lib/api";
 import { FORM_SAVE_ERROR_META } from "@/lib/form-save-errors";
 
@@ -33,7 +36,7 @@ import { FORM_SAVE_ERROR_META } from "@/lib/form-save-errors";
 export const ACCOUNTS_KEY = ["finance", "accounts"] as const;
 export const FINANCE_SUMMARY_KEY = ["finance", "summary"] as const;
 export const RECEIVABLES_KEY = ["finance", "receivables"] as const;
-const TRANSACTIONS_ROOT_KEY = ["finance", "transactions"] as const;
+export const TRANSACTIONS_ROOT_KEY = ["finance", "transactions"] as const;
 
 function transactionsListKey(filters: ListTransactionsFilters) {
   return [...TRANSACTIONS_ROOT_KEY, "list", filters] as const;
@@ -43,6 +46,7 @@ function filtersToQueryString(filters: ListTransactionsFilters): string {
   const params = new URLSearchParams();
   if (filters.accountId) params.set("accountId", filters.accountId);
   if (filters.category) params.set("category", filters.category);
+  if (filters.customOrderId) params.set("customOrderId", filters.customOrderId);
   if (filters.fromDate) params.set("fromDate", filters.fromDate);
   if (filters.toDate) params.set("toDate", filters.toDate);
   if (filters.limit !== undefined) params.set("limit", String(filters.limit));
@@ -100,6 +104,11 @@ function useInvalidateFinance() {
   return () => {
     queryClient.invalidateQueries({ queryKey: ACCOUNTS_KEY });
     queryClient.invalidateQueries({ queryKey: TRANSACTIONS_ROOT_KEY });
+    queryClient.invalidateQueries({ queryKey: ORDER_RECEIPTS_ROOT_KEY });
+    queryClient.invalidateQueries({ queryKey: ORDERS_ROOT_KEY });
+    queryClient.invalidateQueries({ queryKey: FINANCE_SUMMARY_KEY });
+    queryClient.invalidateQueries({ queryKey: RECEIVABLES_KEY });
+    queryClient.invalidateQueries({ queryKey: DASHBOARD_SUMMARY_KEY });
   };
 }
 
@@ -109,6 +118,17 @@ export function useRecordTransaction() {
     meta: FORM_SAVE_ERROR_META,
     mutationFn: (command: RecordTransactionCommand) =>
       api.post<RecordTransactionResult>("/finance/transactions", command),
+    onSuccess: invalidate,
+  });
+}
+
+/** Page-context capture uses the route's order id; it is deliberately absent from the command body. */
+export function useRecordOrderTransaction(orderId: string) {
+  const invalidate = useInvalidateFinance();
+  return useMutation({
+    meta: FORM_SAVE_ERROR_META,
+    mutationFn: (command: RecordOrderTransactionCommand) =>
+      api.post<RecordTransactionResult>(`/orders/${orderId}/transactions`, command),
     onSuccess: invalidate,
   });
 }

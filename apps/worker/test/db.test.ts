@@ -43,7 +43,7 @@ const EXPECTED_VIEWS = [
   "v_kardex",
   "v_price_health",
   "v_receivables",
-  "v_liability",
+  "v_order_finance_projection",
   "v_cashflow_daily",
   "v_session_hours",
   "v_waste",
@@ -68,6 +68,16 @@ describe("migration 0001", () => {
     for (const view of EXPECTED_VIEWS) {
       expect(names).toContain(view);
     }
+  });
+
+  it("keeps ADR-012 and ADR-022 snapshot projections separately nullable", async () => {
+    const { results } = await env.DB.prepare("PRAGMA table_info(daily_snapshots)").all<{
+      name: string;
+      notnull: number;
+    }>();
+    const columns = new Map(results.map((row) => [row.name, row]));
+    expect(columns.get("customer_deposits_adr012")?.notnull).toBe(0);
+    expect(columns.get("pre_delivery_order_cash_exposure")?.notnull).toBe(0);
   });
 
   it("seeds the two financial accounts (Doc 04 §7)", async () => {

@@ -1,98 +1,144 @@
-import type { ReceivablesSaleDto } from "@kokoro/shared";
-import { addMoney, subMoney, toCentavos } from "@kokoro/shared";
+import type { ReceivableSourceDto } from "@kokoro/shared";
+import { addMoney, calculateOrderReceiptBalance, toCentavos } from "@kokoro/shared";
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 
-import { calculateReceivableAmounts, groupReceivableSales } from "./receivables.js";
-
-function expectedOutstanding(saleTotal: number, depositApplied: number): number {
-  const remainder = subMoney(toCentavos(saleTotal), toCentavos(depositApplied));
-  return remainder > 0 ? remainder : toCentavos(0);
-}
+import { calculateReceivableAmounts, groupReceivableSources } from "./receivables.js";
 
 describe("grouped receivables math", () => {
-  it("property: nets deposits and conserves the global centavo total across customer groups", () => {
-    const saleSpecArbitrary = fc
-      .integer({ min: 0, max: 1_000_000 })
-      .chain((saleTotal) =>
-        fc.record({
-          saleTotal: fc.constant(saleTotal),
-          depositApplied: fc.integer({ min: 0, max: saleTotal }),
-          channel: fc.constantFrom("CATALOG" as const, "CUSTOM_ORDER" as const),
-          customerIndex: fc.option(fc.integer({ min: 0, max: 4 }), { nil: null }),
-          ageDays: fc.integer({ min: 0, max: 10_000 }),
-        }),
-      )
-      .map((spec) => ({
-        ...spec,
-        depositApplied: spec.channel === "CUSTOM_ORDER" ? spec.depositApplied : 0,
-      }));
+  it("property: eligible catalog/order debt conserves the total across groups", () => {
+    const receivableSpecArbitrary = fc.integer({ min: 1, max: 1_000_000 }).chain((saleTotal) =>
+      fc.record({
+        saleTotal: fc.constant(saleTotal),
+        qualifyingReceipts: fc.integer({ min: 0, max: 2_000_000 }),
+        sourceType: fc.constantFrom("CATALOG_SALE" as const, "CUSTOM_ORDER" as const),
+        orderStatus: fc.constantFrom(
+          "QUOTING" as const,
+          "CONFIRMED" as const,
+          "IN_PRODUCTION" as const,
+          "READY" as const,
+          "DELIVERED" as const,
+          "CANCELLED" as const,
+        ),
+        customerIndex: fc.option(fc.integer({ min: 0, max: 4 }), { nil: null }),
+        ageDays: fc.integer({ min: 0, max: 10_000 }),
+      }),
+    );
 
     fc.assert(
-      fc.property(fc.array(saleSpecArbitrary, { maxLength: 100 }), (specs) => {
-        const groupRows = specs.map((spec, index) => {
-          const expectedBalance = expectedOutstanding(spec.saleTotal, spec.depositApplied);
-          const amounts = calculateReceivableAmounts(
-            spec.saleTotal,
-            spec.depositApplied,
-            expectedBalance,
-          );
-          const sale: ReceivablesSaleDto = {
-            saleId: `sale-${index}`,
-            code: `VTA-${index}`,
-            occurredAt: "2026-09-01T12:00:00.000Z",
-            businessDate: "2026-09-01",
-            channel: spec.channel,
-            ...amounts,
-            ageDays: spec.ageDays,
-            customOrderId: spec.channel === "CUSTOM_ORDER" ? `order-${index}` : null,
-          };
+      fc.property(fc.array(receivableSpecArbitrary, { maxLength: 100 }), (specs) => {
+        const entries: {
+          customerId: string | null;
+          customerName: string | null;
+          receivable: ReceivableSourceDto;
+        }[] = [];
 
-          return {
+        for (const [index, spec] of specs.entries()) {
+          const isOrder = spec.sourceType === "CUSTOM_ORDER";
+          const orderBalance = isOrder
+            ? calculateOrderReceiptBalance(spec.saleTotal, 0, spec.qualifyingReceipts)
+            : null;
+          const eligible =
+            !isOrder || (spec.orderStatus === "DELIVERED" && (orderBalance?.expected ?? 0) > 0);
+          if (!eligible) continue;
+
+          const sourceId = isOrder ? `order-${index}` : `sale-${index}`;
+          const receivable: ReceivableSourceDto = isOrder
+            ? {
+                sourceType: "CUSTOM_ORDER",
+                channel: "CUSTOM_ORDER",
+                saleId: `sale-${index}`,
+                code: `PED-${index}`,
+                saleCode: `VTA-${index}`,
+                occurredAt: "2026-09-01T12:00:00.000Z",
+                businessDate: "2026-09-01",
+                saleTotal: spec.saleTotal,
+                customerPrice: spec.saleTotal,
+                qualifyingReceipts: spec.qualifyingReceipts,
+                excess: orderBalance?.excess ?? 0,
+                outstandingAmount: orderBalance?.expected ?? 0,
+                ageDays: spec.ageDays,
+                customOrderId: sourceId,
+              }
+            : {
+                sourceType: "CATALOG_SALE",
+                channel: "CATALOG",
+                saleId: sourceId,
+                code: `VTA-${index}`,
+                saleCode: `VTA-${index}`,
+                occurredAt: "2026-09-01T12:00:00.000Z",
+                businessDate: "2026-09-01",
+                saleTotal: spec.saleTotal,
+                outstandingAmount: spec.saleTotal,
+                ageDays: spec.ageDays,
+                customOrderId: null,
+              };
+
+          entries.push({
             customerId: spec.customerIndex === null ? null : `customer-${spec.customerIndex}`,
             customerName: spec.customerIndex === null ? null : `Customer ${spec.customerIndex}`,
-            sale,
-          };
-        });
+            receivable,
+          });
+        }
 
-        const groups = groupReceivableSales(groupRows);
+        const groups = groupReceivableSources(entries);
         const globalTotal = addMoney(
-          ...groupRows.map((row) => toCentavos(row.sale.outstandingAmount)),
+          ...entries.map((entry) => toCentavos(entry.receivable.outstandingAmount)),
         );
         const groupedTotal = addMoney(...groups.map((group) => toCentavos(group.outstandingTotal)));
-        const unassignedSales = groups
+        const groupedSources = groups.flatMap((group) => group.receivables);
+        const noCustomerSources = groups
           .filter((group) => group.groupType === "NO_CUSTOMER")
-          .flatMap((group) => group.sales);
+          .flatMap((group) => group.receivables);
+        const expectedNoCustomerSaleIds = entries
+          .filter((entry) => entry.customerId === null)
+          .map((entry) => entry.receivable.saleId);
 
         expect(groupedTotal).toBe(globalTotal);
-        expect(unassignedSales.map((sale) => sale.saleId)).toEqual(
-          specs.flatMap((spec, index) => (spec.customerIndex === null ? [`sale-${index}`] : [])),
+        expect(groups.reduce((count, group) => count + group.receivableCount, 0)).toBe(
+          entries.length,
         );
-        for (const [index, spec] of specs.entries()) {
-          const sale = groupRows[index]?.sale;
-          expect(sale?.outstandingAmount).toBe(
-            expectedOutstanding(spec.saleTotal, spec.depositApplied),
-          );
-          if (sale) {
-            expect(
-              addMoney(toCentavos(sale.outstandingAmount), toCentavos(spec.depositApplied)),
-            ).toBe(toCentavos(spec.saleTotal));
+        expect(noCustomerSources.map((receivable) => receivable.saleId)).toEqual(
+          expectedNoCustomerSaleIds,
+        );
+        expect(
+          new Set(
+            groupedSources.map((receivable) =>
+              receivable.sourceType === "CUSTOM_ORDER"
+                ? `order:${receivable.customOrderId}`
+                : `sale:${receivable.saleId}`,
+            ),
+          ).size,
+        ).toBe(entries.length);
+
+        for (const entry of entries) {
+          const receivable = entry.receivable;
+          if (receivable.sourceType === "CUSTOM_ORDER") {
+            const balance = calculateOrderReceiptBalance(
+              receivable.customerPrice,
+              0,
+              receivable.qualifyingReceipts,
+            );
+            expect(balance.expected).toBe(receivable.outstandingAmount);
+            expect(balance.expected).toBeGreaterThan(0);
+            expect(balance.excess).toBe(0);
+          } else {
+            expect(receivable.outstandingAmount).toBe(receivable.saleTotal);
           }
         }
       }),
     );
   });
 
-  it("caps an applied deposit at the sale total for the outstanding remainder", () => {
-    expect(calculateReceivableAmounts(1_000, 1_200, 0)).toEqual({
+  it("keeps catalog-sale balances equal to the full ON_CREDIT sale total", () => {
+    expect(calculateReceivableAmounts(1_000, 1_000)).toEqual({
       saleTotal: 1_000,
-      depositApplied: 1_200,
-      outstandingAmount: 0,
+      outstandingAmount: 1_000,
     });
   });
 
-  it("rejects a view balance that does not match the sale less its applied deposit", () => {
-    expect(() => calculateReceivableAmounts(10_000, 3_000, 6_999)).toThrow(
+  it("rejects a view balance that differs from the catalog sale total", () => {
+    expect(() => calculateReceivableAmounts(10_000, 9_999)).toThrow(
       "El saldo derivado no coincide con v_receivables.",
     );
   });
