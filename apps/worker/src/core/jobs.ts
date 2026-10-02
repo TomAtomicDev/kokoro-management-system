@@ -8,6 +8,7 @@
 // never write business or system tables directly).
 
 import { generateUuidV7 } from "@kokoro/shared";
+import { sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 
 import type { Db } from "../db/index.js";
@@ -24,25 +25,33 @@ export interface DailySnapshotValues {
   bankBalance: number;
   /** Centavos: the CASH account's live balance. */
   cashBalance: number;
-  /** Centavos: `SUM(v_receivables.total)` for outstanding ON_CREDIT sales. */
+  /** Centavos (INV-6): catalog-sale debt plus positive delivered-order outstanding. */
   accountsReceivable: number;
-  /** Centavos: `v_liability`'s single-row `customer_deposits` total. */
-  customerDeposits: number;
+  /** Historical ADR-012 observations are not re-derived after the ADR-022 cutover. */
+  customerDepositsAdr012: number | null;
+  /** Centavos (INV-6): distinct ADR-022 operational exposure measure. */
+  preDeliveryOrderCashExposure: number | null;
   createdAt: string;
 }
 
 /**
- * Builds (does not execute) the `daily_snapshots` upsert for one business date. `business_date`
- * is the table's PK (Doc 04 §3.5), so a second run for the same day overwrites the existing row
- * instead of conflicting — mirrors `core/settings/index.ts`'s `onConflictDoUpdate` precedent, the
- * only other plain-overwrite upsert in this codebase.
+ * Builds (does not execute) one daily_snapshots upsert. `business_date` is its PK (Doc 04 §3.5),
+ * so reruns update the day's snapshot. A NULL post-cutover ADR-012 input preserves any historical
+ * observation already captured on that same cutover date; the new exposure remains a separate field.
  */
 export function buildDailySnapshotUpsert(db: Db, values: DailySnapshotValues): Statement {
   const { businessDate, ...set } = values;
   return db
     .insert(dailySnapshots)
     .values({ businessDate, ...set })
-    .onConflictDoUpdate({ target: dailySnapshots.businessDate, set });
+    .onConflictDoUpdate({
+      target: dailySnapshots.businessDate,
+      set: {
+        ...set,
+        // Do not erase an ADR-012 value already captured earlier on the cutover business date.
+        customerDepositsAdr012: sql`COALESCE(excluded.customer_deposits_adr012, ${dailySnapshots.customerDepositsAdr012})`,
+      },
+    });
 }
 
 export interface JobRunValues {

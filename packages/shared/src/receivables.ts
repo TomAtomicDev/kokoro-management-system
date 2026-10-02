@@ -35,21 +35,33 @@ export const listReceivablesQuerySchema = z
   });
 export type ListReceivablesQuery = z.infer<typeof listReceivablesQuerySchema>;
 
-/** One source sale in a customer's debt group. All monetary values are integer centavos. */
+/** One catalog sale or delivered order in a customer's debt group. Monetary values are centavos. */
 export interface ReceivablesSaleDto {
+  /** Identifies which source record the row represents, even though an order has a linked sale. */
+  sourceType: "CATALOG_SALE" | "CUSTOM_ORDER";
   saleId: string;
+  /** The source record code (VTA for catalog sales, PED for custom orders). */
   code: string | null;
+  /** The linked inventory/COGS sale code; differs from `code` for a custom order. */
+  saleCode: string | null;
   occurredAt: string;
   businessDate: string;
   channel: "CATALOG" | "CUSTOM_ORDER";
   /** Full sale amount, including any delivery pass-through. */
   saleTotal: number;
-  /** Custom-order deposit already received and applied to this sale; zero for catalog sales. */
+  /** Legacy compatibility field; zero for custom orders because receipts are not applied to sale. */
   depositApplied: number;
-  /** Uncollected remainder, net of any custom-order deposit. */
+  /** Customer price (merchandise subtotal + additional charge), in centavos. */
+  customerPrice: number;
+  /** Active directly linked manual ORDER_DEPOSIT/ORDER_BALANCE receipts. */
+  qualifyingReceipts: number;
+  /** Receipt excess above the customer price; never a negative receivable. */
+  excess: number;
+  /** Positive unpaid remainder; catalog sale behavior remains unchanged. */
   outstandingAmount: number;
-  /** Days since occurredAt, as derived by v_receivables. */
+  /** Days since sale occurredAt for catalog sales, delivered businessDate for orders. */
   ageDays: number;
+  /** Non-null only when this receivable represents a delivered custom order. */
   customOrderId: string | null;
 }
 
@@ -77,11 +89,11 @@ export interface ReceivablesNoCustomerGroupDto {
 export type ReceivablesGroupDto = ReceivablesCustomerGroupDto | ReceivablesNoCustomerGroupDto;
 
 export interface ReceivablesGlobalSummaryDto {
-  /** Unfiltered, all-dates sum of active v_receivables rows, in integer centavos. */
+  /** Unfiltered, all-dates sum of catalog debt and positive delivered-order debt, in centavos. */
   receivablesTotal: number;
-  /** Distinct identified customers with an active receivable; excludes unassigned sales. */
+  /** Distinct identified customers with an active receivable; excludes unassigned sources. */
   debtorCount: number;
-  /** Active ON_CREDIT sales in v_receivables, including sales without a customer. */
+  /** Active receivable sources (catalog sales + delivered orders), including unassigned rows. */
   pendingSaleCount: number;
 }
 

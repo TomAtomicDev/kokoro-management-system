@@ -423,6 +423,21 @@ export function calculateOrderReceiptBalance(
   };
 }
 
+/** Per-order pre-delivery cash exposure, floored before exposures are added across orders. */
+export function calculatePreDeliveryOrderCashExposure(
+  qualifyingReceipts: number,
+  orderRefunds: number,
+): number {
+  const receipts = toCentavos(qualifyingReceipts);
+  const refunds = toCentavos(orderRefunds);
+  const zero = toCentavos(0);
+  if (receipts < zero || refunds < zero) {
+    throw new RangeError("Order receipts and refunds must be nonnegative centavos.");
+  }
+  const exposure = subMoney(receipts, refunds);
+  return exposure > zero ? exposure : zero;
+}
+
 /** What `deliverOrder` derives for one order line before it becomes a `sale_lines` row. */
 export interface OrderLineAllocation {
   /** Centavos this line contributes to `agreedTotal`. */

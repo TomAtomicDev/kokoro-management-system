@@ -3,8 +3,9 @@
 Target: **Cloudflare D1 (SQLite)**, managed with Drizzle ORM migrations. This document is the
 authoritative **target** schema; Drizzle definitions in `apps/worker/src/db/schema.ts` MUST mirror
 the applied-migration version 1:1 at every deployed step. KOK-204's independent finance association
-and ORDER_REFUND category are implemented by migration 0026; KOK-205…208 remain target work and are
-not assertions about the current database.
+and ORDER_REFUND category are implemented by migration 0026; KOK-205's additional-charge columns are
+implemented by migration 0027. KOK-207's read-time projection and snapshot boundary are implemented
+by migration 0028. KOK-206/208 remain coordinated consumer work.
 
 ## 1. Conventions
 
@@ -505,30 +506,23 @@ runs exist (KOK-026) no replay ever touches one — the impact-preview DTO (`pac
 costing.ts`'s `ReplayImpactDto`) already carries `affectedProductionRunIds` for the day it does,
 but persisting them here is deferred to KOK-026 rather than added speculatively now.
 
-An order MAY be confirmed with `deposit_paid = 0`; that confirmation writes no ORDER_DEPOSIT row and
-does not affect account balances or deposit liability. The explicit no-deposit risk acknowledgment
-is validated by `orders.confirm` and recorded in its audit row; it is not a stored balance or a new
-column. The existing nullable `deposit_tx_id` and zero-default `deposit_paid` support this case, so
-no schema migration is required for zero-deposit confirmation.
-
-Deposit liability is derived, not a table:
-`customer_deposits = Σ deposits received − Σ released/refunded`, computed from ORDER_DEPOSIT /
-DEPOSIT_REFUND transactions and delivered orders; exposed via view `v_liability` and snapshotted
-daily.
+The following `deposit_paid`/`deposit_tx_id` behavior describes the superseded ADR-012 implementation
+only. Under O-8, confirming an order writes no deposit row and these fields are not a debt, cash, or
+exposure source. The original `customer_deposits` daily-snapshot measure is retained only as the
+versioned historical ADR-012 series; current operational order cash exposure is defined below.
 
 ### 3.4.1 Target order-independent cash model (KOK-204…208; supersedes the payment-coupled parts above)
 
-The DDL in §3.3–3.4 is the **target logical schema**, not a claim that migrations through 0026
-already implement every column: KOK-204's order associations and ORDER_REFUND category are applied
-in migration 0026, while KOK-205's additional-charge columns are not yet implemented. The previously
-proposed `sales.delivery_fee` was never migrated or added to Drizzle. The following is the target
-derivation/migration contract. ADR-022 supersedes ADR-012's order-state-dependent liability
-mechanism. Ship remaining schema changes in **new forward-only migrations**; never rewrite applied
-migrations.
+The DDL in §3.3–3.4 is the **target logical schema**. KOK-204's order associations and ORDER_REFUND
+category are applied in migration 0026; KOK-205's additional-charge columns are applied in migration
+0027; KOK-207's read/snapshot changes are applied in migration 0028. The previously proposed
+`sales.delivery_fee` was never migrated or added to Drizzle. ADR-022 supersedes ADR-012's
+order-state-dependent liability mechanism. Any further schema changes must use **new forward-only
+migrations**; never rewrite applied migrations.
 
-- KOK-205 adds `custom_orders.additional_charge INTEGER NOT NULL DEFAULT 0 CHECK (additional_charge >= 0)`
+- KOK-205 added `custom_orders.additional_charge INTEGER NOT NULL DEFAULT 0 CHECK (additional_charge >= 0)`
   and `sales.additional_charge INTEGER NOT NULL DEFAULT 0 CHECK (additional_charge >= 0)` in
-  its own forward migration with matching shared command, order UI and Drizzle definitions;
+  migration 0027 with matching shared command, order UI and Drizzle definitions;
   do not add DB-only unused charge fields in KOK-204. No `sales.delivery_fee` column exists in
   deployed migrations, so do not migrate from or depend on it.
   `agreed_total` remains the merchandise subtotal. A generated CUSTOM_ORDER sale snapshots both:
@@ -605,14 +599,26 @@ migrations.
   receipt-existence fact (including soft-deleted qualifying receipts) to enforce the customer lock;
   only active rows contribute to the displayed total. Refresh after saving because
   independent finance edits can change the qualifying receipts without changing order fields.
-- Replace the legacy `v_liability` formula that subtracts `deposit_paid` at delivery: report
-  pre-delivery, non-cancelled order cash exposure from active order receipts net of explicit
-  order refunds (`ORDER_REFUND`), floored at zero, without recategorizing any receipt. On undo it becomes
-  pre-delivery exposure again; on cancellation it leaves that operational exposure measure even
-  if cash remains in the account. Do not label this operational projection as a legally settled
-  liability or as recognized revenue. Keep `v_cashflow_daily` tied to actual transaction dates
-  and categories, unaffected by transitions. Document the historic daily-snapshot boundary so
-  reports do not silently mix old and new projection definitions.
+- Replace the legacy status/deposit-based `v_liability` with a set-based
+  `v_order_finance_projection`. Core applies the shared order receipt helper to derive debt and
+  computes pre-delivery cash exposure as active ORDER_DEPOSIT/ORDER_BALANCE receipts net of active
+  explicit ORDER_REFUND expenses, floored at zero **per order before summing**. Only active orders
+  that are neither delivered nor cancelled contribute. On undo, an order returns to that exposure;
+  on cancellation it leaves the measure even if cash remains in the account. This operational
+  projection is not a legally settled liability or recognized revenue. Keep `v_cashflow_daily` tied
+  to actual transaction dates and categories, unaffected by transitions.
+- Preserve historical `customer_deposits` observations as `customer_deposits_adr012`. The forward
+  migration copies those values verbatim and does not backfill new exposure into them.
+  `pre_delivery_order_cash_exposure` is a separate nullable snapshot measure: historical rows remain
+  NULL in that column, and new snapshot dates write `customer_deposits_adr012 = NULL` while recording
+  the operational exposure. If the cutover-date snapshot already holds an ADR-012 observation, its
+  same-date upsert preserves that historical value. The first business date with a non-NULL exposure
+  is the dated definition boundary; reports must not join the series as one liability measure. Until
+  KOK-080's contract is explicitly revised, a NULL `customer_deposits_adr012` means net position is
+  unavailable for that date: do not substitute zero or operational exposure, and do not emit a
+  net-position observation. If post-cutover net position is a release criterion, this is a release
+  blocker until KOK-080's formula and label are explicitly amended. Operational exposure is never
+  silently substituted as a liability.
 - Keep `v_receivables` for catalog sales and migrate the order portion to the derived order
   outstanding above, either by a carefully rebuilt union view with distinct sale/order keys or
   by separate scoped reads combined in `core/finance`. No double counting a CUSTOM_ORDER sale as
@@ -632,7 +638,8 @@ CREATE TABLE daily_snapshots (
   stock_value INTEGER NOT NULL,                  -- Σ qty_on_hand×wac (centavos)
   bank_balance INTEGER NOT NULL, cash_balance INTEGER NOT NULL,
   accounts_receivable INTEGER NOT NULL,
-  customer_deposits INTEGER NOT NULL,
+  customer_deposits_adr012 INTEGER,              -- historical ADR-012 measure; NULL for post-cutover snapshots
+  pre_delivery_order_cash_exposure INTEGER,      -- ADR-022 measure; NULL before first cutover snapshot
   created_at TEXT NOT NULL
 );
 
@@ -762,17 +769,19 @@ statement ever includes `code` in its `SET` list.
 | `v_stock` | items ⨝ item_stock + `stock_value = round(qty_on_hand × wac_mc / 1e6)`, low-stock flag. Also selects `replacement_cost_updated_at` (migration 0016) so `core/inventory/queries.ts`'s `listStock` can apply the same C-3c effective-replacement-cost fallback `toItemDto`/`price-health.ts` already do — the view exposes the raw column plus timestamp only, the fallback projection itself happens in `queries.ts`, not in SQL (same precedent as `v_price_health` below). |
 | `v_kardex` | stock_movements ⨝ items, ordered, with running balance via window function |
 | `v_price_health` | FINISHED items: id, name, sale_price_mc, wac_mc, replacement_cost_mc, replacement_cost_updated_at. Raw columns only — margins, the C-3c effective-replacement-cost fallback, and the alert-suppression rule are all computed in `core/costing/price-health.ts` (KOK-035, KOK-103), not in this view; the former SQL margin columns were removed in migration 0006 because they mixed per-whole-unit prices with per-milli-unit costs. |
-| `v_receivables` | **Existing implementation:** sales WHERE payment_status='ON_CREDIT' with custom-order `sales.total − deposit_paid`; catalog sales use `sales.total` (migration 0024). **Target KOK-207:** remove order sales from this calculation; combine catalog debts with positive delivered-order outstanding from §3.4.1 exactly once. |
-| `v_liability` | **Existing implementation:** order-status/deposit-paid-based customer deposits. **Target KOK-207:** pre-delivery order cash exposure described in §3.4.1, with a documented snapshot-definition cutover. |
+| `v_receivables` | Catalog sales WHERE `channel='CATALOG'` and `payment_status='ON_CREDIT'`; custom-order sales are excluded. `core/finance` combines these rows with a set-based delivered-order read from `v_order_finance_projection`, using the shared KOK-205 integer-centavo helper and including each order once. |
+| `v_order_finance_projection` | One set-based row per active order, with current active linked-sale identity and separate qualifying receipt/refund totals. Core applies the shared customer-price debt helper, excludes cancelled orders from debt/exposure, and applies the per-order exposure floor; the view does not calculate debt or net amounts. |
 | `v_cashflow_daily` | financial_transactions grouped by business_date × category |
 | `v_session_hours` | sessions with derived hours + linked event counts. Per-session hours only — S-5's **deduplicated** wall-clock total (the union of overlapping session intervals, for G3) is computed by a pure function in `core/`, not here, following the same rule as the business-health aggregates below: interval-union arithmetic belongs where property tests can reach it. Also selects `s.code` (migration 0024, KOK-185/§3.6). |
 | `v_waste` | stock_exits valued, grouped by reason × month |
 
-`GET /api/receivables` (KOK-197) is a derived read over `v_receivables`, not a new ledger or stored
-customer balance. It returns global, unfiltered summary totals and a searchable/age-filterable,
-paginated list grouped by customer; each debt retains its source sale code/date, channel, sale total,
-deposit applied, outstanding remainder, age and linked custom-order reference. Rows without a
-customer are listed individually in a distinct “Sin cliente” group. All amounts are centavos.
+`GET /api/receivables` (KOK-197/KOK-207) is a derived read, not a new ledger or stored customer
+balance. It returns global unfiltered totals and a searchable/age-filterable paginated list grouped
+by customer. Catalog rows retain their source sale data; custom-order rows retain PED identity,
+linked active sale identity/date, customer price, active qualifying receipts, excess and positive
+outstanding. Order age uses the delivered sale's `business_date`. No custom-order sale is counted as
+both a sale debt and an order debt. Rows without a customer remain individually identified in the
+distinct “Sin cliente” group. All amounts are integer centavos.
 
 **Business-health aggregates are NOT views.** Every metric in Phase 5.5 (money at risk, input
 cost index, contribution Pareto, Bs/h per product, real-vs-nominal position) is computed by a
@@ -855,11 +864,11 @@ error is invisible. Views stay for row-shaping and joins; they do no margin arit
   `custom_orders.sale_id`/`agreed_total` and its stock/cost snapshot.
   This refusal is **not** relaxed by O-6: `orders.undoDelivery` does not call `updateSale` /
   `deleteSale` at all — it emits its own reversal statements from `core/orders`, the module that
-  owns the sale, in the same batch that clears `sale_id` and flips the status. Restoring the
-  deposit liability needs no row: `v_liability` is derived and resumes counting the order the
-  moment its status leaves `DELIVERED` in the **legacy implementation**. Target O-8 replaces this
-  behavior: undo has no cash effect and cannot be vetoed by an order-linked receipt; order sales
-  cannot use `collectPayment`. Catalog sales retain that endpoint and its protections.
+  owns the sale, in the same batch that clears `sale_id` and flips the status. The legacy
+  status-derived liability resumed on undo; target O-8 instead has no cash effect and cannot be
+  vetoed by an order-linked receipt. The operational pre-delivery exposure resumes because the
+  order is READY again, while every finance row stays unchanged. Order sales cannot use
+  `collectPayment`; catalog sales retain that endpoint and its protections.
 - A DRAFT `inventory_counts` row may be **deleted** (soft, audit-reversible) — that is what
   "cancel a count" means (Phase 3.2, KOK-141). No `CANCELLED` value is added to the status CHECK: a
   count that never committed produced no movements and has nothing to report as a state.

@@ -7,7 +7,7 @@ import { useState } from "react";
 
 import type { EventTableSortState } from "@/components/data-table/EventTable";
 import { AccountCard } from "@/components/finance/AccountCard";
-import { LiabilityReceivableStrip } from "@/components/finance/LiabilityReceivableStrip";
+import { OrderCashReceivableStrip } from "@/components/finance/OrderCashReceivableStrip";
 import { RecordTransactionDialog } from "@/components/finance/RecordTransactionDialog";
 import { TransactionDetailDrawer } from "@/components/finance/TransactionDetailDrawer";
 import { TransactionsTable } from "@/components/finance/TransactionsTable";
@@ -87,7 +87,7 @@ export function FinanceRoute() {
         )}
       </div>
 
-      <LiabilityReceivableStrip />
+      <OrderCashReceivableStrip />
 
       <TransactionsTable
         transactions={transactions}

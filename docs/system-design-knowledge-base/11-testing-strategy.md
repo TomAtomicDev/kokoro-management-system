@@ -42,6 +42,8 @@ Pure logic tested exhaustively, no DB:
 - ∀ allocations: Σ parts = whole (no lost centavos).
 - ∀ order-linked receipt sequences: customer price minus qualifying active receipts equals
   expected minus excess; multiple deposits and balance receipts preserve exact centavos.
+- ∀ pre-delivery orders: cash exposure is `max(active qualifying receipts − active ORDER_REFUND, 0)`
+  per order before summing; one order's refund excess never offsets another order's exposure.
 - ∀ pre-delivery agreement edits (KOK-205): draft agreed subtotal plus draft additional charge
   and the currently active qualifying receipts use the same pure expected/excess helper as
   KOK-207; a subtotal below receipts previews positive excess and is accepted. Deleted rows,
@@ -51,6 +53,8 @@ Pure logic tested exhaustively, no DB:
   of any number of provider expenses; product margin excludes charge and expense cash flows.
 - ∀ receivable sets: positive outstanding delivered orders plus catalog-sale debt preserve the
   global sum across customer groups with no order sale counted twice or zero-debt order listed.
+  Delivered-order age uses sale `business_date`; >500 orders remain available to set-based reads
+  independently of board pagination.
 - ∀ event edit/delete sequences: derived rows have no orphans (INV-9/10).
 - ∀ assemblies (Phase 3.2, C-10): **total inventory value is unchanged by the event** — Σ
   `ASSEMBLY_OUT.total_cost` + Σ `ASSEMBLY_IN.total_cost` = 0 to the centavo. This is the property
@@ -139,9 +143,11 @@ of delivered/cancelled agreement fail. Corrections in Finance remain possible in
 Migration tests use service-created fixtures to validate FK/trigger/paired-transfer integrity,
 order association and account conservation on SQLite/D1; they do not require backfilling
 disposable pre-release order cash or provider-session test rows. Reset affected dev/staging
-test data at the coordinated cutover and verify catalog/order receivables exactly once,
-with matching unfiltered totals across SC-21, Finance, Panel, alerts and snapshots; label
-the daily-snapshot/liability projection boundary explicitly. Test >500 orders and bounded
+test data only at the coordinated cutover and verify catalog/order receivables exactly once,
+with matching unfiltered totals across SC-21, Finance, Panel, the canonical aged-receivable source and
+snapshots. Preserve ADR-012 `customer_deposits` history separately from nullable ADR-022
+`pre_delivery_order_cash_exposure`; the first non-NULL exposure snapshot is the dated definition
+boundary. Test >500 active orders with a positive delivered receivable beyond the board page, bounded
 set-based lookup, partial collection and later zero-debt removal. Playwright covers the
 KOK-204 migration-0026 fixture checks `PRAGMA foreign_key_check`, order/purchase indexes, manual
 ING/GTO codes and transfer pairing; its order-scoped create route takes the association from the

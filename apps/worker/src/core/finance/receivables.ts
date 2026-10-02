@@ -6,17 +6,14 @@ import type {
   ReceivablesResponseDto,
   ReceivablesSaleDto,
 } from "@kokoro/shared";
-import { addMoney, subMoney, toCentavos } from "@kokoro/shared";
-import { type SQL, sql } from "drizzle-orm";
+import { addMoney, toCentavos } from "@kokoro/shared";
+import { sql } from "drizzle-orm";
 
 import type { Db } from "../../db/index.js";
 import { DomainError } from "../errors.js";
+import { getOrderFinanceProjection } from "./order-balances.js";
 
 interface ReceivableQueryRow {
-  global_total: number;
-  debtor_count: number;
-  global_pending_sale_count: number;
-  total_groups: number;
   sale_id: string | null;
   code: string | null;
   occurred_at: string | null;
@@ -29,7 +26,6 @@ interface ReceivableQueryRow {
   custom_order_id: string | null;
   customer_id: string | null;
   customer_name: string | null;
-  page_order: number | null;
 }
 
 interface ReceivableAmounts {
@@ -38,10 +34,19 @@ interface ReceivableAmounts {
   outstandingAmount: number;
 }
 
-interface ReceivableGroupRow {
+export interface ReceivableProjectionEntry {
   customerId: string | null;
   customerName: string | null;
   sale: ReceivablesSaleDto;
+}
+
+export interface ReceivablesProjection {
+  /** Complete, unpaged source for summaries and the future KOK-046 aged-receivable alert. */
+  entries: readonly ReceivableProjectionEntry[];
+  receivablesTotal: number;
+  debtorCount: number;
+  pendingSaleCount: number;
+  preDeliveryOrderCashExposure: number;
 }
 
 function assertCentavos(value: number, label: string): void {
@@ -60,35 +65,30 @@ function addCentavos(left: number, right: number): number {
 }
 
 /**
- * O-2 / Doc 11 §2: a custom-order deposit nets against the full sale total; a zero deposit leaves
- * the full total outstanding. The result is checked against v_receivables so the application DTO
- * and the established view cannot silently disagree.
+ * Catalog-sale receivables preserve the existing full-balance collection behavior and are checked
+ * against the catalog-only v_receivables view. Custom orders use calculateOrderReceiptBalance.
  */
 export function calculateReceivableAmounts(
   saleTotal: number,
-  depositApplied: number,
   viewOutstanding: number,
 ): ReceivableAmounts {
   assertCentavos(saleTotal, "saleTotal");
-  assertCentavos(depositApplied, "depositApplied");
   assertCentavos(viewOutstanding, "viewOutstanding");
 
-  const remainder = subMoney(toCentavos(saleTotal), toCentavos(depositApplied));
-  const outstandingAmount = remainder > 0 ? remainder : toCentavos(0);
-  if (outstandingAmount !== viewOutstanding) {
+  if (saleTotal !== viewOutstanding) {
     throw new DomainError("INTERNAL", "El saldo derivado no coincide con v_receivables.", {
       saleTotal,
-      depositApplied,
       viewOutstanding,
-      outstandingAmount,
     });
   }
 
-  return { saleTotal, depositApplied, outstandingAmount };
+  return { saleTotal, depositApplied: 0, outstandingAmount: saleTotal };
 }
 
 /** Groups source sales without collapsing unassigned debts into a fictitious customer. */
-export function groupReceivableSales(rows: readonly ReceivableGroupRow[]): ReceivablesGroupDto[] {
+export function groupReceivableSales(
+  rows: readonly ReceivableProjectionEntry[],
+): ReceivablesGroupDto[] {
   const groups = new Map<string, ReceivablesGroupDto>();
 
   for (const row of rows) {
@@ -124,23 +124,7 @@ export function groupReceivableSales(rows: readonly ReceivableGroupRow[]): Recei
   return [...groups.values()];
 }
 
-function receivableWhere(query: ListReceivablesQuery): SQL {
-  const conditions: SQL[] = [];
-
-  if (query.search) {
-    conditions.push(sql`(
-      instr(lower(COALESCE(vr.customer_name, '')), lower(${query.search})) > 0
-      OR instr(lower(COALESCE(vr.code, '')), lower(${query.search})) > 0
-    )`);
-  }
-  if (query.minAgeDays !== undefined) {
-    conditions.push(sql`vr.days_outstanding >= ${query.minAgeDays}`);
-  }
-
-  return conditions.length > 0 ? sql`WHERE ${sql.join(conditions, sql` AND `)}` : sql``;
-}
-
-function mapReceivableRow(row: ReceivableQueryRow): ReceivableGroupRow | null {
+function mapReceivableRow(row: ReceivableQueryRow): ReceivableProjectionEntry | null {
   if (
     row.sale_id === null ||
     row.occurred_at === null ||
@@ -154,154 +138,157 @@ function mapReceivableRow(row: ReceivableQueryRow): ReceivableGroupRow | null {
     return null;
   }
 
-  const amounts = calculateReceivableAmounts(row.sale_total, row.deposit_applied, row.view_total);
+  const amounts = calculateReceivableAmounts(row.sale_total, row.view_total);
 
   return {
     customerId: row.customer_id,
     customerName: row.customer_name,
     sale: {
+      sourceType: "CATALOG_SALE",
       saleId: row.sale_id,
       code: row.code,
+      saleCode: row.code,
       occurredAt: row.occurred_at,
       businessDate: row.business_date,
       channel: row.channel,
       ...amounts,
+      customerPrice: row.sale_total,
+      qualifyingReceipts: 0,
+      excess: 0,
       ageDays: row.age_days,
       customOrderId: row.custom_order_id,
     },
   };
 }
 
+function groupSortValue(
+  group: ReceivablesGroupDto,
+  sortBy: ListReceivablesQuery["sortBy"],
+): number {
+  if (sortBy === "highestBalance") return group.outstandingTotal;
+  return group.sales.reduce((oldest, sale) => Math.max(oldest, sale.ageDays), 0);
+}
+
+const CUSTOMER_COLLATOR = new Intl.Collator("es-BO", { sensitivity: "base" });
+
 /**
- * The summary is deliberately computed from every row in v_receivables. Search, age and group
- * pagination are applied only to the grouped list. The single SQL statement keeps that summary,
- * filtered groups and their source rows on the same D1 read snapshot.
+ * Canonical unpaged debt/exposure projection for Finance, Dashboard, snapshots, SC-21 and the
+ * future KOK-046 aged-receivable alert. Order rows use the shared KOK-205 helper; catalog debt stays
+ * on its view. Filters, pagination and board limits never truncate the source set.
  */
-export async function listGroupedReceivables(
-  db: Db,
-  query: ListReceivablesQuery,
-): Promise<ReceivablesResponseDto> {
-  const offset = (query.page - 1) * query.pageSize;
-  const where = receivableWhere(query);
-  const rows = await db.all<ReceivableQueryRow>(sql`
-    WITH global_summary AS (
-      SELECT
-        COALESCE(SUM(total), 0) AS global_total,
-        COUNT(DISTINCT customer_id) AS debtor_count,
-        COUNT(*) AS global_pending_sale_count
-      FROM v_receivables
-    ),
-    filtered AS (
+export async function getReceivablesProjection(db: Db): Promise<ReceivablesProjection> {
+  const [catalogRows, orderProjection] = await Promise.all([
+    db.all<ReceivableQueryRow>(sql`
       SELECT
         vr.sale_id,
         vr.code,
         vr.occurred_at,
         vr.business_date,
         vr.channel,
+        s.total AS sale_total,
+        0 AS deposit_applied,
         vr.total AS view_total,
         vr.days_outstanding AS age_days,
         vr.custom_order_id,
         vr.customer_id,
-        vr.customer_name,
-        s.total AS sale_total,
-        CASE
-          WHEN vr.custom_order_id IS NOT NULL THEN COALESCE(o.deposit_paid, 0)
-          ELSE 0
-        END AS deposit_applied
+        vr.customer_name
       FROM v_receivables vr
       JOIN sales s ON s.id = vr.sale_id
-      LEFT JOIN custom_orders o
-        ON o.id = vr.custom_order_id AND o.deleted_at IS NULL
-      ${where}
-    ),
-    filtered_groups AS (
-      SELECT
-        customer_id,
-        MIN(customer_name) AS customer_name,
-        SUM(view_total) AS group_total,
-        MAX(age_days) AS oldest_days
-      FROM filtered
-      GROUP BY customer_id
-    ),
-    group_count AS (
-      SELECT COUNT(*) AS total_groups FROM filtered_groups
-    ),
-    page_groups AS (
-      SELECT
-        customer_id,
-        ROW_NUMBER() OVER (
-          ORDER BY
-            ${query.sortBy === "highestBalance" ? sql`group_total DESC` : sql`oldest_days DESC`},
-            CASE WHEN customer_id IS NULL THEN 1 ELSE 0 END,
-            customer_name COLLATE NOCASE,
-            customer_id
-        ) AS page_order
-      FROM filtered_groups
-      ORDER BY
-        ${query.sortBy === "highestBalance" ? sql`group_total DESC` : sql`oldest_days DESC`},
-        CASE WHEN customer_id IS NULL THEN 1 ELSE 0 END,
-        customer_name COLLATE NOCASE,
-        customer_id
-      LIMIT ${query.pageSize} OFFSET ${offset}
-    ),
-    paged_rows AS (
-      SELECT pg.page_order, f.*
-      FROM page_groups pg
-      JOIN filtered f ON f.customer_id IS pg.customer_id
-    )
-    SELECT
-      gs.global_total,
-      gs.debtor_count,
-      gs.global_pending_sale_count,
-      gc.total_groups,
-      p.sale_id,
-      p.code,
-      p.occurred_at,
-      p.business_date,
-      p.channel,
-      p.sale_total,
-      p.deposit_applied,
-      p.view_total,
-      p.age_days,
-      p.custom_order_id,
-      p.customer_id,
-      p.customer_name,
-      p.page_order
-    FROM global_summary gs
-    CROSS JOIN group_count gc
-    LEFT JOIN paged_rows p ON 1 = 1
-    ORDER BY p.page_order, p.occurred_at ASC, p.sale_id ASC
-  `);
+      ORDER BY vr.days_outstanding DESC, vr.sale_id
+    `),
+    getOrderFinanceProjection(db),
+  ]);
 
-  const firstRow = rows[0];
-  const groups = groupReceivableSales(
-    rows.flatMap((row) => {
+  const allRows = [
+    ...catalogRows.flatMap((row) => {
       const mapped = mapReceivableRow(row);
-      return mapped ? [mapped] : [];
+      return mapped === null ? [] : [mapped];
     }),
+    ...orderProjection.receivables.map((row) => ({
+      customerId: row.customerId,
+      customerName: row.customerName,
+      sale: row.sale,
+    })),
+  ];
+
+  const receivablesTotal = allRows.reduce(
+    (total, row) => addCentavos(total, row.sale.outstandingAmount),
+    0,
   );
-  const totalGroups = firstRow?.total_groups ?? 0;
-  const totalPages = Math.ceil(totalGroups / query.pageSize);
-  const receivablesTotal = firstRow?.global_total ?? 0;
-  const debtorCount = firstRow?.debtor_count ?? 0;
-  const pendingSaleCount = firstRow?.global_pending_sale_count ?? 0;
+  const debtorIds = new Set(allRows.flatMap((row) => (row.customerId ? [row.customerId] : [])));
+  const debtorCount = debtorIds.size;
+  const pendingSaleCount = allRows.length;
   assertCentavos(receivablesTotal, "globalReceivablesTotal");
   if (
     !Number.isSafeInteger(debtorCount) ||
     debtorCount < 0 ||
     !Number.isSafeInteger(pendingSaleCount) ||
-    pendingSaleCount < 0 ||
-    !Number.isSafeInteger(totalGroups) ||
-    totalGroups < 0
+    pendingSaleCount < 0
   ) {
     throw new DomainError("INTERNAL", "No se pudo leer el resumen de deudas.");
   }
 
   return {
+    entries: allRows,
+    receivablesTotal,
+    debtorCount,
+    pendingSaleCount,
+    preDeliveryOrderCashExposure: orderProjection.preDeliveryOrderCashExposure,
+  };
+}
+
+/** Complete sources are projected before search, age filters, or customer-group pagination. */
+export async function listGroupedReceivables(
+  db: Db,
+  query: ListReceivablesQuery,
+): Promise<ReceivablesResponseDto> {
+  const projection = await getReceivablesProjection(db);
+  const filteredRows = projection.entries.filter((row) => {
+    if (query.minAgeDays !== undefined && row.sale.ageDays < query.minAgeDays) return false;
+    if (query.search) {
+      const search = query.search.toLocaleLowerCase("es-BO");
+      const haystack = [row.customerName, row.sale.code, row.sale.saleCode, row.sale.customOrderId]
+        .filter((value): value is string => value !== null)
+        .join("\n")
+        .toLocaleLowerCase("es-BO");
+      if (!haystack.includes(search)) return false;
+    }
+    return true;
+  });
+  const groupedRows = filteredRows.map((row) => ({
+    customerId: row.customerId,
+    customerName: row.customerName,
+    sale: row.sale,
+  }));
+  const filteredGroups = groupReceivableSales(groupedRows);
+  for (const group of filteredGroups) {
+    group.sales.sort(
+      (left, right) =>
+        left.occurredAt.localeCompare(right.occurredAt) || left.saleId.localeCompare(right.saleId),
+    );
+  }
+  filteredGroups.sort((left, right) => {
+    const leftSortValue = groupSortValue(left, query.sortBy);
+    const rightSortValue = groupSortValue(right, query.sortBy);
+    if (leftSortValue !== rightSortValue) return leftSortValue > rightSortValue ? -1 : 1;
+    if (left.customerId === null) return right.customerId === null ? 0 : 1;
+    if (right.customerId === null) return -1;
+    return (
+      CUSTOMER_COLLATOR.compare(left.customerName ?? "", right.customerName ?? "") ||
+      left.customerId.localeCompare(right.customerId)
+    );
+  });
+
+  const totalGroups = filteredGroups.length;
+  const totalPages = Math.ceil(totalGroups / query.pageSize);
+  const offset = (query.page - 1) * query.pageSize;
+  const groups = filteredGroups.slice(offset, offset + query.pageSize);
+
+  return {
     globalSummary: {
-      receivablesTotal,
-      debtorCount,
-      pendingSaleCount,
+      receivablesTotal: projection.receivablesTotal,
+      debtorCount: projection.debtorCount,
+      pendingSaleCount: projection.pendingSaleCount,
     },
     groups,
     pagination: {

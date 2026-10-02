@@ -36,9 +36,9 @@ export const financeLabels = {
   updatedAt: "Actualizado",
   transferPairUnavailable: "No se encontró la pareja de esta transferencia.",
 
-  liabilityLabel: "Anticipos de clientes",
+  preDeliveryOrderCashExposureLabel: "Efectivo expuesto en pedidos sin entregar",
   receivableLabel: "Por cobrar",
-  liabilityHint: "De tu caja, no es tuyo todavía",
+  preDeliveryOrderCashExposureHint: "Cobros vinculados menos devoluciones explícitas.",
 
   columnDate: "Fecha",
   columnCode: "Código",

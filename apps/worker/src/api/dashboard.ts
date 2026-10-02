@@ -1,6 +1,6 @@
 // Dashboard summary route (KOK-023, Doc 07 SC-01 reduced scope). Mounted under /api in index.ts.
 // Thin by design (D-2): composes four existing read paths — core/finance's `listAccounts` and
-// `getLiabilityReceivableSummary`, plus core/inventory's `getStockValueTotal` +
+// `getOrderCashReceivableSummary`, plus core/inventory's `getStockValueTotal` +
 // `listStock({ lowStockOnly: true })` — into one `DashboardSummaryDto`. No new business logic, no
 // writes, nothing else queried.
 //
@@ -11,7 +11,7 @@
 import type { DashboardSummaryDto } from "@kokoro/shared";
 import { Hono } from "hono";
 
-import { getLiabilityReceivableSummary, listAccounts } from "../core/finance/index.js";
+import { getOrderCashReceivableSummary, listAccounts } from "../core/finance/index.js";
 import { getStockValueTotal, listStock } from "../core/inventory/index.js";
 import { createDb } from "../db/index.js";
 import type { Env, Variables } from "../env.js";
@@ -20,12 +20,12 @@ export const dashboardRoute = new Hono<{ Bindings: Env; Variables: Variables }>(
   "/dashboard/summary",
   async (c) => {
     const db = createDb(c.env.DB);
-    const [{ accounts }, stockValue, { stock: lowStock }, liabilityReceivableSummary] =
+    const [{ accounts }, stockValue, { stock: lowStock }, orderCashReceivableSummary] =
       await Promise.all([
         listAccounts(db),
         getStockValueTotal(db),
         listStock(db, { lowStockOnly: true }),
-        getLiabilityReceivableSummary(db),
+        getOrderCashReceivableSummary(db),
       ]);
 
     // Matched by `type`, not a hardcoded account id (Doc 04 §7 seeds exactly one BANK and one CASH
@@ -38,8 +38,8 @@ export const dashboardRoute = new Hono<{ Bindings: Env; Variables: Variables }>(
     const summary: DashboardSummaryDto = {
       cash: { bank, cash, total: bank + cash },
       stockValue,
-      liability: liabilityReceivableSummary.liability,
-      receivablesTotal: liabilityReceivableSummary.receivablesTotal,
+      preDeliveryOrderCashExposure: orderCashReceivableSummary.preDeliveryOrderCashExposure,
+      receivablesTotal: orderCashReceivableSummary.receivablesTotal,
       lowStock,
     };
     return c.json(summary);
